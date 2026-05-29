@@ -111,6 +111,13 @@ chore(bootstrap): configurar pnpm y electron-builder
 - Nunca hacer un commit con tests rotos.
 - Nunca hacer un commit que incluya archivos `.env`, `*.sqlite` de producción, o credenciales.
 
+**Push a GitHub al cierre de fase:**
+Al cerrar cada fase (commit + tag listos), el agente **no hace push automáticamente**. El desarrollador realizará un testeo manual para comprobar que todas las funcionalidades nuevas agregadas funcionen según lo esperado. Si todo sale bien, el desarrollador dará el permiso explícito para que el agente ejecute `git push origin` y `git push origin --tags` (siempre que exista remoto configurado).
+
+**Checkpoint — guardado y push bajo demanda:**
+Si el desarrollador escribe la palabra **checkpoint** en cualquier forma (por ejemplo: "haz un checkpoint", "checkpoint", "Checkpoint"), el agente interpreta que se está pidiendo: hacer commit de todo lo pendiente (si hay cambios), y pushear a GitHub el estado actual (`git push origin` + `git push origin --tags`).
+Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refiere a guardar/subir a GitHub o a otra cosa, el agente **debe consultar** antes de actuar.
+
 ## Hardware — mocks
 
 - Los mocks de hardware (`__mocks__/kretzDriver.ts` y `__mocks__/fiscalDriver.ts`) **nunca se incluyen en el bundle de producción**. El `afterPack` lo verifica.
