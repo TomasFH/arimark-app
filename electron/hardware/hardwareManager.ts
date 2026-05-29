@@ -145,7 +145,23 @@ export class HardwareManager {
     // Si en el futuro se necesita, se puede extender FiscalDriver con EventEmitter.
   }
 
+  /**
+   * Hook inyectable: si está registrado, reemplaza el broadcast directo.
+   * Permite que main.ts persista el ticket en DB antes de enviarlo al renderer.
+   * Si el hook no está registrado, se hace broadcast del ticket crudo.
+   */
+  private _ticketHook: ((ticket: ScaleTicketData) => void) | null = null
+
+  setTicketHook(fn: (ticket: ScaleTicketData) => void): void {
+    this._ticketHook = fn
+  }
+
   private _broadcastTicket(ticket: ScaleTicketData): void {
+    if (this._ticketHook) {
+      this._ticketHook(ticket)
+      return
+    }
+    // Fallback sin hook: broadcast crudo
     BrowserWindow.getAllWindows().forEach(win => {
       if (!win.isDestroyed()) {
         win.webContents.send(IPC.SCALE_TICKET, ticket)

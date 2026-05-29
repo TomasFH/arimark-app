@@ -72,14 +72,73 @@ export interface SessionInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Turnos
+// ---------------------------------------------------------------------------
+export type ShiftType = 'morning' | 'evening'
+
+export interface ShiftInfo {
+  id: string
+  storeId: string
+  userId: string
+  shiftType: ShiftType
+  startedAt: string
+  openingCash: number
+}
+
+export interface OpenShiftPayload {
+  shiftType: ShiftType
+  openingCash: number
+}
+
+// ---------------------------------------------------------------------------
 // Hardware — tickets de balanza
 // ---------------------------------------------------------------------------
 export interface ScaleTicketData {
+  /** ID en la DB (undefined si no había turno activo al recibir el ticket) */
+  id?: string
   weightKg: number
   productCode: string
+  /** ID del producto en la DB (undefined si no se encontró por barcode) */
+  productId?: string
+  /** Nombre del producto para mostrar en UI */
+  productName?: string
   unitPrice: number
   subtotal: number
   timestamp: string
+}
+
+// ---------------------------------------------------------------------------
+// Ventas (POS)
+// ---------------------------------------------------------------------------
+export interface SaleItemPayload {
+  productId: string
+  quantity: number
+  unitPrice: number
+  subtotal: number
+  /** Si viene de un ticket de balanza, ID en scale_tickets */
+  scaleTicketId?: string
+}
+
+export interface SalePaymentPayload {
+  paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit'
+  amount: number
+}
+
+export interface CreateSalePayload {
+  items: SaleItemPayload[]
+  payments: SalePaymentPayload[]
+  customerId?: string
+  isDebt?: boolean
+  /** Venta ingresada manualmente (sin ticket de balanza). Requiere aprobación admin en producción. */
+  manualEntry?: boolean
+  notes?: string
+}
+
+export interface SaleResult {
+  saleId: string
+  total: number
+  fiscalReceiptIssued: boolean
+  receiptNumbers: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +222,15 @@ export interface HwApi {
 
   /** Cierra la sesión activa */
   logout: (payload: { role: 'cashier' | 'admin'; storeId?: string }) => Promise<IpcResult>
+
+  /** Retorna el turno activo del local (null si no hay ninguno abierto) */
+  getActiveShift: () => Promise<IpcResult<ShiftInfo | null>>
+
+  /** Abre un nuevo turno para la cajera autenticada */
+  openShift: (payload: OpenShiftPayload) => Promise<IpcResult<ShiftInfo>>
+
+  /** Crea una venta (ítems + pagos) de forma atómica */
+  createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>
 }
 
 declare global {

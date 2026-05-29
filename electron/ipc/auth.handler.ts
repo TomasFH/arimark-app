@@ -6,6 +6,7 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { users } from '../db/schema'
 import { eq } from 'drizzle-orm'
+import { setActiveSession } from '../activeSession'
 import {
   startCashierSession,
   endCashierSession,
@@ -108,6 +109,7 @@ export function registerAuthHandlers(): void {
         return { ok: false, error: sessionResult.error }
       }
 
+      setActiveSession({ userId: user.id, storeId, shiftId: null })
       log.info('[ipc:login-cashier] Login exitoso', { username, storeId })
       return {
         ok: true,
@@ -158,6 +160,7 @@ export function registerAuthHandlers(): void {
     if (role === 'cashier' && storeId) {
       const config = getBusinessConfig()
       await endCashierSession(config.license_key, storeId)
+      setActiveSession(null)
     } else if (role === 'admin') {
       await logoutAdmin()
     }

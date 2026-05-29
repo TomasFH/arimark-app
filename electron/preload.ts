@@ -36,6 +36,12 @@ const hw: HwApi = {
   loginAdmin: payload => ipcRenderer.invoke(IPC.LOGIN_ADMIN, payload),
 
   logout: payload => ipcRenderer.invoke(IPC.LOGOUT, payload),
+
+  getActiveShift: () => ipcRenderer.invoke(IPC.GET_ACTIVE_SHIFT),
+
+  openShift: payload => ipcRenderer.invoke(IPC.OPEN_SHIFT, payload),
+
+  createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
 }
 
 contextBridge.exposeInMainWorld('hw', hw)

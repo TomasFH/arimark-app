@@ -31,6 +31,21 @@ const CASHIERS = [
   { name: 'Cajera Tres',  username: 'cajera3', password: 'cajera1234' },
 ]
 
+/**
+ * Productos de prueba.
+ * barcode: código que emite la KRETZ en ScaleTicketData.productCode.
+ * En entorno real, los códigos provienen de la configuración de la balanza.
+ * El producto "SIN_CODIGO" actúa como fallback para códigos no mapeados.
+ */
+const PRODUCTS = [
+  { id: '00000000-0000-0000-0001-000000000001', name: 'Asado',         barcode: 'P001', category: 'beef_cut' },
+  { id: '00000000-0000-0000-0001-000000000002', name: 'Vacío',         barcode: 'P002', category: 'beef_cut' },
+  { id: '00000000-0000-0000-0001-000000000003', name: 'Costilla',      barcode: 'P003', category: 'beef_cut' },
+  { id: '00000000-0000-0000-0001-000000000004', name: 'Pollo entero',  barcode: 'P004', category: 'poultry'  },
+  { id: '00000000-0000-0000-0001-000000000005', name: 'Cerdo bondiola', barcode: 'P005', category: 'pork'    },
+  { id: '00000000-0000-0000-0001-000000000099', name: 'Producto sin identificar', barcode: 'SIN_CODIGO', category: 'other' },
+] as const
+
 async function main() {
   console.log('[seed] Preparando DB sandbox en:', DB_PATH)
 
@@ -59,6 +74,20 @@ async function main() {
     console.log(`[seed] Local creado: "${STORE.name}"`)
   } else {
     console.log(`[seed] Local ya existía — omitido`)
+  }
+
+  // Insertar productos
+  for (const product of PRODUCTS) {
+    const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(product.id)
+    if (existing) {
+      console.log(`[seed] Producto "${product.name}" ya existía — omitido`)
+    } else {
+      db.prepare(`
+        INSERT INTO products (id, name, category, unit, barcode, active, created_at)
+        VALUES (?, ?, ?, 'kg', ?, 1, ?)
+      `).run(product.id, product.name, product.category, product.barcode, new Date().toISOString())
+      console.log(`[seed] Producto creado: "${product.name}" (código: ${product.barcode})`)
+    }
   }
 
   // Insertar cajeras

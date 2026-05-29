@@ -1,15 +1,20 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'path'
+import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
+import { eq } from 'drizzle-orm'
 import { registerAllHandlers } from './ipc/index'
+import { IPC } from './ipc/channels'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 import { loadBusinessConfig } from './businessConfig'
-import { getDbPath } from './db/client'
+import { getDbPath, getDb } from './db/client'
 import { runMigrations } from './db/migrate'
 import { verifyLicense } from './licensing/license'
 import { signInAnon, checkInstallationStatus } from './licensing/installation'
 import { setInitStatus } from './ipc/initStatus.handler'
-import type { InitStatus } from '../src/types/hw-api'
+import { getActiveSession } from './activeSession'
+import { products, scaleTickets } from './db/schema'
+import type { InitStatus, ScaleTicketData } from '../src/types/hw-api'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
@@ -131,6 +136,63 @@ app.whenReady().then(async () => {
   // 3. Inicializar hardware y registrar handlers IPC
   const manager = await initHardwareManager()
   registerAllHandlers(manager)
+
+  // Registrar hook para persistir tickets de balanza en DB cuando hay turno activo.
+  // El hook corre de forma síncrona — la búsqueda de producto y la escritura son
+  // operaciones SQLite síncronas, apropiadas en el proceso main.
+  manager.setTicketHook((rawTicket: ScaleTicketData) => {
+    const enriched: ScaleTicketData = { ...rawTicket }
+    const session = getActiveSession()
+
+    if (session?.shiftId) {
+      try {
+        const db = getDb()
+        const fallbackProductId = '00000000-0000-0000-0001-000000000099'
+
+        // Resolver product por barcode; fallback al producto genérico del seed
+        const product = db
+          .select({ id: products.id, name: products.name })
+          .from(products)
+          .where(eq(products.barcode, rawTicket.productCode))
+          .limit(1)
+          .all()[0]
+
+        const productId = product?.id ?? fallbackProductId
+        const productName = product?.name ?? rawTicket.productCode
+
+        const ticketId = uuidv4()
+        db.insert(scaleTickets)
+          .values({
+            id: ticketId,
+            storeId: session.storeId,
+            shiftId: session.shiftId,
+            productId,
+            weightKg: rawTicket.weightKg,
+            unitPrice: rawTicket.unitPrice,
+            subtotal: rawTicket.subtotal,
+            status: 'pending',
+            manual: false,
+            createdAt: rawTicket.timestamp,
+            createdBy: session.userId,
+          })
+          .run()
+
+        enriched.id = ticketId
+        enriched.productId = productId
+        enriched.productName = productName
+      } catch (err) {
+        log.error('[main] Error al persistir ticket de balanza', err)
+      }
+    }
+
+    // Broadcast al renderer (con o sin ID según si había turno activo)
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC.SCALE_TICKET, enriched)
+      }
+    })
+  })
+
   await manager.start()
 
   createWindow()

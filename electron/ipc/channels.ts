@@ -22,6 +22,13 @@ export const IPC = {
   GET_HARDWARE_CONFIG: 'ipc:get-hardware-config',
   SET_HARDWARE_CONFIG: 'ipc:set-hardware-config',
 
+  // Turnos
+  GET_ACTIVE_SHIFT: 'ipc:get-active-shift',
+  OPEN_SHIFT: 'ipc:open-shift',
+
+  // Ventas (POS)
+  CREATE_SALE: 'ipc:create-sale',
+
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
   LOGIN_CASHIER: 'ipc:login-cashier',
