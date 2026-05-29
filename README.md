@@ -68,7 +68,7 @@ pnpm db:generate      # generar migraciones desde schema.ts
 
 ## Onboarding al local real
 
-Ver la sección "Checklist de primer deploy" en el archivo del plan de desarrollo (`PLAN.md` en raíz) antes de instalar en la PC del cliente.
+Ver la sección "Checklist de primer deploy" en [`PLAN.md`](./PLAN.md) antes de instalar en la PC del cliente.
 
 ## Arquitectura
 
