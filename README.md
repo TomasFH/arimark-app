@@ -58,7 +58,7 @@ Copiar `config/business.example.json` a `config/business.json` e ingresar los da
 
 ```bash
 pnpm install          # instalar dependencias
-pnpm dev:sandbox      # iniciar en modo sandbox
+pnpm dev:sandbox      # compila main, Vite + ventana Electron (sandbox). Si el puerto 5173 está ocupado, cerrá el dev anterior con Ctrl+C.
 pnpm dev:prod         # iniciar en modo producción (requiere business.json y Firebase)
 pnpm build:prod       # compilar instalador de producción
 pnpm test             # ejecutar suite completa

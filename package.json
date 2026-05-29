@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "App de gestión para carnicerías — offline-first, Electron + React",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/electron/main.js",
   "scripts": {
-    "dev:sandbox": "cross-env APP_ENV=sandbox VITE_APP_ENV=sandbox concurrently \"pnpm run build:electron:watch\" \"pnpm run vite:dev\"",
-    "dev:prod": "cross-env APP_ENV=production VITE_APP_ENV=production concurrently \"pnpm run build:electron:watch\" \"pnpm run vite:dev\"",
+    "dev:sandbox": "cross-env NODE_ENV=development APP_ENV=sandbox VITE_APP_ENV=sandbox pnpm run build:main && cross-env NODE_ENV=development APP_ENV=sandbox VITE_APP_ENV=sandbox concurrently -k \"pnpm run build:electron:watch\" \"pnpm run vite:dev\" \"pnpm run electron:dev\"",
+    "dev:prod": "cross-env NODE_ENV=development APP_ENV=production VITE_APP_ENV=production pnpm run build:main && cross-env NODE_ENV=development APP_ENV=production VITE_APP_ENV=production concurrently -k \"pnpm run build:electron:watch\" \"pnpm run vite:dev\" \"pnpm run electron:dev\"",
+    "electron:dev": "wait-on http-get://127.0.0.1:5173 -t 120000 && electron .",
     "vite:dev": "vite",
     "build:electron:watch": "tsc -p tsconfig.node.json --watch",
     "build:renderer": "vite build",
@@ -25,8 +26,9 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
   "dependencies": {
-    "better-sqlite3": "^9.6.0",
+    "@napi-rs/keyring": "^1.1.5",
     "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^9.6.0",
     "drizzle-orm": "^0.41.0",
     "electron-log": "^5.2.0",
     "electron-updater": "^6.3.0",
@@ -36,8 +38,7 @@
     "react-router-dom": "^6.30.0",
     "serialport": "^12.0.0",
     "uuid": "^11.1.0",
-    "zod": "^3.24.4",
-    "@napi-rs/keyring": "^1.1.5"
+    "zod": "^3.24.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -71,7 +72,8 @@
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vite-plugin-electron": "^0.29.0",
-    "vitest": "^3.2.3"
+    "vitest": "^3.2.3",
+    "wait-on": "^9.0.10"
   },
   "build": {
     "extends": "./electron-builder.config.cjs"

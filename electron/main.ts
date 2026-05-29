@@ -3,6 +3,7 @@ import path from 'path'
 import log from 'electron-log'
 import { registerAllHandlers } from './ipc/index'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
+import { loadBusinessConfig } from './businessConfig'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
@@ -24,15 +25,20 @@ function createWindow(): BrowserWindow {
     },
     show: false,
     titleBarStyle: 'default',
+    autoHideMenuBar: true,
   })
 
   win.once('ready-to-show', () => win.show())
 
-  if (isDev) {
-    win.loadURL('http://localhost:5173')
+  const devServerUrl = process.env['VITE_DEV_SERVER_URL']
+  if (isDev && devServerUrl) {
+    win.loadURL(devServerUrl)
+    win.webContents.openDevTools()
+  } else if (isDev) {
+    win.loadURL('http://127.0.0.1:5173')
     win.webContents.openDevTools()
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'))
+    win.loadFile(path.join(__dirname, '../../dist/index.html'))
   }
 
   return win
@@ -40,6 +46,8 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(async () => {
   log.info('[main] app ready')
+
+  loadBusinessConfig()
 
   const manager = await initHardwareManager()
   registerAllHandlers(manager)
