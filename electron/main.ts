@@ -110,9 +110,12 @@ async function computeInitStatus(): Promise<InitStatus> {
 app.whenReady().then(async () => {
   log.info('[main] app ready')
 
-  // 1. Inicializar DB con migraciones
+  // 1. Inicializar DB con migraciones.
+  //    app.getAppPath() apunta al raíz de la app (repo en dev, asar en prod),
+  //    donde electron-builder copia la carpeta drizzle/.
   const dbPath = getDbPath()
-  const migrateResult = await runMigrations(dbPath)
+  const migrationsFolder = path.join(app.getAppPath(), 'drizzle')
+  const migrateResult = await runMigrations(dbPath, migrationsFolder)
   if (!migrateResult.ok) {
     log.error('[main] Falló la migración de DB — la app puede no funcionar correctamente', migrateResult.error)
   }

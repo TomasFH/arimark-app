@@ -7,8 +7,9 @@ import os from 'os'
 import { runMigrations } from './migrate'
 
 const sandboxDbPath = path.join(os.homedir(), 'AppData', 'Roaming', 'carniceria-app', 'sandbox', 'app.sqlite')
+const migrationsFolder = path.resolve(process.cwd(), 'drizzle')
 
-runMigrations(sandboxDbPath).then(result => {
+runMigrations(sandboxDbPath, migrationsFolder).then(result => {
   if (result.ok) {
     console.log('[cli] Migraciones aplicadas correctamente')
     process.exit(0)

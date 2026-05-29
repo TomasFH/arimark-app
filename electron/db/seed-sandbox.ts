@@ -37,8 +37,11 @@ async function main() {
   // Asegurarse de que el directorio existe
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
 
-  // Correr migraciones para crear las tablas si no existen
-  const migrate = await runMigrations(DB_PATH)
+  // Correr migraciones para crear las tablas si no existen.
+  // El folder drizzle/ está en la raíz del repo (cwd del script pnpm),
+  // independientemente de si este archivo corre desde fuente o compilado.
+  const migrationsFolder = path.resolve(process.cwd(), 'drizzle')
+  const migrate = await runMigrations(DB_PATH, migrationsFolder)
   if (!migrate.ok) {
     console.error('[seed] Error al preparar la DB:', migrate.error)
     process.exit(1)
