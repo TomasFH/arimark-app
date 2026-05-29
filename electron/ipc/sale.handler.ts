@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { eq } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { sales, saleItems, salePayments, scaleTickets } from '../db/schema'
+import { sales, saleItems, salePayments, scaleOrders } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getStoredAdminSession } from './auth.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
@@ -20,7 +20,6 @@ const saleItemSchema = z.object({
   quantity: z.number().positive(),
   unitPrice: z.number().positive(),
   subtotal: z.number().positive(),
-  scaleTicketId: z.string().optional(),
 })
 
 const salePaymentSchema = z.object({
@@ -32,6 +31,7 @@ const createSaleSchema = z
   .object({
     items: z.array(saleItemSchema).min(1),
     payments: z.array(salePaymentSchema).min(1),
+    scaleOrderId: z.string().optional(),
     customerId: z.string().optional(),
     isDebt: z.boolean().optional(),
     manualEntry: z.boolean().optional(),
@@ -84,7 +84,7 @@ export function registerSaleHandlers(manager: HardwareManager): void {
       }
     }
 
-    const { items, payments, customerId, isDebt, manualEntry, notes } = parsed.data
+    const { items, payments, scaleOrderId, customerId, isDebt, manualEntry, notes } = parsed.data
     const total = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
     const saleId = uuidv4()
     const now = new Date().toISOString()
@@ -106,11 +106,8 @@ export function registerSaleHandlers(manager: HardwareManager): void {
       }
     }
 
-    // Registro para compensar en caso de fallo fiscal
-    const ticketUpdates: { scaleTicketId: string }[] = []
-
     // -------------------------------------------------------------------------
-    // Fase 1: Transacción SQLite — crear venta + ítems + actualizar tickets
+    // Fase 1: Transacción SQLite — crear venta + ítems + marcar pedido
     // -------------------------------------------------------------------------
     try {
       db.transaction(tx => {
@@ -120,6 +117,7 @@ export function registerSaleHandlers(manager: HardwareManager): void {
             storeId: session.storeId,
             shiftId: session.shiftId!,
             customerId: customerId ?? null,
+            scaleOrderId: scaleOrderId ?? null,
             total,
             isDebt: isDebt ?? false,
             status: 'in_progress',
@@ -134,14 +132,9 @@ export function registerSaleHandlers(manager: HardwareManager): void {
           .run()
 
         for (const item of items) {
-          const itemId = uuidv4()
-          if (item.scaleTicketId) {
-            ticketUpdates.push({ scaleTicketId: item.scaleTicketId })
-          }
-
           tx.insert(saleItems)
             .values({
-              id: itemId,
+              id: uuidv4(),
               saleId,
               productId: item.productId,
               quantity: item.quantity,
@@ -150,13 +143,14 @@ export function registerSaleHandlers(manager: HardwareManager): void {
               notes: null,
             })
             .run()
+        }
 
-          if (item.scaleTicketId) {
-            tx.update(scaleTickets)
-              .set({ status: 'confirmed', saleItemId: itemId })
-              .where(eq(scaleTickets.id, item.scaleTicketId))
-              .run()
-          }
+        // Marcar el pedido de balanza como confirmado si está asociado
+        if (scaleOrderId) {
+          tx.update(scaleOrders)
+            .set({ status: 'confirmed' })
+            .where(eq(scaleOrders.id, scaleOrderId))
+            .run()
         }
       })
     } catch (err) {
@@ -181,7 +175,7 @@ export function registerSaleHandlers(manager: HardwareManager): void {
 
         if (!result.ok) {
           log.warn('[ipc:create-sale] Pago digital rechazado', { method: payment.paymentMethod, error: result.error })
-          _discardSale(db, saleId, ticketUpdates)
+          _discardSale(db, saleId, scaleOrderId)
           return {
             ok: false,
             error: `Pago ${payment.paymentMethod} rechazado: ${result.error ?? 'Error de caja registradora'}`,
@@ -193,7 +187,7 @@ export function registerSaleHandlers(manager: HardwareManager): void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         log.error('[ipc:create-sale] Error de comunicación con SAM4S', message)
-        _discardSale(db, saleId, ticketUpdates)
+        _discardSale(db, saleId, scaleOrderId)
         return {
           ok: false,
           error: 'Error de comunicación con la caja registradora.',
@@ -268,16 +262,17 @@ export function registerSaleHandlers(manager: HardwareManager): void {
 function _discardSale(
   db: ReturnType<typeof getDb>,
   saleId: string,
-  ticketUpdates: { scaleTicketId: string }[]
+  scaleOrderId: string | undefined
 ): void {
   try {
     db.transaction(tx => {
       tx.update(sales).set({ status: 'discarded' }).where(eq(sales.id, saleId)).run()
 
-      for (const { scaleTicketId } of ticketUpdates) {
-        tx.update(scaleTickets)
-          .set({ status: 'pending', saleItemId: null })
-          .where(eq(scaleTickets.id, scaleTicketId))
+      // Restaurar el pedido de balanza a pendiente para que la cajera pueda reintentarlo
+      if (scaleOrderId) {
+        tx.update(scaleOrders)
+          .set({ status: 'pending' })
+          .where(eq(scaleOrders.id, scaleOrderId))
           .run()
       }
     })

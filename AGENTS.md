@@ -38,6 +38,18 @@ Reglas concretas:
 - **Errores siempre explícitos.** No se silencian errores con `catch` vacíos ni `console.log` sin acción. Todo error se registra con `electron-log` y se propaga o maneja de forma deliberada.
 - **Si el agente detecta deuda técnica existente** mientras trabaja en un área, la señala al desarrollador aunque no sea parte del To-Do activo. No la corrige silenciosamente sin avisar (podría romper otras cosas), pero tampoco la ignora.
 
+## UI — campos numéricos
+
+Todo campo de entrada que espere un número entero (montos en pesos, cantidades enteras, etc.) debe seguir este patrón. **Nunca usar `type="number"`.**
+
+- **Componente obligatorio:** `src/components/NumericInput.tsx` (utilidades en `src/lib/numericInput.ts`). No crear `<input>` numéricos ad hoc.
+- **Solo dígitos:** filtrar cualquier carácter que no sea `0-9` al escribir o pegar (lo hace el componente).
+- **Autoformateo:** separador de miles con punto al estilo es-AR (`1000` → `1.000`; se ajusta solo según la longitud).
+- **Atributos permitidos del input:** `type="text"` e `inputMode="numeric"`. Con eso se evita el incremento/decremento con scroll y flechas de `type="number"`, y en móvil sigue apareciendo el teclado numérico.
+- **Prohibido `pattern` nativo (HTML5):** no agregar `pattern="[0-9]*"` ni ningún otro `pattern` en campos con autoformateo. El navegador valida el **texto visible** del input; un valor como `1.250.000` no coincide con `[0-9]*` y bloquea el submit con *"Haz coincidir el formato solicitado."* aunque el dato sea correcto. Esta regla no tiene excepciones.
+- **Validación en código, no en HTML:** la restricción a dígitos ocurre al escribir/pegar (`formatNumericInputValue`). Al enviar formulario o llamar IPC, usar `parseNumericInput()` para obtener el número entero. Mensajes de error (campo vacío, monto inválido, etc.) se muestran con lógica React/JS, no con validación nativa del browser salvo `required` si aplica.
+- **Parseo al enviar:** siempre `parseNumericInput()` de `src/lib/numericInput.ts` antes de IPC o reglas de negocio. Nunca `parseFloat()` sobre el string formateado (los puntos rompen el parseo).
+
 ---
 
 ## Arquitectura — separación de capas

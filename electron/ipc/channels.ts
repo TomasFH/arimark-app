@@ -12,7 +12,11 @@ export const IPC = {
   HARDWARE_STATUS_CHANGE: 'ipc:hardware-status-change',  // push main → renderer
 
   // Balanza KRETZ — push main → renderer (sin handler, solo canal de eventos)
-  SCALE_TICKET: 'ipc:scale-ticket',
+  // Emite un ScaleOrder completo al cerrar un pedido (canal del carnicero)
+  SCALE_ORDER: 'ipc:scale-order',
+
+  /** Sandbox/dev: inyectar un pedido completo en la cola de balanza */
+  INJECT_MOCK_ORDER: 'ipc:inject-mock-order',
 
   // Caja SAM4S
   PROCESS_FISCAL_PAYMENT: 'ipc:process-fiscal-payment',

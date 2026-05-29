@@ -3,15 +3,16 @@
  * NUNCA se incluye en el bundle de producción.
  *
  * Modos inyectables via KRETZ_MOCK_MODE:
- *   normal             — genera tickets sintéticos cada N ms (default)
+ *   manual             — sin pedidos automáticos; usar emitMockOrder() o IPC dev (default)
+ *   normal             — genera pedidos sintéticos cada N ms
  *   timeout            — no responde (simula balanza sin señal)
  *   garbage            — emite bytes aleatorios (corrupción de protocolo)
- *   disconnect         — emite 'disconnected' después de N tickets
+ *   disconnect         — emite 'disconnected' después de N pedidos
  *   malformed_response — frame recibido pero campos semánticamente inválidos
  */
 
 import { EventEmitter } from 'events'
-import type { KretzDriver, ScaleTicketData } from '../kretzDriver.interface'
+import type { KretzDriver, ScaleOrderData, ScaleChannel } from '../kretzDriver.interface'
 
 const SAMPLE_PRODUCTS = [
   { code: 'ASADO', price: 8500 },
@@ -20,16 +21,18 @@ const SAMPLE_PRODUCTS = [
   { code: 'POLLO', price: 5500 },
 ]
 
+const CHANNELS: ScaleChannel[] = ['A', 'B', 'C', 'D']
+
 export class KretzMockDriver extends EventEmitter implements KretzDriver {
   private _connected = false
   private _timer: NodeJS.Timeout | null = null
-  private _ticketCount = 0
+  private _orderCount = 0
 
   private get mode(): string {
-    return process.env['KRETZ_MOCK_MODE'] ?? 'normal'
+    return process.env['KRETZ_MOCK_MODE'] ?? 'manual'
   }
 
-  private get ticketIntervalMs(): number {
+  private get orderIntervalMs(): number {
     return parseInt(process.env['KRETZ_MOCK_INTERVAL_MS'] ?? '3000', 10)
   }
 
@@ -53,6 +56,35 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     ) {
       this._startGenerating()
     }
+  }
+
+  /**
+   * Emite un pedido completo manualmente. Usado por el panel de desarrollo (sandbox).
+   * Requiere que el driver esté conectado.
+   */
+  emitMockOrder(params: {
+    channel: ScaleChannel
+    items: Array<{ productCode: string; weightKg: number; unitPrice: number }>
+  }): void {
+    if (!this._connected) {
+      throw new Error('KRETZ mock no conectado')
+    }
+
+    const items = params.items.map(item => ({
+      productCode: item.productCode,
+      weightKg: item.weightKg,
+      unitPrice: item.unitPrice,
+      subtotal: parseFloat((item.weightKg * item.unitPrice).toFixed(2)),
+    }))
+
+    const order: ScaleOrderData = {
+      channel: params.channel,
+      items,
+      total: parseFloat(items.reduce((s, i) => s + i.subtotal, 0).toFixed(2)),
+      timestamp: new Date().toISOString(),
+    }
+
+    this.emit('order', order)
   }
 
   async disconnect(): Promise<void> {
@@ -80,23 +112,33 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
         return
       }
 
-      if (this.mode === 'disconnect' && this._ticketCount >= this.disconnectAfter) {
+      if (this.mode === 'disconnect' && this._orderCount >= this.disconnectAfter) {
         this.disconnect()
         return
       }
 
-      const product = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)]
-      const weightKg = parseFloat((Math.random() * 2 + 0.2).toFixed(3))
-      const ticket: ScaleTicketData = {
-        weightKg,
-        productCode: product.code,
-        unitPrice: product.price,
-        subtotal: parseFloat((weightKg * product.price).toFixed(2)),
+      // Generar pedido sintético con 1–3 productos aleatorios
+      const itemCount = Math.floor(Math.random() * 3) + 1
+      const items = Array.from({ length: itemCount }, () => {
+        const product = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)]
+        const weightKg = parseFloat((Math.random() * 2 + 0.2).toFixed(3))
+        return {
+          productCode: product.code,
+          weightKg,
+          unitPrice: product.price,
+          subtotal: parseFloat((weightKg * product.price).toFixed(2)),
+        }
+      })
+
+      const order: ScaleOrderData = {
+        channel: CHANNELS[this._orderCount % 4],
+        items,
+        total: parseFloat(items.reduce((s, i) => s + i.subtotal, 0).toFixed(2)),
         timestamp: new Date().toISOString(),
       }
 
-      this._ticketCount++
-      this.emit('ticket', ticket)
-    }, this.ticketIntervalMs)
+      this._orderCount++
+      this.emit('order', order)
+    }, this.orderIntervalMs)
   }
 }

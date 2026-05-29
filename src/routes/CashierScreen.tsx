@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import DevScaleTicketPanel from '../components/DevScaleTicketPanel'
 import PaymentModal from '../components/PaymentModal'
-import type { ScaleTicketData, SalePaymentPayload, ShiftInfo, SessionInfo } from '../types/hw-api'
+import type { ScaleOrder, SalePaymentPayload, ShiftInfo, SessionInfo } from '../types/hw-api'
 import { formatARS, formatKg as formatWeight } from '../lib/datetime'
 
 interface Props {
@@ -11,69 +11,66 @@ interface Props {
 }
 
 /**
- * Extiende ScaleTicketData con un `localId` siempre presente para interacciones de UI.
- * Si el main process asignó un DB-id, se usa ese. En caso contrario se genera uno temporal
- * (prefijo "tmp-") que no viaja al backend como scaleTicketId.
+ * Extiende ScaleOrder con un `localId` siempre presente para interacciones de UI.
+ * Si el main process asignó un DB-id, se usa ese. En caso contrario se genera uno
+ * temporal (prefijo "tmp-") que no viaja al backend como scaleOrderId.
  */
-interface LocalTicket extends ScaleTicketData {
+interface LocalOrder extends ScaleOrder {
   localId: string
 }
 
-function toLocalTicket(ticket: ScaleTicketData): LocalTicket {
-  return {
-    ...ticket,
-    localId: ticket.id ?? `tmp-${crypto.randomUUID()}`,
-  }
+function toLocalOrder(order: ScaleOrder): LocalOrder {
+  return { ...order, localId: order.id ?? `tmp-${crypto.randomUUID()}` }
 }
 
 export default function CashierScreen({ session, shift, onLogout }: Props) {
-  const [ticketQueue, setTicketQueue] = useState<LocalTicket[]>([])
-  const [selectedLocalIds, setSelectedLocalIds] = useState<Set<string>>(new Set())
+  const [orderQueue, setOrderQueue] = useState<LocalOrder[]>([])
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
 
-  // Suscripción a tickets de balanza
+  // Suscripción a pedidos de balanza
   useEffect(() => {
-    const unsub = window.hw.onScaleTicket(ticket => {
-      setTicketQueue(prev => [...prev, toLocalTicket(ticket)])
+    const unsub = window.hw.onScaleOrder(order => {
+      setOrderQueue(prev => [...prev, toLocalOrder(order)])
     })
     return unsub
   }, [])
 
-  // Tickets seleccionados = ítems de la venta
-  const cartTickets = ticketQueue.filter(t => selectedLocalIds.has(t.localId))
+  const selectedOrder = selectedOrderId
+    ? orderQueue.find(o => o.localId === selectedOrderId) ?? null
+    : null
 
-  const cartTotal = cartTickets.reduce((s, t) => s + t.subtotal, 0)
+  const cartTotal = selectedOrder?.total ?? 0
 
-  const toggleTicket = useCallback((localId: string) => {
-    setSelectedLocalIds(prev => {
-      const next = new Set(prev)
-      if (next.has(localId)) next.delete(localId)
-      else next.add(localId)
-      return next
-    })
+  const toggleSelect = useCallback((localId: string) => {
+    setSelectedOrderId(prev => (prev === localId ? null : localId))
+    setError('')
+    setLastSaleId(null)
   }, [])
 
-  function dismissTicket(localId: string) {
-    setTicketQueue(prev => prev.filter(t => t.localId !== localId))
-    setSelectedLocalIds(prev => {
-      const n = new Set(prev)
-      n.delete(localId)
-      return n
-    })
+  const toggleExpand = useCallback((localId: string) => {
+    setExpandedOrderId(prev => (prev === localId ? null : localId))
+  }, [])
+
+  function dismissOrder(localId: string) {
+    setOrderQueue(prev => prev.filter(o => o.localId !== localId))
+    if (selectedOrderId === localId) setSelectedOrderId(null)
+    if (expandedOrderId === localId) setExpandedOrderId(null)
   }
 
-  function clearCart() {
-    setSelectedLocalIds(new Set())
+  function clearSelection() {
+    setSelectedOrderId(null)
     setError('')
     setLastSaleId(null)
   }
 
   async function handleConfirmSale(payments: SalePaymentPayload[]) {
-    if (cartTickets.length === 0) {
-      setError('Agregá al menos un ítem al carrito.')
+    if (!selectedOrder) {
+      setError('Seleccioná un pedido antes de confirmar.')
       return
     }
 
@@ -83,15 +80,15 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
 
     try {
       const result = await window.hw.createSale({
-        items: cartTickets.map(t => ({
-          productId: t.productId ?? '00000000-0000-0000-0001-000000000099',
-          quantity: t.weightKg,
-          unitPrice: t.unitPrice,
-          subtotal: t.subtotal,
-          // Solo pasar scaleTicketId si es un ID real de DB (no temporal)
-          scaleTicketId: t.id,
+        items: selectedOrder.items.map(item => ({
+          productId: item.productId ?? '00000000-0000-0000-0001-000000000099',
+          quantity: item.weightKg,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
         })),
         payments,
+        // Solo pasar scaleOrderId si es un ID real de DB (no temporal)
+        scaleOrderId: selectedOrder.id,
       })
 
       if (!result.ok) {
@@ -100,9 +97,8 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
       }
 
       setLastSaleId(result.data.saleId)
-      const confirmedIds = new Set(cartTickets.map(t => t.localId))
-      setTicketQueue(prev => prev.filter(t => !confirmedIds.has(t.localId)))
-      setSelectedLocalIds(new Set())
+      setOrderQueue(prev => prev.filter(o => o.localId !== selectedOrder.localId))
+      setSelectedOrderId(null)
     } catch {
       setError('Error de comunicación. Reintentar.')
     } finally {
@@ -117,7 +113,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
   }
 
   const shiftLabel = shift.shiftType === 'morning' ? '🌅 Mañana' : '🌙 Tarde'
-  const pendingCount = ticketQueue.filter(t => !selectedLocalIds.has(t.localId)).length
+  const pendingCount = orderQueue.filter(o => o.localId !== selectedOrderId).length
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-950 text-white">
@@ -141,10 +137,10 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Columna izquierda: cola de tickets */}
+        {/* Columna izquierda: cola de pedidos */}
         <div className="flex w-80 flex-col border-r border-gray-800 bg-gray-900">
           <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-            <h2 className="text-sm font-semibold text-gray-200">Cola de balanza</h2>
+            <h2 className="text-sm font-semibold text-gray-200">Cola de pedidos</h2>
             {pendingCount > 0 && (
               <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
                 {pendingCount}
@@ -153,45 +149,80 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {ticketQueue.length === 0 && (
+            {orderQueue.length === 0 && (
               <p className="text-center text-xs text-gray-600 mt-8">
-                Esperando tickets de la balanza…
+                Esperando pedidos de la balanza…
               </p>
             )}
-            {ticketQueue.map(ticket => {
-              const isSelected = selectedLocalIds.has(ticket.localId)
+
+            {orderQueue.map(order => {
+              const isSelected = order.localId === selectedOrderId
+              const isExpanded = order.localId === expandedOrderId
+
               return (
                 <div
-                  key={ticket.localId}
-                  className={`rounded-lg border p-3 cursor-pointer transition-colors ${
+                  key={order.localId}
+                  className={`rounded-lg border transition-colors ${
                     isSelected
                       ? 'border-amber-500 bg-amber-500/10'
                       : 'border-gray-700 bg-gray-800 hover:border-gray-600'
                   }`}
-                  onClick={() => toggleTicket(ticket.localId)}
                 >
-                  <div className="flex items-start justify-between">
+                  {/* Cabecera del pedido — clic selecciona para cobrar */}
+                  <div
+                    className="flex items-start p-3 cursor-pointer"
+                    onClick={() => toggleSelect(order.localId)}
+                  >
+                    {/* Badge de canal */}
+                    <span className="mr-2 mt-0.5 shrink-0 rounded bg-gray-700 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">
+                      {order.channel}
+                    </span>
+
                     <div className="flex-1 min-w-0">
-                      <p className="truncate text-sm font-medium text-white">
-                        {ticket.productName ?? ticket.productCode}
+                      <p className="text-sm font-medium text-white">
+                        {order.items.length} producto{order.items.length !== 1 ? 's' : ''}
                       </p>
-                      <p className="text-xs text-gray-400">
-                        {formatWeight(ticket.weightKg)} · ${ticket.unitPrice.toFixed(2)}/kg
+                      <p className="text-xs text-gray-400 truncate">
+                        {order.items.map(i => i.productName ?? i.productCode).join(' · ')}
                       </p>
                     </div>
-                    <div className="ml-2 text-right shrink-0">
-                      <p className="text-sm font-bold text-amber-400">{formatARS(ticket.subtotal)}</p>
-                      <button
-                        onClick={e => {
-                          e.stopPropagation()
-                          dismissTicket(ticket.localId)
-                        }}
-                        className="text-xs text-gray-600 hover:text-red-400 mt-1"
-                      >
-                        Descartar
-                      </button>
+
+                    <div className="ml-2 shrink-0 text-right">
+                      <p className="text-sm font-bold text-amber-400">{formatARS(order.total)}</p>
                     </div>
                   </div>
+
+                  {/* Acciones */}
+                  <div className="flex items-center justify-between border-t border-gray-700/50 px-3 py-1.5">
+                    <button
+                      onClick={e => { e.stopPropagation(); toggleExpand(order.localId) }}
+                      className="text-xs text-gray-500 hover:text-gray-300"
+                    >
+                      {isExpanded ? 'Ocultar detalle ↑' : 'Ver detalle ↓'}
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); dismissOrder(order.localId) }}
+                      className="text-xs text-gray-600 hover:text-red-400"
+                    >
+                      Descartar
+                    </button>
+                  </div>
+
+                  {/* Detalle expandible */}
+                  {isExpanded && (
+                    <div className="border-t border-gray-700/50 px-3 pb-3 pt-2 space-y-1">
+                      {order.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-xs">
+                          <span className="text-gray-300 truncate mr-2">
+                            {item.productName ?? item.productCode}
+                          </span>
+                          <span className="text-gray-400 shrink-0">
+                            {formatWeight(item.weightKg)} · {formatARS(item.subtotal)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -200,25 +231,26 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
           <DevScaleTicketPanel />
         </div>
 
-        {/* Columna central: carrito + acción de cobro */}
+        {/* Columna central: detalle del pedido seleccionado + acción de cobro */}
         <div className="flex flex-1 flex-col">
           <div className="flex items-center justify-between border-b border-gray-800 px-6 py-3">
             <h2 className="text-sm font-semibold text-gray-200">
-              Venta actual{' '}
-              {cartTickets.length > 0 && `(${cartTickets.length} ítem${cartTickets.length > 1 ? 's' : ''})`}
+              {selectedOrder
+                ? `Pedido canal ${selectedOrder.channel} — ${selectedOrder.items.length} ítem${selectedOrder.items.length !== 1 ? 's' : ''}`
+                : 'Venta actual'}
             </h2>
-            {cartTickets.length > 0 && (
-              <button onClick={clearCart} className="text-xs text-gray-500 hover:text-red-400">
-                Limpiar
+            {selectedOrder && (
+              <button onClick={clearSelection} className="text-xs text-gray-500 hover:text-red-400">
+                Deseleccionar
               </button>
             )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
-            {cartTickets.length === 0 ? (
+            {!selectedOrder ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-2">
                 <p className="text-4xl">🛒</p>
-                <p className="text-sm">Seleccioná tickets de la cola para agregarlos a la venta</p>
+                <p className="text-sm">Seleccioná un pedido de la cola para cobrarlo</p>
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -231,12 +263,12 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {cartTickets.map(ticket => (
-                    <tr key={ticket.localId} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-200">{ticket.productName ?? ticket.productCode}</td>
-                      <td className="py-2 text-right text-gray-400">{formatWeight(ticket.weightKg)}</td>
-                      <td className="py-2 text-right text-gray-400">${ticket.unitPrice.toFixed(2)}</td>
-                      <td className="py-2 text-right font-semibold text-white">{formatARS(ticket.subtotal)}</td>
+                  {selectedOrder.items.map((item, i) => (
+                    <tr key={i} className="border-b border-gray-800/50">
+                      <td className="py-2 text-gray-200">{item.productName ?? item.productCode}</td>
+                      <td className="py-2 text-right text-gray-400">{formatWeight(item.weightKg)}</td>
+                      <td className="py-2 text-right text-gray-400">{formatARS(item.unitPrice)}/kg</td>
+                      <td className="py-2 text-right font-semibold text-white">{formatARS(item.subtotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -254,7 +286,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
             )}
           </div>
 
-          {/* Feedback de venta + botón confirmar */}
+          {/* Feedback + botón confirmar */}
           <div className="border-t border-gray-800 px-6 py-4 space-y-3">
             {error && (
               <p className="rounded-lg bg-red-900/40 px-4 py-2.5 text-xs text-red-300">{error}</p>
@@ -266,7 +298,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
             )}
             <button
               onClick={openPaymentModal}
-              disabled={loading || cartTickets.length === 0}
+              disabled={loading || !selectedOrder}
               className="w-full rounded-xl bg-amber-500 py-4 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40"
             >
               {loading ? 'Procesando…' : `Confirmar venta · ${formatARS(cartTotal)}`}
@@ -276,7 +308,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
       </div>
 
       {/* Modal de cobro */}
-      {showPaymentModal && (
+      {showPaymentModal && selectedOrder && (
         <PaymentModal
           total={cartTotal}
           onConfirm={handleConfirmSale}

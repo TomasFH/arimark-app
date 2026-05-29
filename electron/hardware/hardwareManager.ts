@@ -14,7 +14,7 @@ import log from 'electron-log'
 import { IPC } from '../ipc/channels'
 import { setHardwareStatus } from '../ipc/hardwareStatus.handler'
 import { getSecret, getCredential, SECRET_KEYS, CREDENTIAL_ACCOUNTS } from '../secureStorage'
-import type { KretzDriver, ScaleTicketData } from './kretz/kretzDriver.interface'
+import type { KretzDriver, ScaleOrderData } from './kretz/kretzDriver.interface'
 import type { FiscalDriver, FiscalPaymentRequest, FiscalPaymentResult } from './fiscal/fiscalDriver.interface'
 
 const MIN_RECONNECT_MS = 5_000
@@ -52,6 +52,25 @@ export class HardwareManager {
 
   async issueCashReceipt(amount: number, referenceId: string): Promise<FiscalPaymentResult> {
     return this.fiscal.issueCashReceipt(amount, referenceId)
+  }
+
+  /**
+   * Inyecta un pedido completo de balanza (solo mock KRETZ en sandbox).
+   * El pedido recorre el mismo flujo que uno real: evento → hook → renderer.
+   */
+  injectMockOrder(params: {
+    channel: import('./kretz/kretzDriver.interface').ScaleChannel
+    items: Array<{ productCode: string; weightKg: number; unitPrice: number }>
+  }): void {
+    const driver = this.kretz as KretzDriver & {
+      emitMockOrder?: (p: typeof params) => void
+    }
+
+    if (typeof driver.emitMockOrder !== 'function') {
+      throw new Error('[hardware] injectMockOrder solo disponible con mock KRETZ')
+    }
+
+    driver.emitMockOrder(params)
   }
 
   // ---------------------------------------------------------------------------
@@ -135,8 +154,8 @@ export class HardwareManager {
       setHardwareStatus({ scale: 'error' })
     })
 
-    this.kretz.on('ticket', (ticket: ScaleTicketData) => {
-      this._broadcastTicket(ticket)
+    this.kretz.on('order', (order: ScaleOrderData) => {
+      this._broadcastOrder(order)
     })
   }
 
@@ -147,24 +166,24 @@ export class HardwareManager {
 
   /**
    * Hook inyectable: si está registrado, reemplaza el broadcast directo.
-   * Permite que main.ts persista el ticket en DB antes de enviarlo al renderer.
-   * Si el hook no está registrado, se hace broadcast del ticket crudo.
+   * Permite que main.ts persista el pedido en DB antes de enviarlo al renderer.
+   * Si el hook no está registrado, se hace broadcast del pedido crudo.
    */
-  private _ticketHook: ((ticket: ScaleTicketData) => void) | null = null
+  private _orderHook: ((order: ScaleOrderData) => void) | null = null
 
-  setTicketHook(fn: (ticket: ScaleTicketData) => void): void {
-    this._ticketHook = fn
+  setOrderHook(fn: (order: ScaleOrderData) => void): void {
+    this._orderHook = fn
   }
 
-  private _broadcastTicket(ticket: ScaleTicketData): void {
-    if (this._ticketHook) {
-      this._ticketHook(ticket)
+  private _broadcastOrder(order: ScaleOrderData): void {
+    if (this._orderHook) {
+      this._orderHook(order)
       return
     }
     // Fallback sin hook: broadcast crudo
     BrowserWindow.getAllWindows().forEach(win => {
       if (!win.isDestroyed()) {
-        win.webContents.send(IPC.SCALE_TICKET, ticket)
+        win.webContents.send(IPC.SCALE_ORDER, order)
       }
     })
   }

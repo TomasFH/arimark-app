@@ -6,6 +6,7 @@ import { registerHardwareConfigHandlers } from './hardwareConfig.handler'
 import { registerInitStatusHandler } from './initStatus.handler'
 import { registerShiftHandlers } from './shift.handler'
 import { registerSaleHandlers } from './sale.handler'
+import { registerMockOrderHandler } from './mockOrder.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
 
 export function registerAllHandlers(manager: HardwareManager): void {
@@ -17,4 +18,5 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerHardwareConfigHandlers()
   registerShiftHandlers()
   registerSaleHandlers(manager)
+  registerMockOrderHandler(manager)
 }

@@ -13,8 +13,9 @@ import { verifyLicense } from './licensing/license'
 import { signInAnon, checkInstallationStatus } from './licensing/installation'
 import { setInitStatus } from './ipc/initStatus.handler'
 import { getActiveSession } from './activeSession'
-import { products, scaleTickets } from './db/schema'
-import type { InitStatus, ScaleTicketData } from '../src/types/hw-api'
+import { products, scaleOrders, scaleOrderItems } from './db/schema'
+import type { InitStatus } from '../src/types/hw-api'
+import type { ScaleOrderData } from './hardware/kretz/kretzDriver.interface'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
@@ -137,58 +138,95 @@ app.whenReady().then(async () => {
   const manager = await initHardwareManager()
   registerAllHandlers(manager)
 
-  // Registrar hook para persistir tickets de balanza en DB cuando hay turno activo.
-  // El hook corre de forma síncrona — la búsqueda de producto y la escritura son
+  // Registrar hook para persistir pedidos de balanza en DB cuando hay turno activo.
+  // El hook corre de forma síncrona — las búsquedas de producto y las escrituras son
   // operaciones SQLite síncronas, apropiadas en el proceso main.
-  manager.setTicketHook((rawTicket: ScaleTicketData) => {
-    const enriched: ScaleTicketData = { ...rawTicket }
+  manager.setOrderHook((rawOrder: ScaleOrderData) => {
     const session = getActiveSession()
+    const fallbackProductId = '00000000-0000-0000-0001-000000000099'
+
+    // Enriquecer items con productId/productName resueltos por barcode
+    type EnrichedItem = ScaleOrderData['items'][number] & { productId: string; productName: string }
+    const enrichedItems: EnrichedItem[] = rawOrder.items.map(item => ({
+      ...item,
+      productId: fallbackProductId,
+      productName: item.productCode,
+    }))
+
+    let orderId: string | undefined
 
     if (session?.shiftId) {
       try {
         const db = getDb()
-        const fallbackProductId = '00000000-0000-0000-0001-000000000099'
+        orderId = uuidv4()
 
-        // Resolver product por barcode; fallback al producto genérico del seed
-        const product = db
-          .select({ id: products.id, name: products.name })
-          .from(products)
-          .where(eq(products.barcode, rawTicket.productCode))
-          .limit(1)
-          .all()[0]
+        // Resolver productId por barcode para cada ítem; fallback al producto genérico
+        for (const item of enrichedItems) {
+          const found = db
+            .select({ id: products.id, name: products.name })
+            .from(products)
+            .where(eq(products.barcode, item.productCode))
+            .limit(1)
+            .all()[0]
+          if (found) {
+            item.productId = found.id
+            item.productName = found.name
+          }
+        }
 
-        const productId = product?.id ?? fallbackProductId
-        const productName = product?.name ?? rawTicket.productCode
+        db.transaction(tx => {
+          tx.insert(scaleOrders)
+            .values({
+              id: orderId!,
+              storeId: session.storeId,
+              shiftId: session.shiftId!,
+              channel: rawOrder.channel,
+              total: rawOrder.total,
+              status: 'pending',
+              createdAt: rawOrder.timestamp,
+              createdBy: session.userId,
+            })
+            .run()
 
-        const ticketId = uuidv4()
-        db.insert(scaleTickets)
-          .values({
-            id: ticketId,
-            storeId: session.storeId,
-            shiftId: session.shiftId,
-            productId,
-            weightKg: rawTicket.weightKg,
-            unitPrice: rawTicket.unitPrice,
-            subtotal: rawTicket.subtotal,
-            status: 'pending',
-            manual: false,
-            createdAt: rawTicket.timestamp,
-            createdBy: session.userId,
-          })
-          .run()
-
-        enriched.id = ticketId
-        enriched.productId = productId
-        enriched.productName = productName
+          for (const item of enrichedItems) {
+            tx.insert(scaleOrderItems)
+              .values({
+                id: uuidv4(),
+                orderId: orderId!,
+                productCode: item.productCode,
+                productId: item.productId !== fallbackProductId ? item.productId : null,
+                weightKg: item.weightKg,
+                unitPrice: item.unitPrice,
+                subtotal: item.subtotal,
+              })
+              .run()
+          }
+        })
       } catch (err) {
-        log.error('[main] Error al persistir ticket de balanza', err)
+        log.error('[main] Error al persistir pedido de balanza', err)
+        orderId = undefined
       }
     }
 
-    // Broadcast al renderer (con o sin ID según si había turno activo)
+    // Construir el ScaleOrder enriquecido y hacer broadcast al renderer
+    const enrichedOrder = {
+      id: orderId,
+      channel: rawOrder.channel,
+      items: enrichedItems.map(item => ({
+        productCode: item.productCode,
+        productId: item.productId !== fallbackProductId ? item.productId : undefined,
+        productName: item.productName,
+        weightKg: item.weightKg,
+        unitPrice: item.unitPrice,
+        subtotal: item.subtotal,
+      })),
+      total: rawOrder.total,
+      timestamp: rawOrder.timestamp,
+    }
+
     BrowserWindow.getAllWindows().forEach(win => {
       if (!win.isDestroyed()) {
-        win.webContents.send(IPC.SCALE_TICKET, enriched)
+        win.webContents.send(IPC.SCALE_ORDER, enrichedOrder)
       }
     })
   })

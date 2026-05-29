@@ -150,9 +150,10 @@ describe('HardwareManager — broadcast de tickets', () => {
 
     await vi.advanceTimersByTimeAsync(250)
 
-    expect(mockSend).toHaveBeenCalledWith('ipc:scale-ticket', expect.objectContaining({
-      weightKg: expect.any(Number),
-      productCode: expect.any(String),
+    expect(mockSend).toHaveBeenCalledWith('ipc:scale-order', expect.objectContaining({
+      channel: expect.any(String),
+      items: expect.any(Array),
+      total: expect.any(Number),
     }))
 
     await manager.stop()

@@ -91,20 +91,44 @@ export interface OpenShiftPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Hardware — tickets de balanza
+// Hardware — pedidos de balanza
+// Un pedido = todos los productos de un cliente en un canal dado,
+// cerrado cuando el carnicero imprime el ticket físico.
 // ---------------------------------------------------------------------------
-export interface ScaleTicketData {
-  /** ID en la DB (undefined si no había turno activo al recibir el ticket) */
-  id?: string
-  weightKg: number
+
+export type ScaleChannel = 'A' | 'B' | 'C' | 'D'
+
+/** Un producto dentro de un pedido de balanza */
+export interface ScaleOrderItem {
   productCode: string
   /** ID del producto en la DB (undefined si no se encontró por barcode) */
   productId?: string
   /** Nombre del producto para mostrar en UI */
   productName?: string
+  weightKg: number
   unitPrice: number
   subtotal: number
+}
+
+/** Pedido completo emitido por el hardware al imprimir el ticket físico */
+export interface ScaleOrder {
+  /** ID en la DB (undefined si no había turno activo al recibir el pedido) */
+  id?: string
+  /** Canal de la balanza que generó este pedido */
+  channel: ScaleChannel
+  items: ScaleOrderItem[]
+  total: number
   timestamp: string
+}
+
+/** Sandbox/dev: payload para inyectar un pedido completo manualmente */
+export interface InjectMockOrderPayload {
+  channel: ScaleChannel
+  items: Array<{
+    productCode: string
+    weightKg: number
+    unitPrice: number
+  }>
 }
 
 // ---------------------------------------------------------------------------
@@ -115,8 +139,6 @@ export interface SaleItemPayload {
   quantity: number
   unitPrice: number
   subtotal: number
-  /** Si viene de un ticket de balanza, ID en scale_tickets */
-  scaleTicketId?: string
 }
 
 export interface SalePaymentPayload {
@@ -127,9 +149,11 @@ export interface SalePaymentPayload {
 export interface CreateSalePayload {
   items: SaleItemPayload[]
   payments: SalePaymentPayload[]
+  /** ID del pedido de balanza que origina esta venta (null si es entrada manual) */
+  scaleOrderId?: string
   customerId?: string
   isDebt?: boolean
-  /** Venta ingresada manualmente (sin ticket de balanza). Requiere aprobación admin en producción. */
+  /** Venta ingresada manualmente (sin pedido de balanza). Requiere aprobación admin en producción. */
   manualEntry?: boolean
   notes?: string
 }
@@ -196,8 +220,8 @@ export interface HwApi {
   /** Registra callback cuando cambia el estado del hardware */
   onHardwareStatusChange: (cb: (status: HardwareStatus) => void) => () => void
 
-  /** Registra callback para tickets de la balanza KRETZ. Retorna función para desuscribirse. */
-  onScaleTicket: (cb: (ticket: ScaleTicketData) => void) => () => void
+  /** Registra callback para pedidos completos de la balanza KRETZ. Retorna función para desuscribirse. */
+  onScaleOrder: (cb: (order: ScaleOrder) => void) => () => void
 
   /** Procesa un pago en la caja registradora SAM4S */
   processFiscalPayment: (payload: FiscalPaymentPayload) => Promise<IpcResult<FiscalPaymentResult>>
@@ -231,6 +255,9 @@ export interface HwApi {
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>
+
+  /** Sandbox/dev: inyecta un pedido completo de balanza (mock KRETZ) */
+  injectMockOrder: (payload: InjectMockOrderPayload) => Promise<IpcResult>
 }
 
 declare global {

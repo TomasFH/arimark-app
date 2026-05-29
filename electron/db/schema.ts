@@ -174,6 +174,8 @@ export const sales = sqliteTable(
       .notNull()
       .references(() => shifts.id),
     customerId: text('customer_id').references(() => customers.id),
+    /** Pedido de balanza del que proviene esta venta (null si es entrada manual) */
+    scaleOrderId: text('scale_order_id'),
     total: real('total').notNull(),
     isDebt: integer('is_debt', { mode: 'boolean' }).notNull().default(false),
     status: text('status', { enum: ['in_progress', 'confirmed', 'discarded'] }).notNull(),
@@ -242,10 +244,10 @@ export const salePayments = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Tickets de balanza (todos, sin excepción)
+// Pedidos de balanza — unidad que llega al confirmar el canal (imprimir ticket)
 // ---------------------------------------------------------------------------
-export const scaleTickets = sqliteTable(
-  'scale_tickets',
+export const scaleOrders = sqliteTable(
+  'scale_orders',
   {
     id: text('id').primaryKey(),
     storeId: text('store_id')
@@ -254,17 +256,10 @@ export const scaleTickets = sqliteTable(
     shiftId: text('shift_id')
       .notNull()
       .references(() => shifts.id),
-    productId: text('product_id').references(() => products.id),
-    weightKg: real('weight_kg').notNull(),
-    unitPrice: real('unit_price').notNull(),
-    subtotal: real('subtotal').notNull(),
-    status: text('status', { enum: ['pending', 'confirmed', 'cancelled'] }).notNull(),
-    manual: integer('manual', { mode: 'boolean' }).notNull().default(false),
-    // FK opcional: se actualiza en la MISMA transacción donde se crean los sale_items
-    saleItemId: text('sale_item_id').references(() => saleItems.id),
-    cancelledBy: text('cancelled_by').references(() => users.id),
-    cancelledAt: text('cancelled_at'),
-    cancelReason: text('cancel_reason'),
+    /** Canal de la balanza que generó este pedido (A/B/C/D) */
+    channel: text('channel', { enum: ['A', 'B', 'C', 'D'] }).notNull(),
+    total: real('total').notNull(),
+    status: text('status', { enum: ['pending', 'confirmed', 'discarded'] }).notNull(),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -272,9 +267,29 @@ export const scaleTickets = sqliteTable(
     syncedAt: text('synced_at'),
   },
   table => [
-    index('idx_tickets_shift').on(table.shiftId, table.status),
-    index('idx_tickets_store').on(table.storeId, table.createdAt),
+    index('idx_scale_orders_shift').on(table.shiftId, table.status),
+    index('idx_scale_orders_store').on(table.storeId, table.createdAt),
   ]
+)
+
+// ---------------------------------------------------------------------------
+// Ítems de cada pedido de balanza
+// ---------------------------------------------------------------------------
+export const scaleOrderItems = sqliteTable(
+  'scale_order_items',
+  {
+    id: text('id').primaryKey(),
+    orderId: text('order_id')
+      .notNull()
+      .references(() => scaleOrders.id),
+    productCode: text('product_code').notNull(),
+    productId: text('product_id').references(() => products.id),
+    weightKg: real('weight_kg').notNull(),
+    unitPrice: real('unit_price').notNull(),
+    subtotal: real('subtotal').notNull(),
+    syncedAt: text('synced_at'),
+  },
+  table => [index('idx_scale_order_items_order').on(table.orderId)]
 )
 
 // ---------------------------------------------------------------------------

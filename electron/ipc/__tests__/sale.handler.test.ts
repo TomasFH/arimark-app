@@ -49,6 +49,7 @@ const MULTI_PAYMENT_SALE: CreateSalePayload = {
     { paymentMethod: 'cash', amount: 1000 },
     { paymentMethod: 'debit', amount: 2000 },
   ],
+  scaleOrderId: 'order-001',
 }
 
 // ---------------------------------------------------------------------------

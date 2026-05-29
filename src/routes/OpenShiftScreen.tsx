@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import NumericInput from '../components/NumericInput'
+import { parseNumericInput } from '../lib/numericInput'
 import type { ShiftInfo, ShiftType } from '../types/hw-api'
 
 interface Props {
@@ -13,8 +15,8 @@ export default function OpenShiftScreen({ onShiftOpened }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const cash = parseFloat(openingCash)
-    if (isNaN(cash) || cash < 0) {
+    const cash = parseNumericInput(openingCash)
+    if (cash === null || cash < 0) {
       setError('Ingresá un monto de efectivo inicial válido.')
       return
     }
@@ -83,13 +85,10 @@ export default function OpenShiftScreen({ onShiftOpened }: Props) {
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
                 $
               </span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
+              <NumericInput
                 value={openingCash}
-                onChange={e => setOpeningCash(e.target.value)}
-                placeholder="0,00"
+                onChange={setOpeningCash}
+                placeholder="0"
                 className="w-full rounded-lg bg-gray-700 pl-8 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 required
               />
