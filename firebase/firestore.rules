@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------------
+    // Función helper: verifica que el UID anónimo está activo en installations
+    // -----------------------------------------------------------------------
+    function isActiveInstallation(licenseKey) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/licenses/$(licenseKey)/installations/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/licenses/$(licenseKey)/installations/$(request.auth.uid)).data.status == 'active';
+    }
+
+    // -----------------------------------------------------------------------
+    // Licencias — solo lectura para instalaciones activas
+    // El desarrollador escribe directamente desde la consola de Firebase
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey} {
+      allow read: if isActiveInstallation(licenseKey);
+      allow write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Locales — solo lectura para instalaciones activas de esa licencia
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/stores/{storeId} {
+      allow read: if isActiveInstallation(licenseKey);
+      allow write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Instalaciones — solo escritura del propio UID (activación inicial)
+    // La creación solo puede ocurrir via Cloud Function activateInstallation
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/installations/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if false; // Solo via Cloud Function
+      allow update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Sesiones de cajeras — una por local
+    // Solo puede leer/escribir su propia sesión (storeId del doc)
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/sessions/{storeId} {
+      allow read: if isActiveInstallation(licenseKey);
+      allow create, update: if isActiveInstallation(licenseKey);
+      allow delete: if isActiveInstallation(licenseKey);
+    }
+
+    // -----------------------------------------------------------------------
+    // Activity log — solo escritura (append-only)
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/activity_log/{entry} {
+      allow create: if isActiveInstallation(licenseKey);
+      allow read, update, delete: if false;
+    }
+  }
+}
