@@ -35,6 +35,11 @@ export function registerShiftHandlers(): void {
         return { ok: true, data: null }
       }
 
+      // Sincronizar la sesión en memoria con el turno que ya estaba abierto en DB.
+      // Esto cubre el caso en que el usuario hace login cuando ya hay un turno abierto
+      // (no pasó por OPEN_SHIFT) y el hook de tickets necesita saber el shiftId.
+      updateActiveShift(shift.id)
+
       return {
         ok: true,
         data: {
