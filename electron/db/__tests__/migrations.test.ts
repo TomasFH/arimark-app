@@ -3,12 +3,12 @@ import { createInMemoryDb } from './helpers/inMemoryDb'
 import { sql } from 'drizzle-orm'
 
 describe('migrations', () => {
-  it('aplica todas las migraciones sin error', () => {
-    expect(() => createInMemoryDb()).not.toThrow()
+  it('aplica todas las migraciones sin error', async () => {
+    await expect(createInMemoryDb()).resolves.toBeDefined()
   })
 
-  it('crea todas las tablas esperadas', () => {
-    const { sqlite } = createInMemoryDb()
+  it('crea todas las tablas esperadas', async () => {
+    const { sqlite } = await createInMemoryDb()
 
     const tables = sqlite
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__drizzle_migrations'")
@@ -46,22 +46,22 @@ describe('migrations', () => {
     }
   })
 
-  it('activa foreign_keys', () => {
-    const { sqlite } = createInMemoryDb()
+  it('activa foreign_keys', async () => {
+    const { sqlite } = await createInMemoryDb()
     const result = sqlite.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }
     expect(result.foreign_keys).toBe(1)
   })
 
-  it('tiene el índice idx_sales_store', () => {
-    const { db } = createInMemoryDb()
+  it('tiene el índice idx_sales_store', async () => {
+    const { db } = await createInMemoryDb()
     const indexes = db.all(
       sql`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sales_store'`
     )
     expect(indexes.length).toBe(1)
   })
 
-  it('tiene el índice idx_debt_events_customer', () => {
-    const { db } = createInMemoryDb()
+  it('tiene el índice idx_debt_events_customer', async () => {
+    const { db } = await createInMemoryDb()
     const indexes = db.all(
       sql`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_debt_events_customer'`
     )

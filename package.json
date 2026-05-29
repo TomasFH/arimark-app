@@ -24,12 +24,13 @@
     "test:coverage": "vitest run --config vitest.config.ts --coverage && vitest run --config vitest.config.renderer.ts --coverage",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
     "@napi-rs/keyring": "^1.1.5",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^12.10.0",
     "drizzle-orm": "^0.41.0",
     "electron-log": "^5.2.0",
     "electron-updater": "^6.3.0",
@@ -42,6 +43,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
@@ -50,6 +52,7 @@
     "@types/node": "^22.15.21",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
+    "@types/sql.js": "^1.4.11",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.32.1",
     "@typescript-eslint/parser": "^8.32.1",
@@ -68,6 +71,7 @@
     "jsdom": "^26.1.0",
     "postcss": "^8.5.3",
     "prettier": "^3.5.3",
+    "sql.js": "^1.14.1",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
