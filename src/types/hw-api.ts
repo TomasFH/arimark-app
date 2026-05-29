@@ -33,6 +33,19 @@ export interface AppInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Init status — resultado del arranque del proceso main
+// ---------------------------------------------------------------------------
+export interface InitStatus {
+  businessName: string
+  defaultStoreId: string
+  licenseKey: string
+  licenseValid: boolean
+  licenseReason?: 'inactive' | 'expired' | 'offline_timeout' | 'not_found' | 'error'
+  licenseMessage?: string
+  needsActivation: boolean
+}
+
+// ---------------------------------------------------------------------------
 // Auth / licensing
 // ---------------------------------------------------------------------------
 export interface ActivateInstallationPayload {
@@ -114,6 +127,9 @@ export interface SetHardwareConfigPayload extends HardwareConfig {
 export interface HwApi {
   /** Retorna el entorno de la app y versión */
   getAppInfo: () => Promise<IpcResult<AppInfo>>
+
+  /** Retorna el estado de inicialización (licencia, activación, config del negocio) */
+  getInitStatus: () => Promise<IpcResult<InitStatus>>
 
   /** Estado actual de los periféricos */
   getHardwareStatus: () => Promise<IpcResult<HardwareStatus>>

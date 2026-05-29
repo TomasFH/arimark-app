@@ -5,6 +5,7 @@
 export const IPC = {
   // App info
   GET_APP_INFO: 'ipc:get-app-info',
+  GET_INIT_STATUS: 'ipc:get-init-status',
 
   // Hardware status
   GET_HARDWARE_STATUS: 'ipc:get-hardware-status',

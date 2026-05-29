@@ -5,6 +5,8 @@ import type { HwApi, HardwareStatus, ScaleTicketData } from '../src/types/hw-api
 const hw: HwApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.GET_APP_INFO),
 
+  getInitStatus: () => ipcRenderer.invoke(IPC.GET_INIT_STATUS),
+
   getHardwareStatus: () => ipcRenderer.invoke(IPC.GET_HARDWARE_STATUS),
 
   onHardwareStatusChange: cb => {

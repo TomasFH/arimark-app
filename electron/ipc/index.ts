@@ -3,9 +3,11 @@ import { registerHardwareStatusHandler } from './hardwareStatus.handler'
 import { registerAuthHandlers } from './auth.handler'
 import { registerFiscalPaymentHandlers } from './fiscalPayment.handler'
 import { registerHardwareConfigHandlers } from './hardwareConfig.handler'
+import { registerInitStatusHandler } from './initStatus.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
 
 export function registerAllHandlers(manager: HardwareManager): void {
+  registerInitStatusHandler()
   registerAppInfoHandler()
   registerHardwareStatusHandler()
   registerAuthHandlers()

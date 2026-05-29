@@ -7,7 +7,7 @@ import * as schema from './schema'
 
 const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
 
-function getDbPath(): string {
+export function getDbPath(): string {
   const userDataDir = app.getPath('userData')
   if (APP_ENV === 'sandbox') {
     return path.join(userDataDir, 'sandbox', 'app.sqlite')
