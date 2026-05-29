@@ -3,10 +3,11 @@
  * NUNCA se incluye en el bundle de producción.
  *
  * Modos inyectables via KRETZ_MOCK_MODE:
- *   normal      — genera tickets sintéticos cada N ms (default)
- *   timeout     — no responde (simula balanza sin señal)
- *   garbage     — emite datos corruptos (corrupción de protocolo)
- *   disconnect  — emite 'disconnected' después de N tickets
+ *   normal             — genera tickets sintéticos cada N ms (default)
+ *   timeout            — no responde (simula balanza sin señal)
+ *   garbage            — emite bytes aleatorios (corrupción de protocolo)
+ *   disconnect         — emite 'disconnected' después de N tickets
+ *   malformed_response — frame recibido pero campos semánticamente inválidos
  */
 
 import { EventEmitter } from 'events'
@@ -44,7 +45,12 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     this._connected = true
     this.emit('connected')
 
-    if (this.mode === 'normal' || this.mode === 'disconnect' || this.mode === 'garbage') {
+    if (
+      this.mode === 'normal' ||
+      this.mode === 'disconnect' ||
+      this.mode === 'garbage' ||
+      this.mode === 'malformed_response'
+    ) {
       this._startGenerating()
     }
   }
@@ -66,6 +72,11 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     this._timer = setInterval(() => {
       if (this.mode === 'garbage') {
         this.emit('error', new Error('Datos corruptos recibidos del puerto serial'))
+        return
+      }
+
+      if (this.mode === 'malformed_response') {
+        this.emit('error', new Error('Frame recibido con campos inválidos (peso o precio fuera de rango)'))
         return
       }
 

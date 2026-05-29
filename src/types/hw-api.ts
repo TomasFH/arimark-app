@@ -59,7 +59,57 @@ export interface SessionInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Hardware status
+// Hardware — tickets de balanza
+// ---------------------------------------------------------------------------
+export interface ScaleTicketData {
+  weightKg: number
+  productCode: string
+  unitPrice: number
+  subtotal: number
+  timestamp: string
+}
+
+// ---------------------------------------------------------------------------
+// Hardware — pagos fiscales (SAM4S)
+// ---------------------------------------------------------------------------
+export type PaymentMethod = 'debit' | 'wallet' | 'credit'
+
+export interface FiscalPaymentPayload {
+  amount: number
+  paymentMethod: PaymentMethod
+  referenceId: string
+}
+
+export interface FiscalPaymentResult {
+  ok: boolean
+  receiptNumber?: string
+  error?: string
+}
+
+export interface CashReceiptPayload {
+  amount: number
+  referenceId: string
+}
+
+// ---------------------------------------------------------------------------
+// Hardware — configuración de periféricos
+// ---------------------------------------------------------------------------
+export interface HardwareConfig {
+  /** Puerto serial de la balanza KRETZ, ej. "COM3" */
+  kretzPort?: string
+  /** IP de la caja SAM4S, ej. "192.168.1.1" */
+  sam4sIp?: string
+  /** Usuario HTTP Basic Auth de la SAM4S */
+  sam4sUser?: string
+}
+
+export interface SetHardwareConfigPayload extends HardwareConfig {
+  /** Contraseña HTTP Basic Auth de la SAM4S (solo se escribe, nunca se lee de vuelta) */
+  sam4sPassword?: string
+}
+
+// ---------------------------------------------------------------------------
+// API pública expuesta al renderer
 // ---------------------------------------------------------------------------
 export interface HwApi {
   /** Retorna el entorno de la app y versión */
@@ -70,6 +120,21 @@ export interface HwApi {
 
   /** Registra callback cuando cambia el estado del hardware */
   onHardwareStatusChange: (cb: (status: HardwareStatus) => void) => () => void
+
+  /** Registra callback para tickets de la balanza KRETZ. Retorna función para desuscribirse. */
+  onScaleTicket: (cb: (ticket: ScaleTicketData) => void) => () => void
+
+  /** Procesa un pago en la caja registradora SAM4S */
+  processFiscalPayment: (payload: FiscalPaymentPayload) => Promise<IpcResult<FiscalPaymentResult>>
+
+  /** Emite comprobante en efectivo en la SAM4S */
+  issueCashReceipt: (payload: CashReceiptPayload) => Promise<IpcResult<FiscalPaymentResult>>
+
+  /** Retorna la configuración de hardware guardada (sin contraseñas) */
+  getHardwareConfig: () => Promise<IpcResult<HardwareConfig>>
+
+  /** Guarda la configuración de hardware */
+  setHardwareConfig: (payload: SetHardwareConfigPayload) => Promise<IpcResult>
 
   /** Activa la instalación con un código de un solo uso */
   activateInstallation: (payload: ActivateInstallationPayload) => Promise<IpcResult>

@@ -98,6 +98,27 @@ describe('KretzMockDriver — modo garbage', () => {
   })
 })
 
+describe('KretzMockDriver — modo malformed_response', () => {
+  it('emite error con mensaje de frame inválido', async () => {
+    process.env['KRETZ_MOCK_MODE'] = 'malformed_response'
+    const driver = new KretzMockDriver()
+    const onError = vi.fn()
+    const onTicket = vi.fn()
+    driver.on('error', onError)
+    driver.on('ticket', onTicket)
+
+    await driver.connect()
+    await vi.advanceTimersByTimeAsync(250)
+
+    expect(onError).toHaveBeenCalled()
+    const err: Error = onError.mock.calls[0][0]
+    expect(err.message).toMatch(/inválidos|inválido/i)
+    expect(onTicket).not.toHaveBeenCalled()
+
+    await driver.disconnect()
+  })
+})
+
 describe('KretzMockDriver — modo disconnect', () => {
   it('se desconecta automáticamente tras N tickets', async () => {
     process.env['KRETZ_MOCK_MODE'] = 'disconnect'

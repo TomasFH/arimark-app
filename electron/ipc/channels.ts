@@ -3,9 +3,25 @@
  * Centralizar aquí previene typos y facilita auditoría.
  */
 export const IPC = {
+  // App info
   GET_APP_INFO: 'ipc:get-app-info',
+
+  // Hardware status
   GET_HARDWARE_STATUS: 'ipc:get-hardware-status',
-  HARDWARE_STATUS_CHANGE: 'ipc:hardware-status-change',
+  HARDWARE_STATUS_CHANGE: 'ipc:hardware-status-change',  // push main → renderer
+
+  // Balanza KRETZ — push main → renderer (sin handler, solo canal de eventos)
+  SCALE_TICKET: 'ipc:scale-ticket',
+
+  // Caja SAM4S
+  PROCESS_FISCAL_PAYMENT: 'ipc:process-fiscal-payment',
+  ISSUE_CASH_RECEIPT: 'ipc:issue-cash-receipt',
+
+  // Configuración de hardware (port, IP, credenciales)
+  GET_HARDWARE_CONFIG: 'ipc:get-hardware-config',
+  SET_HARDWARE_CONFIG: 'ipc:set-hardware-config',
+
+  // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
   LOGIN_CASHIER: 'ipc:login-cashier',
   LOGIN_ADMIN: 'ipc:login-admin',

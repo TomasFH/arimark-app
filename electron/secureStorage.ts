@@ -98,6 +98,9 @@ export const SECRET_KEYS = {
   FIREBASE_ANON_UID: 'firebase-anon-uid',
   CASHIER_SESSION_TOKEN: 'cashier-session-token',
   ADMIN_SESSION_TOKEN: 'admin-session-token',
+  // Hardware
+  KRETZ_PORT: 'kretz-port',
+  SAM4S_IP: 'sam4s-ip',
 } as const
 
 export const CREDENTIAL_ACCOUNTS = {

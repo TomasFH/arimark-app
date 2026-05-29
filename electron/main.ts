@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import log from 'electron-log'
 import { registerAllHandlers } from './ipc/index'
+import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
@@ -40,7 +41,9 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(async () => {
   log.info('[main] app ready')
 
-  registerAllHandlers()
+  const manager = await initHardwareManager()
+  registerAllHandlers(manager)
+  await manager.start()
 
   createWindow()
 
@@ -49,6 +52,11 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
+  try {
+    await getHardwareManager().stop()
+  } catch {
+    // El manager puede no estar inicializado si la app cerró antes del ready
+  }
   if (process.platform !== 'darwin') app.quit()
 })
