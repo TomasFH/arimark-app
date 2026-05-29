@@ -25,6 +25,21 @@ Si el agente propone una dependencia que genera duda, debe mencionarlo antes de 
 
 ---
 
+## Calidad de código y deuda técnica
+
+El agente aplica buenas prácticas en todo código que escribe o modifica. No existe "solución rápida que ya arreglaremos después": si algo se hace mal ahora, se convierte en un problema más costoso en fases futuras.
+
+Reglas concretas:
+
+- **Sin atajos que generen deuda técnica.** Si la solución correcta requiere más trabajo, se hace correctamente. Si hay una restricción de tiempo o contexto que impide hacerlo bien, el agente lo indica explícitamente y espera decisión del desarrollador antes de proceder con una solución degradada.
+- **Funciones y módulos con una sola responsabilidad.** Un archivo no mezcla lógica de negocio, acceso a datos y presentación.
+- **Sin duplicación de lógica.** Si el mismo comportamiento se necesita en dos lugares, se extrae a una función o módulo compartido antes de copiar código.
+- **Nombres descriptivos.** Variables, funciones y archivos se nombran por lo que hacen, no por lo que son (`confirmarVenta`, no `handler2`).
+- **Errores siempre explícitos.** No se silencian errores con `catch` vacíos ni `console.log` sin acción. Todo error se registra con `electron-log` y se propaga o maneja de forma deliberada.
+- **Si el agente detecta deuda técnica existente** mientras trabaja en un área, la señala al desarrollador aunque no sea parte del To-Do activo. No la corrige silenciosamente sin avisar (podría romper otras cosas), pero tampoco la ignora.
+
+---
+
 ## Arquitectura — separación de capas
 
 - Todo acceso a hardware (balanza KRETZ, caja SAM4S) y a servicios externos (Firebase) ocurre **exclusivamente en el proceso main** de Electron. Nunca en el renderer.
