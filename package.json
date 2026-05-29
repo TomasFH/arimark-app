@@ -16,6 +16,7 @@
     "build:sandbox": "cross-env APP_ENV=sandbox VITE_APP_ENV=sandbox pnpm run build:main && pnpm run build:renderer && electron-builder --config electron-builder.config.cjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate:sandbox": "cross-env APP_ENV=sandbox tsx electron/db/migrate-cli.ts",
+    "seed:sandbox": "cross-env APP_ENV=sandbox tsx electron/db/seed-sandbox.ts",
     "test": "vitest run --config vitest.config.ts && vitest run --config vitest.config.renderer.ts",
     "test:main": "vitest run --config vitest.config.ts",
     "test:renderer": "vitest run --config vitest.config.renderer.ts",
