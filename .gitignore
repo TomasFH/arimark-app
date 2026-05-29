@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-electron/
+release/
+out/
+
+# Environment variables — NEVER commit secrets
+.env
+.env.*
+!.env.example
+
+# SQLite databases — production data never in repo
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Drizzle cache
+drizzle/.cache
+
+# Logs
+userData/
+*.log
+firebase-debug.log
+firestore-debug.log
+
+# Lock files from other package managers — pnpm only
+package-lock.json
+yarn.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Electron builder
+.cache/
+
+# TypeScript
+*.tsbuildinfo
