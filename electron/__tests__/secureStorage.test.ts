@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import path from 'path'
-import os from 'os'
 import fs from 'fs'
 
 // vi.hoisted con require() inline — se ejecuta antes del hoisting de vi.mock

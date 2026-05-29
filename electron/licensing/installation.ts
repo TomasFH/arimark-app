@@ -13,7 +13,6 @@
 import {
   getAuth,
   signInAnonymously,
-  type Auth,
 } from 'firebase/auth'
 import {
   getFirestore,

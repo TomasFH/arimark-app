@@ -50,7 +50,7 @@ describe('verifyLicense', () => {
   })
 
   it('retorna inválida si la licencia no existe en Firestore', async () => {
-    vi.mocked(getDoc).mockResolvedValue({ exists: () => false } as unknown as ReturnType<typeof getDoc>)
+    vi.mocked(getDoc).mockResolvedValue({ exists: () => false } as unknown as Awaited<ReturnType<typeof getDoc>>)
     const result = await verifyLicense('MISSING-KEY')
     expect(result.valid).toBe(false)
     if (!result.valid) expect(result.reason).toBe('not_found')
@@ -60,7 +60,7 @@ describe('verifyLicense', () => {
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
       data: () => ({ activo: false, vencimiento: null }),
-    } as unknown as ReturnType<typeof getDoc>)
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
     const result = await verifyLicense('INACTIVE-KEY')
     expect(result.valid).toBe(false)
@@ -75,7 +75,7 @@ describe('verifyLicense', () => {
         activo: true,
         vencimiento: { toDate: () => pastDate },
       }),
-    } as unknown as ReturnType<typeof getDoc>)
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
     const result = await verifyLicense('EXPIRED-KEY')
     expect(result.valid).toBe(false)
@@ -86,7 +86,7 @@ describe('verifyLicense', () => {
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
       data: () => ({ activo: true, vencimiento: null }),
-    } as unknown as ReturnType<typeof getDoc>)
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
     const result = await verifyLicense('VALID-KEY')
     expect(result.valid).toBe(true)

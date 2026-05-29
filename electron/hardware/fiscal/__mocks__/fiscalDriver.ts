@@ -71,7 +71,7 @@ export class FiscalMockDriver implements FiscalDriver {
     }
   }
 
-  async issueCashReceipt(amount: number, referenceId: string): Promise<FiscalPaymentResult> {
+  async issueCashReceipt(_amount: number, referenceId: string): Promise<FiscalPaymentResult> {
     if (!this._connected) {
       return { ok: false, error: 'Caja no conectada' }
     }

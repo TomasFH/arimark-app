@@ -70,10 +70,19 @@ describe('auth.handler', () => {
   })
 
   describe('LOGIN_CASHIER', () => {
-    it('rechaza si el usuario no existe', async () => {
+    function mockDbWithUser(user: Record<string, unknown> | undefined) {
+      const rows = user ? [user] : []
+      const mockAll = vi.fn().mockReturnValue(rows)
+      const mockLimit = vi.fn().mockReturnValue({ all: mockAll })
+      const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere })
       vi.mocked(getDb).mockReturnValue({
-        query: { users: { findFirst: vi.fn().mockReturnValue(undefined) } },
+        select: vi.fn().mockReturnValue({ from: mockFrom }),
       } as unknown as ReturnType<typeof getDb>)
+    }
+
+    it('rechaza si el usuario no existe', async () => {
+      mockDbWithUser(undefined)
 
       const handler = getHandler('ipc:login-cashier')
       const result = await handler({}, { username: 'noexiste', password: 'pw', storeId: 'store-1' })
@@ -81,9 +90,7 @@ describe('auth.handler', () => {
     })
 
     it('rechaza si la contraseña es incorrecta', async () => {
-      vi.mocked(getDb).mockReturnValue({
-        query: { users: { findFirst: vi.fn().mockReturnValue({ id: 'u1', active: true, passwordHash: 'hash' }) } },
-      } as unknown as ReturnType<typeof getDb>)
+      mockDbWithUser({ id: 'u1', active: true, passwordHash: 'hash' })
       vi.mocked(bcrypt.compare).mockResolvedValue(false as never)
 
       const handler = getHandler('ipc:login-cashier')
@@ -92,11 +99,7 @@ describe('auth.handler', () => {
     })
 
     it('login exitoso retorna SessionInfo', async () => {
-      vi.mocked(getDb).mockReturnValue({
-        query: { users: { findFirst: vi.fn().mockReturnValue({
-          id: 'user-001', username: 'cajera1', active: true, passwordHash: 'hash',
-        }) } },
-      } as unknown as ReturnType<typeof getDb>)
+      mockDbWithUser({ id: 'user-001', username: 'cajera1', active: true, passwordHash: 'hash' })
       vi.mocked(bcrypt.compare).mockResolvedValue(true as never)
       vi.mocked(startCashierSession).mockResolvedValue({
         ok: true,

@@ -24,7 +24,7 @@ vi.mock('electron-log', () => ({
 }))
 
 import { autoUpdater } from 'electron-updater'
-import { setShiftActive, isUpdateAvailable, initUpdater } from '../updater'
+import { isUpdateAvailable, initUpdater } from '../updater'
 
 describe('updater', () => {
   beforeEach(() => {

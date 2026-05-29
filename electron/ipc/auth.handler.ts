@@ -86,9 +86,7 @@ export function registerAuthHandlers(): void {
 
     try {
       const db = getDb()
-      const user = db.query.users.findFirst({
-        where: eq(users.username, username),
-      })
+      const user = db.select().from(users).where(eq(users.username, username)).limit(1).all()[0]
 
       if (!user) {
         return { ok: false, error: 'Usuario no encontrado.' }

@@ -99,7 +99,7 @@ describe('CashierSession — modo producción', () => {
       data: () => ({
         cashier_session_expires: { toDate: () => futureDate },
       }),
-    } as unknown as ReturnType<typeof getDoc>)
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
     const result = await startCashierSession('LIC-001', 'store-001', 'user-002')
     expect(result.ok).toBe(false)
@@ -109,7 +109,7 @@ describe('CashierSession — modo producción', () => {
   it('inicia sesión si no hay sesión activa', async () => {
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => false,
-    } as unknown as ReturnType<typeof getDoc>)
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
     vi.mocked(setDoc).mockResolvedValue(undefined)
 
     const result = await startCashierSession('LIC-001', 'store-001', 'user-001')
@@ -172,7 +172,7 @@ describe('AdminSession — modo producción', () => {
   it('retorna ok con credenciales correctas', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
       user: { uid: 'real-admin-uid', email: 'admin@test.com', getIdToken: vi.fn() },
-    } as unknown as ReturnType<typeof signInWithEmailAndPassword>)
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
 
     const result = await loginAdmin('admin@test.com', 'correct-password')
     expect(result.ok).toBe(true)
