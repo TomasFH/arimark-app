@@ -12,26 +12,35 @@ beforeEach(() => {
 })
 
 describe('FiscalRealDriver — construcción', () => {
-  it('lanza error si la IP está vacía', () => {
-    expect(() => new FiscalRealDriver('', 'user', 'pass')).toThrow(/IP.*no configurada/i)
+  it('construye sin lanzar error con IP vacía', () => {
+    expect(() => new FiscalRealDriver('', 'user', 'pass')).not.toThrow()
   })
 
-  it('lanza error si la IP es solo espacios', () => {
-    expect(() => new FiscalRealDriver('   ', 'user', 'pass')).toThrow(/IP.*no configurada/i)
-  })
-
-  it('lanza error si el usuario está vacío', () => {
-    expect(() => new FiscalRealDriver('192.168.1.1', '', 'pass')).toThrow(/credenciales/i)
-  })
-
-  it('lanza error si la contraseña está vacía', () => {
-    expect(() => new FiscalRealDriver('192.168.1.1', 'user', '')).toThrow(/credenciales/i)
+  it('construye sin lanzar error con credenciales vacías', () => {
+    expect(() => new FiscalRealDriver('192.168.1.1', '', '')).not.toThrow()
   })
 
   it('construye correctamente con parámetros válidos', () => {
     const driver = new FiscalRealDriver('192.168.1.1', 'admin', 'pass123')
     expect(driver).toBeDefined()
     expect(driver.isConnected()).toBe(false)
+  })
+})
+
+describe('FiscalRealDriver — connect() con parámetros no configurados', () => {
+  it('lanza error en connect() si la IP está vacía', async () => {
+    const driver = new FiscalRealDriver('', 'user', 'pass')
+    await expect(driver.connect()).rejects.toThrow(/IP.*no configurada/i)
+  })
+
+  it('lanza error en connect() si la IP es solo espacios', async () => {
+    const driver = new FiscalRealDriver('   ', 'user', 'pass')
+    await expect(driver.connect()).rejects.toThrow(/IP.*no configurada/i)
+  })
+
+  it('lanza error en connect() si las credenciales están vacías', async () => {
+    const driver = new FiscalRealDriver('192.168.1.1', '', 'pass')
+    await expect(driver.connect()).rejects.toThrow(/credenciales/i)
   })
 })
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import DevScaleTicketPanel from '../components/DevScaleTicketPanel'
+import DevToolsPanel from '../components/DevToolsPanel'
 import PaymentModal from '../components/PaymentModal'
 import type { ScaleOrder, SalePaymentPayload, ShiftInfo, SessionInfo } from '../types/hw-api'
 import { formatARS, formatKg as formatWeight } from '../lib/datetime'
@@ -228,7 +228,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
             })}
           </div>
 
-          <DevScaleTicketPanel />
+          <DevToolsPanel />
         </div>
 
         {/* Columna central: detalle del pedido seleccionado + acción de cobro */}

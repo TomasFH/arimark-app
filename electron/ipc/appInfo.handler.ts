@@ -14,7 +14,7 @@ export function registerAppInfoHandler(): void {
       return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
     }
 
-    const env = (process.env['APP_ENV'] ?? 'sandbox') as 'sandbox' | 'production'
+    const env = (process.env['APP_ENV'] ?? 'sandbox') as 'sandbox' | 'fieldtest' | 'production'
 
     return {
       ok: true,

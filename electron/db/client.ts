@@ -12,6 +12,9 @@ export function getDbPath(): string {
   if (APP_ENV === 'sandbox') {
     return path.join(userDataDir, 'sandbox', 'app.sqlite')
   }
+  if (APP_ENV === 'fieldtest') {
+    return path.join(userDataDir, 'fieldtest', 'app.sqlite')
+  }
   return path.join(userDataDir, 'app.sqlite')
 }
 

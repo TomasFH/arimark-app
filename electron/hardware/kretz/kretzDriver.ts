@@ -11,7 +11,7 @@
 import { EventEmitter } from 'events'
 import { SerialPort } from 'serialport'
 import log from 'electron-log'
-import type { KretzDriver, ScaleTicketData } from './kretzDriver.interface'
+import type { KretzDriver, ScaleOrderData } from './kretzDriver.interface'
 import { parseR30Frame, extractNextR30Frame } from './r30Parser'
 
 const BAUD_RATE = 9600
@@ -23,13 +23,14 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
 
   constructor(private readonly portPath: string) {
     super()
-    if (!portPath || portPath.trim() === '') {
-      throw new Error('[kretz] Puerto serial no configurado. Configurarlo desde el panel admin.')
-    }
   }
 
   async connect(): Promise<void> {
     if (this._connected) return
+
+    if (!this.portPath || this.portPath.trim() === '') {
+      throw new Error('[kretz] Puerto serial no configurado. Configurarlo desde el panel admin.')
+    }
 
     return new Promise((resolve, reject) => {
       const port = new SerialPort(
@@ -101,16 +102,22 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
       }
 
       const { productCode, weightGrams, unitPriceCents, totalCents } = result.data
-      const ticket: ScaleTicketData = {
-        weightKg: weightGrams / 1000,
-        productCode,
-        unitPrice: unitPriceCents / 100,
-        subtotal: totalCents / 100,
+      const weightKg = weightGrams / 1000
+      const unitPrice = unitPriceCents / 100
+      const subtotal = totalCents / 100
+
+      // Interim: cada frame R30 se emite como pedido de un ítem.
+      // En Fase 1, cuando se confirme el protocolo de impresión/cierre por canal,
+      // este punto acumulará ítems y emitirá un ScaleOrderData completo al imprimir.
+      const order: ScaleOrderData = {
+        channel: 'A',
+        items: [{ productCode, weightKg, unitPrice, subtotal }],
+        total: subtotal,
         timestamp: new Date().toISOString(),
       }
 
-      log.info('[kretz] Ticket recibido', ticket)
-      this.emit('ticket', ticket)
+      log.info('[kretz] Pedido recibido (frame R30)', order)
+      this.emit('order', order)
     }
   }
 }

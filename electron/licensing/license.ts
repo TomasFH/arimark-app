@@ -30,8 +30,8 @@ export interface LicenseData {
 export async function verifyLicense(licenseKey: string): Promise<LicenseStatus> {
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
 
-  if (APP_ENV === 'sandbox') {
-    log.info('[license] Modo sandbox — verificación omitida, licencia siempre válida')
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+    log.info('[license] Modo local — verificación omitida, licencia siempre válida')
     return { valid: true }
   }
 

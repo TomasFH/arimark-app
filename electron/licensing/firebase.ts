@@ -15,8 +15,8 @@ const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
 let _app: FirebaseApp | null = null
 
 export function getFirebaseApp(): FirebaseApp {
-  if (APP_ENV === 'sandbox') {
-    throw new Error('[firebase] Firebase desactivado en modo sandbox.')
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+    throw new Error('[firebase] Firebase desactivado en modo local (sandbox/fieldtest).')
   }
   if (_app) return _app
 

@@ -1,11 +1,13 @@
 /**
- * Seed de datos de prueba para la base de datos sandbox.
+ * Seed de datos de prueba para la base de datos sandbox y fieldtest.
  * Crea el local de prueba y las cajeras con credenciales de prueba.
  *
- * Uso: pnpm seed:sandbox
+ * Uso:
+ *   pnpm seed:sandbox    → APP_ENV=sandbox  → userData/sandbox/app.sqlite
+ *   pnpm seed:fieldtest  → APP_ENV=fieldtest → userData/fieldtest/app.sqlite
  *
- * ADMINS: En modo sandbox el login de admin acepta cualquier email y contraseña.
- * No es necesario crearlos en la DB — usan Firebase Auth (o el bypass de sandbox).
+ * ADMINS: En modos locales el login de admin acepta cualquier email y contraseña.
+ * No es necesario crearlos en la DB — usan Firebase Auth (o el bypass local).
  */
 
 import Database from 'better-sqlite3'
@@ -16,7 +18,15 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { runMigrations } from './migrate'
 
-const DB_PATH = path.join(os.homedir(), 'AppData', 'Roaming', 'carniceria-app', 'sandbox', 'app.sqlite')
+const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+
+function getDbPath(): string {
+  const base = path.join(os.homedir(), 'AppData', 'Roaming', 'carniceria-app')
+  if (APP_ENV === 'fieldtest') return path.join(base, 'fieldtest', 'app.sqlite')
+  return path.join(base, 'sandbox', 'app.sqlite')
+}
+
+const DB_PATH = getDbPath()
 const DEFAULT_STORE_ID = '00000000-0000-0000-0000-000000000001'
 
 const STORE = {
@@ -47,7 +57,7 @@ const PRODUCTS = [
 ] as const
 
 async function main() {
-  console.log('[seed] Preparando DB sandbox en:', DB_PATH)
+  console.log(`[seed] Preparando DB ${APP_ENV} en:`, DB_PATH)
 
   // Asegurarse de que el directorio existe
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
@@ -116,7 +126,7 @@ async function main() {
     console.log(`    usuario: ${c.username.padEnd(10)} contraseña: ${c.password}`)
   }
   console.log('\n  Admins (pestaña "Administrador"):')
-  console.log('    En modo sandbox cualquier email y contraseña funcionan.')
+  console.log(`    En modo ${APP_ENV} cualquier email y contraseña funcionan.`)
   console.log('    Ejemplo: admin@prueba.com / admin1234')
   console.log('────────────────────────────────────────────────────\n')
 }

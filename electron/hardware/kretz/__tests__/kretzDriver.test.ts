@@ -19,18 +19,30 @@ beforeEach(() => {
 })
 
 describe('KretzRealDriver — construcción', () => {
-  it('lanza error si el puerto está vacío', () => {
-    expect(() => new KretzRealDriver('')).toThrow(/no configurado/i)
+  it('construye sin lanzar error con puerto vacío', () => {
+    expect(() => new KretzRealDriver('')).not.toThrow()
   })
 
-  it('lanza error si el puerto es solo espacios', () => {
-    expect(() => new KretzRealDriver('   ')).toThrow(/no configurado/i)
+  it('construye sin lanzar error con puerto de solo espacios', () => {
+    expect(() => new KretzRealDriver('   ')).not.toThrow()
   })
 
   it('construye correctamente con un puerto válido', () => {
     const driver = new KretzRealDriver('COM3')
     expect(driver).toBeDefined()
     expect(driver.isConnected()).toBe(false)
+  })
+})
+
+describe('KretzRealDriver — connect() con puerto no configurado', () => {
+  it('lanza error en connect() si el puerto está vacío', async () => {
+    const driver = new KretzRealDriver('')
+    await expect(driver.connect()).rejects.toThrow(/no configurado/i)
+  })
+
+  it('lanza error en connect() si el puerto es solo espacios', async () => {
+    const driver = new KretzRealDriver('   ')
+    await expect(driver.connect()).rejects.toThrow(/no configurado/i)
   })
 })
 

@@ -203,6 +203,33 @@ export async function createHardwareManager(): Promise<HardwareManager> {
     return new HardwareManager(new KretzMockDriver(), new FiscalMockDriver())
   }
 
+  if (env === 'fieldtest') {
+    // Fieldtest: drivers reales, config desde variables de entorno (primera opción)
+    // o desde secureStorage si ya fue configurado previamente.
+    // Uso: KRETZ_PORT=COM3 SAM4S_IP=192.168.1.x SAM4S_USER=admin SAM4S_PASSWORD=... pnpm dev:fieldtest
+    const kretzPort =
+      process.env['KRETZ_PORT'] ?? getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
+    const sam4sIp =
+      process.env['SAM4S_IP'] ?? getSecret(SECRET_KEYS.SAM4S_IP) ?? ''
+    const sam4sUser =
+      process.env['SAM4S_USER'] ?? getCredential(CREDENTIAL_ACCOUNTS.SAM4S_USER) ?? ''
+    const sam4sPassword =
+      process.env['SAM4S_PASSWORD'] ?? getCredential(CREDENTIAL_ACCOUNTS.SAM4S_PASSWORD) ?? ''
+
+    const { KretzRealDriver } = await import('./kretz/kretzDriver')
+    const { FiscalRealDriver } = await import('./fiscal/fiscalDriver')
+
+    log.info('[hardware] Modo fieldtest — usando drivers reales', {
+      kretzPort: kretzPort || '(no configurado)',
+      sam4sIp: sam4sIp || '(no configurado)',
+    })
+
+    return new HardwareManager(
+      new KretzRealDriver(kretzPort),
+      new FiscalRealDriver(sam4sIp, sam4sUser, sam4sPassword)
+    )
+  }
+
   // Producción: leer config de secureStorage
   const kretzPort = getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
   const sam4sIp = getSecret(SECRET_KEYS.SAM4S_IP) ?? ''

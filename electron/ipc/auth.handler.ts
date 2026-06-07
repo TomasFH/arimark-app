@@ -57,7 +57,7 @@ export function registerAuthHandlers(): void {
     }
 
     const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
-    if (APP_ENV === 'sandbox') {
+    if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
       return { ok: true, data: undefined }
     }
 

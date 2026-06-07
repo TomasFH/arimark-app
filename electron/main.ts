@@ -65,7 +65,7 @@ async function computeInitStatus(): Promise<InitStatus> {
   const config = loadBusinessConfig()
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
 
-  if (APP_ENV === 'sandbox') {
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
     return {
       businessName: config.business_name,
       defaultStoreId: config.default_store_id,

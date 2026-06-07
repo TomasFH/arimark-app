@@ -73,7 +73,7 @@ export function registerSaleHandlers(manager: HardwareManager): void {
 
     // Ventas manuales: requieren sesión de admin activa en producción
     const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
-    if (parsed.data.manualEntry && APP_ENV !== 'sandbox') {
+    if (parsed.data.manualEntry && APP_ENV !== 'sandbox' && APP_ENV !== 'fieldtest') {
       const adminSession = getStoredAdminSession()
       if (!adminSession || new Date(adminSession.expiresAt) < new Date()) {
         return {
@@ -94,7 +94,7 @@ export function registerSaleHandlers(manager: HardwareManager): void {
     let manualApprovedBy: string | null = null
     let manualApprovedAt: string | null = null
     if (manualEntry) {
-      if (APP_ENV === 'sandbox') {
+      if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
         manualApprovedBy = session.userId
         manualApprovedAt = now
       } else {

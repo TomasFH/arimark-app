@@ -63,7 +63,7 @@ export async function startCashierSession(
 ): Promise<{ ok: true; session: CashierSession } | { ok: false; error: string }> {
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
 
-  if (APP_ENV === 'sandbox') {
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
     const session: CashierSession = {
       token: uuidv4(),
       userId,
@@ -124,7 +124,7 @@ export async function renewCashierSession(
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
   const newExpiry = new Date(Date.now() + SESSION_DURATION_MS)
 
-  if (APP_ENV === 'sandbox') {
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
     const updated = { ...session, expiresAt: newExpiry }
     await setSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN, JSON.stringify(updated))
     return true
@@ -152,7 +152,7 @@ export async function endCashierSession(licenseKey: string, storeId: string): Pr
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
   deleteSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN)
 
-  if (APP_ENV === 'sandbox') return
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') return
 
   try {
     const app = getFirebaseApp()
@@ -179,7 +179,7 @@ export async function loginAdmin(
 ): Promise<{ ok: true; session: AdminSession; user: User } | { ok: false; error: string }> {
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
 
-  if (APP_ENV === 'sandbox') {
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
     const session: AdminSession = {
       uid: 'sandbox-admin-uid',
       email,
@@ -213,7 +213,7 @@ export async function loginAdmin(
 export async function logoutAdmin(): Promise<void> {
   deleteSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN)
   const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
-  if (APP_ENV === 'sandbox') return
+  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') return
 
   try {
     const app = getFirebaseApp()

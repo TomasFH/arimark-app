@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-export type AppEnv = 'sandbox' | 'production'
+export type AppEnv = 'sandbox' | 'fieldtest' | 'production'
 
 export interface HardwareStatus {
   scale: 'connected' | 'disconnected' | 'error'

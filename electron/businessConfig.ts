@@ -39,8 +39,8 @@ export function loadBusinessConfig(configPath?: string): BusinessConfig {
   const resolvedPath = configPath ?? getDefaultConfigPath()
 
   if (!fs.existsSync(resolvedPath)) {
-    if (APP_ENV === 'sandbox') {
-      log.warn('[businessConfig] business.json no encontrado — usando config sandbox ficticia')
+    if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+      log.warn('[businessConfig] business.json no encontrado — usando config ficticia de campo')
       _config = getSandboxConfig()
       return _config
     }

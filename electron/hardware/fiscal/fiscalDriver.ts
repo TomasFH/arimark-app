@@ -44,16 +44,16 @@ export class FiscalRealDriver implements FiscalDriver {
     private readonly ip: string,
     private readonly username: string,
     private readonly password: string
-  ) {
-    if (!ip || ip.trim() === '') {
-      throw new Error('[sam4s] IP de la caja no configurada. Configurarla desde el panel admin.')
-    }
-    if (!username || !password) {
-      throw new Error('[sam4s] Credenciales de la caja no configuradas. Configurarlas desde el panel admin.')
-    }
-  }
+  ) {}
 
   async connect(): Promise<void> {
+    if (!this.ip || this.ip.trim() === '') {
+      throw new Error('[sam4s] IP de la caja no configurada. Configurarla desde el panel admin.')
+    }
+    if (!this.username || !this.password) {
+      throw new Error('[sam4s] Credenciales de la caja no configuradas. Configurarlas desde el panel admin.')
+    }
+
     const response = await this._request('GET', ENDPOINTS.STATUS, null)
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(
