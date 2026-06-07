@@ -7,7 +7,7 @@
   "scripts": {
     "dev:sandbox": "cross-env NODE_ENV=development APP_ENV=sandbox VITE_APP_ENV=sandbox pnpm run build:main && cross-env NODE_ENV=development APP_ENV=sandbox VITE_APP_ENV=sandbox concurrently -k \"pnpm run build:electron:watch\" \"pnpm run vite:dev\" \"pnpm run electron:dev\"",
     "dev:prod": "cross-env NODE_ENV=development APP_ENV=production VITE_APP_ENV=production pnpm run build:main && cross-env NODE_ENV=development APP_ENV=production VITE_APP_ENV=production concurrently -k \"pnpm run build:electron:watch\" \"pnpm run vite:dev\" \"pnpm run electron:dev\"",
-    "dev:fieldtest": "cross-env NODE_ENV=development APP_ENV=fieldtest VITE_APP_ENV=fieldtest KRETZ_PORT=COM3 SAM4S_IP= SAM4S_USER= SAM4S_PASSWORD= pnpm run build:main && cross-env NODE_ENV=development APP_ENV=fieldtest VITE_APP_ENV=fieldtest KRETZ_PORT=COM3 SAM4S_IP= SAM4S_USER= SAM4S_PASSWORD= concurrently -k \"pnpm run build:electron:watch\" \"pnpm run vite:dev\" \"pnpm run electron:dev\"",
+    "dev:fieldtest": "cross-env NODE_ENV=development APP_ENV=fieldtest VITE_APP_ENV=fieldtest KRETZ_PORT=COM8 pnpm run build:main && cross-env NODE_ENV=development APP_ENV=fieldtest VITE_APP_ENV=fieldtest KRETZ_PORT=COM8 concurrently -k \"pnpm run build:electron:watch\" \"pnpm run vite:dev\" \"pnpm run electron:dev\"",
     "electron:dev": "wait-on http-get://127.0.0.1:5173 -t 120000 && electron .",
     "vite:dev": "vite",
     "build:electron:watch": "tsc -p tsconfig.node.json --watch",

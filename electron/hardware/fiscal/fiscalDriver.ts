@@ -54,14 +54,19 @@ export class FiscalRealDriver implements FiscalDriver {
       throw new Error('[sam4s] Credenciales de la caja no configuradas. Configurarlas desde el panel admin.')
     }
 
+    // Un 401 es válido: significa que la caja está en la red y pide autenticación.
+    // El firmware SAM4S genera cabeceras HTTP no estándar; se requiere insecureHTTPParser.
     const response = await this._request('GET', ENDPOINTS.STATUS, null)
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    if (response.statusCode === 0) {
+      throw new Error('[sam4s] Sin respuesta de la caja — verificar IP y subred.')
+    }
+    if (response.statusCode >= 500) {
       throw new Error(
-        `[sam4s] La caja respondió con status ${response.statusCode} al verificar conexión.`
+        `[sam4s] La caja respondió con error del servidor: ${response.statusCode}`
       )
     }
     this._connected = true
-    log.info('[sam4s] Conexión verificada con la caja', { ip: this.ip })
+    log.info('[sam4s] Conexión verificada con la caja', { ip: this.ip, status: response.statusCode })
   }
 
   async disconnect(): Promise<void> {
@@ -158,6 +163,9 @@ export class FiscalRealDriver implements FiscalDriver {
         port: 80,
         path,
         method,
+        // El firmware SAM4S NR-330F genera cabeceras HTTP con caracteres no estándar
+        // que Node rechaza por defecto con HPE_INVALID_HEADER_TOKEN.
+        insecureHTTPParser: true,
         headers: {
           Authorization: `Basic ${auth}`,
           'Content-Type': 'application/json',

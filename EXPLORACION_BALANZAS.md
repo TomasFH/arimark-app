@@ -32,11 +32,45 @@ Las cajeras usarían la **app móvil** (ver Idea B) para escanear ese código co
 - Funciona con cualquier balanza que imprima código de barras, no solo KRETZ.
 - Si la PC se apaga, el celular puede seguir registrando ventas (con sincronización posterior vía Firebase).
 
-### Pendientes / incógnitas
-- **Formato exacto del código de barras del ticket KRETZ** no está confirmado. Hay que fotografiar un ticket real y escanearlo con una app genérica de barcode para ver el texto que devuelve. Eso desbloquea todo lo demás.
-  - El formato más probable es GS1-128 o Code128 con PLU + precio total.
-  - El peso se derivaría: `peso = total / precio_unitario_del_catalogo`.
-- La precisión del peso calculado depende de que el precio unitario en la app esté siempre actualizado y coincida con el que tenía la balanza al pesar.
+### Formato del código de barras — VERIFICADO EMPÍRICAMENTE (07/06/2026)
+
+La balanza está configurada con `PESO EN C.BARRA = S` y `FORM C.BARRA = 2-4-6`.
+
+El código es **EAN-13** (13 dígitos) con esta distribución:
+
+```
+Dígitos  1-2  →  Prefijo fijo configurado en la balanza (ej. "00")
+Dígitos  3-6  →  Número de PLU (4 dígitos, "0000" si se ingresó precio manual)
+Dígitos  7-12 →  Peso en gramos (producto pesable) o unidades (no pesable)
+Dígito   13   →  Check digit EAN-13 (generado automáticamente)
+```
+
+Ejemplos reales capturados:
+- `0000000007306` → PLU=0000, peso=730g (0,730 kg), check=6
+- `0000000007351` → PLU=0000, peso=735g (0,735 kg), check=1
+- `0000000000017` → PLU=0000, unidades=1 (no pesable), check=7
+- `0000000012157` → PLU=0000, peso=1215g (1,215 kg), check=7
+
+**Pseudocódigo de decodificación:**
+```ts
+function decodeKretzBarcode(ean13: string) {
+  const prefix   = ean13.slice(0, 2)          // "00"
+  const pluCode  = parseInt(ean13.slice(2, 6)) // número de PLU (0 = sin PLU)
+  const value    = parseInt(ean13.slice(6, 12))// gramos o unidades
+  const check    = parseInt(ean13.slice(12))   // check digit EAN-13
+  return { prefix, pluCode, value, check }
+}
+// Con pluCode > 0: weightKg = value / 1000; buscar precio por PLU en DB
+// Con pluCode = 0: solo se conoce el peso, no el precio → fallback manual
+```
+
+**Limitación importante:** cuando el operador ingresa el precio manualmente en la balanza
+(sin usar tecla PLU), el campo PLU queda en 0000. La app puede recuperar el peso pero
+no el precio. El flujo de producción requiere PLUs configurados en la balanza.
+
+**Problema anterior resuelto:** el límite de ≥$1000 desaparecía usando `PESO EN C.BARRA = S`
+en lugar de precio. Con peso en gramos (6 dígitos, hasta 999.999 g), el precio en pesos
+no importa para el código.
 
 ### Impacto en la arquitectura existente
 - La cola de pedidos (`CashierScreen`) ya acepta pedidos de cualquier fuente. Solo cambia cómo llegan los datos al proceso main.

@@ -1,7 +1,7 @@
 /**
  * Driver real de la balanza KRETZ RPF US30P2CAR — protocolo R30 sobre RS-232.
  *
- * Configuración serial: 9600 baud, 8N1 (sin paridad, 1 stop bit).
+ * Configuración serial: 115200 baud, 8N1 (sin paridad, 1 stop bit) — KRETZ REPORT NX via USB.
  * Puerto configurable via SECRET_KEYS.KRETZ_PORT guardado en safeStorage.
  *
  * NOTA: este módulo NUNCA se usa en APP_ENV=sandbox.
@@ -14,7 +14,7 @@ import log from 'electron-log'
 import type { KretzDriver, ScaleOrderData } from './kretzDriver.interface'
 import { parseR30Frame, extractNextR30Frame } from './r30Parser'
 
-const BAUD_RATE = 9600
+const BAUD_RATE = 115200
 
 export class KretzRealDriver extends EventEmitter implements KretzDriver {
   private _port: SerialPort | null = null
@@ -85,6 +85,14 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
   }
 
   private _handleData(chunk: Buffer): void {
+    // LOG DIAGNÓSTICO TEMPORAL — muestra bytes crudos recibidos desde la balanza.
+    // Eliminar una vez confirmado el protocolo real.
+    log.info('[kretz] Bytes crudos recibidos', {
+      hex: chunk.toString('hex').match(/../g)?.join(' '),
+      ascii: chunk.toString('ascii').replace(/[^\x20-\x7e]/g, '.'),
+      length: chunk.length,
+    })
+
     this._buffer = Buffer.concat([this._buffer, chunk])
 
     // Extraer todos los frames completos del buffer acumulado

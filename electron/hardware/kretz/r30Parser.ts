@@ -18,7 +18,7 @@
  *   [39]      ETX = 0x03
  *   [40]      LRC = XOR de los bytes [1..38]
  *
- * Configuración serial esperada: 9600 baud, 8N1.
+ * Configuración serial esperada: 115200 baud, 8N1 — KRETZ REPORT NX via USB.
  */
 
 export const R30_FRAME_LENGTH = 41
