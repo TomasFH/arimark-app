@@ -112,6 +112,13 @@ describe('parseResponse', () => {
     expect(parsed.data).toBe('datos_de_prueba')
   })
 
+  it('parsea respuesta de enlace 0002 sin campo datos (7 chars internos)', () => {
+    const frame = buildFakeResponse('01')
+    const parsed = parseResponse(frame)
+    expect(parsed.responseCode).toBe('01')
+    expect(parsed.data).toBe('')
+  })
+
   it('lanza si el checksum es inválido', () => {
     const frame = buildFakeResponse('01')
     // Corromper el checksum (penúltimo byte antes de ETX)

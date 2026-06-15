@@ -82,6 +82,13 @@ export function explainResponseCode(code: string): string {
   return RESP_MEANING[code] ?? `Código desconocido ${code}`
 }
 
+/** Serializa bytes recibidos para logs de diagnóstico. */
+export function formatRxHex(buf: Buffer, max = 64): string {
+  const slice = buf.subarray(0, max)
+  const hex = [...slice].map(b => b.toString(16).padStart(2, '0')).join(' ')
+  return buf.length > max ? `${hex} …(+${buf.length - max} bytes)` : hex
+}
+
 /**
  * Intenta extraer una trama de respuesta completa del buffer acumulado.
  * Devuelve [trama, resto] o null si todavía no hay trama completa.
@@ -109,7 +116,8 @@ export function parseResponse(frame: Buffer): ParsedResponse {
     throw new Error('Checksum inválido en respuesta de la balanza')
   }
   const inner = frame.subarray(1, frame.length - 3).toString('ascii')
-  if (inner.length < 8) throw new Error('Respuesta de balanza demasiado corta')
+  // Mínimo: equipo(1) + id(2) + grupo(2) + código(2) = 7 chars. El campo datos puede estar vacío (ej. cmd 0002).
+  if (inner.length < 7) throw new Error('Respuesta de balanza demasiado corta')
   return {
     raw: inner,
     equipment: inner[0]!,

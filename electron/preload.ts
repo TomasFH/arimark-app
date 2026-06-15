@@ -46,17 +46,13 @@ const hw: HwApi = {
   injectMockOrder: payload => ipcRenderer.invoke(IPC.INJECT_MOCK_ORDER, payload),
 
   // Gestión de PLUs (balanza KRETZ)
-  kretzTestLink: (): Promise<IpcResult<{ linked: boolean }>> =>
-    ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),
+  kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),
 
-  kretzSendPlu: (payload: unknown): Promise<IpcResult<{ pluNumber: string }>> =>
-    ipcRenderer.invoke(IPC.KRETZ_SEND_PLU, payload),
+  kretzSendPlu: payload => ipcRenderer.invoke(IPC.KRETZ_SEND_PLU, payload),
 
-  kretzReadPlu: (payload: unknown): Promise<IpcResult<PluRow | null>> =>
-    ipcRenderer.invoke(IPC.KRETZ_READ_PLU, payload),
+  kretzReadPlu: payload => ipcRenderer.invoke(IPC.KRETZ_READ_PLU, payload),
 
-  kretzReadPluCount: (): Promise<IpcResult<{ count: number }>> =>
-    ipcRenderer.invoke(IPC.KRETZ_READ_PLU_COUNT),
+  kretzReadPluCount: () => ipcRenderer.invoke(IPC.KRETZ_READ_PLU_COUNT),
 }
 
 contextBridge.exposeInMainWorld('hw', hw)

@@ -3,11 +3,13 @@
  *
  * Tabs:
  *  - "Hardware": estado en tiempo real, configuración de periféricos, log de eventos.
+ *  - "PLUs": crear/editar PLUs en la balanza KRETZ (fieldtest = hardware real; sandbox = mock).
  *  - "Simulador": inyección de pedidos mock (solo sandbox).
  */
 
 import { useState, useEffect, useRef } from 'react'
 import DevScaleTicketPanel from './DevScaleTicketPanel'
+import PluManagerPanel from './PluManagerPanel'
 import type { HardwareStatus, HardwareConfig } from '../types/hw-api'
 
 const APP_ENV = import.meta.env['VITE_APP_ENV'] as string
@@ -16,7 +18,7 @@ const APP_ENV = import.meta.env['VITE_APP_ENV'] as string
 // Tipos internos
 // ---------------------------------------------------------------------------
 
-type TabId = 'hardware' | 'simulator'
+type TabId = 'hardware' | 'plus' | 'simulator'
 
 interface LogEntry {
   id: number
@@ -334,6 +336,16 @@ export default function DevToolsPanel() {
             >
               Hardware
             </button>
+            <button
+              onClick={() => setTab('plus')}
+              className={`flex-1 rounded py-1 text-[10px] font-semibold transition-colors ${
+                tab === 'plus'
+                  ? isSandbox ? 'bg-yellow-700 text-white' : 'bg-orange-700 text-white'
+                  : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+              }`}
+            >
+              PLUs
+            </button>
             {isSandbox && (
               <button
                 onClick={() => setTab('simulator')}
@@ -352,6 +364,12 @@ export default function DevToolsPanel() {
             <div className="space-y-2">
               <HardwareTab onLog={addLog} />
               <EventLog entries={logEntries} />
+            </div>
+          )}
+
+          {tab === 'plus' && (
+            <div className="max-h-[70vh] overflow-y-auto pr-1">
+              <PluManagerPanel />
             </div>
           )}
 

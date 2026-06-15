@@ -14,13 +14,21 @@ import type { SendPluPayload, PluRow } from '../types/hw-api'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function priceCentsToDisplay(cents: number): string {
-  return (cents / 100).toFixed(2).replace('.', ',')
+/**
+ * El campo de precio en la balanza usa los últimos 2 dígitos como centavos.
+ * Ej: "0850000" (7 dígitos) = $8.500,00
+ * Esta función convierte ese string raw al precio en pesos que mostramos al usuario.
+ */
+function rawScalePriceToPesos(rawPrice: string): string {
+  const raw = parseInt(rawPrice, 10)
+  if (isNaN(raw)) return ''
+  return String(Math.floor(raw / 100))
 }
 
-function displayToPriceCents(raw: string): number | null {
-  const n = parseNumericInput(raw)
-  return n !== null ? n : null
+function formatPesoPreview(pesosStr: string): string {
+  const n = parseNumericInput(pesosStr)
+  if (n === null) return ''
+  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n)
 }
 
 // ---------------------------------------------------------------------------
@@ -42,11 +50,17 @@ function StatusBadge({ linked }: { linked: boolean | null }) {
 }
 
 function PluResultCard({ plu }: { plu: PluRow }) {
+  const pesosStr = rawScalePriceToPesos(plu.price)
+  const pesosNum = parseInt(pesosStr, 10)
+  const formattedPrice = !isNaN(pesosNum)
+    ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(pesosNum)
+    : '—'
+
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-800/60 p-3 text-xs space-y-1">
       <div className="flex justify-between">
         <span className="text-gray-400">PLU</span>
-        <span className="font-mono text-white">{plu.number}</span>
+        <span className="font-mono text-white">{parseInt(plu.number, 10)}</span>
       </div>
       <div className="flex justify-between">
         <span className="text-gray-400">Nombre</span>
@@ -57,8 +71,8 @@ function PluResultCard({ plu }: { plu: PluRow }) {
         <span className="font-mono text-white">{plu.code || '—'}</span>
       </div>
       <div className="flex justify-between">
-        <span className="text-gray-400">Precio (raw)</span>
-        <span className="font-mono text-amber-400">{plu.price}</span>
+        <span className="text-gray-400">Precio</span>
+        <span className="font-semibold text-amber-400">{formattedPrice}</span>
       </div>
       <div className="flex justify-between">
         <span className="text-gray-400">Tipo</span>
@@ -85,7 +99,9 @@ export default function PluManagerPanel() {
   const [pluCode, setPluCode] = useState('')
   const [pluPrice, setPluPrice] = useState('')
   const [pesable, setPesable] = useState(true)
-  const [priceDigits, setPriceDigits] = useState<6 | 7>(6)
+  // KRETZ REPORT NX: 7 dígitos de precio cubre hasta $99.999,99.
+  // Los últimos 2 dígitos son centavos (850000 = $8.500,00 → usuario ve "8500").
+  const [priceDigits, setPriceDigits] = useState<6 | 7>(7)
 
   // --- Búsqueda ---
   const [searchNumber, setSearchNumber] = useState('')
@@ -106,15 +122,29 @@ export default function PluManagerPanel() {
   async function handleTestLink() {
     setTestingLink(true)
     setLinked(null)
+    setFeedback(null)
     try {
       const r = await window.hw.kretzTestLink()
-      setLinked(r.ok ? r.data.linked : false)
-      if (r.ok && r.data.linked) {
+      if (!r.ok) {
+        setLinked(false)
+        showFeedback('error', r.error ?? 'Error al verificar enlace con la balanza.')
+        return
+      }
+      setLinked(r.data.linked)
+      if (r.data.linked) {
         const countR = await window.hw.kretzReadPluCount()
         if (countR.ok) setPluCount(countR.data.count)
+        showFeedback('ok', 'Protocolo R30 OK — la balanza respondió al comando de enlace.')
+      } else {
+        showFeedback(
+          'error',
+          'El puerto COM8 está abierto (pestaña Hardware), pero la balanza no respondió OK al protocolo R30. ' +
+            'Cerrá iTegra, la mini app u otro programa que use COM8 e intentá de nuevo.'
+        )
       }
     } catch {
       setLinked(false)
+      showFeedback('error', 'Error de comunicación con la balanza.')
     } finally {
       setTestingLink(false)
     }
@@ -129,11 +159,14 @@ export default function PluManagerPanel() {
       showFeedback('error', 'El nombre del producto es obligatorio.')
       return
     }
-    const priceCents = displayToPriceCents(pluPrice)
-    if (priceCents === null) {
-      showFeedback('error', 'Ingresá un precio válido.')
+    const precioEnPesos = parseNumericInput(pluPrice)
+    if (precioEnPesos === null || precioEnPesos <= 0) {
+      showFeedback('error', 'Ingresá un precio válido (en pesos, sin centavos).')
       return
     }
+    // El campo de precio en la balanza usa los últimos 2 dígitos como centavos.
+    // El usuario ingresa pesos enteros → se multiplica × 100 para la representación interna.
+    const priceCents = precioEnPesos * 100
 
     setSending(true)
     setFeedback(null)
@@ -175,10 +208,10 @@ export default function PluManagerPanel() {
         setSearchResult(r.data)
         // Pre-cargar en el formulario para editar fácilmente
         if (r.data) {
-          setPluNumber(r.data.number.replace(/^0+/, '') || r.data.number)
+          setPluNumber(String(parseInt(r.data.number, 10)))
           setPluName(r.data.name)
           setPluCode(r.data.code)
-          setPluPrice(r.data.price)
+          setPluPrice(rawScalePriceToPesos(r.data.price))
           setPesable(r.data.type === 'pesable')
         }
       } else {
@@ -194,10 +227,11 @@ export default function PluManagerPanel() {
   }
 
   function handleLoadIntoForm(plu: PluRow) {
-    setPluNumber(plu.number.replace(/^0+/, '') || plu.number)
+    setPluNumber(String(parseInt(plu.number, 10)))
     setPluName(plu.name)
     setPluCode(plu.code)
-    setPluPrice(plu.price)
+    // Convertir precio raw de la balanza (centavos implícitos) a pesos enteros para el formulario
+    setPluPrice(rawScalePriceToPesos(plu.price))
     setPesable(plu.type === 'pesable')
   }
 
@@ -226,7 +260,8 @@ export default function PluManagerPanel() {
           <StatusBadge linked={linked} />
         </div>
         <p className="text-xs text-gray-500">
-          Conectá la balanza por USB (COM8). Luego presioná "Verificar" para confirmar la comunicación.
+          Conectá la balanza por USB (COM8). El punto verde en la pestaña Hardware solo indica que el
+          puerto serial está abierto; acá se prueba que la balanza responda al protocolo R30.
         </p>
         <button
           onClick={handleTestLink}
@@ -328,31 +363,31 @@ export default function PluManagerPanel() {
           {/* Precio */}
           <div className="col-span-1">
             <label className="text-xs text-gray-400">
-              Precio {pesable ? '$/kg' : '$'} * (en pesos, sin decimales)
+              Precio {pesable ? '$/kg' : '$'} * — pesos enteros, sin centavos
             </label>
             <NumericInput
               value={pluPrice}
               onChange={setPluPrice}
-              placeholder="0"
+              placeholder="8500"
               className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
-            {pluPrice && displayToPriceCents(pluPrice) !== null && (
+            {pluPrice && parseNumericInput(pluPrice) !== null && (
               <p className="mt-0.5 text-[10px] text-gray-500">
-                = {priceCentsToDisplay(displayToPriceCents(pluPrice)! * 100)} ARS (en balanza: centavos × 100)
+                {formatPesoPreview(pluPrice)}
               </p>
             )}
           </div>
 
-          {/* Dígitos precio */}
+          {/* Dígitos precio — oculto en interfaz normal, 7 por defecto para KRETZ REPORT NX */}
           <div className="col-span-1">
-            <label className="text-xs text-gray-400">Dígitos precio (6 = REPORT NX)</label>
+            <label className="text-xs text-gray-400">Rango de precio (no cambiar salvo indicación)</label>
             <select
               value={priceDigits}
               onChange={e => setPriceDigits(Number(e.target.value) as 6 | 7)}
               className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
             >
-              <option value={6}>6 dígitos</option>
-              <option value={7}>7 dígitos</option>
+              <option value={7}>Hasta $99.999 (REPORT NX)</option>
+              <option value={6}>Hasta $9.999 (modelos anteriores)</option>
             </select>
           </div>
 

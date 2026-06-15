@@ -16,7 +16,7 @@
 import { EventEmitter } from 'events'
 import { SerialPort } from 'serialport'
 import log from 'electron-log'
-import type { KretzDriver, ScaleOrderData } from './kretzDriver.interface'
+import type { KretzDriver } from './kretzDriver.interface'
 import {
   encodeFrame,
   takeResponseFrame,
@@ -27,6 +27,7 @@ import {
   parsePlu5005,
   type SendPluArgs,
   type PluRow,
+  formatRxHex,
 } from './r30Protocol'
 
 const BAUD_RATE = 115200
@@ -150,7 +151,11 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
       try {
         parsed = parseResponse(respBuf)
       } catch (e) {
-        log.warn('[kretz] Trama inválida', (e as Error).message)
+        log.warn('[kretz] Trama inválida', {
+          error: (e as Error).message,
+          frameHex: formatRxHex(respBuf),
+          rxPendingHex: formatRxHex(this._rx),
+        })
         throw e
       }
 
@@ -175,8 +180,16 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
   async testLink(): Promise<boolean> {
     try {
       const r = await this.transact('0002', '')
-      return r.responseCode === '01'
-    } catch {
+      const ok = r.responseCode === '01'
+      if (!ok) {
+        log.warn('[kretz] testLink: balanza respondió pero no OK', {
+          code: r.responseCode,
+          meaning: explainResponseCode(r.responseCode),
+        })
+      }
+      return ok
+    } catch (err) {
+      log.warn('[kretz] testLink falló', err instanceof Error ? err.message : String(err))
       return false
     }
   }
@@ -215,7 +228,11 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
    * Devuelve null si no existe (código 20).
    */
   async readPlu(pluNumber: string, priceDigits: 6 | 7 = 6): Promise<PluRow | null> {
-    const id = pluNumber.replace(/\D/g, '').slice(-6).padStart(6, '0')
+    // El comando 5005 usa índice 0-based (posición en memoria).
+    // PLU #1 está en posición 0, PLU #2 en posición 1, etc.
+    const userNum = parseInt(pluNumber.replace(/\D/g, ''), 10) || 1
+    const idx = Math.max(0, userNum - 1)
+    const id = String(idx).padStart(6, '0')
     const r = await this.transact('5005', id)
     if (r.responseCode === '20') return null
     if (r.responseCode !== '01') {
