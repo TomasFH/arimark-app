@@ -1,8 +1,13 @@
 /**
- * Driver real de la balanza KRETZ RPF US30P2CAR — protocolo R30 sobre RS-232.
+ * Driver real de la balanza KRETZ REPORT NX — protocolo R30 sobre USB/Serial.
  *
- * Configuración serial: 115200 baud, 8N1 (sin paridad, 1 stop bit) — KRETZ REPORT NX via USB.
- * Puerto configurable via SECRET_KEYS.KRETZ_PORT guardado en safeStorage.
+ * Comunicación: COM8 (u otro) a 115200 baud, 8N1.
+ * El protocolo R30 es maestro–esclavo: la PC envía un comando y la balanza responde.
+ * No hay tráfico espontáneo — el driver debe preguntar explícitamente.
+ *
+ * Modos de uso:
+ *  1. Peso en vivo: polling con comando 1524 cada N ms.
+ *  2. Gestión de PLUs: comandos 2005 (crear/actualizar), 5005 (leer), 5001 (contar).
  *
  * NOTA: este módulo NUNCA se usa en APP_ENV=sandbox.
  * En sandbox y tests se usa KretzMockDriver.
@@ -12,18 +17,42 @@ import { EventEmitter } from 'events'
 import { SerialPort } from 'serialport'
 import log from 'electron-log'
 import type { KretzDriver, ScaleOrderData } from './kretzDriver.interface'
-import { parseR30Frame, extractNextR30Frame } from './r30Parser'
+import {
+  encodeFrame,
+  takeResponseFrame,
+  parseResponse,
+  explainResponseCode,
+  parseState1524,
+  buildPlu2005Data,
+  parsePlu5005,
+  type SendPluArgs,
+  type PluRow,
+} from './r30Protocol'
 
 const BAUD_RATE = 115200
+const DEFAULT_TIMEOUT_MS = 5_000
+
+type Pending = {
+  resolve: (frame: Buffer) => void
+  reject: (err: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
 
 export class KretzRealDriver extends EventEmitter implements KretzDriver {
   private _port: SerialPort | null = null
-  private _buffer: Buffer = Buffer.alloc(0)
+  private _rx: Buffer = Buffer.alloc(0)
+  private _pending: Pending | null = null
+  /** Serializa operaciones: una transacción a la vez. */
+  private _queue: Promise<unknown> = Promise.resolve()
   private _connected = false
 
   constructor(private readonly portPath: string) {
     super()
   }
+
+  // ---------------------------------------------------------------------------
+  // Ciclo de vida
+  // ---------------------------------------------------------------------------
 
   async connect(): Promise<void> {
     if (this._connected) return
@@ -40,30 +69,32 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
 
       port.open(err => {
         if (err) {
-          log.error('[kretz] Error al abrir puerto serial', { port: this.portPath, err })
+          log.error('[kretz] Error al abrir puerto serial', { port: this.portPath, err: err.message })
           reject(new Error(`No se pudo abrir el puerto ${this.portPath}: ${err.message}`))
           return
         }
 
         this._port = port
         this._connected = true
-        this._buffer = Buffer.alloc(0)
+        this._rx = Buffer.alloc(0)
         log.info('[kretz] Puerto serial abierto', { port: this.portPath })
         this.emit('connected')
         resolve()
       })
 
-      port.on('data', (chunk: Buffer) => this._handleData(chunk))
+      port.on('data', (chunk: Buffer) => this._onData(chunk))
 
       port.on('close', () => {
         this._connected = false
         this._port = null
+        this._rejectPending(new Error('Puerto serial cerrado'))
         log.warn('[kretz] Puerto serial cerrado')
         this.emit('disconnected')
       })
 
       port.on('error', (err: Error) => {
-        log.error('[kretz] Error en puerto serial', err)
+        log.error('[kretz] Error en puerto serial', err.message)
+        this._rejectPending(err)
         this.emit('error', err)
       })
     })
@@ -72,6 +103,7 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
   async disconnect(): Promise<void> {
     if (!this._port) return
     return new Promise(resolve => {
+      this._rejectPending(new Error('Desconexión solicitada'))
       this._port!.close(() => {
         this._connected = false
         this._port = null
@@ -84,48 +116,155 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
     return this._connected
   }
 
-  private _handleData(chunk: Buffer): void {
-    // LOG DIAGNÓSTICO TEMPORAL — muestra bytes crudos recibidos desde la balanza.
-    // Eliminar una vez confirmado el protocolo real.
-    log.info('[kretz] Bytes crudos recibidos', {
-      hex: chunk.toString('hex').match(/../g)?.join(' '),
-      ascii: chunk.toString('ascii').replace(/[^\x20-\x7e]/g, '.'),
-      length: chunk.length,
+  // ---------------------------------------------------------------------------
+  // Transacción base (toda operación pasa por acá)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Envía un comando R30 y espera la respuesta de la balanza.
+   * Las transacciones se encolan: nunca se ejecutan en paralelo.
+   */
+  transact(
+    command: string,
+    data = '',
+    timeoutMs = DEFAULT_TIMEOUT_MS
+  ): Promise<ReturnType<typeof parseResponse>> {
+    const run = this._queue.then(async () => {
+      if (!this._port || !this._connected) {
+        throw new Error('[kretz] Puerto no conectado')
+      }
+
+      const frame = encodeFrame(command, data)
+      log.debug('[kretz] →', { cmd: command, data: data.slice(0, 80) })
+
+      const respBuf = await new Promise<Buffer>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          if (this._pending?.timer === timer) this._pending = null
+          reject(new Error(`[kretz] Sin respuesta al comando ${command} (${timeoutMs}ms)`))
+        }, timeoutMs)
+        this._pending = { resolve, reject, timer }
+        this._port!.write(frame)
+      })
+
+      let parsed: ReturnType<typeof parseResponse>
+      try {
+        parsed = parseResponse(respBuf)
+      } catch (e) {
+        log.warn('[kretz] Trama inválida', (e as Error).message)
+        throw e
+      }
+
+      log.debug('[kretz] ←', {
+        code: parsed.responseCode,
+        meaning: explainResponseCode(parsed.responseCode),
+        data: parsed.data.slice(0, 80),
+      })
+
+      return parsed
     })
 
-    this._buffer = Buffer.concat([this._buffer, chunk])
+    this._queue = run.then(() => undefined).catch(() => undefined)
+    return run
+  }
 
-    // Extraer todos los frames completos del buffer acumulado
-    while (this._buffer.length > 0) {
-      const { frame, consumed } = extractNextR30Frame(this._buffer)
-      this._buffer = this._buffer.subarray(consumed)
+  // ---------------------------------------------------------------------------
+  // Comandos de alto nivel
+  // ---------------------------------------------------------------------------
 
-      if (frame === null) break
+  /** Prueba de enlace (0002). Devuelve true si la balanza responde OK. */
+  async testLink(): Promise<boolean> {
+    try {
+      const r = await this.transact('0002', '')
+      return r.responseCode === '01'
+    } catch {
+      return false
+    }
+  }
 
-      const result = parseR30Frame(frame)
-      if (!result.ok) {
-        log.warn('[kretz] Frame R30 inválido descartado', { error: result.error })
-        this.emit('error', new Error(`Frame R30 inválido: ${result.error}`))
-        continue
-      }
+  /**
+   * Lee el estado actual de la balanza (1524): peso, precio e importe en pantalla.
+   * Útil para peso en vivo (llamar periódicamente).
+   */
+  async readState(): Promise<ReturnType<typeof parseState1524>> {
+    const r = await this.transact('1524', '')
+    if (r.responseCode !== '01') {
+      throw new Error(`[kretz] Estado no disponible: ${explainResponseCode(r.responseCode)}`)
+    }
+    return parseState1524(r.data)
+  }
 
-      const { productCode, weightGrams, unitPriceCents, totalCents } = result.data
-      const weightKg = weightGrams / 1000
-      const unitPrice = unitPriceCents / 100
-      const subtotal = totalCents / 100
+  // --- PLU ---
 
-      // Interim: cada frame R30 se emite como pedido de un ítem.
-      // En Fase 1, cuando se confirme el protocolo de impresión/cierre por canal,
-      // este punto acumulará ítems y emitirá un ScaleOrderData completo al imprimir.
-      const order: ScaleOrderData = {
-        channel: 'A',
-        items: [{ productCode, weightKg, unitPrice, subtotal }],
-        total: subtotal,
-        timestamp: new Date().toISOString(),
-      }
+  /**
+   * Crea o actualiza un PLU en la balanza (2005).
+   * Si el PLU ya existe con ese número, lo sobreescribe.
+   */
+  async sendPlu(args: SendPluArgs): Promise<void> {
+    const payload = buildPlu2005Data(args)
+    const r = await this.transact('2005', payload)
+    if (r.responseCode !== '01') {
+      throw new Error(
+        `[kretz] Error al enviar PLU ${args.pluNumber}: ${explainResponseCode(r.responseCode)}`
+      )
+    }
+    log.info('[kretz] PLU enviado', { plu: args.pluNumber, name: args.name })
+  }
 
-      log.info('[kretz] Pedido recibido (frame R30)', order)
-      this.emit('order', order)
+  /**
+   * Lee un PLU por número (5005).
+   * Devuelve null si no existe (código 20).
+   */
+  async readPlu(pluNumber: string, priceDigits: 6 | 7 = 6): Promise<PluRow | null> {
+    const id = pluNumber.replace(/\D/g, '').slice(-6).padStart(6, '0')
+    const r = await this.transact('5005', id)
+    if (r.responseCode === '20') return null
+    if (r.responseCode !== '01') {
+      throw new Error(`[kretz] Error al leer PLU ${pluNumber}: ${explainResponseCode(r.responseCode)}`)
+    }
+    return parsePlu5005(r.data, priceDigits)
+  }
+
+  /**
+   * Devuelve la cantidad de PLUs almacenados (5001).
+   */
+  async readPluCount(): Promise<number> {
+    const r = await this.transact('5001', '05')
+    if (r.responseCode === '40') return 0
+    if (r.responseCode !== '01') {
+      throw new Error(`[kretz] Error al leer conteo de PLUs: ${explainResponseCode(r.responseCode)}`)
+    }
+    const tail = r.data.length > 2 ? r.data.slice(2) : r.data
+    const n = parseInt(tail, 10)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  // ---------------------------------------------------------------------------
+  // Manejo de datos entrantes
+  // ---------------------------------------------------------------------------
+
+  private _onData(chunk: Buffer): void {
+    this._rx = Buffer.concat([this._rx, chunk])
+    if (!this._pending) return
+    const taken = takeResponseFrame(this._rx)
+    if (!taken) return
+    const [frame, rest] = taken
+    this._rx = rest
+    clearTimeout(this._pending.timer)
+    const p = this._pending
+    this._pending = null
+    p.resolve(frame)
+  }
+
+  private _rejectPending(err: Error): void {
+    if (this._pending) {
+      clearTimeout(this._pending.timer)
+      this._pending.reject(err)
+      this._pending = null
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Re-exportar tipos útiles para los handlers IPC
+// ---------------------------------------------------------------------------
+export type { SendPluArgs, PluRow }

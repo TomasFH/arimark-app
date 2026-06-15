@@ -12,7 +12,7 @@
  */
 
 import { EventEmitter } from 'events'
-import type { KretzDriver, ScaleOrderData, ScaleChannel } from '../kretzDriver.interface'
+import type { KretzDriver, ScaleOrderData, ScaleChannel, SendPluArgs, PluRow } from '../kretzDriver.interface'
 
 const SAMPLE_PRODUCTS = [
   { code: 'ASADO', price: 8500 },
@@ -98,6 +98,24 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
 
   isConnected(): boolean {
     return this._connected
+  }
+
+  // ---- PLU (mock — siempre OK en sandbox) ----
+
+  async testLink(): Promise<boolean> {
+    return this._connected
+  }
+
+  async sendPlu(_args: SendPluArgs): Promise<void> {
+    // No-op en sandbox
+  }
+
+  async readPlu(_pluNumber: string, _priceDigits?: 6 | 7): Promise<PluRow | null> {
+    return null
+  }
+
+  async readPluCount(): Promise<number> {
+    return 0
   }
 
   private _startGenerating(): void {

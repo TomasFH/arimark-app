@@ -188,6 +188,38 @@ export interface CashReceiptPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Gestión de PLUs (balanza KRETZ)
+// ---------------------------------------------------------------------------
+
+export type PluType = 'pesable' | 'normal'
+
+export interface PluRow {
+  number: string
+  name: string
+  code: string
+  price: string
+  type: PluType
+}
+
+export interface SendPluPayload {
+  pluNumber: string
+  department?: string
+  family?: string
+  name: string
+  description?: string
+  articleCode?: string
+  pesable: boolean
+  /** Precio en centavos (pesos × 100). Ej: $1.500,00/kg → 150000 */
+  priceCents: number
+  priceDigits?: 6 | 7
+}
+
+export interface ReadPluPayload {
+  pluNumber: string
+  priceDigits?: 6 | 7
+}
+
+// ---------------------------------------------------------------------------
 // Hardware — configuración de periféricos
 // ---------------------------------------------------------------------------
 export interface HardwareConfig {
@@ -258,6 +290,16 @@ export interface HwApi {
 
   /** Sandbox/dev: inyecta un pedido completo de balanza (mock KRETZ) */
   injectMockOrder: (payload: InjectMockOrderPayload) => Promise<IpcResult>
+
+  // ---- Gestión de PLUs ----
+  /** Prueba de enlace con la balanza (cmd 0002) */
+  kretzTestLink: () => Promise<IpcResult<{ linked: boolean }>>
+  /** Crea o actualiza un PLU en la balanza (cmd 2005) */
+  kretzSendPlu: (payload: SendPluPayload) => Promise<IpcResult<{ pluNumber: string }>>
+  /** Lee un PLU de la balanza por número (cmd 5005) */
+  kretzReadPlu: (payload: ReadPluPayload) => Promise<IpcResult<PluRow | null>>
+  /** Cantidad de PLUs almacenados en la balanza (cmd 5001) */
+  kretzReadPluCount: () => Promise<IpcResult<{ count: number }>>
 }
 
 declare global {

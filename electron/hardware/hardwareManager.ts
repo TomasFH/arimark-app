@@ -14,7 +14,7 @@ import log from 'electron-log'
 import { IPC } from '../ipc/channels'
 import { setHardwareStatus } from '../ipc/hardwareStatus.handler'
 import { getSecret, getCredential, SECRET_KEYS, CREDENTIAL_ACCOUNTS } from '../secureStorage'
-import type { KretzDriver, ScaleOrderData } from './kretz/kretzDriver.interface'
+import type { KretzDriver, ScaleOrderData, SendPluArgs, PluRow } from './kretz/kretzDriver.interface'
 import type { FiscalDriver, FiscalPaymentRequest, FiscalPaymentResult } from './fiscal/fiscalDriver.interface'
 
 const MIN_RECONNECT_MS = 5_000
@@ -52,6 +52,26 @@ export class HardwareManager {
 
   async issueCashReceipt(amount: number, referenceId: string): Promise<FiscalPaymentResult> {
     return this.fiscal.issueCashReceipt(amount, referenceId)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gestión de PLUs
+  // ---------------------------------------------------------------------------
+
+  async kretzTestLink(): Promise<boolean> {
+    return this.kretz.testLink()
+  }
+
+  async kretzSendPlu(args: SendPluArgs): Promise<void> {
+    return this.kretz.sendPlu(args)
+  }
+
+  async kretzReadPlu(pluNumber: string, priceDigits?: 6 | 7): Promise<PluRow | null> {
+    return this.kretz.readPlu(pluNumber, priceDigits)
+  }
+
+  async kretzReadPluCount(): Promise<number> {
+    return this.kretz.readPluCount()
   }
 
   /**

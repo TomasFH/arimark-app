@@ -38,6 +38,12 @@ export const IPC = {
   LOGIN_CASHIER: 'ipc:login-cashier',
   LOGIN_ADMIN: 'ipc:login-admin',
   LOGOUT: 'ipc:logout',
+
+  // Gestión de PLUs (balanza KRETZ)
+  KRETZ_TEST_LINK: 'ipc:kretz-test-link',
+  KRETZ_SEND_PLU: 'ipc:kretz-send-plu',
+  KRETZ_READ_PLU: 'ipc:kretz-read-plu',
+  KRETZ_READ_PLU_COUNT: 'ipc:kretz-read-plu-count',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
