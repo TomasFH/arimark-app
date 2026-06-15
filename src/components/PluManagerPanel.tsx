@@ -113,6 +113,8 @@ export default function PluManagerPanel() {
   const [searchNumber, setSearchNumber] = useState('')
   const [searchResult, setSearchResult] = useState<PluRow | null | 'not_found'>('not_found' as const)
   const [searching, setSearching] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteCandidate, setDeleteCandidate] = useState<PluRow | null>(null)
 
   // --- Estado de operación ---
   const [sending, setSending] = useState(false)
@@ -266,6 +268,36 @@ export default function PluManagerPanel() {
     setPesable(plu.type === 'pesable')
   }
 
+  async function handleDeletePlu(plu: PluRow) {
+    const pluNumberToDelete = String(parseInt(plu.number, 10))
+
+    setDeleting(true)
+    setFeedback(null)
+    try {
+      const r = await window.hw.kretzDeletePlu({ pluNumber: pluNumberToDelete })
+      if (r.ok) {
+        showFeedback('ok', `PLU ${r.data.pluNumber} borrado de la balanza.`)
+        setDeleteCandidate(null)
+        setSearchResult(null)
+        if (searchNumber.trim() === pluNumberToDelete) setSearchNumber('')
+        if (pluNumber.trim() === pluNumberToDelete) {
+          setPluNumber('')
+          setPluName('')
+          setPluCode('')
+          setPluPrice('')
+        }
+        const countR = await window.hw.kretzReadPluCount()
+        if (countR.ok) setPluCount(countR.data.count)
+      } else {
+        showFeedback('error', r.error ?? 'Error al borrar PLU.')
+      }
+    } catch {
+      showFeedback('error', 'Error de comunicación al borrar PLU.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
 
@@ -329,12 +361,21 @@ export default function PluManagerPanel() {
         {searchResult !== 'not_found' && searchResult !== null && (
           <div className="space-y-2">
             <PluResultCard plu={searchResult} />
-            <button
-              onClick={() => handleLoadIntoForm(searchResult)}
-              className="text-xs text-amber-400 hover:text-amber-300 underline"
-            >
-              Cargar en formulario para editar
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => handleLoadIntoForm(searchResult)}
+                className="text-xs text-amber-400 hover:text-amber-300 underline"
+              >
+                Cargar en formulario para editar
+              </button>
+              <button
+                onClick={() => setDeleteCandidate(searchResult)}
+                disabled={deleting}
+                className="text-xs text-red-400 hover:text-red-300 underline disabled:opacity-50"
+              >
+                {deleting ? 'Borrando…' : 'Borrar PLU de balanza'}
+              </button>
+            </div>
           </div>
         )}
         {searchResult === null && (
@@ -475,6 +516,38 @@ export default function PluManagerPanel() {
           </p>
         )}
       </div>
+
+      {deleteCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-red-900/60 bg-gray-950 p-5 shadow-2xl">
+            <p className="text-sm font-semibold text-white">Confirmar borrado de PLU</p>
+            <p className="mt-2 text-xs leading-relaxed text-gray-400">
+              Vas a borrar el PLU{' '}
+              <span className="font-mono text-red-300">{parseInt(deleteCandidate.number, 10)}</span>
+              {' '}({deleteCandidate.name || 'sin nombre'}) de la balanza.
+            </p>
+            <p className="mt-2 text-xs text-red-300">
+              Esta acción no se puede deshacer desde la app.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setDeleteCandidate(null)}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDeletePlu(deleteCandidate)}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                {deleting ? 'Borrando…' : 'Borrar definitivamente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

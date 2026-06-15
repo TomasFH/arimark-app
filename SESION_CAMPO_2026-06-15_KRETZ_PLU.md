@@ -94,6 +94,7 @@ Referencia: mini-app `herramienta-arimark` (peso en vivo con comando `1524`).
 | `0002` | Test de enlace (sin sonido) |
 | `1524` | Estado en vivo (peso, precio en pantalla) |
 | `2005` | Alta / modificación de PLU |
+| `3005` | Baja de PLU |
 | `5001` | Cantidad de registros PLU (entidad `05`) |
 | `5005` | Lectura de un PLU |
 
@@ -322,6 +323,39 @@ P               ← tipo pesable
 
 ---
 
+## Borrado de PLUs (`3005`)
+
+**Actualización 15/06/2026:** se implementó borrado individual de PLUs desde la app.
+
+El comando R30 para baja de PLU es `3005` y recibe solo el número de PLU en 6 dígitos:
+
+```
+PLU 6 -> payload "000006"
+```
+
+Ruta implementada:
+
+```
+PluManagerPanel -> window.hw.kretzDeletePlu -> IPC KRETZ_DELETE_PLU
+  -> HardwareManager.kretzDeletePlu -> KretzRealDriver.deletePlu -> comando 3005
+```
+
+La UI solo muestra la acción de borrado después de encontrar un PLU real y pide confirmación
+explícita con número y nombre del producto antes de enviar el comando. La confirmación debe ser
+un modal React dentro de la app, **nunca** `window.confirm()` ni ventanas nativas del sistema:
+en Electron/Windows esas ventanas rompen el foco y obligan a volver con Win+Tab.
+
+Después del borrado actualiza el conteo con `5001` y limpia el resultado de búsqueda/formulario
+si correspondía.
+
+**Log de éxito esperado:**
+```
+[kretz] → { cmd: '3005', data: '000006' }
+[kretz] ← { code: '01', meaning: 'OK', data: '' }
+```
+
+---
+
 ## iTegra — lecciones aprendidas
 
 1. **iTegra puede borrar PLUs existentes** al sincronizar si se tilda “borrar lo actual”.
@@ -352,8 +386,12 @@ Ubicación: DevTools → pestaña **PLUs** (solo fieldtest/sandbox, admin).
 
 Funciones:
 - Verificar enlace R30
-- Buscar PLU por número (escaneo interno + filtro por número real)
+- Buscar PLU por número con fallback robusto:
+  1. intenta `5005` por número real documentado (`PLU 6` -> `000006`);
+  2. intenta la posición empírica 0-based (`PLU 6` -> `000005`);
+  3. escanea las posiciones conocidas por `5001` y filtra por el número real del registro.
 - Crear / actualizar PLU
+- Borrar PLU con modal interno de confirmación (sin ventanas nativas del sistema)
 - Mostrar “Precio raw (diagnóstico)” al leer
 
 Selector “Formato de precio”:
@@ -364,15 +402,27 @@ Selector “Formato de precio”:
 
 ## Tests
 
-Suite completa verde antes del commit:
+Suite completa verde antes del commit de alta/edición de PLUs:
 ```bash
 pnpm run test   # 201 + 19 tests
+```
+
+Verificación posterior al borrado de PLUs:
+```bash
+pnpm run build:main
+pnpm run build:renderer
+pnpm exec vitest run electron/hardware/kretz/__tests__/r30Protocol.test.ts electron/ipc/__tests__/kretzPlu.handler.test.ts
+```
+
+Resultado esperado de tests puntuales tras borrado:
+```
+41 passed
 ```
 
 Tests específicos KRETZ:
 - `electron/hardware/kretz/__tests__/r30Protocol.test.ts` — incluye test de payload iTegra
   (`210000` + `000001`)
-- `electron/ipc/__tests__/kretzPlu.handler.test.ts`
+- `electron/ipc/__tests__/kretzPlu.handler.test.ts` — incluye handler `kretz-delete-plu`
 
 ---
 
@@ -384,7 +434,7 @@ Tests específicos KRETZ:
 | Ventas por escaneo EAN-13 | Sigue siendo estrategia paralela (ver sesión 07/06) |
 | Eliminar código SAM4S del repo | Pendiente decisión del desarrollador |
 | Sincronización masiva de PLUs (volcado completo tipo iTegra) | No implementado |
-| Borrado de PLU (`3005`) desde la app | No implementado |
+| Borrado de PLU (`3005`) desde la app | Implementado |
 
 ---
 

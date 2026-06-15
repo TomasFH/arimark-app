@@ -25,6 +25,7 @@ function makeManager(overrides: Partial<HardwareManager> = {}): HardwareManager 
   return {
     kretzTestLink: vi.fn(async () => true),
     kretzSendPlu: vi.fn(async () => undefined),
+    kretzDeletePlu: vi.fn(async () => undefined),
     kretzReadPlu: vi.fn(async () => samplePlu),
     kretzReadPluCount: vi.fn(async () => 5),
     ...overrides,
@@ -117,6 +118,44 @@ describe('kretzSendPlu', () => {
     const result = await handler(null, validPayload) as { ok: boolean; error: string }
     expect(result.ok).toBe(false)
     expect(result.error).toContain('Error de escritura')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// kretz-delete-plu
+// ---------------------------------------------------------------------------
+
+describe('kretzDeletePlu', () => {
+  it('llama kretzDeletePlu y devuelve ok con el número de PLU', async () => {
+    const manager = makeManager()
+    registerKretzPluHandlers(manager)
+    const handler = getHandler('ipc:kretz-delete-plu')
+    const result = await handler(null, { pluNumber: '6' }) as { ok: boolean; data: { pluNumber: string } }
+
+    expect(result.ok).toBe(true)
+    expect(result.data.pluNumber).toBe('6')
+    expect(manager.kretzDeletePlu).toHaveBeenCalledWith('6')
+  })
+
+  it('rechaza payload inválido', async () => {
+    registerKretzPluHandlers(makeManager())
+    const handler = getHandler('ipc:kretz-delete-plu')
+    const result = await handler(null, {}) as { ok: boolean; code?: string }
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('INVALID_PAYLOAD')
+  })
+
+  it('devuelve error si el driver lanza', async () => {
+    const manager = makeManager({
+      kretzDeletePlu: vi.fn(async () => { throw new Error('PLU inexistente') }),
+    })
+    registerKretzPluHandlers(manager)
+    const handler = getHandler('ipc:kretz-delete-plu')
+    const result = await handler(null, { pluNumber: '999' }) as { ok: boolean; error: string }
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('PLU inexistente')
   })
 })
 

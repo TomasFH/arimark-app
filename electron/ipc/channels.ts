@@ -42,6 +42,7 @@ export const IPC = {
   // Gestión de PLUs (balanza KRETZ)
   KRETZ_TEST_LINK: 'ipc:kretz-test-link',
   KRETZ_SEND_PLU: 'ipc:kretz-send-plu',
+  KRETZ_DELETE_PLU: 'ipc:kretz-delete-plu',
   KRETZ_READ_PLU: 'ipc:kretz-read-plu',
   KRETZ_READ_PLU_COUNT: 'ipc:kretz-read-plu-count',
 } as const

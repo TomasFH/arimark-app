@@ -72,6 +72,10 @@ export class HardwareManager {
     return this.kretz.sendPlu(args)
   }
 
+  async kretzDeletePlu(pluNumber: string): Promise<void> {
+    return this.kretz.deletePlu(pluNumber)
+  }
+
   async kretzReadPlu(pluNumber: string, priceDigits?: 6 | 7): Promise<PluRow | null> {
     return this.kretz.readPlu(pluNumber, priceDigits)
   }

@@ -24,6 +24,7 @@ import {
   explainResponseCode,
   parseState1524,
   buildPlu2005Data,
+  buildDeletePlu3005Data,
   parsePlu5005,
   type SendPluArgs,
   type PluRow,
@@ -252,6 +253,21 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
     log.info('[kretz] PLU enviado', { plu: args.pluNumber, name: args.name })
   }
 
+  /** Borra un PLU de la balanza (3005). */
+  async deletePlu(pluNumber: string): Promise<void> {
+    const payload = buildDeletePlu3005Data(pluNumber)
+    const r = await this.transact('3005', payload)
+    if (r.responseCode === '20') {
+      throw new Error(`[kretz] PLU ${pluNumber} inexistente`)
+    }
+    if (r.responseCode !== '01') {
+      throw new Error(
+        `[kretz] Error al borrar PLU ${pluNumber}: ${explainResponseCode(r.responseCode)}`
+      )
+    }
+    log.info('[kretz] PLU borrado', { plu: payload })
+  }
+
   /**
    * Lee un PLU por número (5005).
    * Devuelve null si no existe (código 20).
@@ -261,11 +277,18 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
     if (!Number.isFinite(parsedTarget)) return null
     const target = String(parsedTarget).padStart(6, '0')
     const count = await this.readPluCount()
+    const candidatePositions = new Set<string>([
+      target, // modo documentado: buscar por número real de PLU
+      String(Math.max(0, parsedTarget - 1)).padStart(6, '0'), // modo empírico: posición interna 0-based
+    ])
 
     for (let idx = 0; idx < count; idx += 1) {
-      const id = String(idx).padStart(6, '0')
+      candidatePositions.add(String(idx).padStart(6, '0'))
+    }
+
+    for (const id of candidatePositions) {
       const r = await this.transact('5005', id)
-      if (r.responseCode === '40' || r.responseCode === '20') return null
+      if (r.responseCode === '40' || r.responseCode === '20') continue
       if (r.responseCode !== '01') {
         throw new Error(`[kretz] Error al leer PLU ${pluNumber}: ${explainResponseCode(r.responseCode)}`)
       }

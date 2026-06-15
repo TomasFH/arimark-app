@@ -12,6 +12,7 @@ import {
   parseResponse,
   parseState1524,
   buildPlu2005Data,
+  buildDeletePlu3005Data,
   parsePlu5005,
   explainResponseCode,
 } from '../r30Protocol'
@@ -223,6 +224,20 @@ describe('buildPlu2005Data', () => {
     expect(data.length).toBe(135)
     expect(priceField).toBe('210000')
     expect(decimalField).toBe('000001')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildDeletePlu3005Data
+// ---------------------------------------------------------------------------
+
+describe('buildDeletePlu3005Data', () => {
+  it('envía el número de PLU como 6 dígitos', () => {
+    expect(buildDeletePlu3005Data('6')).toBe('000006')
+  })
+
+  it('filtra caracteres no numéricos', () => {
+    expect(buildDeletePlu3005Data('PLU-123')).toBe('000123')
   })
 })
 

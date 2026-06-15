@@ -110,6 +110,10 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     // No-op en sandbox
   }
 
+  async deletePlu(_pluNumber: string): Promise<void> {
+    // No-op en sandbox
+  }
+
   async readPlu(_pluNumber: string, _priceDigits?: 6 | 7): Promise<PluRow | null> {
     return null
   }

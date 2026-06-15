@@ -230,6 +230,15 @@ export function buildPlu2005Data(args: SendPluArgs): string {
 }
 
 // ---------------------------------------------------------------------------
+// Comando 3005 — borrar PLU
+// ---------------------------------------------------------------------------
+
+/** Construye el payload de datos para el comando 3005 (baja de PLU). */
+export function buildDeletePlu3005Data(pluNumber: string): string {
+  return pluNumber.replace(/\D/g, '').slice(-6).padStart(6, '0')
+}
+
+// ---------------------------------------------------------------------------
 // Comando 5005 — leer PLU
 // ---------------------------------------------------------------------------
 

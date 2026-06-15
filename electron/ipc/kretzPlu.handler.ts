@@ -4,6 +4,7 @@
  * Operaciones disponibles:
  *  - kretz-test-link       : prueba de enlace (0002)
  *  - kretz-send-plu        : crear/actualizar PLU (2005)
+ *  - kretz-delete-plu      : borrar PLU (3005)
  *  - kretz-read-plu        : leer PLU por número (5005)
  *  - kretz-read-plu-count  : contar PLUs almacenados (5001)
  *
@@ -39,6 +40,10 @@ const sendPluSchema = z.object({
 const readPluSchema = z.object({
   pluNumber: z.string().min(1).max(6),
   priceDigits: z.union([z.literal(6), z.literal(7)]).default(6),
+})
+
+const deletePluSchema = z.object({
+  pluNumber: z.string().min(1).max(6),
 })
 
 // ---------------------------------------------------------------------------
@@ -81,6 +86,29 @@ export function registerKretzPluHandlers(manager: HardwareManager): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         log.error('[ipc:kretz-send-plu] Error al enviar PLU', msg)
+        return { ok: false, error: msg }
+      }
+    }
+  )
+
+  /** Borrar PLU de la balanza. */
+  ipcMain.handle(
+    IPC.KRETZ_DELETE_PLU,
+    async (_event, payload: unknown): Promise<IpcResult<{ pluNumber: string }>> => {
+      const parsed = deletePluSchema.safeParse(payload)
+      if (!parsed.success) {
+        const msg = parsed.error.errors[0]?.message ?? 'Payload inválido'
+        log.error('[ipc:kretz-delete-plu] Payload inválido', parsed.error)
+        return { ok: false, error: msg, code: 'INVALID_PAYLOAD' }
+      }
+
+      try {
+        await manager.kretzDeletePlu(parsed.data.pluNumber)
+        log.info('[ipc:kretz-delete-plu] PLU borrado', { plu: parsed.data.pluNumber })
+        return { ok: true, data: { pluNumber: parsed.data.pluNumber } }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error('[ipc:kretz-delete-plu] Error al borrar PLU', msg)
         return { ok: false, error: msg }
       }
     }

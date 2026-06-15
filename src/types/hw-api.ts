@@ -209,7 +209,7 @@ export interface SendPluPayload {
   description?: string
   articleCode?: string
   pesable: boolean
-  /** Precio en centavos (pesos × 100). Ej: $1.500,00/kg → 150000 */
+  /** Precio raw REPORT NX/iTegra (pesos × 10). Ej: $21.000/kg → 210000 */
   priceCents: number
   priceDigits?: 6 | 7
 }
@@ -217,6 +217,10 @@ export interface SendPluPayload {
 export interface ReadPluPayload {
   pluNumber: string
   priceDigits?: 6 | 7
+}
+
+export interface DeletePluPayload {
+  pluNumber: string
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +300,8 @@ export interface HwApi {
   kretzTestLink: () => Promise<IpcResult<{ linked: boolean }>>
   /** Crea o actualiza un PLU en la balanza (cmd 2005) */
   kretzSendPlu: (payload: SendPluPayload) => Promise<IpcResult<{ pluNumber: string }>>
+  /** Borra un PLU de la balanza (cmd 3005) */
+  kretzDeletePlu: (payload: DeletePluPayload) => Promise<IpcResult<{ pluNumber: string }>>
   /** Lee un PLU de la balanza por número (cmd 5005) */
   kretzReadPlu: (payload: ReadPluPayload) => Promise<IpcResult<PluRow | null>>
   /** Cantidad de PLUs almacenados en la balanza (cmd 5001) */

@@ -50,6 +50,8 @@ const hw: HwApi = {
 
   kretzSendPlu: payload => ipcRenderer.invoke(IPC.KRETZ_SEND_PLU, payload),
 
+  kretzDeletePlu: payload => ipcRenderer.invoke(IPC.KRETZ_DELETE_PLU, payload),
+
   kretzReadPlu: payload => ipcRenderer.invoke(IPC.KRETZ_READ_PLU, payload),
 
   kretzReadPluCount: () => ipcRenderer.invoke(IPC.KRETZ_READ_PLU_COUNT),
