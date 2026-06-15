@@ -28,7 +28,8 @@ export class HardwareManager {
 
   constructor(
     private readonly kretz: KretzDriver,
-    private readonly fiscal: FiscalDriver
+    private readonly fiscal: FiscalDriver,
+    private readonly fiscalEnabled = true
   ) {
     this._wireKretzEvents()
     this._wireFiscalEvents()
@@ -36,14 +37,19 @@ export class HardwareManager {
 
   /** Inicia conexión con ambos periféricos. Llamar al arrancar la app. */
   async start(): Promise<void> {
-    await Promise.allSettled([this._connectKretz(), this._connectFiscal()])
+    const tasks: Array<Promise<void>> = [this._connectKretz()]
+    if (this.fiscalEnabled) tasks.push(this._connectFiscal())
+    else setHardwareStatus({ fiscal: 'disconnected' })
+    await Promise.allSettled(tasks)
   }
 
   /** Cierra conexión limpiamente. Llamar al cerrar la app. */
   async stop(): Promise<void> {
     this._clearReconnect('kretz')
     this._clearReconnect('fiscal')
-    await Promise.allSettled([this.kretz.disconnect(), this.fiscal.disconnect()])
+    const tasks: Array<Promise<void>> = [this.kretz.disconnect()]
+    if (this.fiscalEnabled) tasks.push(this.fiscal.disconnect())
+    await Promise.allSettled(tasks)
   }
 
   async processPayment(req: FiscalPaymentRequest): Promise<FiscalPaymentResult> {
@@ -110,6 +116,8 @@ export class HardwareManager {
   }
 
   private async _connectFiscal(): Promise<void> {
+    if (!this.fiscalEnabled) return
+
     try {
       await this.fiscal.connect()
       this._fiscalReconnectDelay = MIN_RECONNECT_MS
@@ -118,7 +126,7 @@ export class HardwareManager {
     } catch (err) {
       log.error('[hardware] Fallo al conectar SAM4S', err)
       setHardwareStatus({ fiscal: 'error' })
-      this._scheduleReconnect('fiscal')
+      if (this.fiscalEnabled) this._scheduleReconnect('fiscal')
     }
   }
 
@@ -133,7 +141,7 @@ export class HardwareManager {
         void this._connectKretz()
       } else {
         this._fiscalReconnectDelay = Math.min(this._fiscalReconnectDelay * 2, MAX_RECONNECT_MS)
-        void this._connectFiscal()
+        if (this.fiscalEnabled) void this._connectFiscal()
       }
     }, delay)
 
@@ -241,12 +249,13 @@ export async function createHardwareManager(): Promise<HardwareManager> {
 
     log.info('[hardware] Modo fieldtest — usando drivers reales', {
       kretzPort: kretzPort || '(no configurado)',
-      sam4sIp: sam4sIp || '(no configurado)',
+      fiscal: sam4sIp.trim() === '' ? 'desactivada' : 'configurada',
     })
 
     return new HardwareManager(
       new KretzRealDriver(kretzPort),
-      new FiscalRealDriver(sam4sIp, sam4sUser, sam4sPassword)
+      new FiscalRealDriver(sam4sIp, sam4sUser, sam4sPassword),
+      sam4sIp.trim() !== ''
     )
   }
 

@@ -15,14 +15,13 @@ import type { SendPluPayload, PluRow } from '../types/hw-api'
 // ---------------------------------------------------------------------------
 
 /**
- * El campo de precio en la balanza usa los últimos 2 dígitos como centavos.
- * Ej: "0850000" (7 dígitos) = $8.500,00
- * Esta función convierte ese string raw al precio en pesos que mostramos al usuario.
+ * REPORT NX/iTegra guardan precio PLU en 6 dígitos con 1 decimal implícito.
+ * Ej: "210000" = $21.000,0. El formulario trabaja con pesos enteros.
  */
 function rawScalePriceToPesos(rawPrice: string): string {
   const raw = parseInt(rawPrice, 10)
   if (isNaN(raw)) return ''
-  return String(Math.floor(raw / 100))
+  return String(Math.floor(raw / 10))
 }
 
 function formatPesoPreview(pesosStr: string): string {
@@ -75,6 +74,10 @@ function PluResultCard({ plu }: { plu: PluRow }) {
         <span className="font-semibold text-amber-400">{formattedPrice}</span>
       </div>
       <div className="flex justify-between">
+        <span className="text-gray-400 text-[10px]">Precio raw (diagnóstico)</span>
+        <span className="font-mono text-[10px] text-gray-500">{plu.price}</span>
+      </div>
+      <div className="flex justify-between">
         <span className="text-gray-400">Tipo</span>
         <span className={plu.type === 'pesable' ? 'text-blue-300' : 'text-gray-300'}>
           {plu.type === 'pesable' ? 'Pesable (P)' : 'Normal (N)'}
@@ -99,13 +102,12 @@ export default function PluManagerPanel() {
   const [pluCode, setPluCode] = useState('')
   const [pluPrice, setPluPrice] = useState('')
   const [pesable, setPesable] = useState(true)
-  // La KRETZ REPORT NX en configuración estándar usa campo de precio de 6 dígitos.
-  // Con 6 dígitos y 2 posiciones decimales implícitas, el máximo representable es $9.999,99.
-  // Si la balanza está configurada para 7 dígitos (opción avanzada de iTegra), cambiar a 7.
+  // La balanza comprobada con iTegra usa payload de 135 bytes:
+  // campo precio de 6 dígitos con 1 decimal implícito ($21.000 -> "210000").
   const [priceDigits, setPriceDigits] = useState<6 | 7>(6)
 
   // Precio máximo según dígitos configurados
-  const maxPriceForDigits = (digits: 6 | 7) => digits === 6 ? 9999 : 99999
+  const maxPriceForDigits = (digits: 6 | 7) => digits === 6 ? 99999 : 999999
 
   // --- Búsqueda ---
   const [searchNumber, setSearchNumber] = useState('')
@@ -172,40 +174,53 @@ export default function PluManagerPanel() {
     if (precioEnPesos > maxPesos) {
       showFeedback(
         'error',
-        `El precio máximo con la configuración actual es $${maxPesos.toLocaleString('es-AR')}. ` +
-          `La balanza usa campo de ${priceDigits} dígitos. ` +
+        `El precio máximo para ${priceDigits} dígitos es $${maxPesos.toLocaleString('es-AR')}. ` +
           (priceDigits === 6
-            ? 'Cambiá a "7 dígitos" si la balanza fue reconfigurada para eso en iTegra.'
-            : '')
+            ? 'Cambiá a "7 dígitos (≥ $10.000)" en el selector de rango de precio.'
+            : 'El precio supera $99.999 que es el límite absoluto de la balanza.')
       )
       return
     }
-    // El campo de precio en la balanza usa los últimos 2 dígitos como centavos.
-    // El usuario ingresa pesos enteros → se multiplica × 100 para la representación interna.
-    const priceCents = precioEnPesos * 100
+    // iTegra almacena el precio con 1 decimal implícito.
+    // El usuario ingresa pesos enteros -> se multiplica x10 para la representación raw.
+    const priceCents = precioEnPesos * 10
+
+    const normalizedPluNumber = pluNumber.trim()
+    const articleCodeSource = pluCode.trim() || normalizedPluNumber
 
     setSending(true)
     setFeedback(null)
+    const payloadByteCount = priceDigits === 7 ? 138 : 135
+
     try {
       const payload: SendPluPayload = {
-        pluNumber: pluNumber.trim(),
+        pluNumber: normalizedPluNumber,
         name: pluName.trim().slice(0, 26),
         description: pluName.trim().slice(0, 26),
-        articleCode: pluCode.trim().padStart(5, '0').slice(-5),
+        articleCode: articleCodeSource.padStart(5, '0').slice(-5),
         pesable,
         priceCents,
         priceDigits,
         department: '001',
-        family: '001',
+        family: '000',
       }
       const r = await window.hw.kretzSendPlu(payload)
       if (r.ok) {
-        showFeedback('ok', `PLU ${r.data.pluNumber} guardado en la balanza.`)
+        showFeedback('ok', `PLU ${r.data.pluNumber} guardado en la balanza (payload ${payloadByteCount} bytes, ${priceDigits} dígitos).`)
         // Actualizar conteo
         const countR = await window.hw.kretzReadPluCount()
         if (countR.ok) setPluCount(countR.data.count)
       } else {
-        showFeedback('error', r.error ?? 'Error al enviar PLU.')
+        const isLengthError = r.error?.includes('longitud')
+        showFeedback(
+          'error',
+          isLengthError
+            ? `Error de longitud (payload ${payloadByteCount} bytes, ${priceDigits} dígitos). ` +
+              (priceDigits === 7
+                ? 'La balanza rechazó el payload de 138 bytes. Usá "iTegra compatible" (135 bytes).'
+                : 'La balanza rechazó el payload iTegra-compatible de 135 bytes. Revisá la terminal para diagnóstico.')
+            : (r.error ?? 'Error al enviar PLU.')
+        )
       }
     } catch {
       showFeedback('error', 'Error de comunicación con la balanza.')
@@ -246,7 +261,7 @@ export default function PluManagerPanel() {
     setPluNumber(String(parseInt(plu.number, 10)))
     setPluName(plu.name)
     setPluCode(plu.code)
-    // Convertir precio raw de la balanza (centavos implícitos) a pesos enteros para el formulario
+    // Convertir precio raw de la balanza (1 decimal implícito) a pesos enteros para el formulario
     setPluPrice(rawScalePriceToPesos(plu.price))
     setPesable(plu.type === 'pesable')
   }
@@ -379,7 +394,7 @@ export default function PluManagerPanel() {
           {/* Precio */}
           <div className="col-span-1">
             <label className="text-xs text-gray-400">
-              Precio {pesable ? '$/kg' : '$'} * — pesos enteros, sin centavos
+              Precio {pesable ? '$/kg' : '$'} * — pesos enteros (hasta $99.999)
             </label>
             <NumericInput
               value={pluPrice}
@@ -397,21 +412,19 @@ export default function PluManagerPanel() {
           {/* Dígitos precio — refleja la configuración de la balanza */}
           <div className="col-span-1">
             <label className="text-xs text-gray-400">
-              Máximo precio (config. balanza)
+              Formato de precio
             </label>
             <select
               value={priceDigits}
               onChange={e => setPriceDigits(Number(e.target.value) as 6 | 7)}
               className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
             >
-              <option value={6}>Hasta $9.999 — estándar</option>
-              <option value={7}>Hasta $99.999 — avanzado (iTegra)</option>
+              <option value={6}>iTegra compatible: 135 bytes — recomendado</option>
+              <option value={7}>138 bytes — diagnóstico</option>
             </select>
-            {priceDigits === 7 && (
-              <p className="mt-0.5 text-[10px] text-amber-400">
-                Solo si la balanza fue reconfigurada en iTegra. Si no, da "Error de longitud de datos".
-              </p>
-            )}
+            <p className="mt-0.5 text-[10px] text-gray-600">
+              La lectura de iTegra mostró campo de 6 dígitos con 1 decimal: $21.000 {'->'} 210000.
+            </p>
           </div>
 
           {/* Tipo */}

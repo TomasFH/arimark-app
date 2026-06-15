@@ -70,6 +70,7 @@ const RESP_MEANING: Record<string, string> = {
   '10': 'Error de checksum recibido',
   '11': 'Error de longitud de datos',
   '20': 'Registro inexistente',
+  '21': 'Error de datos del registro',
   '30': 'Último registro leído',
   '31': 'Último registro borrado',
   '40': 'Sin registros / tabla vacía',
@@ -164,7 +165,7 @@ export type PluRow = {
   number: string   // 6 dígitos
   name: string
   code: string     // 5 dígitos (código interno de artículo)
-  price: string    // precio como string según priceDigits
+  price: string    // precio raw de 6 dígitos, con 1 decimal implícito en REPORT NX
   type: PluType
 }
 
@@ -180,8 +181,13 @@ export type SendPluArgs = {
   description: string
   articleCode: string
   pesable: boolean
+  /** Precio raw para la balanza: pesos x 10. Ej: $21.000 -> 210000 */
   priceCents: number
-  /** 6 para KRETZ REPORT NX; usar 7 si el equipo muestra precios de 7 dígitos */
+  /**
+   * Cantidad de dígitos del campo de precio.
+   * REPORT NX/iTegra usan 6 dígitos con 1 decimal implícito para precios altos:
+   * $21.000 -> "210000" y la balanza muestra "$21.000,0".
+   */
   priceDigits?: 6 | 7
 }
 
@@ -201,7 +207,10 @@ export function buildPlu2005Data(args: SendPluArgs): string {
   const priceInt = Math.max(0, Math.round(args.priceCents))
   const priceStr = String(priceInt).padStart(priceDigits, '0').slice(-priceDigits)
   const priceAlt = '0'.repeat(priceDigits)
-  const priceOld = '0'.repeat(priceDigits)
+  // En Report NX LCD este campo ya no es "precio anterior": define el punto decimal.
+  // iTegra guarda "000001" para usar 1 decimal implícito ($21.000 -> 210000).
+  const priceDecimalPosition = priceDigits === 6 ? 1 : 0
+  const priceOld = String(priceDecimalPosition).padStart(priceDigits, '0')
 
   return (
     plu + dep + fam + nm + desc + code + tipo +

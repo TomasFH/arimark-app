@@ -25,13 +25,14 @@ import type { PluRow } from '../hardware/kretz/kretzDriver.interface'
 const sendPluSchema = z.object({
   pluNumber: z.string().min(1).max(6),
   department: z.string().default('001'),
-  family: z.string().default('001'),
+  family: z.string().default('000'),
   name: z.string().min(1).max(26),
   description: z.string().max(26).default(''),
   articleCode: z.string().max(5).default('00000'),
   pesable: z.boolean(),
-  /** Precio en centavos (pesos × 100). Ej: $1.500 → 150000 */
+  /** Precio raw para REPORT NX/iTegra (pesos × 10). Ej: $21.000 → 210000 */
   priceCents: z.number().int().nonnegative(),
+  // 6 dígitos: payload 135 bytes, compatible con iTegra en REPORT NX.
   priceDigits: z.union([z.literal(6), z.literal(7)]).default(6),
 })
 

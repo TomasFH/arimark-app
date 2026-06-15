@@ -136,7 +136,21 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
       }
 
       const frame = encodeFrame(command, data)
-      log.debug('[kretz] →', { cmd: command, data: data.slice(0, 80) })
+      if (command === '2005') {
+        const priceFieldLength = data.length === 135 ? 6 : 7
+        const priceStart = 77
+        const priceEnd = priceStart + priceFieldLength
+        const priceAltEnd = priceEnd + priceFieldLength
+        log.info('[kretz] → 2005 (sendPlu)', {
+          payloadBytes: data.length,
+          plu: data.slice(0, 6),
+          name: data.slice(12, 38).trim(),
+          priceField: data.slice(priceStart, priceEnd),
+          decimalField: data.slice(priceAltEnd, priceAltEnd + priceFieldLength),
+        })
+      } else {
+        log.debug('[kretz] →', { cmd: command, data: data.slice(0, 80) })
+      }
 
       const respBuf = await new Promise<Buffer>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -159,11 +173,26 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
         throw e
       }
 
-      log.debug('[kretz] ←', {
-        code: parsed.responseCode,
-        meaning: explainResponseCode(parsed.responseCode),
-        data: parsed.data.slice(0, 80),
-      })
+      if (command === '2005') {
+        log.info('[kretz] ← 2005', {
+          code: parsed.responseCode,
+          meaning: explainResponseCode(parsed.responseCode),
+        })
+      } else if (command === '5005') {
+        // Diagnóstico: muestra longitud real del payload y los bytes del campo precio
+        log.info('[kretz] ← 5005 DIAG', {
+          code: parsed.responseCode,
+          dataLength: parsed.data.length,
+          priceField: parsed.data.slice(77, 83),
+          fullData: parsed.data,
+        })
+      } else {
+        log.debug('[kretz] ←', {
+          code: parsed.responseCode,
+          meaning: explainResponseCode(parsed.responseCode),
+          data: parsed.data.slice(0, 80),
+        })
+      }
 
       return parsed
     })
@@ -228,17 +257,24 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
    * Devuelve null si no existe (código 20).
    */
   async readPlu(pluNumber: string, priceDigits: 6 | 7 = 6): Promise<PluRow | null> {
-    // El comando 5005 usa índice 0-based (posición en memoria).
-    // PLU #1 está en posición 0, PLU #2 en posición 1, etc.
-    const userNum = parseInt(pluNumber.replace(/\D/g, ''), 10) || 1
-    const idx = Math.max(0, userNum - 1)
-    const id = String(idx).padStart(6, '0')
-    const r = await this.transact('5005', id)
-    if (r.responseCode === '20') return null
-    if (r.responseCode !== '01') {
-      throw new Error(`[kretz] Error al leer PLU ${pluNumber}: ${explainResponseCode(r.responseCode)}`)
+    const parsedTarget = parseInt(pluNumber.replace(/\D/g, ''), 10)
+    if (!Number.isFinite(parsedTarget)) return null
+    const target = String(parsedTarget).padStart(6, '0')
+    const count = await this.readPluCount()
+
+    for (let idx = 0; idx < count; idx += 1) {
+      const id = String(idx).padStart(6, '0')
+      const r = await this.transact('5005', id)
+      if (r.responseCode === '40' || r.responseCode === '20') return null
+      if (r.responseCode !== '01') {
+        throw new Error(`[kretz] Error al leer PLU ${pluNumber}: ${explainResponseCode(r.responseCode)}`)
+      }
+
+      const row = parsePlu5005(r.data, priceDigits)
+      if (row.number === target) return row
     }
-    return parsePlu5005(r.data, priceDigits)
+
+    return null
   }
 
   /**
@@ -250,7 +286,7 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
     if (r.responseCode !== '01') {
       throw new Error(`[kretz] Error al leer conteo de PLUs: ${explainResponseCode(r.responseCode)}`)
     }
-    const tail = r.data.length > 2 ? r.data.slice(2) : r.data
+    const tail = r.data.length >= 4 ? r.data.slice(2, 4) : r.data
     const n = parseInt(tail, 10)
     return Number.isFinite(n) ? n : 0
   }

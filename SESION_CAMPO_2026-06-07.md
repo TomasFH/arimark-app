@@ -4,6 +4,9 @@ Pruebas realizadas en la carnicería (ubicación real del hardware). Esta sesió
 la app corrió en `APP_ENV=fieldtest` contra el hardware real. Leer este documento antes de
 continuar el desarrollo relacionado con hardware.
 
+> **Actualización 15/06/2026:** El serial USB sí sirve para **gestión de PLUs** (comandos R30 `2005`/`5005`).
+> Ver documentación completa en `SESION_CAMPO_2026-06-15_KRETZ_PLU.md`.
+
 ---
 
 ## Estado de la app al inicio de la sesión

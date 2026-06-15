@@ -178,7 +178,7 @@ describe('buildPlu2005Data', () => {
   const baseArgs = {
     pluNumber: '1',
     department: '001',
-    family: '001',
+    family: '000',
     name: 'ASADO',
     description: 'ASADO',
     articleCode: '00001',
@@ -213,6 +213,16 @@ describe('buildPlu2005Data', () => {
     // Posición: 6(plu)+3(dep)+3(fam)+26(nm)+26(desc)+5(code)+1(tipo)+7(valorFijo) = 77
     const priceField = data.slice(77, 77 + 6)
     expect(priceField).toBe('000000')
+  })
+
+  it('envía el campo decimal compatible con iTegra para precios altos en Report NX LCD', () => {
+    const data = buildPlu2005Data({ ...baseArgs, priceCents: 210000 })
+    const priceField = data.slice(77, 83)
+    const decimalField = data.slice(89, 95)
+
+    expect(data.length).toBe(135)
+    expect(priceField).toBe('210000')
+    expect(decimalField).toBe('000001')
   })
 })
 
