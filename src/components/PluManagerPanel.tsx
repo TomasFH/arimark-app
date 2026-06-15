@@ -99,9 +99,13 @@ export default function PluManagerPanel() {
   const [pluCode, setPluCode] = useState('')
   const [pluPrice, setPluPrice] = useState('')
   const [pesable, setPesable] = useState(true)
-  // KRETZ REPORT NX: 7 dígitos de precio cubre hasta $99.999,99.
-  // Los últimos 2 dígitos son centavos (850000 = $8.500,00 → usuario ve "8500").
-  const [priceDigits, setPriceDigits] = useState<6 | 7>(7)
+  // La KRETZ REPORT NX en configuración estándar usa campo de precio de 6 dígitos.
+  // Con 6 dígitos y 2 posiciones decimales implícitas, el máximo representable es $9.999,99.
+  // Si la balanza está configurada para 7 dígitos (opción avanzada de iTegra), cambiar a 7.
+  const [priceDigits, setPriceDigits] = useState<6 | 7>(6)
+
+  // Precio máximo según dígitos configurados
+  const maxPriceForDigits = (digits: 6 | 7) => digits === 6 ? 9999 : 99999
 
   // --- Búsqueda ---
   const [searchNumber, setSearchNumber] = useState('')
@@ -162,6 +166,18 @@ export default function PluManagerPanel() {
     const precioEnPesos = parseNumericInput(pluPrice)
     if (precioEnPesos === null || precioEnPesos <= 0) {
       showFeedback('error', 'Ingresá un precio válido (en pesos, sin centavos).')
+      return
+    }
+    const maxPesos = maxPriceForDigits(priceDigits)
+    if (precioEnPesos > maxPesos) {
+      showFeedback(
+        'error',
+        `El precio máximo con la configuración actual es $${maxPesos.toLocaleString('es-AR')}. ` +
+          `La balanza usa campo de ${priceDigits} dígitos. ` +
+          (priceDigits === 6
+            ? 'Cambiá a "7 dígitos" si la balanza fue reconfigurada para eso en iTegra.'
+            : '')
+      )
       return
     }
     // El campo de precio en la balanza usa los últimos 2 dígitos como centavos.
@@ -378,17 +394,24 @@ export default function PluManagerPanel() {
             )}
           </div>
 
-          {/* Dígitos precio — oculto en interfaz normal, 7 por defecto para KRETZ REPORT NX */}
+          {/* Dígitos precio — refleja la configuración de la balanza */}
           <div className="col-span-1">
-            <label className="text-xs text-gray-400">Rango de precio (no cambiar salvo indicación)</label>
+            <label className="text-xs text-gray-400">
+              Máximo precio (config. balanza)
+            </label>
             <select
               value={priceDigits}
               onChange={e => setPriceDigits(Number(e.target.value) as 6 | 7)}
               className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
             >
-              <option value={7}>Hasta $99.999 (REPORT NX)</option>
-              <option value={6}>Hasta $9.999 (modelos anteriores)</option>
+              <option value={6}>Hasta $9.999 — estándar</option>
+              <option value={7}>Hasta $99.999 — avanzado (iTegra)</option>
             </select>
+            {priceDigits === 7 && (
+              <p className="mt-0.5 text-[10px] text-amber-400">
+                Solo si la balanza fue reconfigurada en iTegra. Si no, da "Error de longitud de datos".
+              </p>
+            )}
           </div>
 
           {/* Tipo */}
