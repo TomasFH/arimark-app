@@ -61,9 +61,9 @@ export async function startCashierSession(
   storeId: string,
   userId: string
 ): Promise<{ ok: true; session: CashierSession } | { ok: false; error: string }> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+  if (APP_ENV === 'dev') {
     const session: CashierSession = {
       token: uuidv4(),
       userId,
@@ -121,10 +121,10 @@ export async function renewCashierSession(
   storeId: string,
   session: CashierSession
 ): Promise<boolean> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
   const newExpiry = new Date(Date.now() + SESSION_DURATION_MS)
 
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+  if (APP_ENV === 'dev') {
     const updated = { ...session, expiresAt: newExpiry }
     await setSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN, JSON.stringify(updated))
     return true
@@ -149,10 +149,10 @@ export async function renewCashierSession(
  * Cierra la sesión de cajera.
  */
 export async function endCashierSession(licenseKey: string, storeId: string): Promise<void> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
   deleteSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN)
 
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') return
+  if (APP_ENV === 'dev') return
 
   try {
     const app = getFirebaseApp()
@@ -177,11 +177,11 @@ export async function loginAdmin(
   email: string,
   password: string
 ): Promise<{ ok: true; session: AdminSession; user: User } | { ok: false; error: string }> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+  if (APP_ENV === 'dev') {
     const session: AdminSession = {
-      uid: 'sandbox-admin-uid',
+      uid: 'dev-admin-uid',
       email,
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     }
@@ -212,8 +212,8 @@ export async function loginAdmin(
 
 export async function logoutAdmin(): Promise<void> {
   deleteSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN)
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') return
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+  if (APP_ENV === 'dev') return
 
   try {
     const app = getFirebaseApp()

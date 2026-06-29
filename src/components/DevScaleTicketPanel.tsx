@@ -4,7 +4,7 @@ import { parseNumericInput } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
 import type { ScaleChannel } from '../types/hw-api'
 
-/** Productos del seed sandbox — códigos de barcode KRETZ (P001…). */
+/** Productos del seed dev — códigos de barcode KRETZ (P001…). */
 const DEV_SCALE_PRODUCTS = [
   { code: 'P001', name: 'Asado', defaultPrice: 8500 },
   { code: 'P002', name: 'Vacío', defaultPrice: 9200 },
@@ -15,7 +15,7 @@ const DEV_SCALE_PRODUCTS = [
 
 const CHANNELS: ScaleChannel[] = ['A', 'B', 'C', 'D']
 
-const isSandbox = import.meta.env['VITE_APP_ENV'] === 'sandbox'
+const isSandbox = import.meta.env['VITE_APP_ENV'] === 'dev'
 
 interface PendingItem {
   productCode: string
@@ -37,7 +37,7 @@ function parseWeight(raw: string): number | null {
 }
 
 /**
- * Panel de desarrollo (solo sandbox): simula el flujo de la balanza KRETZ.
+ * Panel de desarrollo (solo dev): simula el flujo de la balanza KRETZ.
  * - Selector de canal (A/B/C/D) para simular distintos carniceros en paralelo.
  * - "Agregar producto al pedido" acumula ítems en el canal seleccionado.
  * - "Cerrar pedido y enviar a la cola" simula la impresión del ticket físico.

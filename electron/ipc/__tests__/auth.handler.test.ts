@@ -30,7 +30,14 @@ vi.mock('../../licensing/installation', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn().mockReturnValue({ license_key: 'TEST-LIC-001' }),
+  getBusinessConfig: vi.fn().mockReturnValue({
+    license_key: 'TEST-LIC-001',
+    default_store_id: 'store-001',
+  }),
+}))
+
+vi.mock('../../activeSession', () => ({
+  setActiveSession: vi.fn(),
 }))
 
 import { ipcMain } from 'electron'
@@ -51,12 +58,12 @@ function getHandler(channel: string): HandlerFn {
 describe('auth.handler', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     registerAuthHandlers()
   })
 
   describe('ACTIVATE_INSTALLATION', () => {
-    it('retorna ok en sandbox sin llamar Firebase', async () => {
+    it('retorna ok en dev sin llamar Firebase', async () => {
       const handler = getHandler('ipc:activate-installation')
       const result = await handler({}, { licenseKey: 'LIC', activationCode: '1234' })
       expect(result).toMatchObject({ ok: true })
@@ -152,6 +159,24 @@ describe('auth.handler', () => {
       const handler = getHandler('ipc:logout')
       const result = await handler({}, { role: 'cashier', storeId: 'store-1' })
       expect(result).toMatchObject({ ok: true })
+    })
+  })
+
+  describe('DEV_BYPASS_LOGIN', () => {
+    it('retorna sesión de cajera ficticia en modo dev', async () => {
+      process.env['APP_ENV'] = 'dev'
+      const handler = getHandler('ipc:dev-bypass-login')
+      const result = await handler({}, undefined) as { ok: boolean; data?: { role: string } }
+      expect(result.ok).toBe(true)
+      expect(result.data?.role).toBe('cashier')
+    })
+
+    it('rechaza en modo producción', async () => {
+      process.env['APP_ENV'] = 'production'
+      const handler = getHandler('ipc:dev-bypass-login')
+      const result = await handler({}, undefined) as { ok: boolean; code?: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NOT_DEV')
     })
   })
 })

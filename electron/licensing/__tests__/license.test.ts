@@ -43,7 +43,7 @@ describe('verifyLicense', () => {
   })
 
   it('retorna válida en modo sandbox sin llamar Firebase', async () => {
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     const result = await verifyLicense('ANY-KEY')
     expect(result.valid).toBe(true)
     expect(getDoc).not.toHaveBeenCalled()

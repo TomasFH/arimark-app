@@ -1,12 +1,11 @@
 /**
- * Seed de datos de prueba para la base de datos sandbox y fieldtest.
+ * Seed de datos de prueba para la base de datos de desarrollo.
  * Crea el local de prueba y las cajeras con credenciales de prueba.
  *
  * Uso:
- *   pnpm seed:sandbox    → APP_ENV=sandbox  → userData/sandbox/app.sqlite
- *   pnpm seed:fieldtest  → APP_ENV=fieldtest → userData/fieldtest/app.sqlite
+ *   pnpm seed:dev    → APP_ENV=dev  → userData/dev/app.sqlite
  *
- * ADMINS: En modos locales el login de admin acepta cualquier email y contraseña.
+ * ADMINS: En modo dev el login de admin acepta cualquier email y contraseña.
  * No es necesario crearlos en la DB — usan Firebase Auth (o el bypass local).
  */
 
@@ -18,12 +17,12 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { runMigrations } from './migrate'
 
-const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
 function getDbPath(): string {
   const base = path.join(os.homedir(), 'AppData', 'Roaming', 'carniceria-app')
-  if (APP_ENV === 'fieldtest') return path.join(base, 'fieldtest', 'app.sqlite')
-  return path.join(base, 'sandbox', 'app.sqlite')
+  if (APP_ENV === 'dev') return path.join(base, 'dev', 'app.sqlite')
+  return path.join(base, 'app.sqlite')
 }
 
 const DB_PATH = getDbPath()
@@ -31,7 +30,7 @@ const DEFAULT_STORE_ID = '00000000-0000-0000-0000-000000000001'
 
 const STORE = {
   id: DEFAULT_STORE_ID,
-  name: 'Local de Prueba (Sandbox)',
+  name: 'Local de Prueba (Dev)',
   address: 'Dirección de prueba',
 }
 

@@ -32,8 +32,8 @@ describe('updater', () => {
     process.env['APP_ENV'] = 'production'
   })
 
-  it('no inicializa en modo sandbox', () => {
-    process.env['APP_ENV'] = 'sandbox'
+  it('no inicializa en modo dev', () => {
+    process.env['APP_ENV'] = 'dev'
     initUpdater()
     expect(autoUpdater.checkForUpdatesAndNotify).not.toHaveBeenCalled()
   })

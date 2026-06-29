@@ -20,10 +20,10 @@ const injectMockOrderSchema = z.object({
 
 export function registerMockOrderHandler(manager: HardwareManager): void {
   ipcMain.handle(IPC.INJECT_MOCK_ORDER, (_event, payload: unknown): IpcResult => {
-    const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
-    if (APP_ENV !== 'sandbox') {
-      log.warn('[ipc:inject-mock-order] Rechazado — solo disponible en sandbox')
-      return { ok: false, error: 'Solo disponible en modo sandbox.', code: 'NOT_SANDBOX' }
+    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+    if (APP_ENV !== 'dev') {
+      log.warn('[ipc:inject-mock-order] Rechazado — solo disponible en dev')
+      return { ok: false, error: 'Solo disponible en modo de pruebas.', code: 'NOT_DEV' }
     }
 
     const parsed = injectMockOrderSchema.safeParse(payload)

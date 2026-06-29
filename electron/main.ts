@@ -63,9 +63,9 @@ function createWindow(): BrowserWindow {
  */
 async function computeInitStatus(): Promise<InitStatus> {
   const config = loadBusinessConfig()
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+  if (APP_ENV === 'dev') {
     return {
       businessName: config.business_name,
       defaultStoreId: config.default_store_id,

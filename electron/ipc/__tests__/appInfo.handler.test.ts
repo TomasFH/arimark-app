@@ -32,7 +32,7 @@ describe('appInfo.handler', () => {
   })
 
   it('retorna version y env correctos con payload undefined', async () => {
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     registerAppInfoHandler()
 
     const handler = vi.mocked(ipcMain.handle).mock.calls[0][1] as (
@@ -43,7 +43,7 @@ describe('appInfo.handler', () => {
 
     expect(result).toEqual({
       ok: true,
-      data: { version: '0.1.0', env: 'sandbox' },
+      data: { version: '0.1.0', env: 'dev' },
     })
     expect(app.getVersion).toHaveBeenCalled()
   })

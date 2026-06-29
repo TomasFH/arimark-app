@@ -2,20 +2,17 @@
  * Utilidades centralizadas para determinar el modo de ejecución.
  *
  * Modos:
- *  - sandbox    → simulación completa (mocks, sin Firebase, sin licencias)
- *  - fieldtest  → hardware real + DB local, sin Firebase ni licencias
- *  - production → hardware real + Firebase + licencias + Firestore sessions
+ *  - dev        → modo de pruebas (sin Firebase, sin licencias, DB separada)
+ *                 Hardware: real si KRETZ_PORT está definido, mock en caso contrario.
+ *  - production → modo real (Firebase, licencias, DB de producción, hardware real)
  */
 
-export type AppEnv = 'sandbox' | 'fieldtest' | 'production'
+export type AppEnv = 'dev' | 'production'
 
-export const APP_ENV: AppEnv = (process.env['APP_ENV'] ?? 'sandbox') as AppEnv
+export const APP_ENV: AppEnv = (process.env['APP_ENV'] ?? 'dev') as AppEnv
 
-/** True en sandbox y fieldtest — sin Firebase ni verificación de licencias online. */
-export const isLocalMode = (): boolean => APP_ENV === 'sandbox' || APP_ENV === 'fieldtest'
-
-/** True solo en fieldtest — drivers reales, sin panel de simulación. */
-export const isFieldTest = (): boolean => APP_ENV === 'fieldtest'
+/** True en dev — sin Firebase ni verificación de licencias online. */
+export const isDevMode = (): boolean => APP_ENV === 'dev'
 
 /** True solo en producción. */
 export const isProduction = (): boolean => APP_ENV === 'production'

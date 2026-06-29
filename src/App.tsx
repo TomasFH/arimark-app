@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { SandboxBanner } from './components/SandboxBanner'
+import { DevBanner } from './components/SandboxBanner'
 import LoginScreen from './routes/LoginScreen'
 import ActivationScreen from './routes/ActivationScreen'
 import LicenseErrorScreen from './routes/LicenseErrorScreen'
@@ -67,6 +67,20 @@ export default function App() {
     setState({ screen: 'admin', session: result.data, initStatus: state.initStatus })
   }
 
+  async function handleDevBypass(): Promise<void> {
+    if (state.screen !== 'login') return
+    const result = await window.hw.devBypassLogin()
+    if (!result.ok) throw new Error(result.error)
+
+    const session = result.data
+    const shiftResult = await window.hw.getActiveShift()
+    if (shiftResult.ok && shiftResult.data) {
+      setState({ screen: 'cashier', session, shift: shiftResult.data, initStatus: state.initStatus })
+    } else {
+      setState({ screen: 'shift-required', session, initStatus: state.initStatus })
+    }
+  }
+
   function handleActivated(): void {
     if (state.screen !== 'activation') return
     window.hw.getInitStatus().then(result => {
@@ -89,7 +103,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <SandboxBanner />
+      <DevBanner />
 
       {state.screen === 'loading' && (
         <div className="flex min-h-screen items-center justify-center bg-gray-900">
@@ -113,6 +127,7 @@ export default function App() {
           businessName={state.initStatus.businessName}
           onCashierLogin={handleCashierLogin}
           onAdminLogin={handleAdminLogin}
+          onDevBypass={handleDevBypass}
         />
       )}
 

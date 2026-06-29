@@ -31,7 +31,7 @@ describe('mockOrder.handler', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     registerMockOrderHandler(manager)
   })
 
@@ -40,7 +40,7 @@ describe('mockOrder.handler', () => {
     registerMockOrderHandler(manager)
     const handler = getHandler('ipc:inject-mock-order')
     const result = handler({}, VALID_PAYLOAD)
-    expect(result).toMatchObject({ ok: false, code: 'NOT_SANDBOX' })
+    expect(result).toMatchObject({ ok: false, code: 'NOT_DEV' })
   })
 
   it('rechaza payload sin items', () => {
@@ -55,7 +55,7 @@ describe('mockOrder.handler', () => {
     expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
   })
 
-  it('inyecta pedido válido en sandbox', () => {
+  it('inyecta pedido válido en dev', () => {
     const handler = getHandler('ipc:inject-mock-order')
     const result = handler({}, VALID_PAYLOAD)
     expect(result).toMatchObject({ ok: true })

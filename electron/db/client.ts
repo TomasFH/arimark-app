@@ -5,15 +5,12 @@ import path from 'path'
 import log from 'electron-log'
 import * as schema from './schema'
 
-const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
 export function getDbPath(): string {
   const userDataDir = app.getPath('userData')
-  if (APP_ENV === 'sandbox') {
-    return path.join(userDataDir, 'sandbox', 'app.sqlite')
-  }
-  if (APP_ENV === 'fieldtest') {
-    return path.join(userDataDir, 'fieldtest', 'app.sqlite')
+  if (APP_ENV === 'dev') {
+    return path.join(userDataDir, 'dev', 'app.sqlite')
   }
   return path.join(userDataDir, 'app.sqlite')
 }

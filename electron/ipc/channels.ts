@@ -35,6 +35,9 @@ export const IPC = {
   LOGIN_ADMIN: 'ipc:login-admin',
   LOGOUT: 'ipc:logout',
 
+  /** Solo en modo dev — bypass de login para pruebas */
+  DEV_BYPASS_LOGIN: 'ipc:dev-bypass-login',
+
   // Gestión de PLUs (balanza KRETZ)
   KRETZ_TEST_LINK: 'ipc:kretz-test-link',
   KRETZ_SEND_PLU: 'ipc:kretz-send-plu',

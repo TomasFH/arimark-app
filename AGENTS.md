@@ -75,12 +75,26 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 - Toda tabla nueva requiere su migración generada con Drizzle Kit en la carpeta `drizzle/` antes de ser usada.
 - Los tests de DB usan siempre la instancia `:memory:` de `electron/db/__tests__/helpers/inMemoryDb.ts`.
 
-## Modo sandbox
+## Entornos de ejecución
 
-- Los datos de sandbox **nunca se mezclan** con los de producción bajo ninguna circunstancia.
-- En `APP_ENV=sandbox`: base de datos separada, hardware simulado (mocks), Firebase desactivado, banner visible en la UI.
-- En `APP_ENV=production`: base de datos real, hardware real, Firebase real, sin banner.
-- El `afterPack` de electron-builder verifica que ningún artefacto de sandbox ni token de Cloudflare Tunnel quede incluido en el build de producción. Si encuentra alguno, el build falla.
+Solo existen dos entornos. No hay un tercer modo intermedio.
+
+- **`APP_ENV=dev`** (modo de pruebas):
+  - Base de datos separada (`userData/dev/app.sqlite`).
+  - Hardware: driver real si `KRETZ_PORT` está definido; mock en caso contrario.
+  - Firebase desactivado. Sin verificación de licencia. Sin activación.
+  - Banner amarillo visible en la UI: "MODO PRUEBAS".
+  - Botón "Saltar login" disponible en la pantalla de login.
+  - Script: `pnpm dev` (mock) o `pnpm dev:hw` (hardware real con COM8).
+- **`APP_ENV=production`** (modo real):
+  - Base de datos en `userData/app.sqlite`.
+  - Hardware real (driver serie KRETZ desde `safeStorage`).
+  - Firebase activo, licencia verificada, sesiones en Firestore.
+  - Sin banner. Sin botón de bypass.
+  - Script: `pnpm build:prod`.
+
+Los datos de dev **nunca se mezclan** con los de producción bajo ninguna circunstancia.
+El `afterPack` de electron-builder verifica que ningún artefacto de dev ni token de Cloudflare Tunnel quede incluido en el build de producción. Si encuentra alguno, el build falla.
 
 ## Seguridad
 
@@ -149,7 +163,7 @@ Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refier
 ## Hardware — mocks
 
 - Los mocks de hardware (`__mocks__/kretzDriver.ts`) **nunca se incluyen en el bundle de producción**. El `afterPack` lo verifica.
-- En `APP_ENV=sandbox`, la app usa automáticamente los mocks.
+- En `APP_ENV=dev` sin `KRETZ_PORT`, la app usa automáticamente el mock KRETZ.
 - En tests, los mocks se importan directamente.
 - Los modos de fallo inyectables (`timeout`, `garbage`, `disconnect`, `malformed_response`) deben estar implementados y testeados antes de cerrar la Fase 1.
 

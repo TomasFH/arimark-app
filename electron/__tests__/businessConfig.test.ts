@@ -75,8 +75,8 @@ describe('loadBusinessConfig', () => {
     expect(() => loadBusinessConfig('/ruta/inexistente/business.json')).toThrow(/no encontrado/)
   })
 
-  it('retorna config sandbox ficticia si el archivo no existe en sandbox', async () => {
-    process.env['APP_ENV'] = 'sandbox'
+  it('retorna config ficticia de dev si el archivo no existe en modo dev', async () => {
+    process.env['APP_ENV'] = 'dev'
     const { loadBusinessConfig } = await import('../businessConfig')
     const config = loadBusinessConfig('/ruta/inexistente/business.json')
     expect(config.license_key).toBe('SANDBOX-0000-0000-0000')

@@ -42,9 +42,9 @@ export function isUpdateAvailable(): boolean {
  * Llamar desde main.ts en app.whenReady(), después de verificar la licencia.
  */
 export function initUpdater(): void {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
   if (APP_ENV !== 'production') {
-    log.info('[updater] Modo sandbox — actualizaciones desactivadas')
+    log.info('[updater] Modo dev — actualizaciones desactivadas')
     return
   }
 

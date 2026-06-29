@@ -86,7 +86,7 @@ El desarrollador actúa como supervisor y QA. Ningún To-Do se cierra sin suite 
 **Mocks de hardware con modos de fallo inyectables**
 
 - `electron/hardware/kretz/__mocks__/kretzDriver.ts` — modos via `KRETZ_MOCK_MODE`: `normal`, `timeout`, `garbage`, `disconnect`.
-- En sandbox: mocks automáticos. En tests: se importan directamente. En producción: no incluidos en el bundle (`afterPack` lo verifica).
+- En dev (sin `KRETZ_PORT`): mocks automáticos. En tests: se importan directamente. En producción: no incluidos en el bundle (`afterPack` lo verifica).
 
 **Testing de DB en memoria**
 
@@ -120,7 +120,7 @@ Tag: `fase0-complete` | Commit: `935959f` | Tests: 90 en verde
 Entregado:
 - Stack completo: Electron + React + TS + Vite + Tailwind + Drizzle + Vitest + pnpm
 - DB: schema 22 tablas, migración `0000`, runner con backup previo y rollback
-- Seguridad: `safeStorage`, sandbox/producción separados, `afterPack`
+- Seguridad: `safeStorage`, entornos dev/producción separados, `afterPack`
 - Config por cliente: `business.json` con loader Zod tipado
 - Licencias: `signInAnonymously`, activación con código único, ventana 48h offline, sesiones por rol
 - Login UI: pantallas de activación, licencia inválida, cajera y admin
@@ -139,7 +139,7 @@ Entregado:
 
 Entregables:
 1. `electron/hardware/kretz/kretzDriver.ts` — driver real via `serialport`, protocolo R30, gestión de PLUs, eventos `connected`/`disconnected`/`error`.
-2. Hardware manager en main — sandbox usa mock, producción usa driver real; gestiona conexión, reconexión y actualiza `setHardwareStatus()`.
+2. Hardware manager en main — dev sin `KRETZ_PORT` usa mock; dev con `KRETZ_PORT` o producción usa driver real; gestiona conexión, reconexión y actualiza `setHardwareStatus()`.
 3. IPC nuevos (con zod + tests):
    - Suscripción/emisión de pedidos de balanza al renderer.
    - Gestión de PLUs KRETZ (probar enlace, leer, crear/actualizar, borrar).
@@ -224,8 +224,8 @@ Protocolo operativo para la primera instalación en la PC del cliente. No improv
 - **Licencia generada**: documento `licenses/{license_key}` en Firestore con `activo: true`. `license_key` anotado.
 - **Código de activación de un solo uso**: generado y guardado. Se entrega al cliente junto con la `license_key`. Una vez usado, no sirve más.
 - **`business.json` preparado** con: `business_name`, `timezone`, `logo_path`, `license_key`, `default_store_id` (UUID generado previamente), `theme`.
-- **Instalador `.exe` compilado** con `APP_ENV=production`. Probado en una PC limpia (sin Node, sin el proyecto en disco). Verificado que el banner de sandbox **no** aparece.
-- **Build de producción verificado**: `afterPack` no encontró artefactos de sandbox ni tokens de Cloudflare Tunnel.
+- **Instalador `.exe` compilado** con `APP_ENV=production`. Probado en una PC limpia (sin Node, sin el proyecto en disco). Verificado que el banner de pruebas **no** aparece y que el botón de bypass de login no existe.
+- **Build de producción verificado**: `afterPack` no encontró artefactos de dev ni tokens de Cloudflare Tunnel.
 - **Driver JDATAGATE** de KRETZ descargado (compatible con REPORT NX). En USB o carpeta accesible.
 - **Suite de tests en verde al 100%** antes de compilar el instalador final.
 

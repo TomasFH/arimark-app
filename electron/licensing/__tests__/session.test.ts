@@ -54,9 +54,9 @@ import {
   getStoredAdminSession,
 } from '../session'
 
-describe('CashierSession — modo sandbox', () => {
+describe('CashierSession — modo dev', () => {
   beforeEach(() => {
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     secretStore.clear()
     vi.clearAllMocks()
   })
@@ -124,17 +124,17 @@ describe('CashierSession — modo producción', () => {
   })
 })
 
-describe('AdminSession — modo sandbox', () => {
+describe('AdminSession — modo dev', () => {
   beforeEach(() => {
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     secretStore.clear()
     vi.clearAllMocks()
   })
 
-  it('login admin en sandbox siempre retorna ok', async () => {
+  it('login admin en dev siempre retorna ok', async () => {
     const result = await loginAdmin('admin@test.com', 'any-password')
     expect(result.ok).toBe(true)
-    if (result.ok) expect(result.session.uid).toBe('sandbox-admin-uid')
+    if (result.ok) expect(result.session.uid).toBe('dev-admin-uid')
   })
 
   it('recupera sesión admin almacenada', async () => {

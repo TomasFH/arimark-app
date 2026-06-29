@@ -49,6 +49,31 @@ const logoutSchema = z.object({
 
 export function registerAuthHandlers(): void {
 
+  ipcMain.handle(IPC.DEV_BYPASS_LOGIN, async (): Promise<IpcResult<SessionInfo>> => {
+    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+    if (APP_ENV !== 'dev') {
+      log.error('[ipc:dev-bypass-login] Rechazado — no disponible fuera del modo dev')
+      return { ok: false, error: 'No disponible en modo producción.', code: 'NOT_DEV' }
+    }
+
+    const config = getBusinessConfig()
+    const storeId = config.default_store_id
+    const userId = 'dev-bypass-user'
+
+    setActiveSession({ userId, storeId, shiftId: null })
+    log.info('[ipc:dev-bypass-login] Login de pruebas activado')
+
+    return {
+      ok: true,
+      data: {
+        role: 'cashier',
+        userId,
+        storeId,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+    }
+  })
+
   ipcMain.handle(IPC.ACTIVATE_INSTALLATION, async (_event, payload: unknown): Promise<IpcResult> => {
     const parsed = activatePayloadSchema.safeParse(payload)
     if (!parsed.success) {
@@ -56,8 +81,8 @@ export function registerAuthHandlers(): void {
       return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
     }
 
-    const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
-    if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
+    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+    if (APP_ENV === 'dev') {
       return { ok: true, data: undefined }
     }
 

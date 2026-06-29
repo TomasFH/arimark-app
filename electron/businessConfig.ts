@@ -35,12 +35,12 @@ let _config: BusinessConfig | null = null
  * En producción, si el archivo no existe o es inválido, lanza error.
  */
 export function loadBusinessConfig(configPath?: string): BusinessConfig {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
   const resolvedPath = configPath ?? getDefaultConfigPath()
 
   if (!fs.existsSync(resolvedPath)) {
-    if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
-      log.warn('[businessConfig] business.json no encontrado — usando config ficticia de campo')
+    if (APP_ENV === 'dev') {
+      log.warn('[businessConfig] business.json no encontrado — usando config ficticia de pruebas')
       _config = getSandboxConfig()
       return _config
     }

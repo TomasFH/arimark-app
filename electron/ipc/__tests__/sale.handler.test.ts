@@ -77,7 +77,7 @@ function makeMockDb() {
 describe('sale.handler — CREATE_SALE', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env['APP_ENV'] = 'sandbox'
+    process.env['APP_ENV'] = 'dev'
     registerSaleHandlers()
   })
 

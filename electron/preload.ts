@@ -33,6 +33,8 @@ const hw: HwApi = {
 
   logout: payload => ipcRenderer.invoke(IPC.LOGOUT, payload),
 
+  devBypassLogin: () => ipcRenderer.invoke(IPC.DEV_BYPASS_LOGIN),
+
   getActiveShift: () => ipcRenderer.invoke(IPC.GET_ACTIVE_SHIFT),
 
   openShift: payload => ipcRenderer.invoke(IPC.OPEN_SHIFT, payload),

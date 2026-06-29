@@ -1,6 +1,6 @@
 /**
  * Inicialización de Firebase.
- * En sandbox: Firebase completamente desactivado.
+ * En dev: Firebase completamente desactivado.
  * En producción: inicializa con las credenciales del entorno.
  *
  * REGLA: Cero credenciales hardcodeadas. Todo viene de variables de entorno
@@ -10,13 +10,13 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
 import log from 'electron-log'
 
-const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
 let _app: FirebaseApp | null = null
 
 export function getFirebaseApp(): FirebaseApp {
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
-    throw new Error('[firebase] Firebase desactivado en modo local (sandbox/fieldtest).')
+  if (APP_ENV === 'dev') {
+    throw new Error('[firebase] Firebase desactivado en modo de pruebas (dev).')
   }
   if (_app) return _app
 

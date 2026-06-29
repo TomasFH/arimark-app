@@ -29,12 +29,14 @@ Ver [`AGENTS.md`](./AGENTS.md) para el conjunto completo de reglas que gobiernan
 
 ## Modos de operación
 
-| Modo | `APP_ENV` | Base de datos | Hardware | Firebase |
-|---|---|---|---|---|
-| Sandbox / desarrollo | `sandbox` | `userData/sandbox/app.sqlite` | Mocks | Desactivado |
-| Producción | `production` | `userData/app.sqlite` | Real | Activo |
+| Modo | `APP_ENV` | Base de datos | Hardware | Firebase | Login bypass |
+|---|---|---|---|---|---|
+| Pruebas / desarrollo | `dev` | `userData/dev/app.sqlite` | Mock o real según `KRETZ_PORT` | Desactivado | Disponible |
+| Producción | `production` | `userData/app.sqlite` | Real | Activo | No disponible |
 
-**Los datos de sandbox nunca se mezclan con producción.**
+**Los datos de pruebas nunca se mezclan con producción.**
+
+En modo `dev`, si se define `KRETZ_PORT=COM8`, se usa el driver real de la balanza. Si no está definido, se usa el mock. Esto permite usar el mismo entorno de pruebas tanto en la PC de desarrollo (sin balanza) como en la carnicería (con balanza real).
 
 ## Configuración por cliente
 
@@ -57,12 +59,13 @@ Copiar `config/business.example.json` a `config/business.json` e ingresar los da
 
 ```bash
 pnpm install          # instalar dependencias
-pnpm dev:sandbox      # compila main, Vite + ventana Electron (sandbox). Si el puerto 5173 está ocupado, cerrá el dev anterior con Ctrl+C.
-pnpm dev:prod         # iniciar en modo producción (requiere business.json y Firebase)
+pnpm dev              # modo pruebas con mock de balanza (desarrollo local)
+pnpm dev:hw           # modo pruebas con balanza real en COM8 (carnicería)
 pnpm build:prod       # compilar instalador de producción
 pnpm test             # ejecutar suite completa
 pnpm test:coverage    # suite + reporte de cobertura
 pnpm db:generate      # generar migraciones desde schema.ts
+pnpm seed:dev         # poblar DB de dev con datos de prueba (cajeras, productos)
 ```
 
 ## Onboarding al local real

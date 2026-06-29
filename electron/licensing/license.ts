@@ -28,10 +28,10 @@ export interface LicenseData {
  * Si no hay internet, permite hasta 48h desde la última verificación exitosa.
  */
 export async function verifyLicense(licenseKey: string): Promise<LicenseStatus> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'sandbox'
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
-  if (APP_ENV === 'sandbox' || APP_ENV === 'fieldtest') {
-    log.info('[license] Modo local — verificación omitida, licencia siempre válida')
+  if (APP_ENV === 'dev') {
+    log.info('[license] Modo dev — verificación omitida, licencia siempre válida')
     return { valid: true }
   }
 

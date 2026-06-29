@@ -174,34 +174,27 @@ export class HardwareManager {
 // ---------------------------------------------------------------------------
 
 export async function createHardwareManager(): Promise<HardwareManager> {
-  const env = process.env['APP_ENV'] ?? 'sandbox'
+  const env = process.env['APP_ENV'] ?? 'dev'
 
-  if (env === 'sandbox') {
-    const { KretzMockDriver } = await import('./kretz/__mocks__/kretzDriver')
-    log.info('[hardware] Modo sandbox — usando mock KRETZ')
-    return new HardwareManager(new KretzMockDriver())
-  }
-
-  if (env === 'fieldtest') {
-    // Fieldtest: drivers reales, config desde variables de entorno (primera opción)
-    // o desde secureStorage si ya fue configurado previamente.
+  if (env === 'dev') {
+    // En dev: usar hardware real si KRETZ_PORT está definido, mock en caso contrario.
     const kretzPort =
       process.env['KRETZ_PORT'] ?? getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
 
-    const { KretzRealDriver } = await import('./kretz/kretzDriver')
+    if (kretzPort) {
+      const { KretzRealDriver } = await import('./kretz/kretzDriver')
+      log.info('[hardware] Modo dev — usando driver KRETZ real', { kretzPort })
+      return new HardwareManager(new KretzRealDriver(kretzPort))
+    }
 
-    log.info('[hardware] Modo fieldtest — usando drivers reales', {
-      kretzPort: kretzPort || '(no configurado)',
-    })
-
-    return new HardwareManager(new KretzRealDriver(kretzPort))
+    const { KretzMockDriver } = await import('./kretz/__mocks__/kretzDriver')
+    log.info('[hardware] Modo dev — usando mock KRETZ (sin KRETZ_PORT)')
+    return new HardwareManager(new KretzMockDriver())
   }
 
   // Producción: leer config de secureStorage
   const kretzPort = getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
-
   const { KretzRealDriver } = await import('./kretz/kretzDriver')
-
   return new HardwareManager(new KretzRealDriver(kretzPort))
 }
 

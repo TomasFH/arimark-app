@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-export type AppEnv = 'sandbox' | 'fieldtest' | 'production'
+export type AppEnv = 'dev' | 'production'
 
 export interface HardwareStatus {
   scale: 'connected' | 'disconnected' | 'error'
@@ -244,6 +244,12 @@ export interface HwApi {
 
   /** Cierra la sesión activa */
   logout: (payload: { role: 'cashier' | 'admin'; storeId?: string }) => Promise<IpcResult>
+
+  /**
+   * Solo en modo dev — crea una sesión de cajera sin verificar credenciales.
+   * Permite saltar el login en pruebas. Siempre rechazado en producción.
+   */
+  devBypassLogin: () => Promise<IpcResult<SessionInfo>>
 
   /** Retorna el turno activo del local (null si no hay ninguno abierto) */
   getActiveShift: () => Promise<IpcResult<ShiftInfo | null>>

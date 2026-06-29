@@ -1,10 +1,10 @@
 /**
- * Panel de diagnóstico — visible en sandbox y fieldtest, oculto en producción.
+ * Panel de diagnóstico — visible solo en modo dev, oculto en producción.
  *
  * Tabs:
  *  - "Hardware": estado en tiempo real, configuración KRETZ, log de eventos.
- *  - "PLUs": crear/editar PLUs en la balanza KRETZ (fieldtest = hardware real; sandbox = mock).
- *  - "Simulador": inyección de pedidos mock (solo sandbox).
+ *  - "PLUs": crear/editar PLUs en la balanza KRETZ (real o mock según KRETZ_PORT).
+ *  - "Simulador": inyección de pedidos mock (solo cuando no hay hardware real).
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -125,43 +125,39 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
           <div className="rounded bg-gray-900/60 p-2 space-y-1">
             <p className="text-[10px] font-semibold text-gray-400">Balanza KRETZ</p>
             <StatusDot status={hwStatus.scale} />
-            {APP_ENV === 'fieldtest' && (
-              <p className="text-[10px] text-gray-600">Puerto: {config.kretzPort || '—'}</p>
-            )}
+            <p className="text-[10px] text-gray-600">Puerto: {config.kretzPort || 'mock'}</p>
           </div>
         </div>
       </div>
 
-      {/* Configuración de hardware (solo fieldtest) */}
-      {APP_ENV === 'fieldtest' && (
-        <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Configurar hardware</p>
+      {/* Configuración de hardware */}
+      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Configurar hardware</p>
 
-          <div>
-            <label className="text-[10px] text-gray-500">Puerto KRETZ (ej. COM3)</label>
-            <input
-              type="text"
-              value={editPort}
-              onChange={e => setEditPort(e.target.value)}
-              placeholder="COM3"
-              className="mt-0.5 w-full rounded bg-gray-900 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500"
-            />
-          </div>
-          {saveMsg && (
-            <p className={`text-[10px] ${saveMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
-              {saveMsg}
-            </p>
-          )}
-
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full rounded border border-orange-700 bg-orange-900/40 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-900/60 disabled:opacity-40"
-          >
-            {saving ? 'Guardando…' : 'Guardar y reiniciar para aplicar'}
-          </button>
+        <div>
+          <label className="text-[10px] text-gray-500">Puerto KRETZ (ej. COM8; vacío = mock)</label>
+          <input
+            type="text"
+            value={editPort}
+            onChange={e => setEditPort(e.target.value)}
+            placeholder="COM8"
+            className="mt-0.5 w-full rounded bg-gray-900 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+          />
         </div>
-      )}
+        {saveMsg && (
+          <p className={`text-[10px] ${saveMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+            {saveMsg}
+          </p>
+        )}
+
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full rounded border border-yellow-700 bg-yellow-900/40 py-1.5 text-xs font-semibold text-yellow-300 hover:bg-yellow-900/60 disabled:opacity-40"
+        >
+          {saving ? 'Guardando…' : 'Guardar y reiniciar para aplicar'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -211,8 +207,8 @@ function EventLog({ entries }: { entries: LogEntry[] }) {
 export default function DevToolsPanel() {
   if (APP_ENV === 'production') return null
 
-  const isSandbox = APP_ENV === 'sandbox'
-  const [tab, setTab] = useState<TabId>(APP_ENV === 'fieldtest' ? 'hardware' : 'hardware')
+  const isSandbox = APP_ENV === 'dev'
+  const [tab, setTab] = useState<TabId>('hardware')
   const [open, setOpen] = useState(true)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const logCounter = useRef(0)
@@ -306,9 +302,6 @@ export default function DevToolsPanel() {
           )}
 
           {tab === 'simulator' && isSandbox && (
-            // Reutilizamos DevScaleTicketPanel pero sin su propio guard de isSandbox
-            // DevScaleTicketPanel ya retorna null si no es sandbox, así que acá
-            // el tab solo aparece en sandbox — funciona correctamente.
             <DevScaleTicketPanel />
           )}
         </div>
