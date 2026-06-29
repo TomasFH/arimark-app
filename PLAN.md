@@ -123,7 +123,7 @@ Entregado:
 - Seguridad: `safeStorage`, entornos dev/producción separados, `afterPack`
 - Config por cliente: `business.json` con loader Zod tipado
 - Licencias: `signInAnonymously`, activación con código único, ventana 48h offline, sesiones por rol
-- Login UI: pantallas de activación, licencia inválida, cajera y admin
+- Login UI: pantallas de activación, licencia inválida, cajera y admin; botón bypass en modo dev
 - Datetime: capa UTC con helpers de presentación por timezone
 - Hardware: interfaz KRETZ + mock con modos de fallo inyectables
 - `electron-updater`: auto-check periódico, instalación solo fuera de turno activo
@@ -131,31 +131,48 @@ Entregado:
 
 ---
 
-### 🔜 Fase 1 — Hardware real: KRETZ
+### ⚠️ Fase 1 — Hardware real: KRETZ (IMPLEMENTADA — pendiente tag de cierre)
+Commits: `9c65ff3` → `81b0b55` | Tests: 176 main en verde
 
-**Objetivo:** pasar de mock KRETZ a driver real; cablear la balanza al proceso main; exponer IPC para PLUs y eventos de balanza.
+La mayoría de los entregables de esta fase están implementados y testeados en producción real:
 
-**Bloqueante documentado:** el modo de emergencia con escaneo de tickets de balanza **no se implementa** hasta haber inspeccionado empíricamente el código de barras/QR del ticket de la KRETZ RPF US30P2CAR con la configuración de código por producto activa. El agente se detiene y solicita esos datos si llega a ese punto.
+Entregado:
+- `electron/hardware/kretz/kretzDriver.ts` — driver real via `serialport`, protocolo R30, baud 115200
+- PLU management completo: probar enlace (cmd 0002), leer (cmd 5005/5001), crear/actualizar (cmd 2005), borrar (cmd 3005). Validado en carnicería con balanza KRETZ REPORT NX (sesión 15/06/2026).
+- Hardware manager: dev sin `KRETZ_PORT` usa mock; dev con `KRETZ_PORT` o producción usa driver real; gestiona conexión, reconexión con backoff exponencial, `setHardwareStatus()`.
+- IPC tipado con zod para todos los comandos de PLU y configuración de puerto.
+- Panel DevTools integrado en la app (solo modo dev) para diagnóstico, log de eventos y gestión de PLUs.
+- Tests de modos de fallo del mock (`timeout`, `garbage`, `disconnect`, `malformed_response`): implementados y testeados.
+- Tests para parser R30, protocolo R30, driver real (unit), PLU handler, hardware manager.
 
-Entregables:
-1. `electron/hardware/kretz/kretzDriver.ts` — driver real via `serialport`, protocolo R30, gestión de PLUs, eventos `connected`/`disconnected`/`error`.
-2. Hardware manager en main — dev sin `KRETZ_PORT` usa mock; dev con `KRETZ_PORT` o producción usa driver real; gestiona conexión, reconexión y actualiza `setHardwareStatus()`.
-3. IPC nuevos (con zod + tests):
-   - Suscripción/emisión de pedidos de balanza al renderer.
-   - Gestión de PLUs KRETZ (probar enlace, leer, crear/actualizar, borrar).
-   - Configuración de puerto serial KRETZ.
-4. Tests: modos de fallo de KRETZ (`timeout`, `garbage`, `disconnect`, `malformed_response`) implementados y testeados.
-
-Criterio de cierre: `pnpm run test` 100% verde, cobertura ≥ 80%, build de prod limpio, commit + tag `fase1-complete`.
+**Pendiente antes del tag `fase1-complete`:**
+- [ ] Verificar cobertura ≥ 80% en módulos de IPC y hardware (`pnpm run test:coverage`).
+- [ ] Build de producción limpio (`pnpm build:prod`), `afterPack` sin errores.
+- [ ] Bloqueante: el **modo de emergencia con escaneo de tickets** (barcode/QR del ticket físico de la KRETZ) **no se implementa** hasta inspeccionar empíricamente el código del ticket. Esto puede aplazarse si no bloquea el resto.
+- [ ] Tag: `git tag -a fase1-complete -m "Fase 1 cerrada: driver KRETZ + PLUs + DevTools panel"`
 
 ---
 
-### Fase 2 — Ventas (POS)
+### 🔜 Fase 2 — Ventas (POS) — infraestructura básica existente
 
-- Cola FIFO de `scale_tickets` en pantalla de cajera.
-- Cobros combinados (efectivo + débito + billetera).
-- Ventas manuales con aprobación admin.
-- Test obligatorio: venta multi-pago, rollback si la caja falla a mitad de transacción.
+Infraestructura ya implementada (remanente de fases previas):
+- `sale.handler.ts`: creación de ventas con ítems + pagos multi-medio, transacción atómica.
+- `CashierScreen`: cola FIFO de pedidos de balanza, selección, confirmación de venta.
+- `PaymentModal`: cobros combinados (efectivo + débito + billetera + crédito).
+- `OpenShiftScreen`: apertura de turno con cambio inicial.
+- Schema de DB: tablas `sales`, `sale_items`, `sale_payments`, `shifts`.
+
+Pendiente completar en Fase 2:
+- [ ] Ventas manuales (sin pedido de balanza) con flujo de aprobación admin en producción.
+- [ ] Vinculación producto ↔ PLU (resolución de barcode a producto en DB).
+- [ ] UI de cierre de turno (ver Fase 3).
+- [ ] Test obligatorio de integración: venta multi-pago con rollback si DB falla.
+
+---
+
+### Fase 2 — Ventas (POS) — ver estado completo arriba
+
+*(Ver bloque anterior para detalle de lo implementado vs. lo pendiente)*
 
 ### Fase 3 — Cierre de jornada y gastos
 
