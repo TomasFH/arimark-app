@@ -45,10 +45,8 @@ function createWindow(): BrowserWindow {
   const devServerUrl = process.env['VITE_DEV_SERVER_URL']
   if (isDev && devServerUrl) {
     win.loadURL(devServerUrl)
-    win.webContents.openDevTools()
   } else if (isDev) {
     win.loadURL('http://127.0.0.1:5173')
-    win.webContents.openDevTools()
   } else {
     win.loadFile(path.join(__dirname, '../../dist/index.html'))
   }

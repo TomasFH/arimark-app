@@ -61,6 +61,7 @@ Copiar `config/business.example.json` a `config/business.json` e ingresar los da
 pnpm install          # instalar dependencias
 pnpm dev              # modo pruebas con mock de balanza (desarrollo local)
 pnpm dev:hw           # modo pruebas con balanza real en COM8 (carnicería)
+pnpm dev:prod         # modo producción desde fuente (requiere business.json y Firebase)
 pnpm build:prod       # compilar instalador de producción
 pnpm test             # ejecutar suite completa
 pnpm test:coverage    # suite + reporte de cobertura

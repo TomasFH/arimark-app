@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { app } from 'electron'
+import fs from 'fs'
 import path from 'path'
 import log from 'electron-log'
 import * as schema from './schema'
@@ -27,6 +28,7 @@ export function getDb() {
 
 export function initDb(dbPath?: string): ReturnType<typeof drizzle<typeof schema>> {
   const resolvedPath = dbPath ?? getDbPath()
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true })
   log.info('[db] Abriendo base de datos', resolvedPath)
 
   const sqlite = new Database(resolvedPath)
