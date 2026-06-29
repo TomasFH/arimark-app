@@ -131,6 +131,17 @@ export interface InjectMockOrderPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Productos (catálogo local)
+// ---------------------------------------------------------------------------
+export interface ProductRow {
+  id: string
+  name: string
+  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  unit: 'kg' | 'unit'
+  pluNumber: number
+}
+
+// ---------------------------------------------------------------------------
 // Ventas (POS)
 // ---------------------------------------------------------------------------
 export interface SaleItemPayload {
@@ -251,6 +262,9 @@ export interface HwApi {
 
   /** Abre un nuevo turno para la cajera autenticada */
   openShift: (payload: OpenShiftPayload) => Promise<IpcResult<ShiftInfo>>
+
+  /** Retorna todos los productos del catálogo con PLU asignado, ordenados por PLU asc */
+  getProducts: () => Promise<IpcResult<ProductRow[]>>
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>

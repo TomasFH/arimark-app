@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
 import EmergencyBarcodeInput from '../components/EmergencyBarcodeInput'
 import PaymentModal from '../components/PaymentModal'
+import ProductsListModal from '../components/ProductsListModal'
 import type { ScaleOrder, SalePaymentPayload, ShiftInfo, SessionInfo } from '../types/hw-api'
 import { formatARS, formatKg as formatWeight } from '../lib/datetime'
 
@@ -29,6 +30,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [showProductsModal, setShowProductsModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
@@ -124,7 +126,13 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
           <span className="text-sm font-semibold text-amber-400">{shiftLabel}</span>
           <span className="text-xs text-gray-500">Turno abierto</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowProductsModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-600 hover:text-white transition-colors"
+          >
+            📋 Productos
+          </button>
           <span className="text-sm text-gray-400">
             {session.role === 'cashier' ? 'Cajera' : 'Admin'}
           </span>
@@ -316,6 +324,11 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
           onConfirm={handleConfirmSale}
           onClose={() => setShowPaymentModal(false)}
         />
+      )}
+
+      {/* Modal de lista de productos */}
+      {showProductsModal && (
+        <ProductsListModal onClose={() => setShowProductsModal(false)} />
       )}
     </div>
   )

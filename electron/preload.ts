@@ -37,6 +37,8 @@ const hw: HwApi = {
 
   openShift: payload => ipcRenderer.invoke(IPC.OPEN_SHIFT, payload),
 
+  getProducts: () => ipcRenderer.invoke(IPC.GET_PRODUCTS),
+
   createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
 
   injectMockOrder: payload => ipcRenderer.invoke(IPC.INJECT_MOCK_ORDER, payload),

@@ -7,6 +7,7 @@ import { registerShiftHandlers } from './shift.handler'
 import { registerSaleHandlers } from './sale.handler'
 import { registerMockOrderHandler } from './mockOrder.handler'
 import { registerKretzPluHandlers } from './kretzPlu.handler'
+import { registerProductsHandlers } from './products.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
 
 export function registerAllHandlers(manager: HardwareManager): void {
@@ -19,4 +20,5 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerSaleHandlers()
   registerMockOrderHandler(manager)
   registerKretzPluHandlers(manager)
+  registerProductsHandlers()
 }

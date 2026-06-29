@@ -26,6 +26,9 @@ export const IPC = {
   GET_ACTIVE_SHIFT: 'ipc:get-active-shift',
   OPEN_SHIFT: 'ipc:open-shift',
 
+  // Productos (catálogo local)
+  GET_PRODUCTS: 'ipc:get-products',
+
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',
 
