@@ -67,19 +67,6 @@ export default function App() {
     setState({ screen: 'admin', session: result.data, initStatus: state.initStatus })
   }
 
-  async function handleDevBypass(): Promise<void> {
-    if (state.screen !== 'login') return
-    const result = await window.hw.devBypassLogin()
-    if (!result.ok) throw new Error(result.error)
-
-    const session = result.data
-    const shiftResult = await window.hw.getActiveShift()
-    if (shiftResult.ok && shiftResult.data) {
-      setState({ screen: 'cashier', session, shift: shiftResult.data, initStatus: state.initStatus })
-    } else {
-      setState({ screen: 'shift-required', session, initStatus: state.initStatus })
-    }
-  }
 
   function handleActivated(): void {
     if (state.screen !== 'activation') return
@@ -127,7 +114,6 @@ export default function App() {
           businessName={state.initStatus.businessName}
           onCashierLogin={handleCashierLogin}
           onAdminLogin={handleAdminLogin}
-          onDevBypass={handleDevBypass}
         />
       )}
 

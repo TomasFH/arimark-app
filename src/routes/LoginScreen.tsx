@@ -4,14 +4,16 @@ type LoginMode = 'cashier' | 'admin'
 
 const isDevMode = import.meta.env['VITE_APP_ENV'] === 'dev'
 
+const DEV_USERNAME = 'cajera1'
+const DEV_PASSWORD = 'cajera1234'
+
 interface Props {
   onCashierLogin: (username: string, password: string) => Promise<void>
   onAdminLogin: (email: string, password: string) => Promise<void>
-  onDevBypass?: () => Promise<void>
   businessName: string
 }
 
-export default function LoginScreen({ onCashierLogin, onAdminLogin, onDevBypass, businessName }: Props) {
+export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName }: Props) {
   const [mode, setMode] = useState<LoginMode>('cashier')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -104,14 +106,14 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, onDevBypass,
           </button>
         </form>
 
-        {isDevMode && onDevBypass && (
+        {isDevMode && (
           <div className="border-t border-gray-200 pt-4">
             <button
               onClick={async () => {
                 setLoading(true)
                 setError('')
                 try {
-                  await onDevBypass()
+                  await onCashierLogin(DEV_USERNAME, DEV_PASSWORD)
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Error al saltar login.')
                 } finally {
@@ -121,7 +123,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, onDevBypass,
               disabled={loading}
               className="w-full rounded-lg border-2 border-dashed border-yellow-400 px-4 py-2.5 text-sm font-semibold text-yellow-700 bg-yellow-50 hover:bg-yellow-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              ⚠ Saltar login (modo pruebas)
+              ⚠ Saltar login — {DEV_USERNAME} (modo pruebas)
             </button>
           </div>
         )}

@@ -30,14 +30,7 @@ vi.mock('../../licensing/installation', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn().mockReturnValue({
-    license_key: 'TEST-LIC-001',
-    default_store_id: 'store-001',
-  }),
-}))
-
-vi.mock('../../activeSession', () => ({
-  setActiveSession: vi.fn(),
+  getBusinessConfig: vi.fn().mockReturnValue({ license_key: 'TEST-LIC-001' }),
 }))
 
 import { ipcMain } from 'electron'
@@ -162,21 +155,4 @@ describe('auth.handler', () => {
     })
   })
 
-  describe('DEV_BYPASS_LOGIN', () => {
-    it('retorna sesión de cajera ficticia en modo dev', async () => {
-      process.env['APP_ENV'] = 'dev'
-      const handler = getHandler('ipc:dev-bypass-login')
-      const result = await handler({}, undefined) as { ok: boolean; data?: { role: string } }
-      expect(result.ok).toBe(true)
-      expect(result.data?.role).toBe('cashier')
-    })
-
-    it('rechaza en modo producción', async () => {
-      process.env['APP_ENV'] = 'production'
-      const handler = getHandler('ipc:dev-bypass-login')
-      const result = await handler({}, undefined) as { ok: boolean; code?: string }
-      expect(result.ok).toBe(false)
-      expect(result.code).toBe('NOT_DEV')
-    })
-  })
 })
