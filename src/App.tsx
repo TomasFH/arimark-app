@@ -89,11 +89,11 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen flex-col">
       <DevBanner />
 
       {state.screen === 'loading' && (
-        <div className="flex min-h-screen items-center justify-center bg-gray-900">
+        <div className="flex flex-1 items-center justify-center bg-gray-900">
           <div className="text-center space-y-4">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white border-t-transparent" />
             <p className="text-gray-300 text-sm">Iniciando…</p>
@@ -130,7 +130,7 @@ export default function App() {
       )}
 
       {state.screen === 'admin' && (
-        <div className="flex min-h-screen items-center justify-center bg-gray-900">
+        <div className="flex flex-1 items-center justify-center bg-gray-900">
           <div className="text-center space-y-3">
             <p className="text-lg font-semibold text-white">Panel de administrador</p>
             <p className="text-sm text-gray-400">Disponible en Fase 5</p>

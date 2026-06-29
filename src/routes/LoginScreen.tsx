@@ -39,7 +39,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-900 p-6">
+    <div className="flex flex-1 items-center justify-center bg-gray-900 p-6">
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-2xl space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900">{businessName}</h1>

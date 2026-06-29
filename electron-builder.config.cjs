@@ -18,13 +18,11 @@ module.exports = {
   ],
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
-    icon: 'build-resources/icon.ico',
+    signAndEditExecutable: false,
   },
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
-    installerIcon: 'build-resources/icon.ico',
-    uninstallerIcon: 'build-resources/icon.ico',
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
   },

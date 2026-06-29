@@ -28,7 +28,7 @@ export default function ActivationScreen({ licenseKey, onActivated }: Props) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-900 p-6">
+    <div className="flex flex-1 items-center justify-center bg-gray-900 p-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl space-y-6">
         <div className="text-center">
           <span className="text-5xl">🔑</span>

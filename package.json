@@ -13,7 +13,7 @@
     "build:electron:watch": "tsc -p tsconfig.node.json --watch",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.node.json",
-    "build:prod": "cross-env APP_ENV=production VITE_APP_ENV=production pnpm run build:main && pnpm run build:renderer && electron-builder --config electron-builder.config.cjs",
+    "build:prod": "cross-env APP_ENV=production VITE_APP_ENV=production pnpm run build:main && cross-env APP_ENV=production VITE_APP_ENV=production pnpm run build:renderer && cross-env APP_ENV=production CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.cjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate:dev": "pnpm run build:main && cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron dist-electron/electron/db/migrate-cli.js",
     "seed:dev": "pnpm run build:main && cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron dist-electron/electron/db/seed-sandbox.js",

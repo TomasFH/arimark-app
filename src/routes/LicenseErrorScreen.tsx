@@ -15,7 +15,7 @@ export default function LicenseErrorScreen({ reason, message }: Props) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-900 p-6">
+    <div className="flex flex-1 items-center justify-center bg-gray-900 p-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl text-center space-y-6">
         <div className="flex justify-center">
           <span className="text-6xl">🔒</span>

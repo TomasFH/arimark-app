@@ -111,4 +111,97 @@ describe('HardwareManager — broadcast de tickets', () => {
 
     await manager.stop()
   })
+
+  it('usa orderHook en lugar de broadcast directo', async () => {
+    const mockSend = vi.fn()
+    const hook = vi.fn()
+    const { BrowserWindow } = await import('electron')
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
+      { isDestroyed: () => false, webContents: { send: mockSend } } as unknown as Electron.BrowserWindow,
+    ])
+
+    process.env['KRETZ_MOCK_MODE'] = 'normal'
+    process.env['KRETZ_MOCK_INTERVAL_MS'] = '100'
+
+    const kretz = new KretzMockDriver()
+    const manager = new HardwareManager(kretz)
+    manager.setOrderHook(hook)
+    await manager.start()
+
+    await vi.advanceTimersByTimeAsync(250)
+
+    expect(hook).toHaveBeenCalled()
+    expect(mockSend).not.toHaveBeenCalled()
+
+    await manager.stop()
+  })
+})
+
+describe('HardwareManager — mock order injection', () => {
+  it('injectMockOrder emite pedido via mock KRETZ', async () => {
+    const { kretz } = makeMocks()
+    const manager = new HardwareManager(kretz)
+    await manager.start()
+
+    expect(() =>
+      manager.injectMockOrder({
+        channel: 'A',
+        items: [{ productCode: 'ASADO', weightKg: 1.5, unitPrice: 8500 }],
+      })
+    ).not.toThrow()
+
+    await manager.stop()
+  })
+})
+
+describe('HardwareManager — delegación PLU', () => {
+  it('delega testLink al driver KRETZ', async () => {
+    const { kretz } = makeMocks()
+    const spy = vi.spyOn(kretz, 'testLink').mockResolvedValue(true)
+    const manager = new HardwareManager(kretz)
+
+    await expect(manager.kretzTestLink()).resolves.toBe(true)
+    expect(spy).toHaveBeenCalled()
+  })
+})
+
+describe('HardwareManager — fallo de conexión', () => {
+  it('marca error y programa reconexión si connect falla', async () => {
+    const kretz = new KretzMockDriver()
+    vi.spyOn(kretz, 'connect').mockRejectedValueOnce(new Error('puerto ocupado'))
+
+    const manager = new HardwareManager(kretz)
+    await manager.start()
+
+    expect(setHardwareStatus).toHaveBeenCalledWith({ scale: 'error' })
+    await manager.stop()
+  })
+})
+
+describe('createHardwareManager / singleton', () => {
+  it('createHardwareManager usa mock en dev sin KRETZ_PORT', async () => {
+    process.env['APP_ENV'] = 'dev'
+    delete process.env['KRETZ_PORT']
+
+    const { createHardwareManager } = await import('../hardwareManager')
+    const manager = await createHardwareManager()
+    expect(manager).toBeInstanceOf(HardwareManager)
+    await manager.stop()
+  })
+
+  it('getHardwareManager lanza si no fue inicializado', async () => {
+    const { getHardwareManager, _setHardwareManagerForTesting } = await import('../hardwareManager')
+    _setHardwareManagerForTesting(null as unknown as HardwareManager)
+    expect(() => getHardwareManager()).toThrow(/no inicializado/)
+  })
+
+  it('initHardwareManager expone singleton', async () => {
+    process.env['APP_ENV'] = 'dev'
+    delete process.env['KRETZ_PORT']
+
+    const { initHardwareManager, getHardwareManager } = await import('../hardwareManager')
+    const manager = await initHardwareManager()
+    expect(getHardwareManager()).toBe(manager)
+    await manager.stop()
+  })
 })

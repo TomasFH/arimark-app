@@ -116,7 +116,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
   const pendingCount = orderQueue.filter(o => o.localId !== selectedOrderId).length
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950 text-white">
+    <div className="flex flex-1 flex-col bg-gray-950 text-white">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-gray-800 bg-gray-900 px-6 py-3">
         <div className="flex items-center gap-4">

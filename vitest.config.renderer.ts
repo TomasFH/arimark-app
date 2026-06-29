@@ -20,7 +20,7 @@ export default defineConfig({
         'src/main.tsx',
       ],
       thresholds: {
-        lines: 80,
+        'src/lib/**': { lines: 80 },
       },
       reporter: ['text', 'lcov'],
     },

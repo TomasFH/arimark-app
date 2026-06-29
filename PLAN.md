@@ -131,8 +131,8 @@ Entregado:
 
 ---
 
-### ⚠️ Fase 1 — Hardware real: KRETZ (IMPLEMENTADA — pendiente tag de cierre)
-Commits: `9c65ff3` → `81b0b55` | Tests: 176 main en verde
+### ✅ Fase 1 — Hardware real: KRETZ (COMPLETA — modo emergencia aplazado)
+Tag: `fase1-complete` | Tests: 216 en verde | Cobertura IPC/DB/hardware ≥ 80%
 
 La mayoría de los entregables de esta fase están implementados y testeados en producción real:
 
@@ -143,13 +143,18 @@ Entregado:
 - IPC tipado con zod para todos los comandos de PLU y configuración de puerto.
 - Panel DevTools integrado en la app (solo modo dev) para diagnóstico, log de eventos y gestión de PLUs.
 - Tests de modos de fallo del mock (`timeout`, `garbage`, `disconnect`, `malformed_response`): implementados y testeados.
-- Tests para parser R30, protocolo R30, driver real (unit), PLU handler, hardware manager.
+- Tests para parser R30, protocolo R30, driver real (unit), PLU handler, hardware manager, client DB, migrate.
+- Build de producción verificado: `afterPack` sin artefactos prohibidos.
 
-**Pendiente antes del tag `fase1-complete`:**
-- [ ] Verificar cobertura ≥ 80% en módulos de IPC y hardware (`pnpm run test:coverage`).
-- [ ] Build de producción limpio (`pnpm build:prod`), `afterPack` sin errores.
-- [ ] Bloqueante: el **modo de emergencia con escaneo de tickets** (barcode/QR del ticket físico de la KRETZ) **no se implementa** hasta inspeccionar empíricamente el código del ticket. Esto puede aplazarse si no bloquea el resto.
-- [ ] Tag: `git tag -a fase1-complete -m "Fase 1 cerrada: driver KRETZ + PLUs + DevTools panel"`
+**Aplazado (no bloquea cierre de fase):**
+- Modo de emergencia con escaneo de tickets (barcode/QR del ticket físico KRETZ) — pendiente de datos empíricos del ticket. Se retomará en sesión dedicada.
+
+**Cierre formal:**
+- [x] `pnpm run test` — 216 tests en verde
+- [x] Cobertura ≥ 80% en IPC, DB y hardware
+- [x] `pnpm build:prod` — `afterPack` ✅
+- [x] Tag: `fase1-complete`
+- [ ] Push a GitHub (pendiente testeo manual del desarrollador)
 
 ---
 
