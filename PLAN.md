@@ -2,7 +2,7 @@
 
 ## Resumen ejecutivo
 
-Construir una app de gestión integral para carnicerías sobre **Electron + React + TS + Vite + Tailwind + SQLite/Drizzle**, offline-first, con licencias en Firebase, hardware periférico (balanza KRETZ + caja SAM4S) y dashboard web remoto. El código base es agnóstico al cliente: el primer despliegue es Arimark, pero todos los nombres/colores/logos vienen de configuración, no del código.
+Construir una app de gestión integral para carnicerías sobre **Electron + React + TS + Vite + Tailwind + SQLite/Drizzle**, offline-first, con licencias en Firebase, integración con balanza KRETZ y dashboard web remoto. El código base es agnóstico al cliente: el primer despliegue es Arimark, pero todos los nombres/colores/logos vienen de configuración, no del código.
 
 Este plan incorpora los **9 ajustes acordados** (críticos + importantes) más la **estrategia de testing automatizado** como pilar innegociable.
 
@@ -30,7 +30,6 @@ Estos cambios se aplican **antes** de implementar nada, porque condicionan arqui
 ### Almacenamiento seguro local (crítico 3)
 
 - **Electron `safeStorage`** para tokens y secretos cifrados a nivel de OS user.
-- **`@napi-rs/keyring`** para el password de la caja SAM4S (accesible desde Credential Manager de Windows si el técnico necesita inspeccionarlo).
 - Cero secretos en texto plano. Cero secretos en repo.
 
 ### Migraciones de DB
@@ -87,7 +86,6 @@ El desarrollador actúa como supervisor y QA. Ningún To-Do se cierra sin suite 
 **Mocks de hardware con modos de fallo inyectables**
 
 - `electron/hardware/kretz/__mocks__/kretzDriver.ts` — modos via `KRETZ_MOCK_MODE`: `normal`, `timeout`, `garbage`, `disconnect`.
-- `electron/hardware/fiscal/__mocks__/fiscalDriver.ts` — modos via `FISCAL_MOCK_MODE`: `normal`, `timeout`, `http_error`, `malformed_response`, `disconnect`.
 - En sandbox: mocks automáticos. En tests: se importan directamente. En producción: no incluidos en el bundle (`afterPack` lo verifica).
 
 **Testing de DB en memoria**
@@ -109,8 +107,7 @@ Renderer React
               ├── Handlers IPC + zod
               ├── SQLite + Drizzle ORM
               ├── Firebase (licencias + sync)
-              ├── KRETZ serial (balanza)
-              └── SAM4S HTTP (caja fiscal)
+              └── KRETZ serial (balanza)
 ```
 
 ---
@@ -123,32 +120,31 @@ Tag: `fase0-complete` | Commit: `935959f` | Tests: 90 en verde
 Entregado:
 - Stack completo: Electron + React + TS + Vite + Tailwind + Drizzle + Vitest + pnpm
 - DB: schema 22 tablas, migración `0000`, runner con backup previo y rollback
-- Seguridad: `safeStorage`, `@napi-rs/keyring`, sandbox/producción separados, `afterPack`
+- Seguridad: `safeStorage`, sandbox/producción separados, `afterPack`
 - Config por cliente: `business.json` con loader Zod tipado
 - Licencias: `signInAnonymously`, activación con código único, ventana 48h offline, sesiones por rol
 - Login UI: pantallas de activación, licencia inválida, cajera y admin
 - Datetime: capa UTC con helpers de presentación por timezone
-- Hardware: interfaces + mocks con modos de fallo inyectables (KRETZ y SAM4S)
+- Hardware: interfaz KRETZ + mock con modos de fallo inyectables
 - `electron-updater`: auto-check periódico, instalación solo fuera de turno activo
 - Firestore rules: `installations/{uid}`, sesiones y activity_log con permisos estrictos
 
 ---
 
-### 🔜 Fase 1 — Hardware real: KRETZ + SAM4S
+### 🔜 Fase 1 — Hardware real: KRETZ
 
-**Objetivo:** pasar de mocks a drivers reales; cablear hardware al proceso main; exponer IPC de tickets y pagos.
+**Objetivo:** pasar de mock KRETZ a driver real; cablear la balanza al proceso main; exponer IPC para PLUs y eventos de balanza.
 
 **Bloqueante documentado:** el modo de emergencia con escaneo de tickets de balanza **no se implementa** hasta haber inspeccionado empíricamente el código de barras/QR del ticket de la KRETZ RPF US30P2CAR con la configuración de código por producto activa. El agente se detiene y solicita esos datos si llega a ese punto.
 
 Entregables:
-1. `electron/hardware/kretz/kretzDriver.ts` — driver real via `serialport`, protocolo R30, parseo de `ScaleTicketData`, eventos `ticket`/`connected`/`disconnected`/`error`.
-2. `electron/hardware/fiscal/fiscalDriver.ts` — driver real via HTTP contra SAM4S NR-330F, credenciales desde `secureStorage`, `processPayment` + `issueCashReceipt`.
-3. Hardware manager en main — sandbox usa mocks, producción usa drivers reales; gestiona conexión, reconexión y actualiza `setHardwareStatus()`.
-4. IPC nuevos (con zod + tests):
-   - Suscripción/emisión de tickets de balanza al renderer.
-   - Procesamiento de pagos fiscales.
-   - Configuración de puerto serial / IP de hardware.
-5. Tests: los cuatro modos de fallo de KRETZ (`timeout`, `garbage`, `disconnect`, `malformed_response`) implementados y testeados. (SAM4S ya los tiene.)
+1. `electron/hardware/kretz/kretzDriver.ts` — driver real via `serialport`, protocolo R30, gestión de PLUs, eventos `connected`/`disconnected`/`error`.
+2. Hardware manager en main — sandbox usa mock, producción usa driver real; gestiona conexión, reconexión y actualiza `setHardwareStatus()`.
+3. IPC nuevos (con zod + tests):
+   - Suscripción/emisión de pedidos de balanza al renderer.
+   - Gestión de PLUs KRETZ (probar enlace, leer, crear/actualizar, borrar).
+   - Configuración de puerto serial KRETZ.
+4. Tests: modos de fallo de KRETZ (`timeout`, `garbage`, `disconnect`, `malformed_response`) implementados y testeados.
 
 Criterio de cierre: `pnpm run test` 100% verde, cobertura ≥ 80%, build de prod limpio, commit + tag `fase1-complete`.
 
@@ -181,7 +177,7 @@ Criterio de cierre: `pnpm run test` 100% verde, cobertura ≥ 80%, build de prod
 
 - ABM de pedidos con estado (pendiente / listo / entregado / cancelado).
 - Panel admin: catálogo de productos, precios, historial, reportes por turno/período.
-- `pending_fiscal_payments`: cobros digitales fuera de horario registrados por admin, confirmados por cajera.
+- Registro local de medios de pago. La caja registradora queda fuera del alcance de la app.
 
 ### Fase 6 — Stock ⚠️ BLOQUEADA
 
@@ -230,30 +226,27 @@ Protocolo operativo para la primera instalación en la PC del cliente. No improv
 - **`business.json` preparado** con: `business_name`, `timezone`, `logo_path`, `license_key`, `default_store_id` (UUID generado previamente), `theme`.
 - **Instalador `.exe` compilado** con `APP_ENV=production`. Probado en una PC limpia (sin Node, sin el proyecto en disco). Verificado que el banner de sandbox **no** aparece.
 - **Build de producción verificado**: `afterPack` no encontró artefactos de sandbox ni tokens de Cloudflare Tunnel.
-- **Driver JDATAGATE** de KRETZ descargado (compatible con RPF US30P2CAR). En USB o carpeta accesible.
-- **Credenciales SAM4S** a mano: IP, usuario y contraseña HTTP Basic Auth.
+- **Driver JDATAGATE** de KRETZ descargado (compatible con REPORT NX). En USB o carpeta accesible.
 - **Suite de tests en verde al 100%** antes de compilar el instalador final.
 
 ### 2. Pasos de instalación en la PC del local
 
 Ejecutar en este orden. No saltear pasos.
 
-1. Verificar red local: ping a la IP de la SAM4S. Si falla, resolver antes de continuar.
-2. Instalar driver JDATAGATE de KRETZ. Reiniciar si lo pide. Verificar en Administrador de dispositivos que el puerto aparece.
-3. Copiar `business.json` a la ruta que la app espera antes de abrirla por primera vez.
-4. Ejecutar el instalador `.exe`. Aceptar UAC si aparece.
-5. Primera apertura: ingresar `license_key` y código de activación. Verificar que la respuesta de Firebase es exitosa y que la pantalla avanza al login.
-6. Configurar credenciales SAM4S desde panel admin. Verificar con "Probar conexión".
-7. Crear el primer local desde panel admin (usar el UUID de `default_store_id`).
-8. Crear la primera cajera con contraseña provisoria.
-9. Conectar la balanza por USB-B. Verificar indicador de hardware en la app.
+1. Instalar driver JDATAGATE de KRETZ. Reiniciar si lo pide. Verificar en Administrador de dispositivos que el puerto aparece.
+2. Copiar `business.json` a la ruta que la app espera antes de abrirla por primera vez.
+3. Ejecutar el instalador `.exe`. Aceptar UAC si aparece.
+4. Primera apertura: ingresar `license_key` y código de activación. Verificar que la respuesta de Firebase es exitosa y que la pantalla avanza al login.
+5. Crear el primer local desde panel admin (usar el UUID de `default_store_id`).
+6. Crear la primera cajera con contraseña provisoria.
+7. Conectar la balanza por USB-B. Verificar indicador de hardware en la app.
 
 ### 3. Verificación antes de dejar al cliente solo
 
 No retirarse sin completar este circuito:
 
 - **Venta de punta a punta**: carnicero pesa → cajera ve ticket → confirma → cobro → venta en historial.
-- **Venta digital**: débito o billetera, SAM4S responde, `fiscal_receipt_issued` correcto.
+- **Venta digital**: registrar débito o billetera como medio de pago local; la cajera opera la caja registradora por fuera de la app.
 - **Gasto**: registrar uno, verificar que aparece en el resumen del turno.
 - **Cierre de jornada**: cambio inicial → ventas → gastos → cierre → totales correctos → diferencia de caja `$0`.
 - **Dashboard web desde celular**: ventas del día y turno activo visibles.

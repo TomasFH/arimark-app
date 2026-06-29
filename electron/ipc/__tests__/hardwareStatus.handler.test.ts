@@ -29,7 +29,6 @@ describe('hardwareStatus.handler', () => {
   it('retorna estado inicial disconnected', () => {
     const status = getHardwareStatus()
     expect(status.scale).toBe('disconnected')
-    expect(status.fiscal).toBe('disconnected')
   })
 
   it('actualiza estado y notifica ventanas', () => {
@@ -42,7 +41,6 @@ describe('hardwareStatus.handler', () => {
     const status = getHardwareStatus()
 
     expect(status.scale).toBe('connected')
-    expect(status.fiscal).toBe('disconnected')
     expect(mockSend).toHaveBeenCalledWith(
       'ipc:hardware-status-change',
       expect.objectContaining({ scale: 'connected' })

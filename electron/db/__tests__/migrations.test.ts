@@ -31,7 +31,6 @@ describe('migrations', () => {
       'sale_payments',
       'scale_tickets',
       'debt_events',
-      'pending_fiscal_payments',
       'expenses',
       'bill_denominations',
       'stock_entries',

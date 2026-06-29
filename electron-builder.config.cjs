@@ -62,7 +62,6 @@ async function verifyProductionBuild(context) {
     /APP_ENV.*sandbox/i,
     /__mocks__/,
     /kretzDriver\.mock/i,
-    /fiscalDriver\.mock/i,
   ]
 
   const FORBIDDEN_FILES = [

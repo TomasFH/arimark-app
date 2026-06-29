@@ -21,10 +21,6 @@ const hw: HwApi = {
     return () => ipcRenderer.removeListener(IPC.SCALE_ORDER, listener)
   },
 
-  processFiscalPayment: payload => ipcRenderer.invoke(IPC.PROCESS_FISCAL_PAYMENT, payload),
-
-  issueCashReceipt: payload => ipcRenderer.invoke(IPC.ISSUE_CASH_RECEIPT, payload),
-
   getHardwareConfig: () => ipcRenderer.invoke(IPC.GET_HARDWARE_CONFIG),
 
   setHardwareConfig: payload => ipcRenderer.invoke(IPC.SET_HARDWARE_CONFIG, payload),

@@ -8,7 +8,6 @@ export type AppEnv = 'sandbox' | 'fieldtest' | 'production'
 
 export interface HardwareStatus {
   scale: 'connected' | 'disconnected' | 'error'
-  fiscal: 'connected' | 'disconnected' | 'error'
 }
 
 export interface IpcResponse<T = void> {
@@ -161,30 +160,6 @@ export interface CreateSalePayload {
 export interface SaleResult {
   saleId: string
   total: number
-  fiscalReceiptIssued: boolean
-  receiptNumbers: string[]
-}
-
-// ---------------------------------------------------------------------------
-// Hardware — pagos fiscales (SAM4S)
-// ---------------------------------------------------------------------------
-export type PaymentMethod = 'debit' | 'wallet' | 'credit'
-
-export interface FiscalPaymentPayload {
-  amount: number
-  paymentMethod: PaymentMethod
-  referenceId: string
-}
-
-export interface FiscalPaymentResult {
-  ok: boolean
-  receiptNumber?: string
-  error?: string
-}
-
-export interface CashReceiptPayload {
-  amount: number
-  referenceId: string
 }
 
 // ---------------------------------------------------------------------------
@@ -229,16 +204,9 @@ export interface DeletePluPayload {
 export interface HardwareConfig {
   /** Puerto serial de la balanza KRETZ, ej. "COM3" */
   kretzPort?: string
-  /** IP de la caja SAM4S, ej. "192.168.1.1" */
-  sam4sIp?: string
-  /** Usuario HTTP Basic Auth de la SAM4S */
-  sam4sUser?: string
 }
 
-export interface SetHardwareConfigPayload extends HardwareConfig {
-  /** Contraseña HTTP Basic Auth de la SAM4S (solo se escribe, nunca se lee de vuelta) */
-  sam4sPassword?: string
-}
+export type SetHardwareConfigPayload = HardwareConfig
 
 // ---------------------------------------------------------------------------
 // API pública expuesta al renderer
@@ -258,12 +226,6 @@ export interface HwApi {
 
   /** Registra callback para pedidos completos de la balanza KRETZ. Retorna función para desuscribirse. */
   onScaleOrder: (cb: (order: ScaleOrder) => void) => () => void
-
-  /** Procesa un pago en la caja registradora SAM4S */
-  processFiscalPayment: (payload: FiscalPaymentPayload) => Promise<IpcResult<FiscalPaymentResult>>
-
-  /** Emite comprobante en efectivo en la SAM4S */
-  issueCashReceipt: (payload: CashReceiptPayload) => Promise<IpcResult<FiscalPaymentResult>>
 
   /** Retorna la configuración de hardware guardada (sin contraseñas) */
   getHardwareConfig: () => Promise<IpcResult<HardwareConfig>>

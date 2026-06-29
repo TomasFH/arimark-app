@@ -8,7 +8,6 @@ const getHardwareStatusPayloadSchema = z.undefined()
 
 let currentStatus: HardwareStatus = {
   scale: 'disconnected',
-  fiscal: 'disconnected',
 }
 
 export function setHardwareStatus(update: Partial<HardwareStatus>): void {

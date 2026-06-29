@@ -1,7 +1,6 @@
 import { registerAppInfoHandler } from './appInfo.handler'
 import { registerHardwareStatusHandler } from './hardwareStatus.handler'
 import { registerAuthHandlers } from './auth.handler'
-import { registerFiscalPaymentHandlers } from './fiscalPayment.handler'
 import { registerHardwareConfigHandlers } from './hardwareConfig.handler'
 import { registerInitStatusHandler } from './initStatus.handler'
 import { registerShiftHandlers } from './shift.handler'
@@ -15,10 +14,9 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerAppInfoHandler()
   registerHardwareStatusHandler()
   registerAuthHandlers()
-  registerFiscalPaymentHandlers(manager)
   registerHardwareConfigHandlers()
   registerShiftHandlers()
-  registerSaleHandlers(manager)
+  registerSaleHandlers()
   registerMockOrderHandler(manager)
   registerKretzPluHandlers(manager)
 }

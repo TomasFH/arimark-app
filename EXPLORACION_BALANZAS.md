@@ -147,7 +147,8 @@ Estas acciones desbloquean las tres ideas de arriba:
 
 3. **Intentar conectar la balanza al puerto serial** — aunque sea brevemente, ver si el driver existente recibe frames y si el parser R30 los procesa correctamente. Ver los logs de la app.
 
-4. **Probar la SAM4S** — conexión HTTP, credenciales, respuesta a un pago de prueba.
+4. **Validar flujo operativo de caja** — confirmar cómo registrar en la app el medio de pago
+   mientras la cajera opera la registradora por fuera del sistema.
 
 ---
 

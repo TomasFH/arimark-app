@@ -25,10 +25,11 @@ import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { registerSaleHandlers } from '../sale.handler'
-import type { HardwareManager } from '../../hardware/hardwareManager'
 import type { CreateSalePayload } from '../../../src/types/hw-api'
 
 type HandlerFn = (_event: unknown, payload: unknown) => Promise<unknown>
+type TestTransaction = (cb: (tx: unknown) => void) => void
+type TransactionMock = ReturnType<typeof vi.fn<TestTransaction>>
 
 function getHandler(channel: string): HandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === channel)
@@ -50,20 +51,6 @@ const MULTI_PAYMENT_SALE: CreateSalePayload = {
     { paymentMethod: 'debit', amount: 2000 },
   ],
   scaleOrderId: 'order-001',
-}
-
-// ---------------------------------------------------------------------------
-// Mock helpers
-// ---------------------------------------------------------------------------
-
-function makeMockManager(overrides?: Partial<HardwareManager>): HardwareManager {
-  return {
-    processPayment: vi.fn().mockResolvedValue({ ok: true, receiptNumber: 'R001' }),
-    issueCashReceipt: vi.fn().mockResolvedValue({ ok: true, receiptNumber: 'R002' }),
-    start: vi.fn(),
-    stop: vi.fn(),
-    ...overrides,
-  } as unknown as HardwareManager
 }
 
 function makeMockDb() {
@@ -88,13 +75,10 @@ function makeMockDb() {
 // ---------------------------------------------------------------------------
 
 describe('sale.handler — CREATE_SALE', () => {
-  let manager: HardwareManager
-
   beforeEach(() => {
     vi.clearAllMocks()
     process.env['APP_ENV'] = 'sandbox'
-    manager = makeMockManager()
-    registerSaleHandlers(manager)
+    registerSaleHandlers()
   })
 
   it('rechaza payload inválido (sin items)', async () => {
@@ -150,53 +134,38 @@ describe('sale.handler — CREATE_SALE', () => {
     expect(result).toMatchObject({ ok: false, code: 'ADMIN_REQUIRED' })
   })
 
-  // ---------------------------------------------------------------------------
-  // Test obligatorio: venta multi-pago + rollback si SAM4S falla
-  // ---------------------------------------------------------------------------
-  it('hace rollback de la venta si el pago digital es rechazado por la caja', async () => {
+  it('registra venta multipago de forma local', async () => {
     vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
-
-    manager = makeMockManager({
-      processPayment: vi.fn().mockResolvedValue({ ok: false, error: 'Terminal sin conexión' }),
-    })
-    // Re-registrar el handler con el nuevo manager
-    vi.mocked(ipcMain.handle).mockClear()
-    registerSaleHandlers(manager)
-
-    const { db, mockTx } = makeMockDb()
-    vi.mocked(getDb).mockReturnValue(db)
-
-    const handler = getHandler('ipc:create-sale')
-    const result = await handler({}, MULTI_PAYMENT_SALE) as { ok: boolean; code: string }
-
-    // El handler debe devolver error
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe('FISCAL_ERROR')
-
-    // La transacción compensatoria debe haberse llamado
-    // (2 transaction calls: initial insert + discard rollback)
-    const txCalls = vi.mocked(db.transaction).mock.calls
-    expect(txCalls.length).toBeGreaterThanOrEqual(2)
-
-    // El UPDATE de discard debe haberse ejecutado
-    expect(mockTx.update).toHaveBeenCalled()
-  })
-
-  it('confirma la venta aunque el comprobante de efectivo falle (no es crítico)', async () => {
-    vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
-    manager = makeMockManager({
-      issueCashReceipt: vi.fn().mockRejectedValue(new Error('SAM4S offline')),
-    })
-    vi.mocked(ipcMain.handle).mockClear()
-    registerSaleHandlers(manager)
-
     const { db } = makeMockDb()
     vi.mocked(getDb).mockReturnValue(db)
 
     const handler = getHandler('ipc:create-sale')
-    const result = await handler({}, VALID_SALE) as { ok: boolean }
+    const result = await handler({}, MULTI_PAYMENT_SALE) as { ok: boolean; data: { saleId: string; total: number } }
 
-    // Debe confirmar igualmente
     expect(result.ok).toBe(true)
+    expect(result.data.total).toBe(3000)
+  })
+
+  it('descarta la venta si falla la transacción de confirmación', async () => {
+    vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+    const { db } = makeMockDb()
+    const transaction = db.transaction as unknown as TransactionMock
+    transaction
+      .mockImplementationOnce((cb: (tx: unknown) => void) => cb({
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ run: vi.fn() }) }),
+        update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ run: vi.fn() }) }) }),
+      }))
+      .mockImplementationOnce(() => { throw new Error('confirm failed') })
+      .mockImplementationOnce((cb: (tx: unknown) => void) => cb({
+        update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ run: vi.fn() }) }) }),
+      }))
+    vi.mocked(getDb).mockReturnValue(db)
+
+    const handler = getHandler('ipc:create-sale')
+    const result = await handler({}, VALID_SALE) as { ok: boolean; code: string }
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('DB_ERROR')
+    expect(transaction.mock.calls.length).toBe(3)
   })
 })

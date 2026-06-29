@@ -6,58 +6,36 @@
  * - Gestionar el ciclo de vida: connect al arrancar, disconnect al cerrar.
  * - Reconexión automática con backoff exponencial si un driver se desconecta.
  * - Actualizar el estado visible (setHardwareStatus) en cada cambio.
- * - Broadcast de tickets de balanza a todas las ventanas abiertas.
+ * - Broadcast de pedidos de balanza a todas las ventanas abiertas.
  */
 
 import { BrowserWindow } from 'electron'
 import log from 'electron-log'
 import { IPC } from '../ipc/channels'
 import { setHardwareStatus } from '../ipc/hardwareStatus.handler'
-import { getSecret, getCredential, SECRET_KEYS, CREDENTIAL_ACCOUNTS } from '../secureStorage'
+import { getSecret, SECRET_KEYS } from '../secureStorage'
 import type { KretzDriver, ScaleOrderData, SendPluArgs, PluRow } from './kretz/kretzDriver.interface'
-import type { FiscalDriver, FiscalPaymentRequest, FiscalPaymentResult } from './fiscal/fiscalDriver.interface'
 
 const MIN_RECONNECT_MS = 5_000
 const MAX_RECONNECT_MS = 30_000
 
 export class HardwareManager {
   private _kretzReconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private _fiscalReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _kretzReconnectDelay = MIN_RECONNECT_MS
-  private _fiscalReconnectDelay = MIN_RECONNECT_MS
 
-  constructor(
-    private readonly kretz: KretzDriver,
-    private readonly fiscal: FiscalDriver,
-    private readonly fiscalEnabled = true
-  ) {
+  constructor(private readonly kretz: KretzDriver) {
     this._wireKretzEvents()
-    this._wireFiscalEvents()
   }
 
-  /** Inicia conexión con ambos periféricos. Llamar al arrancar la app. */
+  /** Inicia conexión con la balanza. Llamar al arrancar la app. */
   async start(): Promise<void> {
-    const tasks: Array<Promise<void>> = [this._connectKretz()]
-    if (this.fiscalEnabled) tasks.push(this._connectFiscal())
-    else setHardwareStatus({ fiscal: 'disconnected' })
-    await Promise.allSettled(tasks)
+    await Promise.allSettled([this._connectKretz()])
   }
 
   /** Cierra conexión limpiamente. Llamar al cerrar la app. */
   async stop(): Promise<void> {
     this._clearReconnect('kretz')
-    this._clearReconnect('fiscal')
-    const tasks: Array<Promise<void>> = [this.kretz.disconnect()]
-    if (this.fiscalEnabled) tasks.push(this.fiscal.disconnect())
-    await Promise.allSettled(tasks)
-  }
-
-  async processPayment(req: FiscalPaymentRequest): Promise<FiscalPaymentResult> {
-    return this.fiscal.processPayment(req)
-  }
-
-  async issueCashReceipt(amount: number, referenceId: string): Promise<FiscalPaymentResult> {
-    return this.fiscal.issueCashReceipt(amount, referenceId)
+    await Promise.allSettled([this.kretz.disconnect()])
   }
 
   // ---------------------------------------------------------------------------
@@ -115,52 +93,27 @@ export class HardwareManager {
     } catch (err) {
       log.error('[hardware] Fallo al conectar KRETZ', err)
       setHardwareStatus({ scale: 'error' })
-      this._scheduleReconnect('kretz')
+      this._scheduleReconnect()
     }
   }
 
-  private async _connectFiscal(): Promise<void> {
-    if (!this.fiscalEnabled) return
+  private _scheduleReconnect(): void {
+    this._clearReconnect('kretz')
+    const delay = this._kretzReconnectDelay
 
-    try {
-      await this.fiscal.connect()
-      this._fiscalReconnectDelay = MIN_RECONNECT_MS
-      setHardwareStatus({ fiscal: 'connected' })
-      log.info('[hardware] SAM4S conectada')
-    } catch (err) {
-      log.error('[hardware] Fallo al conectar SAM4S', err)
-      setHardwareStatus({ fiscal: 'error' })
-      if (this.fiscalEnabled) this._scheduleReconnect('fiscal')
-    }
-  }
-
-  private _scheduleReconnect(device: 'kretz' | 'fiscal'): void {
-    this._clearReconnect(device)
-    const delay = device === 'kretz' ? this._kretzReconnectDelay : this._fiscalReconnectDelay
-
-    log.info(`[hardware] Reconexión ${device} en ${delay}ms`)
+    log.info(`[hardware] Reconexión kretz en ${delay}ms`)
     const timer = setTimeout(() => {
-      if (device === 'kretz') {
-        this._kretzReconnectDelay = Math.min(this._kretzReconnectDelay * 2, MAX_RECONNECT_MS)
-        void this._connectKretz()
-      } else {
-        this._fiscalReconnectDelay = Math.min(this._fiscalReconnectDelay * 2, MAX_RECONNECT_MS)
-        if (this.fiscalEnabled) void this._connectFiscal()
-      }
+      this._kretzReconnectDelay = Math.min(this._kretzReconnectDelay * 2, MAX_RECONNECT_MS)
+      void this._connectKretz()
     }, delay)
 
-    if (device === 'kretz') this._kretzReconnectTimer = timer
-    else this._fiscalReconnectTimer = timer
+    this._kretzReconnectTimer = timer
   }
 
-  private _clearReconnect(device: 'kretz' | 'fiscal'): void {
+  private _clearReconnect(device: 'kretz'): void {
     if (device === 'kretz' && this._kretzReconnectTimer) {
       clearTimeout(this._kretzReconnectTimer)
       this._kretzReconnectTimer = null
-    }
-    if (device === 'fiscal' && this._fiscalReconnectTimer) {
-      clearTimeout(this._fiscalReconnectTimer)
-      this._fiscalReconnectTimer = null
     }
   }
 
@@ -178,7 +131,7 @@ export class HardwareManager {
     this.kretz.on('disconnected', () => {
       log.warn('[hardware] KRETZ desconectada — reconectando...')
       setHardwareStatus({ scale: 'disconnected' })
-      this._scheduleReconnect('kretz')
+      this._scheduleReconnect()
     })
 
     this.kretz.on('error', (err: Error) => {
@@ -189,11 +142,6 @@ export class HardwareManager {
     this.kretz.on('order', (order: ScaleOrderData) => {
       this._broadcastOrder(order)
     })
-  }
-
-  private _wireFiscalEvents(): void {
-    // El FiscalDriver no es EventEmitter; los errores llegan como valores de retorno.
-    // Si en el futuro se necesita, se puede extender FiscalDriver con EventEmitter.
   }
 
   /**
@@ -230,52 +178,31 @@ export async function createHardwareManager(): Promise<HardwareManager> {
 
   if (env === 'sandbox') {
     const { KretzMockDriver } = await import('./kretz/__mocks__/kretzDriver')
-    const { FiscalMockDriver } = await import('./fiscal/__mocks__/fiscalDriver')
-    log.info('[hardware] Modo sandbox — usando mocks de hardware')
-    return new HardwareManager(new KretzMockDriver(), new FiscalMockDriver())
+    log.info('[hardware] Modo sandbox — usando mock KRETZ')
+    return new HardwareManager(new KretzMockDriver())
   }
 
   if (env === 'fieldtest') {
     // Fieldtest: drivers reales, config desde variables de entorno (primera opción)
     // o desde secureStorage si ya fue configurado previamente.
-    // Uso: KRETZ_PORT=COM3 SAM4S_IP=192.168.1.x SAM4S_USER=admin SAM4S_PASSWORD=... pnpm dev:fieldtest
     const kretzPort =
       process.env['KRETZ_PORT'] ?? getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
-    const sam4sIp =
-      process.env['SAM4S_IP'] ?? getSecret(SECRET_KEYS.SAM4S_IP) ?? ''
-    const sam4sUser =
-      process.env['SAM4S_USER'] ?? getCredential(CREDENTIAL_ACCOUNTS.SAM4S_USER) ?? ''
-    const sam4sPassword =
-      process.env['SAM4S_PASSWORD'] ?? getCredential(CREDENTIAL_ACCOUNTS.SAM4S_PASSWORD) ?? ''
 
     const { KretzRealDriver } = await import('./kretz/kretzDriver')
-    const { FiscalRealDriver } = await import('./fiscal/fiscalDriver')
 
     log.info('[hardware] Modo fieldtest — usando drivers reales', {
       kretzPort: kretzPort || '(no configurado)',
-      fiscal: sam4sIp.trim() === '' ? 'desactivada' : 'configurada',
     })
 
-    return new HardwareManager(
-      new KretzRealDriver(kretzPort),
-      new FiscalRealDriver(sam4sIp, sam4sUser, sam4sPassword),
-      sam4sIp.trim() !== ''
-    )
+    return new HardwareManager(new KretzRealDriver(kretzPort))
   }
 
   // Producción: leer config de secureStorage
   const kretzPort = getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
-  const sam4sIp = getSecret(SECRET_KEYS.SAM4S_IP) ?? ''
-  const sam4sUser = getCredential(CREDENTIAL_ACCOUNTS.SAM4S_USER) ?? ''
-  const sam4sPassword = getCredential(CREDENTIAL_ACCOUNTS.SAM4S_PASSWORD) ?? ''
 
   const { KretzRealDriver } = await import('./kretz/kretzDriver')
-  const { FiscalRealDriver } = await import('./fiscal/fiscalDriver')
 
-  return new HardwareManager(
-    new KretzRealDriver(kretzPort),
-    new FiscalRealDriver(sam4sIp, sam4sUser, sam4sPassword)
-  )
+  return new HardwareManager(new KretzRealDriver(kretzPort))
 }
 
 // ---------------------------------------------------------------------------

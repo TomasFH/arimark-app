@@ -8,7 +8,6 @@ import { getDb } from '../db/client'
 import { sales, saleItems, salePayments, scaleOrders } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getStoredAdminSession } from './auth.handler'
-import type { HardwareManager } from '../hardware/hardwareManager'
 import type { IpcResult, SaleResult } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
@@ -50,7 +49,7 @@ const createSaleSchema = z
 // Handler
 // ---------------------------------------------------------------------------
 
-export function registerSaleHandlers(manager: HardwareManager): void {
+export function registerSaleHandlers(): void {
   ipcMain.handle(IPC.CREATE_SALE, async (_event, payload: unknown): Promise<IpcResult<SaleResult>> => {
     const parsed = createSaleSchema.safeParse(payload)
     if (!parsed.success) {
@@ -124,7 +123,6 @@ export function registerSaleHandlers(manager: HardwareManager): void {
             manualEntry: manualEntry ?? false,
             manualApprovedBy,
             manualApprovedAt,
-            fiscalReceiptIssued: false,
             notes: notes ?? null,
             createdAt: now,
             createdBy: session.userId,
@@ -160,68 +158,13 @@ export function registerSaleHandlers(manager: HardwareManager): void {
     }
 
     // -------------------------------------------------------------------------
-    // Fase 2: Pagos digitales (async) — si falla, revertir en DB
-    // -------------------------------------------------------------------------
-    const digitalPayments = payments.filter(p => p.paymentMethod !== 'cash')
-    const receiptNumbers: string[] = []
-
-    for (const payment of digitalPayments) {
-      try {
-        const result = await manager.processPayment({
-          amount: payment.amount,
-          paymentMethod: payment.paymentMethod as 'debit' | 'wallet' | 'credit',
-          referenceId: saleId,
-        })
-
-        if (!result.ok) {
-          log.warn('[ipc:create-sale] Pago digital rechazado', { method: payment.paymentMethod, error: result.error })
-          _discardSale(db, saleId, scaleOrderId)
-          return {
-            ok: false,
-            error: `Pago ${payment.paymentMethod} rechazado: ${result.error ?? 'Error de caja registradora'}`,
-            code: 'FISCAL_ERROR',
-          }
-        }
-
-        if (result.receiptNumber) receiptNumbers.push(result.receiptNumber)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        log.error('[ipc:create-sale] Error de comunicación con SAM4S', message)
-        _discardSale(db, saleId, scaleOrderId)
-        return {
-          ok: false,
-          error: 'Error de comunicación con la caja registradora.',
-          code: 'FISCAL_ERROR',
-        }
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Fase 3: Comprobante de efectivo (no crítico — si falla, igual se confirma)
-    // -------------------------------------------------------------------------
-    const cashTotal = payments.filter(p => p.paymentMethod === 'cash').reduce((s, p) => s + p.amount, 0)
-    let fiscalReceiptIssued = digitalPayments.length > 0
-
-    if (cashTotal > 0) {
-      try {
-        const result = await manager.issueCashReceipt(cashTotal, saleId)
-        if (result.ok) {
-          fiscalReceiptIssued = true
-          if (result.receiptNumber) receiptNumbers.push(result.receiptNumber)
-        }
-      } catch (err) {
-        log.warn('[ipc:create-sale] No se pudo emitir comprobante en efectivo', err)
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Fase 4: Confirmar venta + insertar pagos
+    // Fase 2: Confirmar venta + insertar pagos
     // -------------------------------------------------------------------------
     try {
       const confirmAt = new Date().toISOString()
       db.transaction(tx => {
         tx.update(sales)
-          .set({ status: 'confirmed', fiscalReceiptIssued })
+          .set({ status: 'confirmed' })
           .where(eq(sales.id, saleId))
           .run()
 
@@ -241,22 +184,21 @@ export function registerSaleHandlers(manager: HardwareManager): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log.error('[ipc:create-sale] Error al confirmar venta', message)
-      // La venta fue procesada fiscalmente — no se puede descartar. Devolver error
-      // pero sin revertir para evitar inconsistencia entre caja y DB.
+      _discardSale(db, saleId, scaleOrderId)
       return {
         ok: false,
-        error: 'La venta fue procesada pero hubo un error al guardarla. Contactar al administrador.',
+        error: 'No se pudo confirmar la venta. Intentar nuevamente.',
         code: 'DB_ERROR',
       }
     }
 
     log.info('[ipc:create-sale] Venta confirmada', { saleId, total, payments: payments.length })
-    return { ok: true, data: { saleId, total, fiscalReceiptIssued, receiptNumbers } }
+    return { ok: true, data: { saleId, total } }
   })
 }
 
 // ---------------------------------------------------------------------------
-// Transacción compensatoria — descarta la venta si los pagos fiscales fallan
+// Transacción compensatoria — descarta la venta si falla la confirmación local
 // ---------------------------------------------------------------------------
 
 function _discardSale(

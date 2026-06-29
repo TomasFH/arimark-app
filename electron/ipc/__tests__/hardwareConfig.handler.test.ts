@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { registerHardwareConfigHandlers } from '../hardwareConfig.handler'
 
-const { mockHandle, mockGetSecret, mockSetSecret, mockGetCredential, mockSetCredential } =
+const { mockHandle, mockGetSecret, mockSetSecret } =
   vi.hoisted(() => ({
     mockHandle: vi.fn(),
     mockGetSecret: vi.fn(),
     mockSetSecret: vi.fn(),
-    mockGetCredential: vi.fn(),
-    mockSetCredential: vi.fn(),
   }))
 
 vi.mock('electron', () => ({
@@ -21,10 +19,7 @@ vi.mock('electron-log', () => ({
 vi.mock('../../secureStorage', () => ({
   getSecret: mockGetSecret,
   setSecret: mockSetSecret,
-  getCredential: mockGetCredential,
-  setCredential: mockSetCredential,
-  SECRET_KEYS: { KRETZ_PORT: 'kretz-port', SAM4S_IP: 'sam4s-ip' },
-  CREDENTIAL_ACCOUNTS: { SAM4S_USER: 'sam4s-user', SAM4S_PASSWORD: 'sam4s-password' },
+  SECRET_KEYS: { KRETZ_PORT: 'kretz-port' },
 }))
 
 function getHandler(channel: string) {
@@ -41,10 +36,8 @@ describe('getHardwareConfig', () => {
   it('retorna configuración desde secureStorage', () => {
     mockGetSecret.mockImplementation((key: string) => {
       if (key === 'kretz-port') return 'COM3'
-      if (key === 'sam4s-ip') return '192.168.1.1'
       return null
     })
-    mockGetCredential.mockReturnValue('admin')
 
     registerHardwareConfigHandlers()
     const handler = getHandler('ipc:get-hardware-config')
@@ -53,16 +46,11 @@ describe('getHardwareConfig', () => {
     expect(result.ok).toBe(true)
     expect(result.data).toMatchObject({
       kretzPort: 'COM3',
-      sam4sIp: '192.168.1.1',
-      sam4sUser: 'admin',
     })
-    // La contraseña NUNCA se devuelve
-    expect(result.data).not.toHaveProperty('sam4sPassword')
   })
 
   it('retorna campos undefined cuando no hay config guardada', () => {
     mockGetSecret.mockReturnValue(null)
-    mockGetCredential.mockReturnValue(null)
 
     registerHardwareConfigHandlers()
     const handler = getHandler('ipc:get-hardware-config')
@@ -70,7 +58,6 @@ describe('getHardwareConfig', () => {
 
     expect(result.ok).toBe(true)
     expect(result.data.kretzPort).toBeUndefined()
-    expect(result.data.sam4sIp).toBeUndefined()
   })
 
   it('rechaza payload no undefined', () => {
@@ -106,32 +93,13 @@ describe('setHardwareConfig — happy path', () => {
     expect(result.ok).toBe(true)
     expect(mockSetSecret).toHaveBeenCalledWith('kretz-port', 'COM4')
   })
-
-  it('guarda sam4sIp en safeStorage', () => {
-    registerHardwareConfigHandlers()
-    const handler = getHandler('ipc:set-hardware-config')
-    handler(null, { sam4sIp: '10.0.0.1' })
-
-    expect(mockSetSecret).toHaveBeenCalledWith('sam4s-ip', '10.0.0.1')
-  })
-
-  it('guarda credenciales SAM4S en keyring', () => {
-    registerHardwareConfigHandlers()
-    const handler = getHandler('ipc:set-hardware-config')
-    handler(null, { sam4sUser: 'admin', sam4sPassword: 'secret123' })
-
-    expect(mockSetCredential).toHaveBeenCalledWith('sam4s-user', 'admin')
-    expect(mockSetCredential).toHaveBeenCalledWith('sam4s-password', 'secret123')
-  })
-
   it('solo guarda los campos que vienen en el payload', () => {
     registerHardwareConfigHandlers()
     const handler = getHandler('ipc:set-hardware-config')
-    handler(null, { sam4sIp: '192.168.0.5' })
+    handler(null, { kretzPort: 'COM8' })
 
     expect(mockSetSecret).toHaveBeenCalledTimes(1)
-    expect(mockSetSecret).toHaveBeenCalledWith('sam4s-ip', '192.168.0.5')
-    expect(mockSetCredential).not.toHaveBeenCalled()
+    expect(mockSetSecret).toHaveBeenCalledWith('kretz-port', 'COM8')
   })
 })
 

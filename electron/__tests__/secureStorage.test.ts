@@ -26,17 +26,6 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('@napi-rs/keyring', () => {
-  const store = new Map<string, string>()
-  return {
-    Entry: vi.fn().mockImplementation((_service: string, account: string) => ({
-      setPassword: vi.fn((pw: string) => store.set(account, pw)),
-      getPassword: vi.fn(() => store.get(account) ?? null),
-      deletePassword: vi.fn(() => store.delete(account)),
-    })),
-  }
-})
-
 vi.mock('electron-log', () => ({
   default: {
     error: vi.fn(),
@@ -51,9 +40,6 @@ import {
   setSecret,
   getSecret,
   deleteSecret,
-  setCredential,
-  getCredential,
-  deleteCredential,
 } from '../secureStorage'
 
 describe('secureStorage — safeStorage', () => {
@@ -78,22 +64,5 @@ describe('secureStorage — safeStorage', () => {
     setSecret('borrar-esto', 'valor')
     deleteSecret('borrar-esto')
     expect(getSecret('borrar-esto')).toBeNull()
-  })
-})
-
-describe('secureStorage — keyring (SAM4S credentials)', () => {
-  it('guarda y recupera credenciales', () => {
-    setCredential('sam4s-user', 'admin')
-    expect(getCredential('sam4s-user')).toBe('admin')
-  })
-
-  it('retorna null si la credencial no existe', () => {
-    expect(getCredential('inexistente-account')).toBeNull()
-  })
-
-  it('elimina credencial', () => {
-    setCredential('cuenta-borrar', 'pw123')
-    deleteCredential('cuenta-borrar')
-    expect(getCredential('cuenta-borrar')).toBeNull()
   })
 })

@@ -54,7 +54,8 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 
 ## Arquitectura — separación de capas
 
-- Todo acceso a hardware (balanza KRETZ, caja SAM4S) y a servicios externos (Firebase) ocurre **exclusivamente en el proceso main** de Electron. Nunca en el renderer.
+- Todo acceso a hardware soportado por la app (balanza KRETZ) y a servicios externos (Firebase) ocurre **exclusivamente en el proceso main** de Electron. Nunca en el renderer.
+- La app **no interactúa con la caja registradora** bajo ningún aspecto. Las cajeras la operan manualmente por fuera del sistema.
 - El renderer (React) **nunca** abre sockets, hace fetch, ni accede a Firebase directamente.
 - La comunicación entre main y renderer ocurre **únicamente mediante IPC tipado** a través del preload (`window.hw`).
 - Si el agente se encuentra escribiendo código de red o hardware en el renderer, debe detenerse, reorganizar la arquitectura y avisar al desarrollador antes de continuar.
@@ -83,7 +84,7 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 
 ## Seguridad
 
-- **Cero secretos en texto plano.** Tokens y credenciales sensibles van en `safeStorage` (Electron) o `@napi-rs/keyring`. Nunca en archivos de texto ni en el repo.
+- **Cero secretos en texto plano.** Tokens y credenciales sensibles van en `safeStorage` (Electron). Nunca en archivos de texto ni en el repo.
 - Ningún secret, API key ni credencial se hardcodea en el código fuente. Todo va en variables de entorno inyectadas en tiempo de build.
 - Las variables de entorno de producción nunca se incluyen en el repositorio (`.env*` está en `.gitignore`).
 - El build de producción no contiene tokens de Cloudflare Tunnel. El Cloudflare Tunnel es exclusivamente una herramienta de desarrollo del desarrollador, no una feature de la app.
@@ -147,7 +148,7 @@ Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refier
 
 ## Hardware — mocks
 
-- Los mocks de hardware (`__mocks__/kretzDriver.ts` y `__mocks__/fiscalDriver.ts`) **nunca se incluyen en el bundle de producción**. El `afterPack` lo verifica.
+- Los mocks de hardware (`__mocks__/kretzDriver.ts`) **nunca se incluyen en el bundle de producción**. El `afterPack` lo verifica.
 - En `APP_ENV=sandbox`, la app usa automáticamente los mocks.
 - En tests, los mocks se importan directamente.
 - Los modos de fallo inyectables (`timeout`, `garbage`, `disconnect`, `malformed_response`) deben estar implementados y testeados antes de cerrar la Fase 1.

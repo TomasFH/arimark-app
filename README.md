@@ -17,10 +17,9 @@ App de gestión integral para carnicerías. Offline-first, construida sobre Elec
 | Base de datos | SQLite + Drizzle ORM (`better-sqlite3`) |
 | Validación | Zod (runtime IPC) |
 | Testing | Vitest |
-| Balanza | `serialport` (protocolo R30, KRETZ RPF US30P2CAR) |
-| Caja registradora | HTTP (`node:http`, SAM4S NR-330F) |
+| Balanza | `serialport` (protocolo R30, KRETZ REPORT NX) |
 | Licencias | Firebase Firestore + Firebase Authentication |
-| Almacenamiento seguro | `electron.safeStorage` + `@napi-rs/keyring` |
+| Almacenamiento seguro | `electron.safeStorage` |
 | Build | electron-builder (NSIS, Windows) |
 | Gestor de paquetes | **pnpm** (obligatorio) |
 
@@ -79,7 +78,6 @@ electron/
   db/                  ← cliente SQLite, schema, migraciones, backups
   hardware/
     kretz/             ← driver balanza KRETZ (protocolo R30)
-    fiscal/            ← driver caja SAM4S (HTTP)
   licensing/           ← Firebase Auth, verificación de licencia, sesiones
   ipc/                 ← handlers IPC tipados con validación zod
 

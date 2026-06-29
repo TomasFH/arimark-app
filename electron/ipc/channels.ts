@@ -18,11 +18,7 @@ export const IPC = {
   /** Sandbox/dev: inyectar un pedido completo en la cola de balanza */
   INJECT_MOCK_ORDER: 'ipc:inject-mock-order',
 
-  // Caja SAM4S
-  PROCESS_FISCAL_PAYMENT: 'ipc:process-fiscal-payment',
-  ISSUE_CASH_RECEIPT: 'ipc:issue-cash-receipt',
-
-  // Configuración de hardware (port, IP, credenciales)
+  // Configuración de hardware
   GET_HARDWARE_CONFIG: 'ipc:get-hardware-config',
   SET_HARDWARE_CONFIG: 'ipc:set-hardware-config',
 

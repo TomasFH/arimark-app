@@ -182,9 +182,6 @@ export const sales = sqliteTable(
     manualEntry: integer('manual_entry', { mode: 'boolean' }).notNull().default(false),
     manualApprovedBy: text('manual_approved_by').references(() => users.id),
     manualApprovedAt: text('manual_approved_at'),
-    fiscalReceiptIssued: integer('fiscal_receipt_issued', { mode: 'boolean' })
-      .notNull()
-      .default(false),
     notes: text('notes'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
@@ -322,38 +319,6 @@ export const debtEvents = sqliteTable(
   table => [
     index('idx_debt_events_customer').on(table.customerId, table.createdAt),
     index('idx_debt_events_sale').on(table.saleId, table.createdAt),
-  ]
-)
-
-// ---------------------------------------------------------------------------
-// Tareas de cobros digitales fuera de horario (admin → cajera)
-// ---------------------------------------------------------------------------
-export const pendingFiscalPayments = sqliteTable(
-  'pending_fiscal_payments',
-  {
-    id: text('id').primaryKey(),
-    customerId: text('customer_id')
-      .notNull()
-      .references(() => customers.id),
-    saleId: text('sale_id').references(() => sales.id),
-    amount: real('amount').notNull(),
-    paymentMethod: text('payment_method', {
-      enum: ['debit', 'wallet', 'credit'],
-    }).notNull(),
-    registeredBy: text('registered_by')
-      .notNull()
-      .references(() => users.id),
-    registeredAt: text('registered_at').notNull(),
-    targetStoreId: text('target_store_id').references(() => stores.id),
-    status: text('status', { enum: ['pending', 'confirmed', 'rejected'] }).notNull(),
-    processedBy: text('processed_by').references(() => users.id),
-    processedAt: text('processed_at'),
-    rejectionReason: text('rejection_reason'),
-    syncedAt: text('synced_at'),
-  },
-  table => [
-    index('idx_pending_fiscal_customer').on(table.customerId, table.status),
-    index('idx_pending_fiscal').on(table.status, table.targetStoreId),
   ]
 )
 

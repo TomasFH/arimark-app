@@ -1,6 +1,5 @@
 allowBuilds:
   "@firebase/util": true
-  "@napi-rs/keyring": true
   "@serialport/bindings-cpp": true
   better-sqlite3: true
   electron: true

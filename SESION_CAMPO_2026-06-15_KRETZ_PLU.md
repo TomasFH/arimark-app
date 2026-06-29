@@ -19,7 +19,6 @@ Documento relacionado (sesión anterior, contexto general): `SESION_CAMPO_2026-0
 | Leer PLU existente (`5005`) | ✅ Funciona (con búsqueda por número real) |
 | Crear/actualizar PLU (`2005`) | ✅ Funciona (formato compatible iTegra) |
 | Precios ≥ $10.000 (ej. $15.000, $21.000) | ✅ Funciona |
-| SAM4S en fieldtest sin IP configurada | ✅ Silenciada (no spamea logs) |
 
 ---
 
@@ -369,14 +368,10 @@ si correspondía.
 
 ---
 
-## SAM4S — silenciada en fieldtest
+## Registro externo de comprobantes
 
-**Problema:** Logs llenos de errores SAM4S cada 30 segundos cuando no hay IP configurada.
-
-**Solución:** En `fieldtest`, si `SAM4S_IP` está vacío, `HardwareManager` no intenta conectar
-ni reconectar la caja fiscal. Estado fiscal queda `disconnected` sin spam de logs.
-
-> La integración SAM4S quedó fuera de alcance de esta sesión. Se eliminará en el futuro.
+Decisión posterior: la app no interactúa con la registradora. Las cajeras la operan manualmente
+como se viene haciendo, y la app registra solo la venta y sus medios de pago para gestión interna.
 
 ---
 
@@ -430,9 +425,8 @@ Tests específicos KRETZ:
 
 | Tema | Estado |
 |------|--------|
-| Peso en vivo (`1524`) integrado en UI de ventas | Implementado en driver, no en flujo de caja |
+| Peso en vivo (`1524`) integrado en UI de ventas | Implementado en driver, no en flujo de venta |
 | Ventas por escaneo EAN-13 | Sigue siendo estrategia paralela (ver sesión 07/06) |
-| Eliminar código SAM4S del repo | Pendiente decisión del desarrollador |
 | Sincronización masiva de PLUs (volcado completo tipo iTegra) | No implementado |
 | Borrado de PLU (`3005`) desde la app | Implementado |
 
