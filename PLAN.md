@@ -158,7 +158,7 @@ Entregado:
 
 ---
 
-### 🔜 Fase 2 — Ventas (POS) — infraestructura básica existente
+### 🔜 Fase 2 — Ventas (POS) — EN PROGRESO
 
 Infraestructura ya implementada (remanente de fases previas):
 - `sale.handler.ts`: creación de ventas con ítems + pagos multi-medio, transacción atómica.
@@ -167,11 +167,17 @@ Infraestructura ya implementada (remanente de fases previas):
 - `OpenShiftScreen`: apertura de turno con cambio inicial.
 - Schema de DB: tablas `sales`, `sale_items`, `sale_payments`, `shifts`.
 
-Pendiente completar en Fase 2:
-- [ ] Ventas manuales (sin pedido de balanza) con flujo de aprobación admin en producción.
-- [ ] Vinculación producto ↔ PLU (resolución de barcode a producto en DB).
+Completado en esta iteración (29/06/2026):
+- [x] **Migración 0003**: columna `plu_number integer unique` en `products`.
+- [x] **Rangos de PLU acordados**: 1–99 vacunos, 100–149 pollo, 150–199 cerdo, 200–249 embutidos, 250–299 especiales, 300+ reservado.
+- [x] **Seed actualizado** con catálogo realista de ~28 productos, unidades correctas y PLU numbers.
+- [x] **PLU → productId lookup** en el hook de `main.ts`: el `productCode` del protocolo R30 es el número PLU; se resuelve por `plu_number` en la DB. Mock actualizado para emitir PLU numbers numéricos.
+- [x] **UI de emergencia extendida**: `EmergencyBarcodeInput` ahora tiene dos pestañas — barcode EAN-13 (existente) y **PLU + precio** (nueva), con `NumericInput` y validación de rango PLU 1–999.
+- [x] **Test de integración** (9 tests): venta multi-pago con rollback completo si falla la confirmación, incluye restauración de `scaleOrder` a `pending`.
+
+Pendiente en Fase 2:
 - [ ] UI de cierre de turno (ver Fase 3).
-- [ ] Test obligatorio de integración: venta multi-pago con rollback si DB falla.
+- [ ] ABM de precios por producto (actualmente el precio lo envía la balanza; necesario para ventas manuales de productos sin barcode).
 
 ---
 

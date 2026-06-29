@@ -14,11 +14,12 @@
 import { EventEmitter } from 'events'
 import type { KretzDriver, ScaleOrderData, ScaleChannel, SendPluArgs, PluRow } from '../kretzDriver.interface'
 
+// PLU numbers del catálogo de prueba (deben coincidir con seed-sandbox.ts)
 const SAMPLE_PRODUCTS = [
-  { code: 'ASADO', price: 8500 },
-  { code: 'VACIO', price: 9200 },
-  { code: 'PALETA', price: 7800 },
-  { code: 'POLLO', price: 5500 },
+  { code: '1',   price: 8500 },  // Asado
+  { code: '3',   price: 9200 },  // Vacío
+  { code: '6',   price: 7800 },  // Costilla
+  { code: '100', price: 5500 },  // Pollo entero
 ]
 
 const CHANNELS: ScaleChannel[] = ['A', 'B', 'C', 'D']

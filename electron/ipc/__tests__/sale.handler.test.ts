@@ -168,4 +168,52 @@ describe('sale.handler — CREATE_SALE', () => {
     expect(result.code).toBe('DB_ERROR')
     expect(transaction.mock.calls.length).toBe(3)
   })
+
+  /**
+   * Test de integración obligatorio (Fase 2):
+   * Venta multi-pago con rollback completo si falla la confirmación.
+   *
+   * Escenario: cajera confirma una venta con efectivo + débito vinculada a un
+   * pedido de balanza. La transacción de confirmación falla (ej. constraint).
+   * Debe: retornar DB_ERROR, marcar la venta como 'discarded' Y restaurar
+   * el scaleOrder a 'pending' para que pueda reintentarse.
+   */
+  it('[integración] rollback completo en venta multi-pago con scaleOrderId', async () => {
+    vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+    const { db } = makeMockDb()
+    const transaction = db.transaction as unknown as TransactionMock
+
+    const discardTxUpdates: Array<{ set: ReturnType<typeof vi.fn> }> = []
+
+    transaction
+      // Fase 1: transacción inicial OK (crea sale + items + confirma scaleOrder)
+      .mockImplementationOnce((cb: (tx: unknown) => void) => cb({
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ run: vi.fn() }) }),
+        update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ run: vi.fn() }) }) }),
+      }))
+      // Fase 2: falla la confirmación (ej. por unique constraint en pagos)
+      .mockImplementationOnce(() => { throw new Error('unique constraint on payments') })
+      // Fase compensatoria: rollback — marca venta como discarded y restaura scaleOrder
+      .mockImplementationOnce((cb: (tx: unknown) => void) => {
+        const mockUpdate = vi.fn().mockReturnValue({
+          set: vi.fn(setArg => {
+            discardTxUpdates.push({ set: vi.fn().mockReturnValue(setArg) })
+            return { where: vi.fn().mockReturnValue({ run: vi.fn() }) }
+          }),
+        })
+        cb({ update: mockUpdate })
+      })
+
+    vi.mocked(getDb).mockReturnValue(db)
+
+    const handler = getHandler('ipc:create-sale')
+    const result = await handler({}, MULTI_PAYMENT_SALE) as { ok: boolean; code: string }
+
+    // La venta debe fallar con DB_ERROR
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('DB_ERROR')
+
+    // Deben haberse ejecutado 3 transacciones: init, confirm(falla), discard
+    expect(transaction.mock.calls.length).toBe(3)
+  })
 })

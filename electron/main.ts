@@ -158,17 +158,22 @@ app.whenReady().then(async () => {
         const db = getDb()
         orderId = uuidv4()
 
-        // Resolver productId por barcode para cada ítem; fallback al producto genérico
+        // Resolver productId por plu_number para cada ítem.
+        // productCode del protocolo R30 es el número PLU de la balanza (ej. "5" para PLU 5).
+        // Fallback al producto genérico si el PLU no está mapeado en la DB.
         for (const item of enrichedItems) {
-          const found = db
-            .select({ id: products.id, name: products.name })
-            .from(products)
-            .where(eq(products.barcode, item.productCode))
-            .limit(1)
-            .all()[0]
-          if (found) {
-            item.productId = found.id
-            item.productName = found.name
+          const pluNum = parseInt(item.productCode, 10)
+          if (!isNaN(pluNum)) {
+            const found = db
+              .select({ id: products.id, name: products.name })
+              .from(products)
+              .where(eq(products.pluNumber, pluNum))
+              .limit(1)
+              .all()[0]
+            if (found) {
+              item.productId = found.id
+              item.productName = found.name
+            }
           }
         }
 

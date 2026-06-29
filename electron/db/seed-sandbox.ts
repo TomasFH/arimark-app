@@ -41,18 +41,58 @@ const CASHIERS = [
 ]
 
 /**
- * Productos de prueba.
- * barcode: código que emite la KRETZ en ScaleTicketData.productCode.
- * En entorno real, los códigos provienen de la configuración de la balanza.
- * El producto "SIN_CODIGO" actúa como fallback para códigos no mapeados.
+ * Catálogo de productos de prueba.
+ *
+ * Rangos de PLU acordados:
+ *   1–99    → Cortes vacunos
+ *   100–149 → Pollo y aves
+ *   150–199 → Cerdo
+ *   200–249 → Embutidos y chacinados
+ *   250–299 → Productos especiales (huevos, carbón, leña, etc.)
+ *   300+    → Reservado / uso libre
+ *
+ * unit: 'kg' para productos vendidos por peso, 'unit' para unidades.
+ * Los precios NO están en la DB de productos — se configuran en product_prices.
+ * Los cortes confirmados el 29/06/2026 (barcodes del ticket real):
+ *   PLU 1 = Huevos x30, PLU 2 = Huevos x30 ofer, PLU 5 = Vacío x2
+ * Se usan aquí como base; los nombres/precios se actualizarán con datos reales.
  */
 const PRODUCTS = [
-  { id: '00000000-0000-0000-0001-000000000001', name: 'Asado',         barcode: 'P001', category: 'beef_cut' },
-  { id: '00000000-0000-0000-0001-000000000002', name: 'Vacío',         barcode: 'P002', category: 'beef_cut' },
-  { id: '00000000-0000-0000-0001-000000000003', name: 'Costilla',      barcode: 'P003', category: 'beef_cut' },
-  { id: '00000000-0000-0000-0001-000000000004', name: 'Pollo entero',  barcode: 'P004', category: 'poultry'  },
-  { id: '00000000-0000-0000-0001-000000000005', name: 'Cerdo bondiola', barcode: 'P005', category: 'pork'    },
-  { id: '00000000-0000-0000-0001-000000000099', name: 'Producto sin identificar', barcode: 'SIN_CODIGO', category: 'other' },
+  // --- Cortes vacunos (1–99) ---
+  { id: '00000000-0000-0000-0001-000000000001', pluNumber: 1,  name: 'Asado',              category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000002', pluNumber: 2,  name: 'Asado (oferta)',      category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000003', pluNumber: 3,  name: 'Vacío',               category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000004', pluNumber: 4,  name: 'Paleta',              category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000005', pluNumber: 5,  name: 'Vacío (oferta)',      category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000006', pluNumber: 6,  name: 'Costilla',            category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000007', pluNumber: 7,  name: 'Bife de chorizo',     category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000008', pluNumber: 8,  name: 'Lomo',                category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000009', pluNumber: 9,  name: 'Nalga',               category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000010', pluNumber: 10, name: 'Peceto',              category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000011', pluNumber: 11, name: 'Matambre',            category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000012', pluNumber: 12, name: 'Cuadril',             category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000013', pluNumber: 13, name: 'Osobuco',             category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000014', pluNumber: 14, name: 'Falda',               category: 'beef_cut', unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000015', pluNumber: 15, name: 'Bola de lomo',        category: 'beef_cut', unit: 'kg'   },
+  // --- Pollo y aves (100–149) ---
+  { id: '00000000-0000-0000-0001-000000000100', pluNumber: 100, name: 'Pollo entero',       category: 'poultry',  unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000101', pluNumber: 101, name: 'Pechuga de pollo',   category: 'poultry',  unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000102', pluNumber: 102, name: 'Muslo de pollo',     category: 'poultry',  unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000103', pluNumber: 103, name: 'Alita de pollo',     category: 'poultry',  unit: 'kg'   },
+  // --- Cerdo (150–199) ---
+  { id: '00000000-0000-0000-0001-000000000150', pluNumber: 150, name: 'Bondiola de cerdo',  category: 'pork',     unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000151', pluNumber: 151, name: 'Costilla de cerdo',  category: 'pork',     unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000152', pluNumber: 152, name: 'Paleta de cerdo',    category: 'pork',     unit: 'kg'   },
+  // --- Embutidos y chacinados (200–249) ---
+  { id: '00000000-0000-0000-0001-000000000200', pluNumber: 200, name: 'Chorizo',            category: 'other',    unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000201', pluNumber: 201, name: 'Morcilla',           category: 'other',    unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000202', pluNumber: 202, name: 'Salchicha',          category: 'other',    unit: 'kg'   },
+  // --- Productos especiales (250–299) ---
+  { id: '00000000-0000-0000-0001-000000000250', pluNumber: 250, name: 'Huevos x30',         category: 'other',    unit: 'unit' },
+  { id: '00000000-0000-0000-0001-000000000251', pluNumber: 251, name: 'Carbón',             category: 'other',    unit: 'kg'   },
+  { id: '00000000-0000-0000-0001-000000000252', pluNumber: 252, name: 'Leña',               category: 'other',    unit: 'kg'   },
+  // --- Fallback para PLU no mapeado ---
+  { id: '00000000-0000-0000-0001-000000000099', pluNumber: null, name: 'Producto sin identificar', category: 'other', unit: 'kg' },
 ] as const
 
 async function main() {
@@ -89,13 +129,24 @@ async function main() {
   for (const product of PRODUCTS) {
     const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(product.id)
     if (existing) {
-      console.log(`[seed] Producto "${product.name}" ya existía — omitido`)
+      // Actualizar plu_number si cambió (permite re-ejecutar seed sin borrar)
+      db.prepare('UPDATE products SET plu_number = ? WHERE id = ?')
+        .run(product.pluNumber ?? null, product.id)
+      console.log(`[seed] Producto "${product.name}" ya existía — plu_number actualizado`)
     } else {
       db.prepare(`
-        INSERT INTO products (id, name, category, unit, barcode, active, created_at)
-        VALUES (?, ?, ?, 'kg', ?, 1, ?)
-      `).run(product.id, product.name, product.category, product.barcode, new Date().toISOString())
-      console.log(`[seed] Producto creado: "${product.name}" (código: ${product.barcode})`)
+        INSERT INTO products (id, name, category, unit, plu_number, active, created_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?)
+      `).run(
+        product.id,
+        product.name,
+        product.category,
+        product.unit,
+        product.pluNumber ?? null,
+        new Date().toISOString(),
+      )
+      const pluStr = product.pluNumber != null ? `PLU ${product.pluNumber}` : 'sin PLU'
+      console.log(`[seed] Producto creado: "${product.name}" (${pluStr})`)
     }
   }
 

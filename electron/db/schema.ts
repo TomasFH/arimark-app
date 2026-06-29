@@ -43,6 +43,17 @@ export const products = sqliteTable('products', {
   name: text('name').notNull(),
   category: text('category', { enum: ['beef_cut', 'poultry', 'pork', 'other'] }).notNull(),
   unit: text('unit', { enum: ['kg', 'unit'] }).notNull(),
+  /**
+   * Número de PLU en la balanza KRETZ (1–999). Único por local.
+   * Rangos acordados:
+   *   1–99   → Cortes vacunos
+   *   100–149 → Pollo y aves
+   *   150–199 → Cerdo
+   *   200–249 → Embutidos y chacinados
+   *   250–299 → Productos especiales (huevos, carbón, leña, etc.)
+   *   300+    → Reservado / uso libre
+   */
+  pluNumber: integer('plu_number').unique(),
   barcode: text('barcode'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
