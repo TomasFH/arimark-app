@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
+import EmergencyBarcodeInput from '../components/EmergencyBarcodeInput'
 import PaymentModal from '../components/PaymentModal'
 import type { ScaleOrder, SalePaymentPayload, ShiftInfo, SessionInfo } from '../types/hw-api'
 import { formatARS, formatKg as formatWeight } from '../lib/datetime'
@@ -228,6 +229,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
             })}
           </div>
 
+          <EmergencyBarcodeInput onOrder={order => setOrderQueue(prev => [...prev, toLocalOrder(order)])} />
           <DevToolsPanel />
         </div>
 
