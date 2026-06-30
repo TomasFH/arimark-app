@@ -43,9 +43,9 @@ export function parseNumericInput(formatted: string): number | null {
  * Estilo es-AR: "17535,50" → "17.535,50"
  *
  * Permite escribir la coma mientras se tipea (ej. "17.535,").
- * Máximo 2 decimales después de la coma.
+ * @param maxDecimals - límite de decimales (default 2 para precios; usar 3 para pesos en kg).
  */
-export function formatDecimalInputValue(raw: string): string {
+export function formatDecimalInputValue(raw: string, maxDecimals = 2): string {
   // Quitar puntos de miles previos antes de sanitizar (evita duplicar dígitos al re-formatear)
   const withoutDots = raw.replace(/\./g, '')
   const cleaned = withoutDots.replace(/[^\d,]/g, '')
@@ -60,7 +60,7 @@ export function formatDecimalInputValue(raw: string): string {
     decPart = ''
   } else {
     intPart = cleaned.slice(0, commaIndex)
-    decPart = cleaned.slice(commaIndex + 1).replace(/,/g, '').slice(0, 2)
+    decPart = cleaned.slice(commaIndex + 1).replace(/,/g, '').slice(0, maxDecimals)
     hasTrailingComma = cleaned.endsWith(',') && decPart.length === 0
   }
 

@@ -103,15 +103,26 @@ export interface SaleItemDraft {
   productId: string | null
   /** Nombre del producto para mostrar en UI. */
   productName: string
+  /** Unidad del producto según el catálogo. */
+  unit: 'kg' | 'unit'
   /**
-   * Cantidad. El código de barras del ticket trae el precio TOTAL (no el peso),
-   * por lo que se usa la convención cantidad = 1 y precio unitario = total.
+   * Para productos por kg: peso en kg (calculado como total / precio_por_kg del catálogo).
+   * Para productos por unidad: cantidad (calculada como total / precio_por_unidad).
+   * Si el PLU no está en el catálogo o no tiene precio, valor = 1.
    */
   weightKg: number
+  /** Precio por kg o por unidad según el catálogo. */
   unitPrice: number
+  /** Precio total cobrado al cliente (siempre igual al total del código de barras). */
   subtotal: number
   /** true si el ítem se ingresó manualmente (PLU + precio), no por escaneo. */
   manualEntry: boolean
+  /**
+   * true si el precio total del código de barras no coincide con lo esperado según
+   * el catálogo (solo detectable en productos por unidad, donde la cantidad debe ser entera).
+   * Indica que el precio en la balanza difiere del precio registrado en la app.
+   */
+  priceDiscrepancy?: boolean
 }
 
 // ---------------------------------------------------------------------------

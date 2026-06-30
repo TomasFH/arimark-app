@@ -4,7 +4,7 @@ import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
-import { formatARS } from '../lib/datetime'
+import { formatARS, formatKg } from '../lib/datetime'
 
 interface Props {
   session: SessionInfo
@@ -69,7 +69,8 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
       const result = await window.hw.createSale({
         items: cart.map(item => ({
           productId: item.productId ?? FALLBACK_PRODUCT_ID,
-          quantity: item.weightKg,
+          // Para productos por unidad la cantidad es entera; por kg va con decimales.
+          quantity: item.unit === 'unit' ? Math.round(item.weightKg) : item.weightKg,
           unitPrice: item.unitPrice,
           subtotal: item.subtotal,
         })),
@@ -168,21 +169,37 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
                   <tr className="border-b border-gray-800 text-xs text-gray-500">
                     <th className="pb-2 text-left">PLU</th>
                     <th className="pb-2 text-left">Producto</th>
+                    <th className="pb-2 text-right">Peso / Cant.</th>
                     <th className="pb-2 text-right">Precio</th>
-                    <th className="pb-2 w-8"></th>
+                    <th className="pb-2 w-6"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {cart.map(item => (
                     <tr key={item.localId} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-400">{item.pluNumber}</td>
+                      <td className="py-2 text-gray-400 pr-2">{item.pluNumber}</td>
                       <td className="py-2 text-gray-200">
-                        {item.productName}
-                        {item.manualEntry && (
-                          <span className="ml-1.5 rounded bg-orange-900/50 px-1 py-0.5 text-[9px] text-orange-300">
-                            manual
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1 flex-wrap">
+                          {item.productName}
+                          {item.manualEntry && (
+                            <span className="rounded bg-orange-900/50 px-1 py-0.5 text-[9px] text-orange-300">
+                              manual
+                            </span>
+                          )}
+                          {item.priceDiscrepancy && (
+                            <span
+                              className="rounded bg-red-900/60 px-1 py-0.5 text-[9px] text-red-300 cursor-help"
+                              title="El precio del código de barras no coincide con el precio registrado en el catálogo. Verificar el precio en la balanza."
+                            >
+                              ⚠ precio
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-2 text-right text-gray-400 text-xs">
+                        {item.unit === 'unit'
+                          ? `${Math.round(item.weightKg)} u.`
+                          : formatKg(item.weightKg)}
                       </td>
                       <td className="py-2 text-right font-semibold text-white">{formatARS(item.subtotal)}</td>
                       <td className="py-2 text-right">
@@ -199,7 +216,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={2} className="pt-3 text-right text-sm font-bold text-gray-200">
+                    <td colSpan={3} className="pt-3 text-right text-sm font-bold text-gray-200">
                       Total
                     </td>
                     <td className="pt-3 text-right text-xl font-bold text-amber-400" colSpan={2}>

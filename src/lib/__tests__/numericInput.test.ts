@@ -66,8 +66,16 @@ describe('numericInput', () => {
       expect(formatDecimalInputValue('17535,')).toBe('17.535,')
     })
 
-    it('limita a 2 decimales', () => {
+    it('limita a 2 decimales por defecto', () => {
       expect(formatDecimalInputValue('100,999')).toBe('100,99')
+    })
+
+    it('limita a 3 decimales cuando se especifica maxDecimals=3', () => {
+      expect(formatDecimalInputValue('0,4905', 3)).toBe('0,490')
+    })
+
+    it('permite 0 decimales con maxDecimals=0', () => {
+      expect(formatDecimalInputValue('2,5', 0)).toBe('2')
     })
 
     it('ignora caracteres no numéricos excepto coma', () => {
