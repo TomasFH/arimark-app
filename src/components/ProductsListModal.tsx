@@ -1,16 +1,14 @@
 /**
- * Modal que muestra el catálogo de productos con PLU, nombre, categoría y unidad.
+ * Modal que muestra el catálogo de productos con PLU, nombre, precio, categoría y unidad.
  * Accesible desde el CashierScreen para que la cajera consulte rápidamente
- * qué número PLU corresponde a cada producto.
- *
- * Los precios no se almacenan en la DB local — viven en la configuración
- * de la balanza KRETZ y se gestionan desde el panel de PLUs.
+ * qué número PLU corresponde a cada producto y su precio vigente.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import type { ProductRow } from '../types/hw-api'
+import { formatARS } from '../lib/datetime'
 
-type SortKey = 'pluNumber' | 'name' | 'category'
+type SortKey = 'pluNumber' | 'name' | 'category' | 'price'
 
 const CATEGORY_LABELS: Record<string, string> = {
   beef_cut: 'Vacuno',
@@ -66,6 +64,7 @@ export default function ProductsListModal({ onClose }: Props) {
     if (sortKey === 'pluNumber') cmp = a.pluNumber - b.pluNumber
     else if (sortKey === 'name') cmp = a.name.localeCompare(b.name, 'es-AR')
     else if (sortKey === 'category') cmp = a.category.localeCompare(b.category)
+    else if (sortKey === 'price') cmp = (a.price ?? 0) - (b.price ?? 0)
     return sortAsc ? cmp : -cmp
   })
 
@@ -80,12 +79,11 @@ export default function ProductsListModal({ onClose }: Props) {
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="flex flex-col bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh]">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-700 px-5 py-3">
           <div>
             <h2 className="text-sm font-bold text-white">Catálogo de productos</h2>
             <p className="text-[10px] text-gray-500 mt-0.5">
-              {sorted.length} producto{sorted.length !== 1 ? 's' : ''} con PLU asignado
+              {sorted.length} producto{sorted.length !== 1 ? 's' : ''} · precios ref. Enero 2026
             </p>
           </div>
           <button
@@ -100,7 +98,6 @@ export default function ProductsListModal({ onClose }: Props) {
           </button>
         </div>
 
-        {/* Buscador */}
         <div className="px-5 py-2 border-b border-gray-800">
           <input
             ref={searchRef}
@@ -112,7 +109,6 @@ export default function ProductsListModal({ onClose }: Props) {
           />
         </div>
 
-        {/* Tabla */}
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <p className="py-8 text-center text-xs text-gray-500">Cargando catálogo…</p>
@@ -130,7 +126,7 @@ export default function ProductsListModal({ onClose }: Props) {
               <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
                 <tr>
                   <th
-                    className="px-5 py-2 text-left font-semibold text-gray-400 cursor-pointer hover:text-white select-none w-16"
+                    className="px-5 py-2 text-left font-semibold text-gray-400 cursor-pointer hover:text-white select-none w-14"
                     onClick={() => handleSort('pluNumber')}
                   >
                     PLU <SortIcon col="pluNumber" />
@@ -142,12 +138,18 @@ export default function ProductsListModal({ onClose }: Props) {
                     Producto <SortIcon col="name" />
                   </th>
                   <th
+                    className="px-3 py-2 text-right font-semibold text-gray-400 cursor-pointer hover:text-white select-none w-24"
+                    onClick={() => handleSort('price')}
+                  >
+                    Precio <SortIcon col="price" />
+                  </th>
+                  <th
                     className="px-3 py-2 text-left font-semibold text-gray-400 cursor-pointer hover:text-white select-none"
                     onClick={() => handleSort('category')}
                   >
-                    Categoría <SortIcon col="category" />
+                    Cat. <SortIcon col="category" />
                   </th>
-                  <th className="px-5 py-2 text-right font-semibold text-gray-400">
+                  <th className="px-5 py-2 text-right font-semibold text-gray-400 w-20">
                     Unidad
                   </th>
                 </tr>
@@ -157,6 +159,9 @@ export default function ProductsListModal({ onClose }: Props) {
                   <tr key={p.id} className="border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors">
                     <td className="px-5 py-2 font-bold text-orange-400">{p.pluNumber}</td>
                     <td className="px-3 py-2 text-white">{p.name}</td>
+                    <td className="px-3 py-2 text-right text-amber-300 font-medium">
+                      {p.price != null ? formatARS(p.price) : '—'}
+                    </td>
                     <td className="px-3 py-2 text-gray-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
                     <td className="px-5 py-2 text-right text-gray-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
                   </tr>
@@ -166,10 +171,9 @@ export default function ProductsListModal({ onClose }: Props) {
           )}
         </div>
 
-        {/* Footer — nota sobre precios */}
         <div className="border-t border-gray-800 px-5 py-2">
           <p className="text-[10px] text-gray-600">
-            Los precios se configuran en la balanza KRETZ. Para editarlos usá el panel de gestión de PLUs.
+            Precios de referencia cargados en la app. La balanza KRETZ puede tener valores distintos — sincronizar desde el panel de PLUs.
           </p>
         </div>
       </div>

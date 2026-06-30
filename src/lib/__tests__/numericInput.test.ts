@@ -4,6 +4,8 @@ import {
   formatIntegerWithDots,
   formatNumericInputValue,
   parseNumericInput,
+  formatDecimalInputValue,
+  parseDecimalInput,
 } from '../numericInput'
 
 describe('numericInput', () => {
@@ -48,6 +50,46 @@ describe('numericInput', () => {
 
     it('retorna null para campo vacío', () => {
       expect(parseNumericInput('')).toBeNull()
+    })
+  })
+
+  describe('formatDecimalInputValue', () => {
+    it('formatea entero con miles', () => {
+      expect(formatDecimalInputValue('17535')).toBe('17.535')
+    })
+
+    it('formatea monto con centavos', () => {
+      expect(formatDecimalInputValue('17535,50')).toBe('17.535,50')
+    })
+
+    it('conserva coma mientras se tipea', () => {
+      expect(formatDecimalInputValue('17535,')).toBe('17.535,')
+    })
+
+    it('limita a 2 decimales', () => {
+      expect(formatDecimalInputValue('100,999')).toBe('100,99')
+    })
+
+    it('ignora caracteres no numéricos excepto coma', () => {
+      expect(formatDecimalInputValue('17.535,5abc')).toBe('17.535,5')
+    })
+  })
+
+  describe('parseDecimalInput', () => {
+    it('parsea monto con coma decimal', () => {
+      expect(parseDecimalInput('17.535,50')).toBe(17535.5)
+    })
+
+    it('parsea entero sin decimales', () => {
+      expect(parseDecimalInput('17.535')).toBe(17535)
+    })
+
+    it('retorna null para campo vacío', () => {
+      expect(parseDecimalInput('')).toBeNull()
+    })
+
+    it('retorna null para solo coma', () => {
+      expect(parseDecimalInput(',')).toBeNull()
     })
   })
 })

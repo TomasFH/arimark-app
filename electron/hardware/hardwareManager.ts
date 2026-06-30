@@ -6,15 +6,16 @@
  * - Gestionar el ciclo de vida: connect al arrancar, disconnect al cerrar.
  * - Reconexión automática con backoff exponencial si un driver se desconecta.
  * - Actualizar el estado visible (setHardwareStatus) en cada cambio.
- * - Broadcast de pedidos de balanza a todas las ventanas abiertas.
+ *
+ * La balanza KRETZ se usa exclusivamente para gestión de PLUs (admins). No emite
+ * pedidos a la PC: las ventas se arman en el renderer escaneando los códigos de
+ * barras del ticket físico (ver PLAN.md → Modelo de flujo de datos).
  */
 
-import { BrowserWindow } from 'electron'
 import log from 'electron-log'
-import { IPC } from '../ipc/channels'
 import { setHardwareStatus } from '../ipc/hardwareStatus.handler'
 import { getSecret, SECRET_KEYS } from '../secureStorage'
-import type { KretzDriver, ScaleOrderData, SendPluArgs, PluRow } from './kretz/kretzDriver.interface'
+import type { KretzDriver, SendPluArgs, PluRow } from './kretz/kretzDriver.interface'
 
 const MIN_RECONNECT_MS = 5_000
 const MAX_RECONNECT_MS = 30_000
@@ -60,25 +61,6 @@ export class HardwareManager {
 
   async kretzReadPluCount(): Promise<number> {
     return this.kretz.readPluCount()
-  }
-
-  /**
-   * Inyecta un pedido completo de balanza (solo mock KRETZ en sandbox).
-   * El pedido recorre el mismo flujo que uno real: evento → hook → renderer.
-   */
-  injectMockOrder(params: {
-    channel: import('./kretz/kretzDriver.interface').ScaleChannel
-    items: Array<{ productCode: string; weightKg: number; unitPrice: number }>
-  }): void {
-    const driver = this.kretz as KretzDriver & {
-      emitMockOrder?: (p: typeof params) => void
-    }
-
-    if (typeof driver.emitMockOrder !== 'function') {
-      throw new Error('[hardware] injectMockOrder solo disponible con mock KRETZ')
-    }
-
-    driver.emitMockOrder(params)
   }
 
   // ---------------------------------------------------------------------------
@@ -137,34 +119,6 @@ export class HardwareManager {
     this.kretz.on('error', (err: Error) => {
       log.error('[hardware] Error en KRETZ', err)
       setHardwareStatus({ scale: 'error' })
-    })
-
-    this.kretz.on('order', (order: ScaleOrderData) => {
-      this._broadcastOrder(order)
-    })
-  }
-
-  /**
-   * Hook inyectable: si está registrado, reemplaza el broadcast directo.
-   * Permite que main.ts persista el pedido en DB antes de enviarlo al renderer.
-   * Si el hook no está registrado, se hace broadcast del pedido crudo.
-   */
-  private _orderHook: ((order: ScaleOrderData) => void) | null = null
-
-  setOrderHook(fn: (order: ScaleOrderData) => void): void {
-    this._orderHook = fn
-  }
-
-  private _broadcastOrder(order: ScaleOrderData): void {
-    if (this._orderHook) {
-      this._orderHook(order)
-      return
-    }
-    // Fallback sin hook: broadcast crudo
-    BrowserWindow.getAllWindows().forEach(win => {
-      if (!win.isDestroyed()) {
-        win.webContents.send(IPC.SCALE_ORDER, order)
-      }
     })
   }
 }

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc/channels'
-import type { HwApi, HardwareStatus, ScaleOrder } from '../src/types/hw-api'
+import type { HwApi, HardwareStatus } from '../src/types/hw-api'
 
 const hw: HwApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.GET_APP_INFO),
@@ -13,12 +13,6 @@ const hw: HwApi = {
     const listener = (_event: Electron.IpcRendererEvent, status: HardwareStatus) => cb(status)
     ipcRenderer.on(IPC.HARDWARE_STATUS_CHANGE, listener)
     return () => ipcRenderer.removeListener(IPC.HARDWARE_STATUS_CHANGE, listener)
-  },
-
-  onScaleOrder: cb => {
-    const listener = (_event: Electron.IpcRendererEvent, order: ScaleOrder) => cb(order)
-    ipcRenderer.on(IPC.SCALE_ORDER, listener)
-    return () => ipcRenderer.removeListener(IPC.SCALE_ORDER, listener)
   },
 
   getHardwareConfig: () => ipcRenderer.invoke(IPC.GET_HARDWARE_CONFIG),
@@ -40,8 +34,6 @@ const hw: HwApi = {
   getProducts: () => ipcRenderer.invoke(IPC.GET_PRODUCTS),
 
   createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
-
-  injectMockOrder: payload => ipcRenderer.invoke(IPC.INJECT_MOCK_ORDER, payload),
 
   // Gestión de PLUs (balanza KRETZ)
   kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),

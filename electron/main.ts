@@ -1,21 +1,15 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'path'
-import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { eq } from 'drizzle-orm'
 import { registerAllHandlers } from './ipc/index'
-import { IPC } from './ipc/channels'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 import { loadBusinessConfig } from './businessConfig'
-import { getDbPath, getDb } from './db/client'
+import { getDbPath } from './db/client'
 import { runMigrations } from './db/migrate'
 import { verifyLicense } from './licensing/license'
 import { signInAnon, checkInstallationStatus } from './licensing/installation'
 import { setInitStatus } from './ipc/initStatus.handler'
-import { getActiveSession } from './activeSession'
-import { products, scaleOrders, scaleOrderItems } from './db/schema'
 import type { InitStatus } from '../src/types/hw-api'
-import type { ScaleOrderData } from './hardware/kretz/kretzDriver.interface'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
@@ -132,107 +126,12 @@ app.whenReady().then(async () => {
     needsActivation: initStatus.needsActivation,
   })
 
-  // 3. Inicializar hardware y registrar handlers IPC
+  // 3. Inicializar hardware y registrar handlers IPC.
+  //    La balanza KRETZ se usa exclusivamente para gestión de PLUs (admins).
+  //    No emite pedidos a la PC: las ventas se arman en el renderer escaneando
+  //    los códigos de barras del ticket físico (ver PLAN.md → Modelo de flujo de datos).
   const manager = await initHardwareManager()
   registerAllHandlers(manager)
-
-  // Registrar hook para persistir pedidos de balanza en DB cuando hay turno activo.
-  // El hook corre de forma síncrona — las búsquedas de producto y las escrituras son
-  // operaciones SQLite síncronas, apropiadas en el proceso main.
-  manager.setOrderHook((rawOrder: ScaleOrderData) => {
-    const session = getActiveSession()
-    const fallbackProductId = '00000000-0000-0000-0001-000000000099'
-
-    // Enriquecer items con productId/productName resueltos por barcode
-    type EnrichedItem = ScaleOrderData['items'][number] & { productId: string; productName: string }
-    const enrichedItems: EnrichedItem[] = rawOrder.items.map(item => ({
-      ...item,
-      productId: fallbackProductId,
-      productName: item.productCode,
-    }))
-
-    let orderId: string | undefined
-
-    if (session?.shiftId) {
-      try {
-        const db = getDb()
-        orderId = uuidv4()
-
-        // Resolver productId por plu_number para cada ítem.
-        // productCode del protocolo R30 es el número PLU de la balanza (ej. "5" para PLU 5).
-        // Fallback al producto genérico si el PLU no está mapeado en la DB.
-        for (const item of enrichedItems) {
-          const pluNum = parseInt(item.productCode, 10)
-          if (!isNaN(pluNum)) {
-            const found = db
-              .select({ id: products.id, name: products.name })
-              .from(products)
-              .where(eq(products.pluNumber, pluNum))
-              .limit(1)
-              .all()[0]
-            if (found) {
-              item.productId = found.id
-              item.productName = found.name
-            }
-          }
-        }
-
-        db.transaction(tx => {
-          tx.insert(scaleOrders)
-            .values({
-              id: orderId!,
-              storeId: session.storeId,
-              shiftId: session.shiftId!,
-              channel: rawOrder.channel,
-              total: rawOrder.total,
-              status: 'pending',
-              createdAt: rawOrder.timestamp,
-              createdBy: session.userId,
-            })
-            .run()
-
-          for (const item of enrichedItems) {
-            tx.insert(scaleOrderItems)
-              .values({
-                id: uuidv4(),
-                orderId: orderId!,
-                productCode: item.productCode,
-                productId: item.productId !== fallbackProductId ? item.productId : null,
-                weightKg: item.weightKg,
-                unitPrice: item.unitPrice,
-                subtotal: item.subtotal,
-              })
-              .run()
-          }
-        })
-      } catch (err) {
-        log.error('[main] Error al persistir pedido de balanza', err)
-        orderId = undefined
-      }
-    }
-
-    // Construir el ScaleOrder enriquecido y hacer broadcast al renderer
-    const enrichedOrder = {
-      id: orderId,
-      channel: rawOrder.channel,
-      items: enrichedItems.map(item => ({
-        productCode: item.productCode,
-        productId: item.productId !== fallbackProductId ? item.productId : undefined,
-        productName: item.productName,
-        weightKg: item.weightKg,
-        unitPrice: item.unitPrice,
-        subtotal: item.subtotal,
-      })),
-      total: rawOrder.total,
-      timestamp: rawOrder.timestamp,
-    }
-
-    BrowserWindow.getAllWindows().forEach(win => {
-      if (!win.isDestroyed()) {
-        win.webContents.send(IPC.SCALE_ORDER, enrichedOrder)
-      }
-    })
-  })
 
   await manager.start()
 

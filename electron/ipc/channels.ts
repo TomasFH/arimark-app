@@ -11,13 +11,6 @@ export const IPC = {
   GET_HARDWARE_STATUS: 'ipc:get-hardware-status',
   HARDWARE_STATUS_CHANGE: 'ipc:hardware-status-change',  // push main → renderer
 
-  // Balanza KRETZ — push main → renderer (sin handler, solo canal de eventos)
-  // Emite un ScaleOrder completo al cerrar un pedido (canal del carnicero)
-  SCALE_ORDER: 'ipc:scale-order',
-
-  /** Sandbox/dev: inyectar un pedido completo en la cola de balanza */
-  INJECT_MOCK_ORDER: 'ipc:inject-mock-order',
-
   // Configuración de hardware
   GET_HARDWARE_CONFIG: 'ipc:get-hardware-config',
   SET_HARDWARE_CONFIG: 'ipc:set-hardware-config',

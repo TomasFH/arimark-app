@@ -4,11 +4,9 @@
  * Tabs:
  *  - "Hardware": estado en tiempo real, configuración KRETZ, log de eventos.
  *  - "PLUs": crear/editar PLUs en la balanza KRETZ (real o mock según KRETZ_PORT).
- *  - "Simulador": inyección de pedidos mock (solo cuando no hay hardware real).
  */
 
 import { useState, useEffect, useRef } from 'react'
-import DevScaleTicketPanel from './DevScaleTicketPanel'
 import PluManagerPanel from './PluManagerPanel'
 import type { HardwareStatus, HardwareConfig } from '../types/hw-api'
 
@@ -18,7 +16,7 @@ const APP_ENV = import.meta.env['VITE_APP_ENV'] as string
 // Tipos internos
 // ---------------------------------------------------------------------------
 
-type TabId = 'hardware' | 'plus' | 'simulator'
+type TabId = 'hardware' | 'plus'
 
 interface LogEntry {
   id: number
@@ -220,18 +218,6 @@ export default function DevToolsPanel() {
     })
   }
 
-  // Escuchar pedidos de balanza y loguearlos
-  useEffect(() => {
-    const unsub = window.hw.onScaleOrder(order => {
-      addLog({
-        time: nowTime(),
-        level: 'info',
-        message: `Pedido recibido — canal ${order.channel}, ${order.items.length} ítem(s), total: $${order.total.toFixed(2)}`,
-      })
-    })
-    return unsub
-  }, [])
-
   const envLabel = isSandbox ? 'DEV — SANDBOX' : 'DEV — CAMPO'
   const envColor = isSandbox ? 'text-yellow-500 border-yellow-700/50 bg-yellow-950/20' : 'text-orange-400 border-orange-700/50 bg-orange-950/20'
 
@@ -274,18 +260,6 @@ export default function DevToolsPanel() {
             >
               PLUs
             </button>
-            {isSandbox && (
-              <button
-                onClick={() => setTab('simulator')}
-                className={`flex-1 rounded py-1 text-[10px] font-semibold transition-colors ${
-                  tab === 'simulator'
-                    ? 'bg-yellow-700 text-white'
-                    : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
-                }`}
-              >
-                Simulador
-              </button>
-            )}
           </div>
 
           {tab === 'hardware' && (
@@ -299,10 +273,6 @@ export default function DevToolsPanel() {
             <div className="max-h-[70vh] overflow-y-auto pr-1">
               <PluManagerPanel />
             </div>
-          )}
-
-          {tab === 'simulator' && isSandbox && (
-            <DevScaleTicketPanel />
           )}
         </div>
       )}

@@ -90,44 +90,28 @@ export interface OpenShiftPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Hardware — pedidos de balanza
-// Un pedido = todos los productos de un cliente en un canal dado,
-// cerrado cuando el carnicero imprime el ticket físico.
+// Ítems de venta — se arman en la PC escaneando los códigos de barras del
+// ticket físico (o por entrada manual de emergencia). Cada código = 1 ítem.
+// La balanza NO envía pedidos a la PC (ver PLAN.md → Modelo de flujo de datos).
 // ---------------------------------------------------------------------------
 
-export type ScaleChannel = 'A' | 'B' | 'C' | 'D'
-
-/** Un producto dentro de un pedido de balanza */
-export interface ScaleOrderItem {
-  productCode: string
-  /** ID del producto en la DB (undefined si no se encontró por barcode) */
-  productId?: string
-  /** Nombre del producto para mostrar en UI */
-  productName?: string
+/** Un ítem agregado a la venta en curso al escanear un código o ingresarlo a mano. */
+export interface SaleItemDraft {
+  /** Número de PLU del producto en la balanza. */
+  pluNumber: number
+  /** ID del producto en la DB (null si el PLU no está mapeado). */
+  productId: string | null
+  /** Nombre del producto para mostrar en UI. */
+  productName: string
+  /**
+   * Cantidad. El código de barras del ticket trae el precio TOTAL (no el peso),
+   * por lo que se usa la convención cantidad = 1 y precio unitario = total.
+   */
   weightKg: number
   unitPrice: number
   subtotal: number
-}
-
-/** Pedido completo emitido por el hardware al imprimir el ticket físico */
-export interface ScaleOrder {
-  /** ID en la DB (undefined si no había turno activo al recibir el pedido) */
-  id?: string
-  /** Canal de la balanza que generó este pedido */
-  channel: ScaleChannel
-  items: ScaleOrderItem[]
-  total: number
-  timestamp: string
-}
-
-/** Sandbox/dev: payload para inyectar un pedido completo manualmente */
-export interface InjectMockOrderPayload {
-  channel: ScaleChannel
-  items: Array<{
-    productCode: string
-    weightKg: number
-    unitPrice: number
-  }>
+  /** true si el ítem se ingresó manualmente (PLU + precio), no por escaneo. */
+  manualEntry: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +123,8 @@ export interface ProductRow {
   category: 'beef_cut' | 'poultry' | 'pork' | 'other'
   unit: 'kg' | 'unit'
   pluNumber: number
+  /** Precio vigente en el local ($/kg o $/unidad). null si no hay precio cargado. */
+  price: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -235,9 +221,6 @@ export interface HwApi {
   /** Registra callback cuando cambia el estado del hardware */
   onHardwareStatusChange: (cb: (status: HardwareStatus) => void) => () => void
 
-  /** Registra callback para pedidos completos de la balanza KRETZ. Retorna función para desuscribirse. */
-  onScaleOrder: (cb: (order: ScaleOrder) => void) => () => void
-
   /** Retorna la configuración de hardware guardada (sin contraseñas) */
   getHardwareConfig: () => Promise<IpcResult<HardwareConfig>>
 
@@ -268,9 +251,6 @@ export interface HwApi {
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>
-
-  /** Sandbox/dev: inyecta un pedido completo de balanza (mock KRETZ) */
-  injectMockOrder: (payload: InjectMockOrderPayload) => Promise<IpcResult>
 
   // ---- Gestión de PLUs ----
   /** Prueba de enlace con la balanza (cmd 0002) */

@@ -2,7 +2,7 @@
 
 ## Resumen ejecutivo
 
-Construir una app de gestión integral para carnicerías sobre **Electron + React + TS + Vite + Tailwind + SQLite/Drizzle**, offline-first, con licencias en Firebase, integración con balanza KRETZ y dashboard web remoto. El código base es agnóstico al cliente: el primer despliegue es Arimark, pero todos los nombres/colores/logos vienen de configuración, no del código.
+Construir una app de gestión integral para carnicerías sobre **Electron + React + TS + Vite + Tailwind + SQLite/Drizzle**, offline-first, con licencias en Firebase, una **app móvil companion** para escanear los códigos de barras de los tickets físicos, integración con balanza **KRETZ exclusivamente para gestión de PLUs/precios** (no para registrar ventas) y dashboard web remoto. El código base es agnóstico al cliente: el primer despliegue es Arimark, pero todos los nombres/colores/logos vienen de configuración, no del código.
 
 Este plan incorpora los **9 ajustes acordados** (críticos + importantes) más la **estrategia de testing automatizado** como pilar innegociable.
 
@@ -92,7 +92,7 @@ El desarrollador actúa como supervisor y QA. Ningún To-Do se cierra sin suite 
 
 - `electron/db/__tests__/helpers/inMemoryDb.ts` — instancia `:memory:` con migraciones aplicadas. Usado en todos los tests que tocan DB.
 - Tests de transacciones complejas obligatorios antes de cerrar cada fase:
-  - Fase 2: venta multi-pago, rollback si la caja falla a mitad de la transacción.
+  - Fase 2: venta multi-pago, rollback si la DB falla a mitad de la transacción.
   - Fase 3: cierre de jornada con diferencia de caja, cierre a ciegas.
   - Fase 4: ledger de deudas — saldo algebraico, imposibilidad de sobreescritura, cobro cruzado entre locales.
 
@@ -101,14 +101,49 @@ El desarrollador actúa como supervisor y QA. Ningún To-Do se cierra sin suite 
 ## Diagrama de arquitectura
 
 ```
-Renderer React
-  └── window.hw (preload IPC tipado)
-        └── Electron Main
-              ├── Handlers IPC + zod
-              ├── SQLite + Drizzle ORM
-              ├── Firebase (licencias + sync)
-              └── KRETZ serial (balanza)
+  App móvil (PWA)          ┌──────────────────────────────┐
+  escáner de cámara ──────▶│  PC — Electron                │
+        (relay)           │  Renderer React               │
+                           │    └ window.hw (IPC tipado)   │
+  Lector USB (futuro)      │         └ Electron Main       │
+  keyboard-wedge ─teclado─▶│             ├ Handlers IPC+zod│
+                           │             ├ SQLite + Drizzle│
+  Balanza KRETZ            │             ├ Firebase        │
+  (USB, SOLO PLUs, ───────▶│             └ KRETZ serial    │
+   solo admins)            └──────────────────────────────┘
 ```
+
+- **App móvil / lector USB → PC**: fuente de los códigos de barras que arman cada venta.
+- **Balanza KRETZ ↔ PC**: conexión física USB usada **solo** por administradores para crear/modificar/eliminar PLUs y precios. Nunca registra ventas ni envía pedidos.
+
+---
+
+## Modelo de flujo de datos (corrección arquitectónica — jun 2026)
+
+> Esta sección reemplaza el supuesto original de que la balanza enviaba pedidos completos a la PC en tiempo real. **Ese modelo queda descartado**: por la infraestructura de los locales no es viable mantener la balanza conectada físicamente a la PC durante la operación.
+
+**La balanza NO se comunica con la PC durante las ventas.** La única comunicación balanza↔PC ocurre por conexión física USB y se usa **exclusivamente** para que un administrador gestione PLUs/precios (crear, modificar, eliminar, cambiar número).
+
+**Las ventas se arman en la PC escaneando los códigos de barras del ticket físico.** El carnicero pesa los productos y entrega al cliente un ticket físico que lista uno o varios productos. Cada código de barras del ticket = un producto, y codifica el **PLU (3 dígitos) + precio total (7 dígitos en centavos)** (formato EAN-13 prefijo `20`, ya validado).
+
+**Fuentes de escaneo (mismo path de venta en la PC):**
+1. **App móvil companion** (escáner de cámara) que relaya cada código a la PC vía **Firebase** (decisión confirmada jun 2026). Método principal en el corto plazo.
+2. **Lector USB tipo keyboard-wedge** conectado a la PC (a futuro, si el cliente los adquiere para profesionalizar el trabajo). Escribe los dígitos + Enter en el campo enfocado; ya soportado por el auto-submit de 13 dígitos.
+3. **Entrada manual PLU + precio** como fallback de emergencia cuando el escaneo no está disponible.
+
+**Flujo de la cajera (semi-automático):**
+recibe ticket físico → escanea cada código (los datos del producto se cargan solos) → repite hasta terminar el pedido → pregunta el/los medio(s) de pago → confirma la venta → vuelve a empezar.
+
+**Modos de emergencia de la app móvil (requisito confirmado jun 2026):**
+- **PC no disponible (ej. corte de luz):** la app móvil debe poder **cerrar ventas por sí sola** (POS completo en el celular), no solo relayar códigos. Ideal: operar desde la PC; el celular es el respaldo.
+- **Sin internet/datos:** la app móvil **persiste las ventas localmente** (en el celular) y las **sincroniza a Firebase** cuando recupera conexión, actualizando la lista de ventas.
+- **Reconciliación:** cada venta lleva un UUID generado en el dispositivo; la sincronización es **idempotente** para que las ventas creadas en el celular se incorporen a Firebase y a la DB de la PC **sin duplicados**.
+
+**Implicancias para el código actual (a corregir en Fase 2):**
+- El canal `SCALE_ORDER`, el `setOrderHook` de `main.ts` y la cola FIFO por canales A/B/C/D asumían el push de la balanza → **se eliminan/recontextualizan**.
+- `CashierScreen` debe reorganizarse alrededor de "venta en curso que se va armando al escanear", no de una cola de pedidos entrantes.
+- Las tablas `scale_orders` / `scale_order_items` quedan en revisión (posible deprecación: la venta ya se modela con `sales` + `sale_items`).
+- El componente `EmergencyBarcodeInput` se renombra/recontextualiza: **escanear = flujo normal**, manual PLU+precio = emergencia.
 
 ---
 
@@ -146,8 +181,9 @@ Entregado:
 - Tests para parser R30, protocolo R30, driver real (unit), PLU handler, hardware manager, client DB, migrate.
 - Build de producción verificado: `afterPack` sin artefactos prohibidos.
 
-**Aplazado (no bloquea cierre de fase):**
-- Modo de emergencia con escaneo de tickets (barcode/QR del ticket físico KRETZ) — pendiente de datos empíricos del ticket. Se retomará en sesión dedicada.
+**Rol de la balanza (aclaración):** en producción la balanza KRETZ se usa **únicamente** para gestión de PLUs/precios por parte de administradores, vía conexión física USB. No envía pedidos ni ventas a la PC (ver "Modelo de flujo de datos").
+
+**Resuelto luego del cierre:** el patrón del código de barras del ticket (EAN-13 prefijo `20`, PLU 3 díg + precio 7 díg en centavos) fue identificado con datos reales. El escaneo dejó de ser "modo emergencia" y pasó a ser el flujo principal de ventas (Fase 2).
 
 **Cierre formal:**
 - [x] `pnpm run test` — 216 tests en verde
@@ -158,11 +194,14 @@ Entregado:
 
 ---
 
-### 🔜 Fase 2 — Ventas (POS) — EN PROGRESO
+> **Nota de reordenamiento (jun 2026):** tras la corrección del modelo de flujo de datos, las fases 2 en adelante se reordenaron. La app móvil (antes "emergencia móvil" en la última fase) pasó a ser un componente central y temprano, y se agregó una fase dedicada a la sección de administración de PLUs. Las fases 0 y 1 (con tags creados) no cambian.
+
+### 🔄 Fase 2 — POS de ventas por escaneo (EN PROGRESO)
+
+Objetivo: que la cajera arme una venta en la PC **escaneando los códigos de barras** del ticket físico (cada código = un producto con PLU + precio total), elija el/los medios de pago y confirme, guardando todo de forma atómica. El origen del escaneo (app móvil, lector USB o entrada manual) es intercambiable.
 
 Infraestructura ya implementada (remanente de fases previas):
-- `sale.handler.ts`: creación de ventas con ítems + pagos multi-medio, transacción atómica.
-- `CashierScreen`: cola FIFO de pedidos de balanza, selección, confirmación de venta.
+- `sale.handler.ts`: creación de ventas con ítems + pagos multi-medio, transacción atómica con rollback.
 - `PaymentModal`: cobros combinados (efectivo + débito + billetera + crédito).
 - `OpenShiftScreen`: apertura de turno con cambio inicial.
 - Schema de DB: tablas `sales`, `sale_items`, `sale_payments`, `shifts`.
@@ -170,30 +209,69 @@ Infraestructura ya implementada (remanente de fases previas):
 Completado en esta iteración (29/06/2026):
 - [x] **Migración 0003**: columna `plu_number integer unique` en `products`.
 - [x] **Rangos de PLU acordados**: 1–99 vacunos, 100–149 pollo, 150–199 cerdo, 200–249 embutidos, 250–299 especiales, 300+ reservado.
-- [x] **Seed actualizado** con catálogo realista de ~28 productos, unidades correctas y PLU numbers.
-- [x] **PLU → productId lookup** en el hook de `main.ts`: el `productCode` del protocolo R30 es el número PLU; se resuelve por `plu_number` en la DB. Mock actualizado para emitir PLU numbers numéricos.
-- [x] **UI de emergencia extendida**: `EmergencyBarcodeInput` ahora tiene dos pestañas — barcode EAN-13 (existente) y **PLU + precio** (nueva), con `NumericInput` y validación de rango PLU 1–999.
-- [x] **Test de integración** (9 tests): venta multi-pago con rollback completo si falla la confirmación, incluye restauración de `scaleOrder` a `pending`.
+- [x] **Seed actualizado** con catálogo realista (~34 productos) + precios de referencia en `product_prices`.
+- [x] **PLU → producto**: resolución por `plu_number`; el código de barras del ticket se parsea a PLU + precio.
+- [x] **Entrada por código de barras** (`EmergencyBarcodeInput`): auto-submit al detectar 13 dígitos → **compatible con lector USB keyboard-wedge sin cambios**.
+- [x] **Entrada manual PLU + precio** con autocompletado del catálogo y decimales con coma (es-AR).
+- [x] **IPC `GET_PRODUCTS`** + modal de catálogo (PLU, nombre, precio, categoría) ordenable/filtrable.
+- [x] **Test de integración** (venta multi-pago con rollback completo).
 
-Pendiente en Fase 2:
-- [ ] UI de cierre de turno (ver Fase 3).
-- [ ] ABM de precios por producto (actualmente el precio lo envía la balanza; necesario para ventas manuales de productos sin barcode).
+Rework por el nuevo modelo de datos (30/06/2026):
+- [x] **Eliminado el modelo de push de la balanza**: se quitaron `SCALE_ORDER`, `INJECT_MOCK_ORDER`, `setOrderHook` en `main.ts`, el `_broadcastOrder`/`injectMockOrder` del `HardwareManager`, el handler `mockOrder.handler.ts` y el panel "Simulador" (`DevScaleTicketPanel`).
+- [x] **`CashierScreen` reorganizado** alrededor de "venta en curso que se arma escaneando" (agrega ítem por cada código, quitar ítem, total en vivo, vaciar).
+- [x] **`EmergencyBarcodeInput` → `ScanInput`**: escaneo = pestaña principal; manual PLU+precio = emergencia.
+- [x] **Tablas `scale_orders` / `scale_order_items`**: marcadas DEPRECADAS en el schema (la venta se modela con `sales`+`sale_items`); baja con migración dedicada pendiente.
+- [x] **Ventas manuales** marcadas con `manualEntry` (aprobación de admin en producción queda para la fase de panel admin).
+- [x] Suite 100% verde (239 tests) tras el rework.
 
----
+Pendiente menor para cerrar Fase 2:
+- [ ] Harness de tests de componentes React (RTL) para cubrir el flujo de UI "escanear → carrito → confirmar" (hoy solo se testean utilidades de `src/lib` y la lógica de venta en `sale.handler`).
+- [ ] Limpieza del mock KRETZ: el `emitMockOrder`/generación de pedidos del mock quedó sin consumidor (la balanza ya no emite pedidos); decidir si se elimina o se repurposea como generador de códigos de barras de prueba.
+- [ ] Arreglar el script `pnpm run typecheck` (preexistente): `tsconfig.node.json` necesita `"composite": true` para la referencia desde `tsconfig.json`.
 
-### Fase 2 — Ventas (POS) — ver estado completo arriba
+### 🔜 Fase 3 — App móvil companion (escáner + POS de respaldo)
 
-*(Ver bloque anterior para detalle de lo implementado vs. lo pendiente)*
+Objetivo: dar a la cajera el dispositivo de escaneo del día a día (mientras no haya lectores USB) y un respaldo operativo cuando la PC no esté disponible. Es **crítico** para que el POS funcione en el local.
 
-### Fase 3 — Cierre de jornada y gastos
+Transporte confirmado: **relay vía Firebase** (el móvil escribe el código/venta en un documento de sesión por local; la PC lo escucha en tiempo real). No requiere configurar la red del local y reutiliza el Firebase de licencias.
+
+**Sub-etapa 3a — Escáner + relay (camino crítico):**
+- App móvil como **PWA** (React) con escaneo de código de barras por cámara (lib a definir, ej. `@zxing/browser`).
+- Autenticación contra la misma licencia/local (sin exponer credenciales sensibles).
+- El móvil relaya cada código a la PC vía Firebase; la PC lo agrega a la venta en curso (mismo path que el lector USB).
+- Diseñado para que el futuro **lector USB** reemplace al móvil sin tocar la lógica de venta.
+
+**Sub-etapa 3b — POS de respaldo en el móvil (PC no disponible):**
+- La app móvil puede **armar y cerrar ventas por sí sola** (escanear ítems + elegir medios de pago + confirmar) cuando la PC no está disponible (ej. corte de luz).
+- Operación normal sigue siendo desde la PC; el móvil es el respaldo.
+
+**Sub-etapa 3c — Offline-first + sincronización:**
+- Persistencia local en el celular (ej. IndexedDB) de las ventas hechas sin conexión.
+- Al recuperar internet, **sincroniza a Firebase** y actualiza la lista de ventas.
+- Cada venta lleva UUID de dispositivo; sync **idempotente** → sin duplicados al incorporarse a Firebase y a la DB de la PC.
+
+- Tests: parser/relay de códigos, manejo de duplicados y códigos inválidos, sync idempotente, persistencia offline.
+
+### 🔜 Fase 4 — Sección de administración de PLUs (solo admins)
+
+Objetivo: que los administradores gestionen precios/PLUs y los carguen en la balanza, aprovechando los comandos KRETZ ya validados en Fase 1.
+
+- Vista **exclusiva para admins** (rol verificado), no visible para cajeras.
+- CRUD de PLUs: crear, modificar (nombre/precio), **cambiar número**, eliminar.
+- **Edición masiva**: preparar varios cambios como borrador y aplicarlos como lote.
+- Botón **"Cargar en balanza"** habilitado **si y solo si la balanza está físicamente conectada a esa PC** (nunca desde el móvil). Usa los comandos KRETZ de Fase 1.
+- Sincronización catálogo local ↔ PLUs de la balanza; auditoría de cambios.
+- Tests: gating por conexión física, lote aplicado correctamente, rollback si un comando falla.
+
+### Fase 5 — Cierre de jornada y gastos
 
 - Apertura de turno con cambio inicial.
-- Registro de gastos durante jornada.
+- Registro de gastos durante la jornada.
 - Cierre con conteo de billetes, cierre a ciegas opcional.
 - Diferencia de caja automática.
 - Test obligatorio: cierre con diferencia de caja, cierre a ciegas.
 
-### Fase 4 — Clientes especiales y deudas
+### Fase 6 — Clientes especiales y deudas
 
 - ABM de clientes (restaurant, mayorista, otros).
 - Precios especiales por cliente.
@@ -201,27 +279,27 @@ Pendiente en Fase 2:
 - Cobro cruzado entre locales sin duplicados.
 - Test obligatorio: ledger completo con pagos parciales y cobros cruzados.
 
-### Fase 5 — Pedidos y panel admin
+### Fase 7 — Pedidos, historial y reportes admin
 
 - ABM de pedidos con estado (pendiente / listo / entregado / cancelado).
-- Panel admin: catálogo de productos, precios, historial, reportes por turno/período.
-- Registro local de medios de pago. La caja registradora queda fuera del alcance de la app.
+- Panel admin: historial de ventas, reportes por turno/período. (El catálogo/precios se gestionan en Fase 4.)
+- Registro local de medios de pago. La app no interactúa con caja registradora ni terminal de pago.
 
-### Fase 6 — Stock ⚠️ BLOQUEADA
+### Fase 8 — Stock ⚠️ BLOQUEADA
 
 **No codificar hasta que el desarrollador confirme haber tenido la charla con el carnicero titular sobre el manejo de ingreso de mercadería.** La estructura de `stock_entries` existe en el schema pero el flujo operativo está pendiente de definición.
 
-### Fase 7 — Empleados, vales y asistencia
+### Fase 9 — Empleados, vales y asistencia
 
 - ABM de empleados con rol (`butcher`, `cashier`, `other`).
 - Registro de vales/adelantos contra salario semanal.
 - Registro de asistencia con estados y justificaciones.
 
-### Fase 8 — Dashboard remoto y emergencia móvil
+### Fase 10 — Dashboard remoto
 
 - Dashboard web en Firebase (React, misma base de código o mini-app separada).
-- Vista en tiempo real de ventas del día, turno activo, totales por medio de pago.
-- Modo emergencia: hoja de barcodes plastificada como fallback inicial para escaneo de tickets KRETZ (implementar solo cuando haya datos empíricos del ticket).
+- Vista de ventas del día, turno activo y totales por medio de pago.
+- (El escaneo móvil dejó de ser "emergencia" y se trata como componente central en Fase 3.)
 
 ---
 
@@ -267,14 +345,14 @@ Ejecutar en este orden. No saltear pasos.
 4. Primera apertura: ingresar `license_key` y código de activación. Verificar que la respuesta de Firebase es exitosa y que la pantalla avanza al login.
 5. Crear el primer local desde panel admin (usar el UUID de `default_store_id`).
 6. Crear la primera cajera con contraseña provisoria.
-7. Conectar la balanza por USB-B. Verificar indicador de hardware en la app.
+7. Conectar la balanza por USB-B **solo si se va a gestionar PLUs** (es el único uso de la balanza desde la app). Verificar el indicador de hardware. Para la operación de ventas la balanza no necesita estar conectada a la PC.
 
 ### 3. Verificación antes de dejar al cliente solo
 
 No retirarse sin completar este circuito:
 
-- **Venta de punta a punta**: carnicero pesa → cajera ve ticket → confirma → cobro → venta en historial.
-- **Venta digital**: registrar débito o billetera como medio de pago local; la cajera opera la caja registradora por fuera de la app.
+- **Venta de punta a punta**: carnicero pesa e imprime el ticket físico → cajera escanea cada código del ticket (app móvil o lector USB) → los productos se cargan solos → elige medio(s) de pago → confirma → venta en historial.
+- **Medios de pago digitales**: registrar débito/billetera/crédito como medio de pago local (la app no opera ninguna caja registradora ni terminal de pago).
 - **Gasto**: registrar uno, verificar que aparece en el resumen del turno.
 - **Cierre de jornada**: cambio inicial → ventas → gastos → cierre → totales correctos → diferencia de caja `$0`.
 - **Dashboard web desde celular**: ventas del día y turno activo visibles.

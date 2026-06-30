@@ -37,3 +37,53 @@ export function parseNumericInput(formatted: string): number | null {
   const value = Number.parseInt(digits, 10)
   return Number.isNaN(value) ? null : value
 }
+
+/**
+ * Formatea un monto con separador de miles (.) y decimales opcionales con coma (,).
+ * Estilo es-AR: "17535,50" → "17.535,50"
+ *
+ * Permite escribir la coma mientras se tipea (ej. "17.535,").
+ * Máximo 2 decimales después de la coma.
+ */
+export function formatDecimalInputValue(raw: string): string {
+  // Quitar puntos de miles previos antes de sanitizar (evita duplicar dígitos al re-formatear)
+  const withoutDots = raw.replace(/\./g, '')
+  const cleaned = withoutDots.replace(/[^\d,]/g, '')
+  const commaIndex = cleaned.indexOf(',')
+
+  let intPart: string
+  let decPart: string
+  let hasTrailingComma = false
+
+  if (commaIndex === -1) {
+    intPart = cleaned
+    decPart = ''
+  } else {
+    intPart = cleaned.slice(0, commaIndex)
+    decPart = cleaned.slice(commaIndex + 1).replace(/,/g, '').slice(0, 2)
+    hasTrailingComma = cleaned.endsWith(',') && decPart.length === 0
+  }
+
+  const formattedInt = intPart ? formatIntegerWithDots(intPart) : ''
+
+  if (hasTrailingComma) {
+    return `${formattedInt},`
+  }
+  if (decPart.length > 0) {
+    return `${formattedInt},${decPart}`
+  }
+  return formattedInt
+}
+
+/**
+ * Convierte un monto formateado es-AR (1.234,56) a número.
+ * Retorna null si el campo está vacío o es inválido.
+ */
+export function parseDecimalInput(formatted: string): number | null {
+  const trimmed = formatted.trim()
+  if (!trimmed || trimmed === ',') return null
+
+  const normalized = trimmed.replace(/\./g, '').replace(',', '.')
+  const value = Number.parseFloat(normalized)
+  return Number.isNaN(value) ? null : value
+}

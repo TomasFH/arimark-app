@@ -252,7 +252,12 @@ export const salePayments = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Pedidos de balanza — unidad que llega al confirmar el canal (imprimir ticket)
+// Pedidos de balanza — DEPRECADO (jun 2026).
+// Modelaban el push de pedidos en tiempo real desde la balanza, modelo que ya
+// no aplica: las ventas se arman en la PC escaneando códigos de barras y se
+// modelan con `sales` + `sale_items` (ver PLAN.md → Modelo de flujo de datos).
+// Se conservan por compatibilidad de migraciones; pendiente decidir su baja
+// con una migración dedicada.
 // ---------------------------------------------------------------------------
 export const scaleOrders = sqliteTable(
   'scale_orders',
