@@ -5,8 +5,10 @@
  *   Solo acepta dígitos. Auto-submit al detectar 13 dígitos (compatible con lector USB).
  *   Calcula el peso en kg a partir del precio total / precio por kg del catálogo.
  *
- * Pestaña "PLU + precio" (emergencia): ingreso manual con campo de peso vinculado.
- *   Peso y precio total se calculan uno del otro usando el precio/kg del catálogo.
+ * Pestaña "PLU + precio" (emergencia): ingreso manual.
+ *   - Productos por kg: campos Peso y Precio vinculados (regla de tres).
+ *   - Productos por unidad: solo campo Cantidad (entero). Precio = qty × catálogo.
+ *     Checkbox "Precio especial" desbloquea precio editable + muestra aviso.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -31,16 +33,19 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers de formato (seguros con JS floats)
+// ---------------------------------------------------------------------------
+
+/** Número → string es-AR con N decimales. No usa formatDecimalInputValue para evitar
+ *  que el punto decimal de JS se confunda con separador de miles. */
+function toEsAR(value: number, decimals: number): string {
+  return value.toFixed(decimals).replace('.', ',')
+}
+
+// ---------------------------------------------------------------------------
 // Lógica de negocio
 // ---------------------------------------------------------------------------
 
-/**
- * Construye un SaleItemDraft a partir del total del código de barras y el producto del catálogo.
- * - Para productos por kg: peso = total / precio_kg (peso real extraído del ticket).
- * - Para productos por unidad: cantidad = round(total / precio_unidad).
- *   Si la cantidad no es entera → discrepancia de precio (la balanza tiene otro precio).
- * - Sin precio en catálogo: unitPrice = total, weightKg = 1 (fallback mínimo).
- */
 function buildItemFromBarcode(
   pluNumber: number,
   totalARS: number,
@@ -56,7 +61,6 @@ function buildItemFromBarcode(
   if (refPrice && refPrice > 0) {
     unitPrice = refPrice
     const raw = totalARS / refPrice
-
     if (unit === 'unit') {
       const rounded = Math.round(raw)
       priceDiscrepancy = Math.abs(raw - rounded) > 0.05
@@ -79,12 +83,12 @@ function buildItemFromBarcode(
   }
 }
 
-/** Construye un SaleItemDraft a partir del ingreso manual de PLU + peso + precio. */
 function buildItemFromManual(
   pluNumber: number,
   weightKg: number,
   subtotal: number,
-  product: ProductRow | undefined
+  product: ProductRow | undefined,
+  specialPrice: boolean
 ): SaleItemDraft {
   const unit = product?.unit ?? 'kg'
   const unitPrice = product?.price ?? (weightKg > 0 ? subtotal / weightKg : subtotal)
@@ -97,6 +101,7 @@ function buildItemFromManual(
     unitPrice,
     subtotal,
     manualEntry: true,
+    priceDiscrepancy: specialPrice || undefined,
   }
 }
 
@@ -128,12 +133,12 @@ export default function ScanInput({ onAddItem, products }: Props) {
   const [pluRaw, setPluRaw] = useState('')
   const [weightRaw, setWeightRaw] = useState('')
   const [priceRaw, setPriceRaw] = useState('')
+  const [specialPrice, setSpecialPrice] = useState(false)
   const [manualError, setManualError] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const pluInputRef = useRef<HTMLInputElement>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
 
-  // Foco automático al cambiar de tab
   useEffect(() => {
     const timer = setTimeout(() => {
       if (tab === 'scan') barcodeInputRef.current?.focus()
@@ -157,21 +162,34 @@ export default function ScanInput({ onAddItem, products }: Props) {
     : undefined
 
   const refPrice = matchedProduct?.price ?? null
+  const isUnit = matchedProduct?.unit === 'unit'
 
-  // ── Tab switch ──────────────────────────────────────────────────────────
+  // Precio calculado automáticamente para productos por unidad (sin precio especial)
+  const autoPrice = (() => {
+    if (!isUnit || specialPrice || refPrice === null) return null
+    const qty = parseNumericInput(weightRaw)
+    return qty !== null && qty > 0 ? qty * refPrice : null
+  })()
+
+  // ── Reset helpers ──────────────────────────────────────────────────────
+
+  function resetManual() {
+    setPluRaw('')
+    setWeightRaw('')
+    setPriceRaw('')
+    setSpecialPrice(false)
+    setManualError('')
+    setShowSuggestions(false)
+  }
 
   function handleTabChange(next: Tab) {
     setTab(next)
     setBarcode('')
     setBarcodeError('')
-    setPluRaw('')
-    setWeightRaw('')
-    setPriceRaw('')
-    setManualError('')
-    setShowSuggestions(false)
+    resetManual()
   }
 
-  // ── Flash feedback ──────────────────────────────────────────────────────
+  // ── Flash feedback ─────────────────────────────────────────────────────
 
   function flashAdded(name: string) {
     setAddedMsg(name)
@@ -184,15 +202,24 @@ export default function ScanInput({ onAddItem, products }: Props) {
     setPluRaw(String(p.pluNumber))
     setShowSuggestions(false)
     setManualError('')
-    // Limpiar peso y precio al cambiar de producto
     setWeightRaw('')
     setPriceRaw('')
+    setSpecialPrice(false)
     setTimeout(() => priceInputRef.current?.focus(), 50)
   }
 
-  // ── Manual: vinculación peso ↔ precio ──────────────────────────────────
+  function handlePluChange(v: string) {
+    setPluRaw(formatIntegerWithDots(stripNonDigits(v).slice(0, 3)))
+    setManualError('')
+    setShowSuggestions(true)
+    setWeightRaw('')
+    setPriceRaw('')
+    setSpecialPrice(false)
+  }
 
-  function handleWeightChange(v: string) {
+  // ── Manual: productos por kg (campos bidireccionales) ──────────────────
+
+  function handleKgWeightChange(v: string) {
     setWeightRaw(v)
     setManualError('')
     if (refPrice && refPrice > 0) {
@@ -203,24 +230,33 @@ export default function ScanInput({ onAddItem, products }: Props) {
     }
   }
 
-  function handlePriceChange(v: string) {
+  function handleKgPriceChange(v: string) {
     setPriceRaw(v)
     setManualError('')
     if (refPrice && refPrice > 0) {
       const p = parseDecimalInput(v)
       if (p !== null && p > 0) {
-        setWeightRaw(formatDecimalInputValue(String(p / refPrice), 3))
+        // toFixed(3).replace('.', ',') evita que el punto decimal de JS se confunda
+        // con el separador de miles de formatDecimalInputValue
+        setWeightRaw(toEsAR(p / refPrice, 3))
       }
     }
   }
 
-  // Limpiar campos dependientes al cambiar de PLU
-  function handlePluChange(v: string) {
-    setPluRaw(formatIntegerWithDots(stripNonDigits(v).slice(0, 3)))
+  // ── Manual: productos por unidad ───────────────────────────────────────
+
+  function handleUnitQuantityChange(v: string) {
+    setWeightRaw(v)
     setManualError('')
-    setShowSuggestions(true)
-    setWeightRaw('')
-    setPriceRaw('')
+    // Precio se recalcula en autoPrice (reactivo), no hace falta setState aquí
+  }
+
+  function handleSpecialPriceToggle(checked: boolean) {
+    setSpecialPrice(checked)
+    if (!checked) {
+      // Al desactivar precio especial, limpiar precio manual
+      setPriceRaw('')
+    }
   }
 
   // ── Manual: submit ─────────────────────────────────────────────────────
@@ -236,38 +272,45 @@ export default function ScanInput({ onAddItem, products }: Props) {
       return
     }
 
-    const price = parseDecimalInput(priceRaw)
-    if (price === null || price <= 0) {
-      setManualError('Precio total inválido.')
-      return
-    }
-
-    const isUnit = matchedProduct?.unit === 'unit'
-
-    let weightKg: number
     if (isUnit) {
-      // Cantidad debe ser entera positiva
-      const qty = parseDecimalInput(weightRaw)
-      weightKg = qty !== null && qty > 0 ? Math.round(qty) : 1
+      const qty = parseNumericInput(weightRaw)
+      if (qty === null || qty <= 0) {
+        setManualError('Cantidad inválida. Ingresá un número entero mayor a 0.')
+        return
+      }
+      const subtotal = specialPrice
+        ? parseDecimalInput(priceRaw)
+        : autoPrice
+      if (subtotal === null || subtotal <= 0) {
+        setManualError('Precio total inválido.')
+        return
+      }
+      const item = buildItemFromManual(plu, qty, subtotal, matchedProduct, specialPrice)
+      onAddItem(item)
+      flashAdded(item.productName)
+      resetManual()
+      setTimeout(() => pluInputRef.current?.focus(), 50)
     } else {
+      // Producto por kg
       const w = parseDecimalInput(weightRaw)
       if (w === null || w <= 0) {
         setManualError('Peso inválido. Ingresá el peso en kg.')
         return
       }
-      weightKg = w
+      const price = parseDecimalInput(priceRaw)
+      if (price === null || price <= 0) {
+        setManualError('Precio total inválido.')
+        return
+      }
+      const item = buildItemFromManual(plu, w, price, matchedProduct, false)
+      onAddItem(item)
+      flashAdded(item.productName)
+      resetManual()
+      setTimeout(() => pluInputRef.current?.focus(), 50)
     }
-
-    const item = buildItemFromManual(plu, weightKg, price, matchedProduct)
-    onAddItem(item)
-    flashAdded(item.productName)
-    setPluRaw('')
-    setWeightRaw('')
-    setPriceRaw('')
-    setTimeout(() => pluInputRef.current?.focus(), 50)
   }
 
-  // ── Scan: lógica ───────────────────────────────────────────────────────
+  // ── Scan ───────────────────────────────────────────────────────────────
 
   function tryAddFromBarcode(digits: string): boolean {
     const parsed = parseKretzBarcode(digits)
@@ -281,11 +324,9 @@ export default function ScanInput({ onAddItem, products }: Props) {
   }
 
   function handleBarcodeChange(e: React.ChangeEvent<HTMLInputElement>) {
-    // Solo dígitos
     const digits = e.target.value.replace(/\D/g, '')
     setBarcode(digits)
     setBarcodeError('')
-
     if (digits.length === 13) {
       if (tryAddFromBarcode(digits)) {
         setBarcode('')
@@ -316,12 +357,21 @@ export default function ScanInput({ onAddItem, products }: Props) {
     }
   })()
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  // ── Derivados para render ──────────────────────────────────────────────
 
-  const price = parseDecimalInput(priceRaw)
-  const isUnit = matchedProduct?.unit === 'unit'
-  const weightLabel = isUnit ? 'Cantidad' : 'Peso (kg)'
-  const weightPlaceholder = isUnit ? 'ej. 2' : 'ej. 0,490'
+  // Validación del botón submit
+  const canSubmit = (() => {
+    if (!pluRaw.trim()) return false
+    if (isUnit) {
+      const qty = parseNumericInput(weightRaw)
+      if (!qty || qty <= 0) return false
+      if (specialPrice) return !!priceRaw.trim()
+      return autoPrice !== null
+    }
+    return !!weightRaw.trim() && !!priceRaw.trim()
+  })()
+
+  // ── Render ─────────────────────────────────────────────────────────────
 
   return (
     <div className="border-t border-gray-800 px-3 py-2 space-y-2">
@@ -357,7 +407,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
         </p>
       )}
 
-      {/* ── Pestaña Escanear ─────────────────────────────────────────── */}
+      {/* ── Pestaña Escanear ──────────────────────────────────────────── */}
       {tab === 'scan' && (
         <form onSubmit={handleBarcodeSubmit} className="space-y-2">
           <p className="text-[10px] text-gray-500 leading-snug">
@@ -394,7 +444,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
       {tab === 'manual' && (
         <form onSubmit={handleManualSubmit} className="space-y-2">
           <p className="text-[10px] text-gray-500 leading-snug">
-            Emergencia: ingresá el PLU, el peso o cantidad y el precio total.
+            Emergencia: ingresá el PLU y los datos del producto.
           </p>
 
           {/* PLU con autocomplete */}
@@ -432,61 +482,118 @@ export default function ScanInput({ onAddItem, products }: Props) {
             )}
           </div>
 
-          {/* Peso / Cantidad + Precio total (campos vinculados) */}
-          <div className="flex gap-2">
-            <div className="w-24 shrink-0">
-              <label className="block text-[9px] text-gray-500 mb-0.5">{weightLabel}</label>
-              <DecimalInput
-                value={weightRaw}
-                onChange={handleWeightChange}
-                maxDecimals={isUnit ? 0 : 3}
-                placeholder={weightPlaceholder}
-                className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-[9px] text-gray-500 mb-0.5">
-                Precio total ($)
-                {refPrice && (
-                  <span className="ml-1 text-amber-600">
-                    · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}
-                  </span>
-                )}
-              </label>
-              <DecimalInput
-                ref={priceInputRef}
-                value={priceRaw}
-                onChange={handlePriceChange}
-                placeholder="ej. 17.535,50"
-                className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Preview del producto */}
+          {/* Info del producto */}
           {pluNum !== null && matchedProduct && (
             <p className="text-[10px] text-blue-400 truncate">
               {matchedProduct.name} · {CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}
+              {refPrice && (
+                <span className="text-amber-500"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
+              )}
             </p>
           )}
           {pluNum !== null && !matchedProduct && pluRaw.trim() && (
             <p className="text-[10px] text-yellow-500">PLU {pluNum} — no encontrado en el catálogo</p>
           )}
 
-          {/* Preview del cálculo */}
-          {price !== null && price > 0 && pluNum !== null && (() => {
+          {/* ── Campos: productos por unidad ── */}
+          {isUnit ? (
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[9px] text-gray-500 mb-0.5">Cantidad</label>
+                <NumericInput
+                  value={weightRaw}
+                  onChange={handleUnitQuantityChange}
+                  placeholder="ej. 2"
+                  className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Precio calculado (solo lectura) */}
+              {!specialPrice && autoPrice !== null && (
+                <div className="rounded-md bg-gray-800/60 px-2 py-1.5 flex justify-between items-center">
+                  <span className="text-[10px] text-gray-400">Precio total</span>
+                  <span className="text-xs font-semibold text-amber-400">{formatARS(autoPrice)}</span>
+                </div>
+              )}
+
+              {/* Checkbox precio especial */}
+              {refPrice !== null && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={specialPrice}
+                    onChange={e => handleSpecialPriceToggle(e.target.checked)}
+                    className="accent-orange-500 h-3.5 w-3.5"
+                  />
+                  <span className="text-[10px] text-gray-400">Precio especial</span>
+                </label>
+              )}
+
+              {/* Aviso + campo de precio especial */}
+              {specialPrice && (
+                <div className="space-y-1.5">
+                  <p className="rounded bg-orange-900/40 px-2 py-1.5 text-[10px] text-orange-300 leading-snug">
+                    ⚠ Precio fuera de lista. Confirmá que no es un error antes de agregar.
+                  </p>
+                  <div>
+                    <label className="block text-[9px] text-gray-500 mb-0.5">
+                      Precio total ($)
+                      {refPrice && (
+                        <span className="ml-1 text-amber-600">· Lista: {formatARS(refPrice)}/u.</span>
+                      )}
+                    </label>
+                    <DecimalInput
+                      ref={priceInputRef}
+                      value={priceRaw}
+                      onChange={v => { setPriceRaw(v); setManualError('') }}
+                      placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
+                      className="w-full rounded-md border border-orange-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Campos: productos por kg (bidireccionales) ── */
+            <div className="flex gap-2">
+              <div className="w-24 shrink-0">
+                <label className="block text-[9px] text-gray-500 mb-0.5">Peso (kg)</label>
+                <DecimalInput
+                  value={weightRaw}
+                  onChange={handleKgWeightChange}
+                  maxDecimals={3}
+                  placeholder="ej. 0,490"
+                  className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[9px] text-gray-500 mb-0.5">
+                  Precio total ($)
+                  {refPrice && (
+                    <span className="ml-1 text-amber-600">· {formatARS(refPrice)}/kg</span>
+                  )}
+                </label>
+                <DecimalInput
+                  ref={priceInputRef}
+                  value={priceRaw}
+                  onChange={handleKgPriceChange}
+                  placeholder="ej. 7.350"
+                  className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Preview del cálculo (productos por kg) */}
+          {!isUnit && (() => {
             const w = parseDecimalInput(weightRaw)
-            if (w === null || w <= 0) return null
-            const implied = w * (refPrice ?? price)
-            const diff = Math.abs(implied - price)
-            if (diff < 1) return (
-              <p className="text-[10px] text-green-400">
-                {isUnit ? `${Math.round(w)} u.` : formatKg(w)} · Total: {formatARS(price)} ✓
-              </p>
-            )
+            const p = parseDecimalInput(priceRaw)
+            if (!w || !p) return null
+            const implied = refPrice ? w * refPrice : null
+            const match = implied !== null && Math.abs(implied - p) < 1
             return (
-              <p className="text-[10px] text-amber-400">
-                {isUnit ? `${Math.round(w)} u.` : formatKg(w)} · Total: {formatARS(price)}
+              <p className={`text-[10px] ${match ? 'text-green-400' : 'text-amber-400'}`}>
+                {formatKg(w)} · {formatARS(p)} {match ? '✓' : ''}
               </p>
             )
           })()}
@@ -497,7 +604,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
 
           <button
             type="submit"
-            disabled={!pluRaw.trim() || !priceRaw.trim() || !weightRaw.trim()}
+            disabled={!canSubmit}
             className="w-full rounded-md bg-orange-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-40"
           >
             Agregar a la venta
