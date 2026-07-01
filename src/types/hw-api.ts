@@ -156,8 +156,6 @@ export interface SalePaymentPayload {
 export interface CreateSalePayload {
   items: SaleItemPayload[]
   payments: SalePaymentPayload[]
-  /** ID del pedido de balanza que origina esta venta (null si es entrada manual) */
-  scaleOrderId?: string
   customerId?: string
   isDebt?: boolean
   /** Venta ingresada manualmente (sin pedido de balanza). Requiere aprobación admin en producción. */

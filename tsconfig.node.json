@@ -18,5 +18,5 @@
       "@electron/*": ["electron/*"]
     }
   },
-  "include": ["electron", "config"]
+  "include": ["electron", "config", "src/types"]
 }

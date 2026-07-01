@@ -1,39 +1,28 @@
 /**
- * Mock del driver KRETZ para sandbox y tests.
+ * Mock del driver KRETZ para tests y modo dev sin hardware.
  * NUNCA se incluye en el bundle de producción.
  *
  * Modos inyectables via KRETZ_MOCK_MODE:
- *   manual             — sin pedidos automáticos; usar emitMockOrder() o IPC dev (default)
- *   normal             — genera pedidos sintéticos cada N ms
+ *   manual             — sin actividad automática (default)
  *   timeout            — no responde (simula balanza sin señal)
- *   garbage            — emite bytes aleatorios (corrupción de protocolo)
- *   disconnect         — emite 'disconnected' después de N pedidos
- *   malformed_response — frame recibido pero campos semánticamente inválidos
+ *   garbage            — emite errores de datos corruptos periódicamente
+ *   disconnect         — se desconecta automáticamente tras N intervalos
+ *   malformed_response — emite errores de frame inválido periódicamente
  */
 
 import { EventEmitter } from 'events'
-import type { KretzDriver, ScaleOrderData, ScaleChannel, SendPluArgs, PluRow } from '../kretzDriver.interface'
-
-// PLU numbers del catálogo de prueba (deben coincidir con seed-sandbox.ts)
-const SAMPLE_PRODUCTS = [
-  { code: '1',   price: 8500 },  // Asado
-  { code: '3',   price: 9200 },  // Vacío
-  { code: '6',   price: 7800 },  // Costilla
-  { code: '100', price: 5500 },  // Pollo entero
-]
-
-const CHANNELS: ScaleChannel[] = ['A', 'B', 'C', 'D']
+import type { KretzDriver, SendPluArgs, PluRow } from '../kretzDriver.interface'
 
 export class KretzMockDriver extends EventEmitter implements KretzDriver {
   private _connected = false
   private _timer: NodeJS.Timeout | null = null
-  private _orderCount = 0
+  private _intervalCount = 0
 
   private get mode(): string {
     return process.env['KRETZ_MOCK_MODE'] ?? 'manual'
   }
 
-  private get orderIntervalMs(): number {
+  private get intervalMs(): number {
     return parseInt(process.env['KRETZ_MOCK_INTERVAL_MS'] ?? '3000', 10)
   }
 
@@ -50,42 +39,12 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     this.emit('connected')
 
     if (
-      this.mode === 'normal' ||
       this.mode === 'disconnect' ||
       this.mode === 'garbage' ||
       this.mode === 'malformed_response'
     ) {
-      this._startGenerating()
+      this._startFaultTimer()
     }
-  }
-
-  /**
-   * Emite un pedido completo manualmente. Usado por el panel de desarrollo (sandbox).
-   * Requiere que el driver esté conectado.
-   */
-  emitMockOrder(params: {
-    channel: ScaleChannel
-    items: Array<{ productCode: string; weightKg: number; unitPrice: number }>
-  }): void {
-    if (!this._connected) {
-      throw new Error('KRETZ mock no conectado')
-    }
-
-    const items = params.items.map(item => ({
-      productCode: item.productCode,
-      weightKg: item.weightKg,
-      unitPrice: item.unitPrice,
-      subtotal: parseFloat((item.weightKg * item.unitPrice).toFixed(2)),
-    }))
-
-    const order: ScaleOrderData = {
-      channel: params.channel,
-      items,
-      total: parseFloat(items.reduce((s, i) => s + i.subtotal, 0).toFixed(2)),
-      timestamp: new Date().toISOString(),
-    }
-
-    this.emit('order', order)
   }
 
   async disconnect(): Promise<void> {
@@ -101,18 +60,18 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     return this._connected
   }
 
-  // ---- PLU (mock — siempre OK en sandbox) ----
+  // ---- PLU (mock — siempre OK en dev) ----
 
   async testLink(): Promise<boolean> {
     return this._connected
   }
 
   async sendPlu(_args: SendPluArgs): Promise<void> {
-    // No-op en sandbox
+    // No-op en mock
   }
 
   async deletePlu(_pluNumber: string): Promise<void> {
-    // No-op en sandbox
+    // No-op en mock
   }
 
   async readPlu(_pluNumber: string, _priceDigits?: 6 | 7): Promise<PluRow | null> {
@@ -123,7 +82,8 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
     return 0
   }
 
-  private _startGenerating(): void {
+  private _startFaultTimer(): void {
+    this._intervalCount = 0
     this._timer = setInterval(() => {
       if (this.mode === 'garbage') {
         this.emit('error', new Error('Datos corruptos recibidos del puerto serial'))
@@ -135,33 +95,12 @@ export class KretzMockDriver extends EventEmitter implements KretzDriver {
         return
       }
 
-      if (this.mode === 'disconnect' && this._orderCount >= this.disconnectAfter) {
-        this.disconnect()
-        return
-      }
-
-      // Generar pedido sintético con 1–3 productos aleatorios
-      const itemCount = Math.floor(Math.random() * 3) + 1
-      const items = Array.from({ length: itemCount }, () => {
-        const product = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)]
-        const weightKg = parseFloat((Math.random() * 2 + 0.2).toFixed(3))
-        return {
-          productCode: product.code,
-          weightKg,
-          unitPrice: product.price,
-          subtotal: parseFloat((weightKg * product.price).toFixed(2)),
+      if (this.mode === 'disconnect') {
+        this._intervalCount++
+        if (this._intervalCount >= this.disconnectAfter) {
+          this.disconnect()
         }
-      })
-
-      const order: ScaleOrderData = {
-        channel: CHANNELS[this._orderCount % 4],
-        items,
-        total: parseFloat(items.reduce((s, i) => s + i.subtotal, 0).toFixed(2)),
-        timestamp: new Date().toISOString(),
       }
-
-      this._orderCount++
-      this.emit('order', order)
-    }, this.orderIntervalMs)
+    }, this.intervalMs)
   }
 }

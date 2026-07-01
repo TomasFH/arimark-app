@@ -185,8 +185,6 @@ export const sales = sqliteTable(
       .notNull()
       .references(() => shifts.id),
     customerId: text('customer_id').references(() => customers.id),
-    /** Pedido de balanza del que proviene esta venta (null si es entrada manual) */
-    scaleOrderId: text('scale_order_id'),
     total: real('total').notNull(),
     isDebt: integer('is_debt', { mode: 'boolean' }).notNull().default(false),
     status: text('status', { enum: ['in_progress', 'confirmed', 'discarded'] }).notNull(),
@@ -249,60 +247,6 @@ export const salePayments = sqliteTable(
     syncedAt: text('synced_at'),
   },
   table => [index('idx_sale_payments_sale').on(table.saleId)]
-)
-
-// ---------------------------------------------------------------------------
-// Pedidos de balanza — DEPRECADO (jun 2026).
-// Modelaban el push de pedidos en tiempo real desde la balanza, modelo que ya
-// no aplica: las ventas se arman en la PC escaneando códigos de barras y se
-// modelan con `sales` + `sale_items` (ver PLAN.md → Modelo de flujo de datos).
-// Se conservan por compatibilidad de migraciones; pendiente decidir su baja
-// con una migración dedicada.
-// ---------------------------------------------------------------------------
-export const scaleOrders = sqliteTable(
-  'scale_orders',
-  {
-    id: text('id').primaryKey(),
-    storeId: text('store_id')
-      .notNull()
-      .references(() => stores.id),
-    shiftId: text('shift_id')
-      .notNull()
-      .references(() => shifts.id),
-    /** Canal de la balanza que generó este pedido (A/B/C/D) */
-    channel: text('channel', { enum: ['A', 'B', 'C', 'D'] }).notNull(),
-    total: real('total').notNull(),
-    status: text('status', { enum: ['pending', 'confirmed', 'discarded'] }).notNull(),
-    createdAt: text('created_at').notNull(),
-    createdBy: text('created_by')
-      .notNull()
-      .references(() => users.id),
-    syncedAt: text('synced_at'),
-  },
-  table => [
-    index('idx_scale_orders_shift').on(table.shiftId, table.status),
-    index('idx_scale_orders_store').on(table.storeId, table.createdAt),
-  ]
-)
-
-// ---------------------------------------------------------------------------
-// Ítems de cada pedido de balanza
-// ---------------------------------------------------------------------------
-export const scaleOrderItems = sqliteTable(
-  'scale_order_items',
-  {
-    id: text('id').primaryKey(),
-    orderId: text('order_id')
-      .notNull()
-      .references(() => scaleOrders.id),
-    productCode: text('product_code').notNull(),
-    productId: text('product_id').references(() => products.id),
-    weightKg: real('weight_kg').notNull(),
-    unitPrice: real('unit_price').notNull(),
-    subtotal: real('subtotal').notNull(),
-    syncedAt: text('synced_at'),
-  },
-  table => [index('idx_scale_order_items_order').on(table.orderId)]
 )
 
 // ---------------------------------------------------------------------------

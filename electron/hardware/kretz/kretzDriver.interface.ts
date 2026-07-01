@@ -1,27 +1,6 @@
 import type { EventEmitter } from 'events'
 import type { SendPluArgs, PluRow } from './r30Protocol'
 
-export type ScaleChannel = 'A' | 'B' | 'C' | 'D'
-
-/** Un ítem dentro de un pedido emitido por la balanza */
-export interface ScaleOrderItemData {
-  productCode: string
-  weightKg: number
-  unitPrice: number
-  subtotal: number
-}
-
-/**
- * Pedido completo emitido por la balanza al imprimir el ticket físico.
- * Un pedido = N productos de un mismo cliente en un canal dado (A/B/C/D).
- */
-export interface ScaleOrderData {
-  channel: ScaleChannel
-  items: ScaleOrderItemData[]
-  total: number
-  timestamp: string
-}
-
 export interface KretzDriver extends EventEmitter {
   /** Abre el puerto serial y establece comunicación con la balanza */
   connect(): Promise<void>
@@ -43,7 +22,7 @@ export interface KretzDriver extends EventEmitter {
   readPluCount(): Promise<number>
 }
 
-export type KretzEvent = 'order' | 'connected' | 'disconnected' | 'error'
+export type KretzEvent = 'connected' | 'disconnected' | 'error'
 
 // Re-exportar para que los handlers no importen directamente del protocolo
 export type { SendPluArgs, PluRow }

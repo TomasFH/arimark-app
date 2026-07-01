@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { eq } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { sales, saleItems, salePayments, scaleOrders } from '../db/schema'
+import { sales, saleItems, salePayments } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getStoredAdminSession } from './auth.handler'
 import type { IpcResult, SaleResult } from '../../src/types/hw-api'
@@ -30,7 +30,6 @@ const createSaleSchema = z
   .object({
     items: z.array(saleItemSchema).min(1),
     payments: z.array(salePaymentSchema).min(1),
-    scaleOrderId: z.string().optional(),
     customerId: z.string().optional(),
     isDebt: z.boolean().optional(),
     manualEntry: z.boolean().optional(),
@@ -83,7 +82,7 @@ export function registerSaleHandlers(): void {
       }
     }
 
-    const { items, payments, scaleOrderId, customerId, isDebt, manualEntry, notes } = parsed.data
+    const { items, payments, customerId, isDebt, manualEntry, notes } = parsed.data
     const total = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
     const saleId = uuidv4()
     const now = new Date().toISOString()
@@ -106,7 +105,7 @@ export function registerSaleHandlers(): void {
     }
 
     // -------------------------------------------------------------------------
-    // Fase 1: Transacción SQLite — crear venta + ítems + marcar pedido
+    // Fase 1: Transacción SQLite — crear venta + ítems
     // -------------------------------------------------------------------------
     try {
       db.transaction(tx => {
@@ -116,7 +115,6 @@ export function registerSaleHandlers(): void {
             storeId: session.storeId,
             shiftId: session.shiftId!,
             customerId: customerId ?? null,
-            scaleOrderId: scaleOrderId ?? null,
             total,
             isDebt: isDebt ?? false,
             status: 'in_progress',
@@ -140,14 +138,6 @@ export function registerSaleHandlers(): void {
               subtotal: item.subtotal,
               notes: null,
             })
-            .run()
-        }
-
-        // Marcar el pedido de balanza como confirmado si está asociado
-        if (scaleOrderId) {
-          tx.update(scaleOrders)
-            .set({ status: 'confirmed' })
-            .where(eq(scaleOrders.id, scaleOrderId))
             .run()
         }
       })
@@ -184,7 +174,7 @@ export function registerSaleHandlers(): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log.error('[ipc:create-sale] Error al confirmar venta', message)
-      _discardSale(db, saleId, scaleOrderId)
+      _discardSale(db, saleId)
       return {
         ok: false,
         error: 'No se pudo confirmar la venta. Intentar nuevamente.',
@@ -203,20 +193,11 @@ export function registerSaleHandlers(): void {
 
 function _discardSale(
   db: ReturnType<typeof getDb>,
-  saleId: string,
-  scaleOrderId: string | undefined
+  saleId: string
 ): void {
   try {
     db.transaction(tx => {
       tx.update(sales).set({ status: 'discarded' }).where(eq(sales.id, saleId)).run()
-
-      // Restaurar el pedido de balanza a pendiente para que la cajera pueda reintentarlo
-      if (scaleOrderId) {
-        tx.update(scaleOrders)
-          .set({ status: 'pending' })
-          .where(eq(scaleOrders.id, scaleOrderId))
-          .run()
-      }
     })
   } catch (err) {
     log.error('[ipc:create-sale] Error al descartar venta', err)

@@ -10,6 +10,7 @@ const kgProduct: ProductRow = {
   id: 'prod-1',
   pluNumber: 5,
   name: 'Vacío',
+  category: 'beef_cut',
   unit: 'kg',
   price: 21000,
 }
@@ -18,6 +19,7 @@ const unitProduct: ProductRow = {
   id: 'prod-2',
   pluNumber: 1,
   name: 'Huevos x30',
+  category: 'other',
   unit: 'unit',
   price: 6000,
 }

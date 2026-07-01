@@ -198,7 +198,7 @@ Entregado:
 
 > **Nota de reordenamiento (jun 2026):** tras la corrección del modelo de flujo de datos, las fases 2 en adelante se reordenaron. La app móvil (antes "emergencia móvil" en la última fase) pasó a ser un componente central y temprano, y se agregó una fase dedicada a la sección de administración de PLUs. Las fases 0 y 1 (con tags creados) no cambian.
 
-### 🔄 Fase 2 — POS de ventas por escaneo (EN PROGRESO)
+### ✅ Fase 2 — POS de ventas por escaneo (COMPLETA)
 
 Objetivo: que la cajera arme una venta en la PC **escaneando los códigos de barras** del ticket físico (cada código = un producto con PLU + precio total), elija el/los medios de pago y confirme, guardando todo de forma atómica. El origen del escaneo (app móvil, lector USB o entrada manual) es intercambiable.
 
@@ -227,10 +227,19 @@ Rework por el nuevo modelo de datos (30/06/2026):
 - [x] **Notas de venta**: campo opcional en el modal de cobro, persistido en `sales.notes` vía IPC existente.
 - [x] Suite 100% verde (242 tests) tras el rework.
 
-Pendiente menor para cerrar Fase 2:
-- [ ] Harness de tests de componentes React (RTL) para cubrir el flujo de UI "escanear → carrito → confirmar" (hoy solo se testean utilidades de `src/lib` y la lógica de venta en `sale.handler`).
-- [ ] Limpieza del mock KRETZ: el `emitMockOrder`/generación de pedidos del mock quedó sin consumidor (la balanza ya no emite pedidos); decidir si se elimina o se repurposea como generador de códigos de barras de prueba.
-- [ ] Arreglar el script `pnpm run typecheck` (preexistente): `tsconfig.node.json` necesita `"composite": true` para la referencia desde `tsconfig.json`.
+Completado al cerrar Fase 2 (01/07/2026):
+- [x] **Lector USB keyboard-wedge**: hook `useBarcodeScanner` captura globalmente sin enfocar ningún campo; indicador visual en header; módulo `barcodeItem.ts` compartido.
+- [x] **Tests RTL**: flujo "escanear → carrito → confirmar" cubierto (sesión anterior).
+- [x] **Mock KRETZ limpiado**: eliminado `emitMockOrder` y la generación de pedidos sintéticos. Modos de fallo (`timeout`, `garbage`, `disconnect`, `malformed_response`) conservados y testeados.
+- [x] **`pnpm run typecheck` arreglado**: eliminada la `references` innecesaria de `tsconfig.json`; añadido `types: ["vite/client"]` para `import.meta.env`.
+- [x] **Migración 0004**: eliminadas tablas `scale_orders` / `scale_order_items` y columna `sales.scale_order_id`; schema Drizzle y `sale.handler.ts` actualizados.
+
+**Cierre formal:**
+- [x] `pnpm run test` — 255 tests en verde
+- [x] `pnpm run typecheck` — sin errores
+- [x] Cobertura ≥ 80% en IPC, DB y hardware
+- [x] Tag: `fase2-completa`
+- [ ] Push a GitHub (pendiente testeo manual del desarrollador)
 
 ### 🔜 Fase 3 — App móvil companion (POS de respaldo + relay Firebase)
 
