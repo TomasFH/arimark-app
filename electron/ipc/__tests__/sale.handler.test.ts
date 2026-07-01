@@ -125,6 +125,21 @@ describe('sale.handler — CREATE_SALE', () => {
     expect(result.data.total).toBe(3000)
   })
 
+  it('acepta notas opcionales en la venta', async () => {
+    vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+    const { db } = makeMockDb()
+    vi.mocked(getDb).mockReturnValue(db)
+
+    const handler = getHandler('ipc:create-sale')
+    const result = await handler({}, {
+      ...VALID_SALE,
+      notes: 'Precio especial a familiar',
+    }) as { ok: boolean; data: { saleId: string } }
+
+    expect(result.ok).toBe(true)
+    expect(result.data.saleId).toBeTypeOf('string')
+  })
+
   it('rechaza venta manual si no hay sesión de admin en producción', async () => {
     process.env['APP_ENV'] = 'production'
     vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)

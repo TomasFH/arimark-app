@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
+import { useBarcodeScanner } from '../lib/useBarcodeScanner'
+import { parseKretzBarcode, centsToARS } from '../lib/kretzBarcode'
+import { buildItemFromBarcode } from '../lib/barcodeItem'
 
 interface Props {
   session: SessionInfo
@@ -28,6 +31,9 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
+  // Feedback visual cuando el lector captura un escaneo global
+  const [scanFlash, setScanFlash] = useState<string | null>(null)
+  const scanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Cargar catálogo (PLU → producto/precio) para resolver los escaneos.
   useEffect(() => {
@@ -45,6 +51,30 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
     setLastSaleId(null)
   }, [])
 
+  // ── Lector USB: captura global de códigos de barras ────────────────────
+  // Se desactiva automáticamente cuando hay un modal abierto (el usuario puede
+  // estar escribiendo en campos propios del modal).
+  const anyModalOpen = showPaymentModal || showProductsModal
+
+  const handleGlobalScan = useCallback((digits: string) => {
+    const parsed = parseKretzBarcode(digits)
+    if (!parsed) {
+      // Código capturado pero no es formato KRETZ → ignorar silenciosamente
+      return
+    }
+    const plu = parseInt(parsed.pluNumber, 10)
+    const product = products.find(p => p.pluNumber === plu)
+    const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
+    addItem(item)
+
+    // Flash visual en la barra de estado
+    if (scanFlashTimerRef.current) clearTimeout(scanFlashTimerRef.current)
+    setScanFlash(item.productName)
+    scanFlashTimerRef.current = setTimeout(() => setScanFlash(null), 2000)
+  }, [products, addItem])
+
+  useBarcodeScanner({ onScan: handleGlobalScan, disabled: anyModalOpen })
+
   function removeItem(localId: string) {
     setCart(prev => prev.filter(i => i.localId !== localId))
   }
@@ -55,7 +85,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
     setLastSaleId(null)
   }
 
-  async function handleConfirmSale(payments: SalePaymentPayload[]) {
+  async function handleConfirmSale(payments: SalePaymentPayload[], notes?: string) {
     if (cart.length === 0) {
       setError('Agregá al menos un producto antes de confirmar.')
       return
@@ -76,6 +106,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
         })),
         payments,
         manualEntry: hasManualItems,
+        notes,
       })
 
       if (!result.ok) {
@@ -107,6 +138,18 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
         <div className="flex items-center gap-4">
           <span className="text-sm font-semibold text-amber-400">{shiftLabel}</span>
           <span className="text-xs text-gray-500">Turno abierto</span>
+          {/* Indicador del lector USB */}
+          {scanFlash ? (
+            <span className="flex items-center gap-1.5 rounded-md bg-green-900/40 px-2 py-1 text-[11px] text-green-300 animate-pulse">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+              {scanFlash}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-gray-600" />
+              Lector listo
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -133,7 +176,7 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
           <div className="border-b border-gray-800 px-4 py-3">
             <h2 className="text-sm font-semibold text-gray-200">Escanear productos</h2>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              Escaneá cada código del ticket para armar la venta.
+              Apuntá el lector al código del ticket. Si no hay lector, usá el campo de abajo.
             </p>
           </div>
 

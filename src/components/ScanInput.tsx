@@ -24,6 +24,7 @@ import {
 } from '../lib/numericInput'
 import type { SaleItemDraft, ProductRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
+import { buildItemFromBarcode } from '../lib/barcodeItem'
 
 type Tab = 'scan' | 'manual'
 
@@ -40,47 +41,6 @@ interface Props {
  *  que el punto decimal de JS se confunda con separador de miles. */
 function toEsAR(value: number, decimals: number): string {
   return value.toFixed(decimals).replace('.', ',')
-}
-
-// ---------------------------------------------------------------------------
-// Lógica de negocio
-// ---------------------------------------------------------------------------
-
-function buildItemFromBarcode(
-  pluNumber: number,
-  totalARS: number,
-  product: ProductRow | undefined
-): SaleItemDraft {
-  const unit = product?.unit ?? 'kg'
-  const refPrice = product?.price ?? null
-
-  let weightKg = 1
-  let unitPrice = totalARS
-  let priceDiscrepancy: boolean | undefined
-
-  if (refPrice && refPrice > 0) {
-    unitPrice = refPrice
-    const raw = totalARS / refPrice
-    if (unit === 'unit') {
-      const rounded = Math.round(raw)
-      priceDiscrepancy = Math.abs(raw - rounded) > 0.05
-      weightKg = rounded > 0 ? rounded : 1
-    } else {
-      weightKg = raw
-    }
-  }
-
-  return {
-    pluNumber,
-    productId: product?.id ?? null,
-    productName: product?.name ?? `PLU ${pluNumber}`,
-    unit,
-    weightKg,
-    unitPrice,
-    subtotal: totalARS,
-    manualEntry: false,
-    priceDiscrepancy,
-  }
 }
 
 function buildItemFromManual(
@@ -222,7 +182,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
   function handleKgWeightChange(v: string) {
     setWeightRaw(v)
     setManualError('')
-    if (refPrice && refPrice > 0) {
+    if (!specialPrice && refPrice && refPrice > 0) {
       const w = parseDecimalInput(v)
       if (w !== null && w > 0) {
         setPriceRaw(formatDecimalInputValue(String(Math.round(w * refPrice))))
@@ -233,11 +193,9 @@ export default function ScanInput({ onAddItem, products }: Props) {
   function handleKgPriceChange(v: string) {
     setPriceRaw(v)
     setManualError('')
-    if (refPrice && refPrice > 0) {
+    if (!specialPrice && refPrice && refPrice > 0) {
       const p = parseDecimalInput(v)
       if (p !== null && p > 0) {
-        // toFixed(3).replace('.', ',') evita que el punto decimal de JS se confunda
-        // con el separador de miles de formatDecimalInputValue
         setWeightRaw(toEsAR(p / refPrice, 3))
       }
     }
@@ -302,7 +260,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
         setManualError('Precio total inválido.')
         return
       }
-      const item = buildItemFromManual(plu, w, price, matchedProduct, false)
+      const item = buildItemFromManual(plu, w, price, matchedProduct, specialPrice)
       onAddItem(item)
       flashAdded(item.productName)
       resetManual()
@@ -375,7 +333,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
 
   return (
     <div className="border-t border-gray-800 px-3 py-2 space-y-2">
-      {/* Tabs */}
+      {/* Tabs — ambas opciones son alternativas/emergencia cuando no hay lector USB */}
       <div className="flex rounded-md overflow-hidden border border-gray-700 text-[10px] font-semibold">
         <button
           type="button"
@@ -386,7 +344,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
               : 'bg-gray-900 text-gray-400 hover:text-gray-200'
           }`}
         >
-          📷 Escanear
+          📱 Código manual
         </button>
         <button
           type="button"
@@ -407,11 +365,11 @@ export default function ScanInput({ onAddItem, products }: Props) {
         </p>
       )}
 
-      {/* ── Pestaña Escanear ──────────────────────────────────────────── */}
+      {/* ── Pestaña Código manual (alternativa sin lector USB) ───────── */}
       {tab === 'scan' && (
         <form onSubmit={handleBarcodeSubmit} className="space-y-2">
           <p className="text-[10px] text-gray-500 leading-snug">
-            Escaneá el código del ticket (13 dígitos). Se agrega solo al leerlo.
+            Ingresá el código del ticket (13 dígitos). Con el lector USB no hace falta.
           </p>
           <input
             ref={barcodeInputRef}
@@ -484,12 +442,19 @@ export default function ScanInput({ onAddItem, products }: Props) {
 
           {/* Info del producto */}
           {pluNum !== null && matchedProduct && (
-            <p className="text-[10px] text-blue-400 truncate">
-              {matchedProduct.name} · {CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}
-              {refPrice && (
-                <span className="text-amber-500"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
-              )}
-            </p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-[10px] text-blue-400 truncate">
+                {matchedProduct.name} · {CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}
+                {refPrice && (
+                  <span className="text-amber-500"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
+                )}
+              </p>
+              <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold ${
+                isUnit ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
+              }`}>
+                {isUnit ? 'Por unidad' : 'Por kg'}
+              </span>
+            </div>
           )}
           {pluNum !== null && !matchedProduct && pluRaw.trim() && (
             <p className="text-[10px] text-yellow-500">PLU {pluNum} — no encontrado en el catálogo</p>
@@ -508,7 +473,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
                 />
               </div>
 
-              {/* Precio calculado (solo lectura) */}
+              {/* Precio calculado (solo lectura, sin precio especial) */}
               {!specialPrice && autoPrice !== null && (
                 <div className="rounded-md bg-gray-800/60 px-2 py-1.5 flex justify-between items-center">
                   <span className="text-[10px] text-gray-400">Precio total</span>
@@ -516,45 +481,27 @@ export default function ScanInput({ onAddItem, products }: Props) {
                 </div>
               )}
 
-              {/* Checkbox precio especial */}
-              {refPrice !== null && (
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={specialPrice}
-                    onChange={e => handleSpecialPriceToggle(e.target.checked)}
-                    className="accent-orange-500 h-3.5 w-3.5"
-                  />
-                  <span className="text-[10px] text-gray-400">Precio especial</span>
-                </label>
-              )}
-
-              {/* Aviso + campo de precio especial */}
+              {/* Campo de precio editable con precio especial */}
               {specialPrice && (
-                <div className="space-y-1.5">
-                  <p className="rounded bg-orange-900/40 px-2 py-1.5 text-[10px] text-orange-300 leading-snug">
-                    ⚠ Precio fuera de lista. Confirmá que no es un error antes de agregar.
-                  </p>
-                  <div>
-                    <label className="block text-[9px] text-gray-500 mb-0.5">
-                      Precio total ($)
-                      {refPrice && (
-                        <span className="ml-1 text-amber-600">· Lista: {formatARS(refPrice)}/u.</span>
-                      )}
-                    </label>
-                    <DecimalInput
-                      ref={priceInputRef}
-                      value={priceRaw}
-                      onChange={v => { setPriceRaw(v); setManualError('') }}
-                      placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
-                      className="w-full rounded-md border border-orange-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-[9px] text-gray-500 mb-0.5">
+                    Precio total ($)
+                    {refPrice && (
+                      <span className="ml-1 text-amber-600">· Lista: {formatARS(refPrice)}/u.</span>
+                    )}
+                  </label>
+                  <DecimalInput
+                    ref={priceInputRef}
+                    value={priceRaw}
+                    onChange={v => { setPriceRaw(v); setManualError('') }}
+                    placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
+                    className="w-full rounded-md border border-orange-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                  />
                 </div>
               )}
             </div>
           ) : (
-            /* ── Campos: productos por kg (bidireccionales) ── */
+            /* ── Campos: productos por kg ── */
             <div className="flex gap-2">
               <div className="w-24 shrink-0">
                 <label className="block text-[9px] text-gray-500 mb-0.5">Peso (kg)</label>
@@ -569,7 +516,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
               <div className="flex-1">
                 <label className="block text-[9px] text-gray-500 mb-0.5">
                   Precio total ($)
-                  {refPrice && (
+                  {refPrice && !specialPrice && (
                     <span className="ml-1 text-amber-600">· {formatARS(refPrice)}/kg</span>
                   )}
                 </label>
@@ -578,14 +525,39 @@ export default function ScanInput({ onAddItem, products }: Props) {
                   value={priceRaw}
                   onChange={handleKgPriceChange}
                   placeholder="ej. 7.350"
-                  className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                  className={`w-full rounded-md border bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none ${
+                    specialPrice ? 'border-orange-700 focus:border-orange-500' : 'border-gray-700 focus:border-orange-500'
+                  }`}
                 />
               </div>
             </div>
           )}
 
-          {/* Preview del cálculo (productos por kg) */}
-          {!isUnit && (() => {
+          {/* Checkbox precio especial — visible cuando hay producto en catálogo */}
+          {matchedProduct && (
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={specialPrice}
+                  onChange={e => handleSpecialPriceToggle(e.target.checked)}
+                  className="accent-orange-500 h-3.5 w-3.5 shrink-0"
+                />
+                <span className="text-[10px] text-gray-300">Precio especial</span>
+                <span className="text-[9px] text-gray-600">
+                  {isUnit ? '(fuera de lista por unidad)' : '(desvincula peso y precio)'}
+                </span>
+              </label>
+              {specialPrice && (
+                <p className="rounded bg-orange-900/40 px-2 py-1.5 text-[10px] text-orange-300 leading-snug">
+                  ⚠ Precio fuera de lista. Confirmá que no es un error antes de agregar.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Preview del cálculo (productos por kg, sin precio especial) */}
+          {!isUnit && !specialPrice && (() => {
             const w = parseDecimalInput(weightRaw)
             const p = parseDecimalInput(priceRaw)
             if (!w || !p) return null

@@ -101,19 +101,21 @@ El desarrollador actúa como supervisor y QA. Ningún To-Do se cierra sin suite 
 ## Diagrama de arquitectura
 
 ```
-  App móvil (PWA)          ┌──────────────────────────────┐
-  escáner de cámara ──────▶│  PC — Electron                │
-        (relay)           │  Renderer React               │
+  Lector USB               ┌──────────────────────────────┐
+  keyboard-wedge ─teclado─▶│  PC — Electron                │
+  (MÉTODO PRINCIPAL)        │  Renderer React               │
                            │    └ window.hw (IPC tipado)   │
-  Lector USB (futuro)      │         └ Electron Main       │
-  keyboard-wedge ─teclado─▶│             ├ Handlers IPC+zod│
-                           │             ├ SQLite + Drizzle│
-  Balanza KRETZ            │             ├ Firebase        │
-  (USB, SOLO PLUs, ───────▶│             └ KRETZ serial    │
+  App móvil (PWA)          │         └ Electron Main       │
+  escáner cámara ─Firebase▶│             ├ Handlers IPC+zod│
+  (emergencia/respaldo)     │             ├ SQLite + Drizzle│
+                           │             ├ Firebase        │
+  Balanza KRETZ            │             └ KRETZ serial    │
+  (USB, SOLO PLUs, ───────▶│                               │
    solo admins)            └──────────────────────────────┘
 ```
 
-- **App móvil / lector USB → PC**: fuente de los códigos de barras que arman cada venta.
+- **Lector USB → PC (principal)**: keyboard-wedge que envía los dígitos como teclado. La app captura la secuencia globalmente sin necesidad de enfocar ningún campo.
+- **App móvil → PC (emergencia/respaldo)**: relay vía Firebase cuando no hay lector USB, o POS completo en el celular si la PC no está disponible.
 - **Balanza KRETZ ↔ PC**: conexión física USB usada **solo** por administradores para crear/modificar/eliminar PLUs y precios. Nunca registra ventas ni envía pedidos.
 
 ---
@@ -127,9 +129,9 @@ El desarrollador actúa como supervisor y QA. Ningún To-Do se cierra sin suite 
 **Las ventas se arman en la PC escaneando los códigos de barras del ticket físico.** El carnicero pesa los productos y entrega al cliente un ticket físico que lista uno o varios productos. Cada código de barras del ticket = un producto, y codifica el **PLU (3 dígitos) + precio total (7 dígitos en centavos)** (formato EAN-13 prefijo `20`, ya validado).
 
 **Fuentes de escaneo (mismo path de venta en la PC):**
-1. **App móvil companion** (escáner de cámara) que relaya cada código a la PC vía **Firebase** (decisión confirmada jun 2026). Método principal en el corto plazo.
-2. **Lector USB tipo keyboard-wedge** conectado a la PC (a futuro, si el cliente los adquiere para profesionalizar el trabajo). Escribe los dígitos + Enter en el campo enfocado; ya soportado por el auto-submit de 13 dígitos.
-3. **Entrada manual PLU + precio** como fallback de emergencia cuando el escaneo no está disponible.
+1. **Lector USB keyboard-wedge** (método principal — confirmado jul 2026). Envía los dígitos del código + Enter como teclado. La app los captura globalmente mediante `useBarcodeScanner`: no hace falta que la cajera enfoque ningún campo. El indicador "Lector listo" en el header confirma que el hook está activo; al escanear muestra el nombre del producto por ~2 segundos.
+2. **App móvil companion** (emergencia/respaldo): relay vía Firebase cuando no hay lector USB conectado. También funciona como POS completo si la PC no está disponible (Fase 3).
+3. **Entrada manual de código** (13 dígitos en un campo de texto) y **PLU + precio** como fallbacks de última instancia.
 
 **Flujo de la cajera (semi-automático):**
 recibe ticket físico → escanea cada código (los datos del producto se cargan solos) → repite hasta terminar el pedido → pregunta el/los medio(s) de pago → confirma la venta → vuelve a empezar.
@@ -222,20 +224,23 @@ Rework por el nuevo modelo de datos (30/06/2026):
 - [x] **`EmergencyBarcodeInput` → `ScanInput`**: escaneo = pestaña principal; manual PLU+precio = emergencia.
 - [x] **Tablas `scale_orders` / `scale_order_items`**: marcadas DEPRECADAS en el schema (la venta se modela con `sales`+`sale_items`); baja con migración dedicada pendiente.
 - [x] **Ventas manuales** marcadas con `manualEntry` (aprobación de admin en producción queda para la fase de panel admin).
-- [x] Suite 100% verde (239 tests) tras el rework.
+- [x] **Notas de venta**: campo opcional en el modal de cobro, persistido en `sales.notes` vía IPC existente.
+- [x] Suite 100% verde (242 tests) tras el rework.
 
 Pendiente menor para cerrar Fase 2:
 - [ ] Harness de tests de componentes React (RTL) para cubrir el flujo de UI "escanear → carrito → confirmar" (hoy solo se testean utilidades de `src/lib` y la lógica de venta en `sale.handler`).
 - [ ] Limpieza del mock KRETZ: el `emitMockOrder`/generación de pedidos del mock quedó sin consumidor (la balanza ya no emite pedidos); decidir si se elimina o se repurposea como generador de códigos de barras de prueba.
 - [ ] Arreglar el script `pnpm run typecheck` (preexistente): `tsconfig.node.json` necesita `"composite": true` para la referencia desde `tsconfig.json`.
 
-### 🔜 Fase 3 — App móvil companion (escáner + POS de respaldo)
+### 🔜 Fase 3 — App móvil companion (POS de respaldo + relay Firebase)
 
-Objetivo: dar a la cajera el dispositivo de escaneo del día a día (mientras no haya lectores USB) y un respaldo operativo cuando la PC no esté disponible. Es **crítico** para que el POS funcione en el local.
+> **Actualización jul 2026:** el cliente adquirió un lector USB keyboard-wedge, que pasa a ser el método principal de escaneo en la PC. La app móvil queda como respaldo operativo (cuando la PC no está disponible) y como alternativa cuando no hay lector. El scope de esta fase se reduce: ya no es el camino crítico del día a día.
+
+Objetivo: tener un respaldo operativo para cuando la PC no está disponible, y una alternativa de escaneo por cámara para locales sin lector USB.
 
 Transporte confirmado: **relay vía Firebase** (el móvil escribe el código/venta en un documento de sesión por local; la PC lo escucha en tiempo real). No requiere configurar la red del local y reutiliza el Firebase de licencias.
 
-**Sub-etapa 3a — Escáner + relay (camino crítico):**
+**Sub-etapa 3a — Escáner + relay (alternativa sin lector USB):**
 - App móvil como **PWA** (React) con escaneo de código de barras por cámara (lib a definir, ej. `@zxing/browser`).
 - Autenticación contra la misma licencia/local (sin exponer credenciales sensibles).
 - El móvil relaya cada código a la PC vía Firebase; la PC lo agrega a la venta en curso (mismo path que el lector USB).

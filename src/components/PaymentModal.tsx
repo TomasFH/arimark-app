@@ -14,7 +14,7 @@ interface PaymentRow {
 
 interface Props {
   total: number
-  onConfirm: (payments: SalePaymentPayload[]) => void
+  onConfirm: (payments: SalePaymentPayload[], notes?: string) => void
   onClose: () => void
 }
 
@@ -23,6 +23,7 @@ type ModalMode = 'single' | 'cash-detail' | 'split'
 export default function PaymentModal({ total, onConfirm, onClose }: Props) {
   const [mode, setMode] = useState<ModalMode>('single')
   const [clientCash, setClientCash] = useState('')
+  const [notes, setNotes] = useState('')
   const [rows, setRows] = useState<PaymentRow[]>([
     { id: crypto.randomUUID(), method: 'debit', amount: '' },
     { id: crypto.randomUUID(), method: 'cash', amount: '' },
@@ -36,12 +37,17 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  function confirmWithNotes(payments: SalePaymentPayload[]) {
+    const trimmed = notes.trim()
+    onConfirm(payments, trimmed || undefined)
+  }
+
   // --- Modo simple: botón de método ---
   function handleSingleMethod(method: PaymentMethod) {
     if (method === 'cash') {
       setMode('cash-detail')
     } else {
-      onConfirm([{ paymentMethod: method, amount: total }])
+      confirmWithNotes([{ paymentMethod: method, amount: total }])
     }
   }
 
@@ -51,7 +57,7 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
   const cashInsufficient = clientCashAmount > 0.005 && clientCashAmount < total - 0.005
 
   function handleCashConfirm() {
-    onConfirm([{ paymentMethod: 'cash', amount: total }])
+    confirmWithNotes([{ paymentMethod: 'cash', amount: total }])
   }
 
   // --- Modo dividido ---
@@ -82,7 +88,7 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
         paymentMethod: r.method,
         amount: parseNumericInput(r.amount) ?? 0,
       }))
-    onConfirm(payments)
+    confirmWithNotes(payments)
   }
 
   const balanceColor =
@@ -127,6 +133,22 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
           >
             ✕
           </button>
+        </div>
+
+        {/* Notas opcionales — visibles en todos los modos de cobro */}
+        <div className="border-b border-gray-800 px-6 py-3">
+          <label htmlFor="sale-notes" className="block text-[10px] text-gray-500 mb-1">
+            Notas de la venta <span className="text-gray-600">(opcional)</span>
+          </label>
+          <textarea
+            id="sale-notes"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="ej. precio especial a familiar, pedido para retirar…"
+            rows={2}
+            maxLength={500}
+            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          />
         </div>
 
         {/* Body */}
