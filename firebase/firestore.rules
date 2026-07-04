@@ -12,11 +12,13 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Licencias — solo lectura para instalaciones activas
-    // El desarrollador escribe directamente desde la consola de Firebase
+    // Licencias — legible por cualquier usuario autenticado (anónimo incluido).
+    // El doc solo contiene metadatos de plan; no hay datos sensibles.
+    // La verificación de instalación se hace por separado en installations/{uid}.
+    // El desarrollador escribe directamente desde la consola de Firebase.
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey} {
-      allow read: if isActiveInstallation(licenseKey);
+      allow read: if request.auth != null;
       allow write: if false;
     }
 

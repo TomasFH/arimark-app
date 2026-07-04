@@ -82,6 +82,10 @@ export async function signInWithRole(
     const credential = await signInWithEmailAndPassword(auth, email, password)
     const uid = credential.user.uid
 
+    // Fuerza un refresh del ID token para que Firestore use el token del usuario
+    // email/password y no el token anónimo cacheado de signInAnon() previo.
+    await credential.user.getIdToken(true)
+
     const db = getFirestore(app)
     const profileRef = doc(db, 'licenses', licenseKey, 'users', uid)
     const snap = await getDoc(profileRef)

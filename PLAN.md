@@ -249,7 +249,28 @@ Completado al cerrar Fase 2 (01/07/2026):
 - [x] Tag: `fase2-completa`
 - [ ] Push a GitHub (pendiente testeo manual del desarrollador)
 
-### 🔜 Fase 3 — App móvil companion (POS de respaldo + relay Firebase)
+> **Nota de actualización (jul 2026) — setup de entorno de producción y deudas técnicas identificadas:**
+>
+> Se realizó el primer test de login real en producción (`pnpm dev:prod`). Lo que se hizo y lo que quedó pendiente:
+>
+> **Hecho:**
+> - `config/business.json` creado con `license_key`, `default_store_id`, `business_name` reales (no versionado).
+> - `.env.production` creado en la raíz con las claves Firebase (no versionado).
+> - `dotenv` agregado como dependencia directa. `electron/main.ts` carga `.env.production` al arrancar en modo producción, antes de cualquier llamada a Firebase (el proceso main no recibe las vars de Vite en runtime).
+> - Orden de `computeInitStatus` corregido: `signInAnon()` debe llamarse antes que `verifyLicense()` para que Firestore tenga un token de autenticación al leer el documento de licencia.
+> - Regla de Firestore para `licenses/{licenseKey}` cambiada de `isActiveInstallation` a `request.auth != null` (cualquier usuario autenticado puede leer el documento de licencia, que no contiene datos sensibles). Motivo: con la regla anterior era imposible verificar la licencia antes de tener una instalación activa, generando un problema de huevo-gallina.
+> - `getIdToken(true)` agregado en `signInWithRole` después del login con email/password, para forzar que el cliente Firestore use el token del usuario email y no el token anónimo cacheado del `signInAnon()` previo.
+> - `ensureDefaultStore()` en `main.ts`: crea el local por defecto (de `business.json`) en SQLite al arrancar si no existe, resolviendo el FK constraint al crear el perfil local de una cajera nueva.
+> - Login de producción verificado de punta a punta: Firebase Auth → perfil Firestore → caché SQLite → sesión activa.
+>
+> **Deuda técnica — bypasseado temporalmente:**
+> - **Activación por código de un solo uso:** la pantalla de activación aparece porque `checkInstallationStatus` devuelve `activated: false` (no existe el documento `installations/{uid}`). La Cloud Function `activateInstallation` no está implementada. Por ahora `computeInitStatus` no llama a `checkInstallationStatus` y siempre retorna `needsActivation: false`. Cuando se implemente la Cloud Function, se restaura esta lógica.
+>
+> **Deuda técnica — pendiente de implementar:**
+> - Alta de locales: hoy `ensureDefaultStore` crea el local con el `default_store_id` de `business.json`. El panel de administración (Fase 4) permitirá crear y gestionar locales correctamente.
+> - Alta de cuentas de cajeras/admins: manual desde consola de Firebase hasta Fase 4.
+
+
 
 > **Actualización jul 2026:** el cliente adquirió un lector USB keyboard-wedge, que pasa a ser el método principal de escaneo en la PC. La app móvil queda como respaldo operativo (cuando la PC no está disponible) y como alternativa cuando no hay lector. El scope de esta fase se reduce: ya no es el camino crítico del día a día. Requiere primero la migración de autenticación a Firebase Auth (ver nota tras Fase 1) y la reestructuración del repo a monorepo pnpm.
 
@@ -360,12 +381,13 @@ Protocolo operativo para la primera instalación en la PC del cliente. No improv
 
 ### 1. Prerequisitos — verificar ANTES de ir al local
 
-- **Firebase**: Firestore y Authentication activos. Reglas de Firestore deployadas (versión con `installations/{uid}`). Proyecto real de producción, no el emulador.
+- **Firebase**: Firestore y Authentication activos. Reglas de Firestore deployadas (versión actual del repo). Proyecto real de producción, no el emulador.
 - **Licencia generada**: documento `licenses/{license_key}` en Firestore con `activo: true`. `license_key` anotado.
-- **Código de activación de un solo uso**: generado y guardado. Se entrega al cliente junto con la `license_key`. Una vez usado, no sirve más.
-- **`business.json` preparado** con: `business_name`, `timezone`, `logo_path`, `license_key`, `default_store_id` (UUID generado previamente), `theme`.
+- **Usuarios creados**: cuentas en Firebase Auth (email + contraseña) con perfil en `licenses/{key}/users/{uid}` (campos: `role`, `displayName`, `authorizedStores`, `active: true`). Alta manual desde consola de Firebase hasta que exista el panel de administración (Fase 4).
+- **`config/business.json` preparado** con: `business_name`, `license_key`, `default_store_id`, `timezone`, `logo_path`, `theme`. No se versiona. Copiar del template `config/business.example.json`.
+- **`.env.production` preparado** en la raíz del proyecto con las claves `VITE_FIREBASE_*` del proyecto Firebase. No se versiona.
 - **Instalador `.exe` compilado** con `APP_ENV=production`. Probado en una PC limpia (sin Node, sin el proyecto en disco). Verificado que el banner de pruebas **no** aparece y que el botón de bypass de login no existe.
-- **Build de producción verificado**: `afterPack` no encontró artefactos de dev ni tokens de Cloudflare Tunnel.
+- **Build de producción verificado**: `afterPack` no encontró artefactos de dev.
 - **Driver JDATAGATE** de KRETZ descargado (compatible con REPORT NX). En USB o carpeta accesible.
 - **Suite de tests en verde al 100%** antes de compilar el instalador final.
 
@@ -374,12 +396,11 @@ Protocolo operativo para la primera instalación en la PC del cliente. No improv
 Ejecutar en este orden. No saltear pasos.
 
 1. Instalar driver JDATAGATE de KRETZ. Reiniciar si lo pide. Verificar en Administrador de dispositivos que el puerto aparece.
-2. Copiar `business.json` a la ruta que la app espera antes de abrirla por primera vez.
+2. Copiar `config/business.json` y `.env.production` a las rutas correctas del proyecto antes de compilar el instalador.
 3. Ejecutar el instalador `.exe`. Aceptar UAC si aparece.
-4. Primera apertura: ingresar `license_key` y código de activación. Verificar que la respuesta de Firebase es exitosa y que la pantalla avanza al login.
-5. Crear el primer local desde panel admin (usar el UUID de `default_store_id`).
-6. Crear la primera cajera con contraseña provisoria.
-7. Conectar la balanza por USB-B **solo si se va a gestionar PLUs** (es el único uso de la balanza desde la app). Verificar el indicador de hardware. Para la operación de ventas la balanza no necesita estar conectada a la PC.
+4. Primera apertura: el local por defecto se crea automáticamente en SQLite. Verificar que aparece la pantalla de login (sin banner amarillo ni botón bypass).
+5. Iniciar sesión con las credenciales de Firebase Auth. Verificar que la sesión queda activa.
+6. Conectar la balanza por USB-B **solo si se va a gestionar PLUs** (es el único uso de la balanza desde la app).
 
 ### 3. Verificación antes de dejar al cliente solo
 

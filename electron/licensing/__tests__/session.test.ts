@@ -78,7 +78,7 @@ describe('signInWithRole — modo producción', () => {
 
   it('rechaza si no existe el perfil en Firestore', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com', getIdToken: vi.fn().mockResolvedValue('tok') },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({ exists: () => false } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
@@ -89,7 +89,7 @@ describe('signInWithRole — modo producción', () => {
 
   it('rechaza si el perfil está inactivo', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com', getIdToken: vi.fn().mockResolvedValue('tok') },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
@@ -103,7 +103,7 @@ describe('signInWithRole — modo producción', () => {
 
   it('rechaza si el rol del perfil no coincide con el esperado', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com', getIdToken: vi.fn().mockResolvedValue('tok') },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
@@ -117,7 +117,7 @@ describe('signInWithRole — modo producción', () => {
 
   it('retorna ok con el perfil resuelto cuando todo es válido', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com', getIdToken: vi.fn().mockResolvedValue('tok') },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
@@ -179,7 +179,7 @@ describe('loginAdmin — modo producción', () => {
 
   it('retorna error si el perfil no tiene rol admin', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'uid-002', email: 'cajera@test.com' },
+      user: { uid: 'uid-002', email: 'cajera@test.com', getIdToken: vi.fn().mockResolvedValue('tok') },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
@@ -192,7 +192,7 @@ describe('loginAdmin — modo producción', () => {
 
   it('retorna ok con credenciales correctas y perfil admin', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'real-admin-uid', email: 'admin@test.com' },
+      user: { uid: 'real-admin-uid', email: 'admin@test.com', getIdToken: vi.fn().mockResolvedValue('tok') },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,

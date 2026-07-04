@@ -1,13 +1,26 @@
+import { config as loadDotenv } from 'dotenv'
 import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import log from 'electron-log'
+
+// Carga .env.production para el proceso main en modo producción.
+// Vite inyecta vars en el renderer en tiempo de build; el main process
+// necesita cargarlas explícitamente porque tsc no las inyecta.
+// override: false evita pisar vars ya definidas (ej. APP_ENV seteado por cross-env).
+// Nota: en el instalador final (.exe) este archivo no estará incluido en el paquete;
+// para ese caso las vars deben setearse antes del build (ver checklist de deploy).
+if (process.env['APP_ENV'] === 'production') {
+  loadDotenv({ path: path.resolve(process.cwd(), '.env.production'), override: false })
+}
 import { registerAllHandlers } from './ipc/index'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 import { loadBusinessConfig } from './businessConfig'
-import { getDbPath } from './db/client'
+import { getDbPath, getDb } from './db/client'
+import { stores } from './db/schema'
+import { eq } from 'drizzle-orm'
 import { runMigrations } from './db/migrate'
 import { verifyLicense } from './licensing/license'
-import { signInAnon, checkInstallationStatus } from './licensing/installation'
+import { signInAnon } from './licensing/installation'
 import { setInitStatus } from './ipc/initStatus.handler'
 import type { InitStatus } from '../src/types/hw-api'
 
@@ -67,7 +80,15 @@ async function computeInitStatus(): Promise<InitStatus> {
     }
   }
 
-  // Producción: verificar licencia y activación contra Firebase
+  // Producción: primero autenticarse anónimamente (necesario para que Firestore
+  // acepte las lecturas posteriores), luego verificar licencia e instalación.
+  let anonUid: string | null = null
+  try {
+    anonUid = await signInAnon()
+  } catch (err) {
+    log.warn('[main] signInAnon falló — se intentará verificación offline', err)
+  }
+
   const licenseStatus = await verifyLicense(config.license_key)
 
   if (!licenseStatus.valid) {
@@ -82,26 +103,38 @@ async function computeInitStatus(): Promise<InitStatus> {
     }
   }
 
+  // DEUDA TÉCNICA: la Cloud Function `activateInstallation` no está implementada.
+  // El chequeo de activación queda bypaseado hasta que se implemente el flujo
+  // de activación por código de un solo uso (ver PLAN.md → Checklist primer deploy).
+  if (anonUid) {
+    log.info('[main] Instalación anónima registrada (activación bypaseada)', { anonUid })
+  }
+  return {
+    businessName: config.business_name,
+    defaultStoreId: config.default_store_id,
+    licenseKey: config.license_key,
+    licenseValid: true,
+    needsActivation: false,
+  }
+}
+
+/**
+ * Crea el local por defecto en SQLite si no existe. Idempotente.
+ * El nombre del local usa el nombre del negocio como placeholder hasta que
+ * el panel de administración (Fase 4) permita gestionarlo.
+ */
+function ensureDefaultStore(storeId: string, businessName: string): void {
   try {
-    const uid = await signInAnon()
-    const installation = await checkInstallationStatus(config.license_key, uid)
-    return {
-      businessName: config.business_name,
-      defaultStoreId: config.default_store_id,
-      licenseKey: config.license_key,
-      licenseValid: true,
-      needsActivation: !installation.activated,
-    }
+    const db = getDb()
+    const existing = db.select().from(stores).where(eq(stores.id, storeId)).limit(1).all()[0]
+    if (existing) return
+
+    db.insert(stores)
+      .values({ id: storeId, name: businessName, address: null, createdAt: new Date().toISOString() })
+      .run()
+    log.info('[main] Local por defecto creado en SQLite', { storeId })
   } catch (err) {
-    log.error('[main] Error al verificar instalación', err)
-    // Si Firebase falla pero la licencia fue válida, permitir acceso sin activación check
-    return {
-      businessName: config.business_name,
-      defaultStoreId: config.default_store_id,
-      licenseKey: config.license_key,
-      licenseValid: true,
-      needsActivation: false,
-    }
+    log.error('[main] No se pudo garantizar el local por defecto', err)
   }
 }
 
@@ -125,6 +158,12 @@ app.whenReady().then(async () => {
     licenseValid: initStatus.licenseValid,
     needsActivation: initStatus.needsActivation,
   })
+
+  // 2b. Garantizar que el local por defecto (business.json) exista en SQLite.
+  //     Sin panel de administración todavía (Fase 4), el local no se crea en
+  //     ningún lado; el FK de users/shifts/sales no resolvería en el primer
+  //     login de una cajera. Idempotente: no pisa un local ya existente.
+  ensureDefaultStore(initStatus.defaultStoreId, initStatus.businessName)
 
   // 3. Inicializar hardware y registrar handlers IPC.
   //    La balanza KRETZ se usa exclusivamente para gestión de PLUs (admins).
