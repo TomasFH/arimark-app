@@ -38,17 +38,46 @@ export function parseNumericInput(formatted: string): number | null {
   return Number.isNaN(value) ? null : value
 }
 
+export interface FormatDecimalOptions {
+  /** Máximo de decimales permitidos (default 2). */
+  maxDecimals?: number
+  /**
+   * Modo peso: activa dos comportamientos específicos para campos de peso en kg.
+   *  1. Trata el punto (.) como separador decimal además de la coma (ej. 0.490 → 0,490).
+   *  2. Auto-inserta coma después del cero inicial: si el usuario escribe "04" → "0,4"
+   *     (un peso < 1 kg siempre tiene decimales).
+   */
+  weightMode?: boolean
+}
+
 /**
  * Formatea un monto con separador de miles (.) y decimales opcionales con coma (,).
  * Estilo es-AR: "17535,50" → "17.535,50"
  *
  * Permite escribir la coma mientras se tipea (ej. "17.535,").
- * @param maxDecimals - límite de decimales (default 2 para precios; usar 3 para pesos en kg).
  */
-export function formatDecimalInputValue(raw: string, maxDecimals = 2): string {
+export function formatDecimalInputValue(raw: string, maxDecimals = 2, options: FormatDecimalOptions = {}): string {
+  let preprocessed = raw
+
+  if (options.weightMode) {
+    // Normalizar punto decimal a coma si no hay coma ya (0.490 → 0,490)
+    if (!raw.includes(',') && raw.includes('.')) {
+      const lastDot = raw.lastIndexOf('.')
+      preprocessed = raw.slice(0, lastDot) + ',' + raw.slice(lastDot + 1)
+    }
+  }
+
   // Quitar puntos de miles previos antes de sanitizar (evita duplicar dígitos al re-formatear)
-  const withoutDots = raw.replace(/\./g, '')
-  const cleaned = withoutDots.replace(/[^\d,]/g, '')
+  const withoutDots = preprocessed.replace(/\./g, '')
+  let cleaned = withoutDots.replace(/[^\d,]/g, '')
+
+  if (options.weightMode) {
+    // Auto-coma después de cero inicial: "04" → "0,4"
+    if (/^0\d/.test(cleaned)) {
+      cleaned = '0,' + cleaned.slice(1)
+    }
+  }
+
   const commaIndex = cleaned.indexOf(',')
 
   let intPart: string

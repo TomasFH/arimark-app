@@ -37,9 +37,9 @@ const createSaleSchema = z
   })
   .refine(
     data => {
-      const itemTotal = data.items.reduce((sum, i) => sum + i.subtotal, 0)
-      const paymentTotal = data.payments.reduce((sum, p) => sum + p.amount, 0)
-      return Math.abs(itemTotal - paymentTotal) < 0.01
+      const itemTotal = Math.round(data.items.reduce((sum, i) => sum + i.subtotal, 0))
+      const paymentTotal = Math.round(data.payments.reduce((sum, p) => sum + p.amount, 0))
+      return Math.abs(itemTotal - paymentTotal) < 0.5
     },
     { message: 'La suma de pagos no coincide con el total de la venta.' }
   )

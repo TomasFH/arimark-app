@@ -49,7 +49,9 @@ export function buildItemFromBarcode(
     unit,
     weightKg,
     unitPrice,
-    subtotal: totalARS,
+    // Redondeamos a pesos enteros: los centavos del encoding KRETZ generan decimales
+    // que el modal de cobro (NumericInput) no puede representar, causando mismatch.
+    subtotal: Math.round(totalARS),
     manualEntry: false,
     priceDiscrepancy,
   }

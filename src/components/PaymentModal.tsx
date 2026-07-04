@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import NumericInput from './NumericInput'
-import { parseNumericInput } from '../lib/numericInput'
+import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
 import type { SalePaymentPayload } from '../types/hw-api'
 
@@ -61,12 +61,26 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
   }
 
   // --- Modo dividido ---
+  const [focusedRowId, setFocusedRowId] = useState<string | null>(null)
+
   const cashRowCount = rows.filter(r => r.method === 'cash').length
   const cashAlreadyUsed = cashRowCount > 0
 
+  // Suma total de todas las filas (para validar que el monto cuadra)
   const rowSum = rows.reduce((s, r) => s + (parseNumericInput(r.amount) ?? 0), 0)
-  const remaining = total - rowSum
-  const splitValid = Math.abs(rowSum - total) < 1
+  const totalCovered = Math.abs(rowSum - total) < 1
+
+  /**
+   * "Resta" para mostrar: excluye la fila que la cajera está editando en este momento.
+   * Así el saldo no se mueve mientras tipea, evitando confusión.
+   * Cuando totalCovered=true mostramos 0 (cubierto) inmediatamente.
+   */
+  const rowSumExcludingFocused = rows
+    .filter(r => r.id !== focusedRowId)
+    .reduce((s, r) => s + (parseNumericInput(r.amount) ?? 0), 0)
+  const remaining = totalCovered ? 0 : total - rowSumExcludingFocused
+
+  const splitValid = totalCovered
 
   function addRow() {
     const defaultMethod: PaymentMethod = cashAlreadyUsed ? 'debit' : 'cash'
@@ -79,6 +93,24 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
 
   function updateRow(id: string, patch: Partial<PaymentRow>) {
     setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)))
+  }
+
+  /** Calcula cuánto le falta cubrir a una fila específica (lo que ponen las demás descuenta). */
+  function getRowRemainder(id: string): number {
+    const others = rows
+      .filter(r => r.id !== id)
+      .reduce((s, r) => s + (parseNumericInput(r.amount) ?? 0), 0)
+    return Math.max(0, Math.round(total - others))
+  }
+
+  /** Rellena automáticamente una fila con el monto restante exacto. */
+  function fillRowRemainder(id: string) {
+    const rem = getRowRemainder(id)
+    if (rem > 0) {
+      updateRow(id, { amount: formatIntegerWithDots(String(rem)) })
+      // Si era la fila enfocada, también la "desenfocamos" del cálculo
+      setFocusedRowId(null)
+    }
   }
 
   function handleSplitConfirm() {
@@ -96,9 +128,10 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
       ? 'border-green-700/50 bg-green-900/20 text-green-300'
       : remaining > 0
         ? 'border-amber-700/50 bg-amber-900/20 text-amber-300'
-        : 'border-green-700/50 bg-green-900/20 text-green-300'
+        : 'border-red-700/50 bg-red-900/20 text-red-300'
 
-  const balanceValueColor = Math.abs(remaining) < 1 ? 'text-green-400' : remaining > 0 ? 'text-amber-400' : 'text-green-400'
+  const balanceValueColor =
+    Math.abs(remaining) < 1 ? 'text-green-400' : remaining > 0 ? 'text-amber-400' : 'text-red-400'
 
   return (
     <div
@@ -253,6 +286,11 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
             <div className="space-y-3">
               {rows.map(row => {
                 const isCashRow = row.method === 'cash'
+                const rowRem = getRowRemainder(row.id)
+                const rowAmount = parseNumericInput(row.amount) ?? 0
+                // Solo en campos vacíos: evita mostrar autocompletado en filas ya en uso
+                const showFillBtn = !totalCovered && rowRem > 0 && rowAmount <= 0
+
                 return (
                   <div key={row.id} className="flex items-center gap-2">
                     <select
@@ -281,10 +319,24 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
                       <NumericInput
                         value={row.amount}
                         onChange={amount => updateRow(row.id, { amount })}
+                        onFocus={() => setFocusedRowId(row.id)}
+                        onBlur={() => setFocusedRowId(null)}
                         placeholder="0"
                         className="w-full rounded-lg bg-gray-800 border border-gray-700 pl-7 pr-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       />
                     </div>
+
+                    {/* Botón para autocompletar con el monto restante */}
+                    {showFillBtn && (
+                      <button
+                        type="button"
+                        onClick={() => fillRowRemainder(row.id)}
+                        className="shrink-0 rounded-lg border border-amber-700/60 bg-amber-900/30 px-2 py-1.5 text-[11px] font-semibold text-amber-300 hover:bg-amber-900/60 hover:text-amber-200 transition-colors whitespace-nowrap"
+                        title="Completar con el monto restante"
+                      >
+                        ← {formatARS(rowRem)}
+                      </button>
+                    )}
 
                     {rows.length > 2 && (
                       <button
@@ -306,14 +358,14 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
                 + Agregar otro medio de pago
               </button>
 
-              {/* Balance en tiempo real */}
+              {/* Balance — congelado mientras se escribe en una fila */}
               <div className={`rounded-xl border p-3.5 ${balanceColor}`}>
                 <div className="flex items-center justify-between">
                   <span className="text-sm">
                     {Math.abs(remaining) < 1
                       ? 'Total cubierto ✓'
                       : remaining > 0
-                        ? 'Resta cubrir'
+                        ? 'Resta ingresar'
                         : 'Exceso'}
                   </span>
                   <span className={`text-xl font-bold ${balanceValueColor}`}>
@@ -322,6 +374,12 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
                       : formatARS(Math.abs(remaining))}
                   </span>
                 </div>
+                {/* Indicador sutil de que el balance está congelado mientras se escribe */}
+                {focusedRowId !== null && !totalCovered && (
+                  <p className="mt-1 text-[10px] text-gray-500">
+                    Saldo pendiente para este campo — se actualiza al confirmar el monto
+                  </p>
+                )}
               </div>
 
               <button

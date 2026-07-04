@@ -66,6 +66,21 @@ function buildItemFromManual(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers de búsqueda
+// ---------------------------------------------------------------------------
+
+/**
+ * Normaliza un string para comparación insensible a mayúsculas y acentos.
+ * Ejemplo: "Vacío" → "vacio", "Über" → "uber".
+ */
+function normalizeSearch(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+// ---------------------------------------------------------------------------
 // Constantes de UI
 // ---------------------------------------------------------------------------
 
@@ -112,9 +127,16 @@ export default function ScanInput({ onAddItem, products }: Props) {
   const pluNum = parseNumericInput(pluRaw)
 
   const suggestions: ProductRow[] = (() => {
-    if (!pluRaw.trim() || pluNum === null) return []
-    const query = pluRaw.replace(/\./g, '')
-    return products.filter(p => String(p.pluNumber).startsWith(query)).slice(0, 6)
+    const query = pluRaw.trim()
+    if (!query) return []
+    const digits = query.replace(/\./g, '')
+    if (/^\d+$/.test(digits)) {
+      // Búsqueda por número PLU
+      return products.filter(p => String(p.pluNumber).startsWith(digits)).slice(0, 6)
+    }
+    // Búsqueda por nombre (insensible a mayúsculas y acentos)
+    const normalizedQuery = normalizeSearch(query)
+    return products.filter(p => normalizeSearch(p.name).includes(normalizedQuery)).slice(0, 8)
   })()
 
   const matchedProduct = pluNum !== null
@@ -169,7 +191,14 @@ export default function ScanInput({ onAddItem, products }: Props) {
   }
 
   function handlePluChange(v: string) {
-    setPluRaw(formatIntegerWithDots(stripNonDigits(v).slice(0, 3)))
+    const digits = stripNonDigits(v)
+    if (digits || v === '') {
+      // Si es puramente numérico: formatear y limitar a 3 dígitos PLU
+      setPluRaw(formatIntegerWithDots(digits.slice(0, 3)))
+    } else {
+      // Texto libre (búsqueda por nombre): pasar tal cual, máx 40 chars
+      setPluRaw(v.slice(0, 40))
+    }
     setManualError('')
     setShowSuggestions(true)
     setWeightRaw('')
@@ -236,11 +265,15 @@ export default function ScanInput({ onAddItem, products }: Props) {
         setManualError('Cantidad inválida. Ingresá un número entero mayor a 0.')
         return
       }
-      const subtotal = specialPrice
-        ? parseDecimalInput(priceRaw)
-        : autoPrice
+      let subtotal: number | null
+      if (specialPrice) {
+        const pricePerUnit = parseDecimalInput(priceRaw)
+        subtotal = pricePerUnit !== null ? pricePerUnit * qty : null
+      } else {
+        subtotal = autoPrice
+      }
       if (subtotal === null || subtotal <= 0) {
-        setManualError('Precio total inválido.')
+        setManualError('Precio por unidad inválido.')
         return
       }
       const item = buildItemFromManual(plu, qty, subtotal, matchedProduct, specialPrice)
@@ -378,6 +411,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
             value={barcode}
             onChange={handleBarcodeChange}
             placeholder="2001060000012"
+            data-barcode-input="true"
             className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
           />
           {barcodePreview && (
@@ -405,16 +439,18 @@ export default function ScanInput({ onAddItem, products }: Props) {
             Emergencia: ingresá el PLU y los datos del producto.
           </p>
 
-          {/* PLU con autocomplete */}
+          {/* PLU con autocomplete — acepta número PLU o nombre del producto */}
           <div className="relative">
-            <label className="block text-[9px] text-gray-500 mb-0.5">PLU</label>
-            <NumericInput
+            <label className="block text-[9px] text-gray-500 mb-0.5">PLU o nombre</label>
+            <input
               ref={pluInputRef}
+              type="text"
               value={pluRaw}
-              onChange={handlePluChange}
+              onChange={e => handlePluChange(e.target.value)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
               onFocus={() => pluRaw.trim() && setShowSuggestions(true)}
-              placeholder="ej. 5"
+              placeholder="ej. 5 o 'vacío'"
+              autoComplete="off"
               className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
             />
             {showSuggestions && suggestions.length > 0 && (
@@ -481,11 +517,11 @@ export default function ScanInput({ onAddItem, products }: Props) {
                 </div>
               )}
 
-              {/* Campo de precio editable con precio especial */}
+              {/* Campo de precio por unidad con precio especial */}
               {specialPrice && (
                 <div>
                   <label className="block text-[9px] text-gray-500 mb-0.5">
-                    Precio total ($)
+                    Precio por unidad ($)
                     {refPrice && (
                       <span className="ml-1 text-amber-600">· Lista: {formatARS(refPrice)}/u.</span>
                     )}
@@ -497,6 +533,11 @@ export default function ScanInput({ onAddItem, products }: Props) {
                     placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
                     className="w-full rounded-md border border-orange-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
                   />
+                  {priceRaw && parseNumericInput(weightRaw) && parseDecimalInput(priceRaw) && (
+                    <p className="mt-0.5 text-[9px] text-orange-300">
+                      Total: {formatARS((parseDecimalInput(priceRaw) ?? 0) * (parseNumericInput(weightRaw) ?? 0))}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -509,6 +550,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
                   value={weightRaw}
                   onChange={handleKgWeightChange}
                   maxDecimals={3}
+                  weightMode
                   placeholder="ej. 0,490"
                   className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
                 />

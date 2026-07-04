@@ -81,6 +81,32 @@ describe('numericInput', () => {
     it('ignora caracteres no numéricos excepto coma', () => {
       expect(formatDecimalInputValue('17.535,5abc')).toBe('17.535,5')
     })
+
+    describe('weightMode', () => {
+      it('convierte punto a coma como separador decimal', () => {
+        expect(formatDecimalInputValue('0.490', 3, { weightMode: true })).toBe('0,490')
+      })
+
+      it('convierte 1.500 (punto decimal) en 1,500', () => {
+        expect(formatDecimalInputValue('1.500', 3, { weightMode: true })).toBe('1,500')
+      })
+
+      it('auto-inserta coma al escribir dígito después de cero inicial', () => {
+        expect(formatDecimalInputValue('04', 3, { weightMode: true })).toBe('0,4')
+      })
+
+      it('auto-inserta coma: 049 → 0,49', () => {
+        expect(formatDecimalInputValue('049', 3, { weightMode: true })).toBe('0,49')
+      })
+
+      it('no inserta coma si el valor ya la tiene (0,4)', () => {
+        expect(formatDecimalInputValue('0,4', 3, { weightMode: true })).toBe('0,4')
+      })
+
+      it('no inserta coma para enteros >= 1 (ej. 1500g = 1,500 kg)', () => {
+        expect(formatDecimalInputValue('1500', 3, { weightMode: true })).toBe('1.500')
+      })
+    })
   })
 
   describe('parseDecimalInput', () => {

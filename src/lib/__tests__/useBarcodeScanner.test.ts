@@ -4,8 +4,10 @@
  * El hook escucha eventos `keydown` en el documento y dispara onScan() cuando
  * detecta una secuencia de dígitos a velocidad de lector USB.
  *
- * En jsdom los eventos de teclado se simulan con new KeyboardEvent.
- * Se usa vi.useFakeTimers() para controlar los timeouts de limpieza del buffer.
+ * Nota: en jsdom los eventos dispatched en `document` no actualizan el .value
+ * de los inputs (eso requeriría despacharlos directamente en el elemento).
+ * Por eso los tests de restauración de campo verifican que onScan se llame,
+ * no el .value resultante (eso se cubre con pruebas E2E o manuales).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -13,13 +15,7 @@ import { renderHook } from '@testing-library/react'
 import { useBarcodeScanner } from '../useBarcodeScanner'
 
 // Simula una pulsación de tecla a nivel de documento
-function pressKey(key: string, activeTag = '') {
-  // Configurar el elemento activo del documento si se pide
-  if (activeTag) {
-    const el = document.createElement(activeTag as keyof HTMLElementTagNameMap)
-    document.body.appendChild(el)
-    el.focus()
-  }
+function pressKey(key: string) {
   document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
 }
 
@@ -33,19 +29,21 @@ async function scanBarcode(digits: string) {
 
 beforeEach(() => {
   vi.useFakeTimers()
-  // Limpiar foco para que el hook no esté silenciado
+  // Asegurar que no haya foco en ningún campo al inicio
   if (document.activeElement && document.activeElement !== document.body) {
-    (document.activeElement as HTMLElement).blur()
+    ;(document.activeElement as HTMLElement).blur()
   }
 })
 
 afterEach(() => {
   vi.useRealTimers()
   // Limpiar los elementos insertados para simular foco
-  document.querySelectorAll('body > input, body > textarea, body > select').forEach(el => el.remove())
+  document.querySelectorAll('body > input, body > textarea, body > select').forEach(el =>
+    el.remove()
+  )
 })
 
-describe('useBarcodeScanner — detección básica', () => {
+describe('useBarcodeScanner — detección básica (sin campo enfocado)', () => {
   it('llama onScan al recibir 13 dígitos seguidos de Enter', async () => {
     const onScan = vi.fn()
     renderHook(() => useBarcodeScanner({ onScan }))
@@ -85,23 +83,22 @@ describe('useBarcodeScanner — detección básica', () => {
   })
 })
 
-describe('useBarcodeScanner — no interferencia con campos', () => {
-  it('no intercepta cuando el foco está en un input', async () => {
+describe('useBarcodeScanner — intercepción con campo enfocado', () => {
+  it('llama onScan aunque el foco esté en un input', async () => {
     const onScan = vi.fn()
     renderHook(() => useBarcodeScanner({ onScan }))
 
-    // Crear un input y darle foco
     const input = document.createElement('input')
     document.body.appendChild(input)
     input.focus()
 
     await scanBarcode('2001060000012')
 
-    expect(onScan).not.toHaveBeenCalled()
+    expect(onScan).toHaveBeenCalledWith('2001060000012')
     input.remove()
   })
 
-  it('no intercepta cuando el foco está en un textarea', async () => {
+  it('llama onScan aunque el foco esté en un textarea', async () => {
     const onScan = vi.fn()
     renderHook(() => useBarcodeScanner({ onScan }))
 
@@ -111,8 +108,38 @@ describe('useBarcodeScanner — no interferencia con campos', () => {
 
     await scanBarcode('2001060000012')
 
-    expect(onScan).not.toHaveBeenCalled()
+    expect(onScan).toHaveBeenCalledWith('2001060000012')
     ta.remove()
+  })
+
+  it('NO intercepta si el input tiene data-barcode-input="true"', async () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan }))
+
+    const input = document.createElement('input')
+    input.dataset.barcodeInput = 'true'
+    document.body.appendChild(input)
+    input.focus()
+
+    await scanBarcode('2001060000012')
+
+    // El campo con data-barcode-input maneja sus propios scans; el hook se silencia
+    expect(onScan).not.toHaveBeenCalled()
+    input.remove()
+  })
+
+  it('NO intercepta cuando disabled=true aunque haya campo enfocado', async () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan, disabled: true }))
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+
+    await scanBarcode('2001060000012')
+
+    expect(onScan).not.toHaveBeenCalled()
+    input.remove()
   })
 })
 
@@ -121,7 +148,6 @@ describe('useBarcodeScanner — descarte de buffer', () => {
     const onScan = vi.fn()
     renderHook(() => useBarcodeScanner({ onScan }))
 
-    // Escribe 5 dígitos, luego una letra, luego Enter
     for (const ch of '20010') pressKey(ch)
     pressKey('a')
     pressKey('Enter')

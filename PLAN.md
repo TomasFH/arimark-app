@@ -303,6 +303,15 @@ Objetivo: que los administradores gestionen precios/PLUs y los carguen en la bal
 
 **No codificar hasta que el desarrollador confirme haber tenido la charla con el carnicero titular sobre el manejo de ingreso de mercadería.** La estructura de `stock_entries` existe en el schema pero el flujo operativo está pendiente de definición.
 
+**Idea registrada — descarte de mercadería (solo admins, pendiente de profundizar):**
+
+Sección o panel **exclusivo para administradores** donde puedan registrar el **descarte de mercadería** (productos que se pierden y no se venden).
+
+- **Motivación principal:** contingencias como un **corte de luz prolongado** que obligue a desechar productos refrigerados o congelados.
+- **Alcance inicial (solo anotado):** registrar qué se descartó, cuánto y por qué; reflejar el impacto en stock; dejar trazabilidad para auditoría.
+- **Pendiente de definir** en la charla con el titular: flujo exacto, campos obligatorios (motivo, producto, peso/cantidad), si requiere confirmación doble, reportes, etc.
+- **No implementar** antes de cerrar el modelo general de stock (ingreso + movimientos).
+
 ### Fase 9 — Empleados, vales y asistencia
 
 - ABM de empleados con rol (`butcher`, `cashier`, `other`).
