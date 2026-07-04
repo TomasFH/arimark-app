@@ -1,19 +1,12 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import bcrypt from 'bcryptjs'
 import log from 'electron-log'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { users } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { setActiveSession } from '../activeSession'
-import {
-  startCashierSession,
-  endCashierSession,
-  loginAdmin,
-  logoutAdmin,
-  getStoredAdminSession,
-} from '../licensing/session'
+import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession } from '../licensing/session'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
@@ -28,7 +21,7 @@ const activatePayloadSchema = z.object({
 })
 
 const cashierLoginSchema = z.object({
-  username: z.string().min(1),
+  email: z.string().email(),
   password: z.string().min(1),
   storeId: z.string().min(1),
 })
@@ -83,41 +76,65 @@ export function registerAuthHandlers(): void {
       return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
     }
 
-    const { username, password, storeId } = parsed.data
+    const { email, password, storeId } = parsed.data
+    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
     try {
-      const db = getDb()
-      const user = db.select().from(users).where(eq(users.username, username)).limit(1).all()[0]
-
-      if (!user) {
-        return { ok: false, error: 'Usuario no encontrado.' }
-      }
-
-      if (!user.active) {
-        return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
-      }
-
-      const valid = await bcrypt.compare(password, user.passwordHash)
-      if (!valid) {
-        return { ok: false, error: 'Contraseña incorrecta.' }
-      }
-
       const config = getBusinessConfig()
-      const sessionResult = await startCashierSession(config.license_key, storeId, user.id)
-
-      if (!sessionResult.ok) {
-        return { ok: false, error: sessionResult.error }
+      const result = await signInWithRole(config.license_key, email, password, 'cashier')
+      if (!result.ok) {
+        return { ok: false, error: result.error }
       }
 
-      setActiveSession({ userId: user.id, storeId, shiftId: null })
-      log.info('[ipc:login-cashier] Login exitoso', { username, storeId })
+      const { profile } = result
+
+      // En dev no hay perfil real en Firestore (bypass) — se salta la
+      // verificación de local autorizado. En producción, la cajera solo
+      // puede operar los locales que su perfil habilita explícitamente.
+      if (APP_ENV !== 'dev' && !profile.authorizedStores.includes(storeId)) {
+        log.warn('[ipc:login-cashier] Local no autorizado', { uid: profile.uid, storeId })
+        return { ok: false, error: 'No autorizado para operar en este local.' }
+      }
+
+      const db = getDb()
+      const existing = db
+        .select()
+        .from(users)
+        .where(eq(users.firebaseUid, profile.uid))
+        .limit(1)
+        .all()[0]
+
+      if (!existing) {
+        db.insert(users)
+          .values({
+            id: profile.uid,
+            storeId,
+            name: profile.displayName,
+            firebaseUid: profile.uid,
+            role: 'cashier',
+            active: true,
+            createdAt: new Date().toISOString(),
+          })
+          .run()
+        log.info('[ipc:login-cashier] Perfil local creado', { uid: profile.uid, storeId })
+      } else if (!existing.active) {
+        return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
+      } else if (existing.storeId !== storeId || existing.name !== profile.displayName) {
+        db.update(users)
+          .set({ storeId, name: profile.displayName })
+          .where(eq(users.id, existing.id))
+          .run()
+      }
+
+      setActiveSession({ userId: profile.uid, storeId, shiftId: null })
+      log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
       return {
         ok: true,
         data: {
           role: 'cashier',
-          userId: user.id,
+          userId: profile.uid,
           storeId,
-          expiresAt: sessionResult.session.expiresAt.toISOString(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         },
       }
     } catch (err) {
@@ -134,7 +151,8 @@ export function registerAuthHandlers(): void {
       return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
     }
 
-    const result = await loginAdmin(parsed.data.email, parsed.data.password)
+    const config = getBusinessConfig()
+    const result = await loginAdmin(config.license_key, parsed.data.email, parsed.data.password)
     if (!result.ok) {
       return { ok: false, error: result.error }
     }
@@ -155,11 +173,9 @@ export function registerAuthHandlers(): void {
       return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
     }
 
-    const { role, storeId } = parsed.data
+    const { role } = parsed.data
 
-    if (role === 'cashier' && storeId) {
-      const config = getBusinessConfig()
-      await endCashierSession(config.license_key, storeId)
+    if (role === 'cashier') {
       setActiveSession(null)
     } else if (role === 'admin') {
       await logoutAdmin()

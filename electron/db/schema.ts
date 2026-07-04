@@ -11,14 +11,20 @@ export const stores = sqliteTable('stores', {
 })
 
 // ---------------------------------------------------------------------------
-// Usuarios (solo cajeras — los admins se autentican via Firebase Auth)
+// Usuarios (caché local de perfil de cajeras — sin credenciales).
+//
+// La identidad y la contraseña viven en Firebase Auth; esta tabla es solo un
+// caché para que los FK de shifts/sales/product_prices resuelvan localmente
+// sin depender de internet. `id` = `firebaseUid` para las cajeras nuevas
+// (se upsertea automáticamente al loguearse por primera vez en un local).
+// Los admins NO tienen fila acá — se autentican via Firebase Auth y su rol
+// se resuelve en Firestore (licenses/{key}/users/{uid}), nunca en SQLite.
 // ---------------------------------------------------------------------------
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
   storeId: text('store_id').references(() => stores.id),
   name: text('name').notNull(),
-  username: text('username').notNull().unique(),
-  passwordHash: text('password').notNull(),
+  firebaseUid: text('firebase_uid').unique(),
   role: text('role', { enum: ['cashier'] }).notNull().default('cashier'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),

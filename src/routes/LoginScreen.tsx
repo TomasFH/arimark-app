@@ -4,18 +4,18 @@ type LoginMode = 'cashier' | 'admin'
 
 const isDevMode = import.meta.env['VITE_APP_ENV'] === 'dev'
 
-const DEV_USERNAME = 'cajera1'
+const DEV_EMAIL = 'cajera1@dev.local'
 const DEV_PASSWORD = 'cajera1234'
 
 interface Props {
-  onCashierLogin: (username: string, password: string) => Promise<void>
+  onCashierLogin: (email: string, password: string) => Promise<void>
   onAdminLogin: (email: string, password: string) => Promise<void>
   businessName: string
 }
 
 export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName }: Props) {
   const [mode, setMode] = useState<LoginMode>('cashier')
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -27,9 +27,9 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
 
     try {
       if (mode === 'cashier') {
-        await onCashierLogin(username, password)
+        await onCashierLogin(email, password)
       } else {
-        await onAdminLogin(username, password)
+        await onAdminLogin(email, password)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión.')
@@ -50,7 +50,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
           {(['cashier', 'admin'] as LoginMode[]).map(m => (
             <button
               key={m}
-              onClick={() => { setMode(m); setError(''); setUsername(''); setPassword('') }}
+              onClick={() => { setMode(m); setError(''); setEmail(''); setPassword('') }}
               className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
                 mode === m
                   ? 'bg-white shadow text-gray-900'
@@ -65,14 +65,14 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {mode === 'cashier' ? 'Usuario' : 'Email'}
+              Email
             </label>
             <input
-              type={mode === 'admin' ? 'email' : 'text'}
-              value={username}
-              onChange={e => setUsername(e.target.value)}
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              autoComplete={mode === 'admin' ? 'email' : 'username'}
+              autoComplete="email"
               disabled={loading}
               required
             />
@@ -99,7 +99,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
 
           <button
             type="submit"
-            disabled={loading || !username || !password}
+            disabled={loading || !email || !password}
             className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? 'Ingresando...' : 'Ingresar'}
@@ -113,7 +113,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
                 setLoading(true)
                 setError('')
                 try {
-                  await onCashierLogin(DEV_USERNAME, DEV_PASSWORD)
+                  await onCashierLogin(DEV_EMAIL, DEV_PASSWORD)
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Error al saltar login.')
                 } finally {
@@ -123,7 +123,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
               disabled={loading}
               className="w-full rounded-lg border-2 border-dashed border-yellow-400 px-4 py-2.5 text-sm font-semibold text-yellow-700 bg-yellow-50 hover:bg-yellow-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              ⚠ Saltar login — {DEV_USERNAME} (modo pruebas)
+              ⚠ Saltar login — {DEV_EMAIL} (modo pruebas)
             </button>
           </div>
         )}

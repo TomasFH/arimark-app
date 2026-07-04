@@ -49,7 +49,6 @@ export function deleteSecret(key: string): void {
 export const SECRET_KEYS = {
   LAST_LICENSE_VERIFIED_AT: 'last-license-verified-at',
   FIREBASE_ANON_UID: 'firebase-anon-uid',
-  CASHIER_SESSION_TOKEN: 'cashier-session-token',
   ADMIN_SESSION_TOKEN: 'admin-session-token',
   // Hardware
   KRETZ_PORT: 'kretz-port',

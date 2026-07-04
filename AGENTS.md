@@ -60,6 +60,16 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 - La comunicación entre main y renderer ocurre **únicamente mediante IPC tipado** a través del preload (`window.hw`).
 - Si el agente se encuentra escribiendo código de red o hardware en el renderer, debe detenerse, reorganizar la arquitectura y avisar al desarrollador antes de continuar.
 
+## Autenticación
+
+- **Cajeras y admins se autentican con Firebase Auth (email + contraseña).** No hay un sistema de login paralelo por rol: ambos flujos son simétricos (`signInWithRole` en `electron/licensing/session.ts`).
+- El rol (`cashier` | `admin`) y los locales autorizados (`authorizedStores`) de cada cuenta viven en Firestore, en `licenses/{licenseKey}/users/{uid}`. Nunca en SQLite.
+- La tabla SQLite `users` es solo un **caché local de perfil** (nombre, local, activo) para que los FK de `shifts`, `sales`, `product_prices`, etc. resuelvan sin depender de internet. No contiene contraseñas ni username. `id` = `firebaseUid`.
+- El perfil local se **upsertea automáticamente** en el primer login exitoso de una cajera en cualquier PC — esto es lo que permite que la misma cajera opere en distintos locales sin que el desarrollador tenga que precargar nada en cada PC.
+- No hay control de concurrencia entre dispositivos: la misma cajera puede estar logueada en la PC y en su celular (app companion, Fase 3) al mismo tiempo. Firebase Auth es la única fuente de identidad.
+- Alta de cuentas nuevas: mientras no exista un panel de administración (Fase 4) o una Cloud Function dedicada, la creación de una cuenta de cajera/admin (Firebase Auth + documento de perfil en Firestore) es **manual, desde la consola de Firebase**. Deuda técnica señalada, no silenciada.
+- Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. Si la PC se reinicia sin internet, no se puede volver a loguear una cajera (riesgo aceptado explícitamente por el desarrollador; no se implementa un PIN de emergencia en la PC, sí en el celular en Fase 3).
+
 ## IPC y validación
 
 - Todo handler IPC en el proceso main **valida el payload recibido con zod** antes de procesarlo.
@@ -89,7 +99,7 @@ Solo existen dos entornos. No hay un tercer modo intermedio.
 - **`APP_ENV=production`** (modo real):
   - Base de datos en `userData/app.sqlite`.
   - Hardware real (driver serie KRETZ desde `safeStorage`).
-  - Firebase activo, licencia verificada, sesiones en Firestore.
+  - Firebase activo, licencia verificada, login de cajeras y admins contra Firebase Auth (ver sección "Autenticación").
   - Sin banner. Sin botón de bypass.
   - Script: `pnpm build:prod`.
 

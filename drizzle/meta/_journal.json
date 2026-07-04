@@ -29,6 +29,20 @@
       "when": 1782782400000,
       "tag": "0003_product_plu_number",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1782800000000,
+      "tag": "0004_drop_scale_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783400000000,
+      "tag": "0005_users_firebase_auth",
+      "breakpoints": true
     }
   ]
 }

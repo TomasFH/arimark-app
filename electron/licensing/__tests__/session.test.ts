@@ -8,11 +8,6 @@ vi.mock('firebase/firestore', () => ({
   getFirestore: vi.fn(),
   doc: vi.fn(),
   getDoc: vi.fn(),
-  setDoc: vi.fn(),
-  deleteDoc: vi.fn(),
-  Timestamp: {
-    fromDate: vi.fn((d: Date) => ({ toDate: () => d, seconds: d.getTime() / 1000 })),
-  },
 }))
 
 vi.mock('firebase/auth', () => ({
@@ -32,99 +27,114 @@ vi.mock('../../secureStorage', () => ({
   setSecret: vi.fn((key: string, val: string) => { secretStore.set(key, val) }),
   deleteSecret: vi.fn((key: string) => { secretStore.delete(key) }),
   SECRET_KEYS: {
-    CASHIER_SESSION_TOKEN: 'cashier-session-token',
     ADMIN_SESSION_TOKEN: 'admin-session-token',
     LAST_LICENSE_VERIFIED_AT: 'last-license-verified-at',
     FIREBASE_ANON_UID: 'firebase-anon-uid',
   },
 }))
 
-vi.mock('uuid', () => ({
-  v4: vi.fn().mockReturnValue('mock-uuid-token'),
-}))
-
-import { getDoc, setDoc, deleteDoc } from 'firebase/firestore'
+import { getDoc } from 'firebase/firestore'
 import { signInWithEmailAndPassword } from 'firebase/auth'
-import {
-  startCashierSession,
-  endCashierSession,
-  getStoredCashierSession,
-  loginAdmin,
-  logoutAdmin,
-  getStoredAdminSession,
-} from '../session'
+import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession } from '../session'
 
-describe('CashierSession — modo dev', () => {
+describe('signInWithRole — modo dev', () => {
   beforeEach(() => {
     process.env['APP_ENV'] = 'dev'
     secretStore.clear()
     vi.clearAllMocks()
   })
 
-  it('inicia sesión de cajera correctamente', async () => {
-    const result = await startCashierSession('LIC-001', 'store-001', 'user-001')
+  it('acepta cualquier credencial y fabrica un perfil determinístico', async () => {
+    const result = await signInWithRole('LIC-001', 'cajera1@dev.local', 'cualquier-cosa', 'cashier')
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.session.token).toBe('mock-uuid-token')
-      expect(result.session.storeId).toBe('store-001')
+      expect(result.profile.uid).toBe('dev-cashier-cajera1@dev.local')
+      expect(result.profile.role).toBe('cashier')
+      expect(result.profile.active).toBe(true)
     }
   })
 
-  it('recupera la sesión almacenada', async () => {
-    await startCashierSession('LIC-001', 'store-001', 'user-001')
-    const session = getStoredCashierSession()
-    expect(session).not.toBeNull()
-    expect(session?.storeId).toBe('store-001')
-  })
-
-  it('cierra la sesión correctamente', async () => {
-    await startCashierSession('LIC-001', 'store-001', 'user-001')
-    await endCashierSession('LIC-001', 'store-001')
-    const session = getStoredCashierSession()
-    expect(session).toBeNull()
+  it('fabrica perfiles distintos para cashier y admin con el mismo email', async () => {
+    const cashier = await signInWithRole('LIC-001', 'x@dev.local', 'pw', 'cashier')
+    const admin = await signInWithRole('LIC-001', 'x@dev.local', 'pw', 'admin')
+    expect(cashier.ok && cashier.profile.uid).not.toBe(admin.ok && admin.profile.uid)
   })
 })
 
-describe('CashierSession — modo producción', () => {
+describe('signInWithRole — modo producción', () => {
   beforeEach(() => {
     process.env['APP_ENV'] = 'production'
     secretStore.clear()
     vi.clearAllMocks()
   })
 
-  it('bloquea si ya hay una cajera activa en ese local', async () => {
-    const futureDate = new Date(Date.now() + 60 * 60 * 1000)
+  it('rechaza si Firebase Auth falla (credenciales o red)', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(new Error('auth/wrong-password'))
+
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'wrong', 'cashier')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/Credenciales incorrectas/)
+  })
+
+  it('rechaza si no existe el perfil en Firestore', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
+    vi.mocked(getDoc).mockResolvedValue({ exists: () => false } as unknown as Awaited<ReturnType<typeof getDoc>>)
+
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'pw', 'cashier')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/no autorizado/i)
+  })
+
+  it('rechaza si el perfil está inactivo', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
       exists: () => true,
-      data: () => ({
-        cashier_session_expires: { toDate: () => futureDate },
-      }),
+      data: () => ({ role: 'cashier', authorizedStores: ['store-1'], displayName: 'Cajera', active: false }),
     } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
-    const result = await startCashierSession('LIC-001', 'store-001', 'user-002')
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'pw', 'cashier')
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toMatch(/cajera con sesión activa/)
+    if (!result.ok) expect(result.error).toMatch(/desactivado/i)
   })
 
-  it('inicia sesión si no hay sesión activa', async () => {
+  it('rechaza si el rol del perfil no coincide con el esperado', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
     vi.mocked(getDoc).mockResolvedValue({
-      exists: () => false,
+      exists: () => true,
+      data: () => ({ role: 'admin', authorizedStores: [], displayName: 'Alguien', active: true }),
     } as unknown as Awaited<ReturnType<typeof getDoc>>)
-    vi.mocked(setDoc).mockResolvedValue(undefined)
 
-    const result = await startCashierSession('LIC-001', 'store-001', 'user-001')
-    expect(result.ok).toBe(true)
-    expect(setDoc).toHaveBeenCalled()
+    const result = await signInWithRole('LIC-001', 'alguien@negocio.com', 'pw', 'cashier')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/permiso/i)
   })
 
-  it('cierra sesión llamando deleteDoc en Firestore', async () => {
-    vi.mocked(deleteDoc).mockResolvedValue(undefined)
-    await endCashierSession('LIC-001', 'store-001')
-    expect(deleteDoc).toHaveBeenCalled()
+  it('retorna ok con el perfil resuelto cuando todo es válido', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'uid-001', email: 'cajera1@negocio.com' },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => ({ role: 'cashier', authorizedStores: ['store-1', 'store-2'], displayName: 'Cajera Uno', active: true }),
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
+
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'pw', 'cashier')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.profile.uid).toBe('uid-001')
+      expect(result.profile.authorizedStores).toEqual(['store-1', 'store-2'])
+      expect(result.profile.displayName).toBe('Cajera Uno')
+    }
   })
 })
 
-describe('AdminSession — modo dev', () => {
+describe('loginAdmin / AdminSession — modo dev', () => {
   beforeEach(() => {
     process.env['APP_ENV'] = 'dev'
     secretStore.clear()
@@ -132,27 +142,27 @@ describe('AdminSession — modo dev', () => {
   })
 
   it('login admin en dev siempre retorna ok', async () => {
-    const result = await loginAdmin('admin@test.com', 'any-password')
+    const result = await loginAdmin('LIC-001', 'admin@test.com', 'any-password')
     expect(result.ok).toBe(true)
-    if (result.ok) expect(result.session.uid).toBe('dev-admin-uid')
+    if (result.ok) expect(result.session.uid).toBe('dev-admin-admin@test.com')
   })
 
   it('recupera sesión admin almacenada', async () => {
-    await loginAdmin('admin@test.com', 'pwd')
+    await loginAdmin('LIC-001', 'admin@test.com', 'pwd')
     const session = getStoredAdminSession()
     expect(session).not.toBeNull()
     expect(session?.email).toBe('admin@test.com')
   })
 
   it('logout elimina la sesión', async () => {
-    await loginAdmin('admin@test.com', 'pwd')
+    await loginAdmin('LIC-001', 'admin@test.com', 'pwd')
     await logoutAdmin()
     const session = getStoredAdminSession()
     expect(session).toBeNull()
   })
 })
 
-describe('AdminSession — modo producción', () => {
+describe('loginAdmin — modo producción', () => {
   beforeEach(() => {
     process.env['APP_ENV'] = 'production'
     secretStore.clear()
@@ -160,21 +170,36 @@ describe('AdminSession — modo producción', () => {
   })
 
   it('retorna error con credenciales incorrectas', async () => {
-    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(
-      new Error('auth/wrong-password')
-    )
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(new Error('auth/wrong-password'))
 
-    const result = await loginAdmin('admin@test.com', 'wrong')
+    const result = await loginAdmin('LIC-001', 'admin@test.com', 'wrong')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toMatch(/Credenciales incorrectas/)
   })
 
-  it('retorna ok con credenciales correctas', async () => {
+  it('retorna error si el perfil no tiene rol admin', async () => {
     vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
-      user: { uid: 'real-admin-uid', email: 'admin@test.com', getIdToken: vi.fn() },
+      user: { uid: 'uid-002', email: 'cajera@test.com' },
     } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => ({ role: 'cashier', authorizedStores: ['store-1'], displayName: 'Cajera', active: true }),
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
 
-    const result = await loginAdmin('admin@test.com', 'correct-password')
+    const result = await loginAdmin('LIC-001', 'cajera@test.com', 'correct-password')
+    expect(result.ok).toBe(false)
+  })
+
+  it('retorna ok con credenciales correctas y perfil admin', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'real-admin-uid', email: 'admin@test.com' },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => ({ role: 'admin', authorizedStores: [], displayName: 'Admin', active: true }),
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
+
+    const result = await loginAdmin('LIC-001', 'admin@test.com', 'correct-password')
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.session.uid).toBe('real-admin-uid')
   })

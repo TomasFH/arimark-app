@@ -40,13 +40,15 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Sesiones de cajeras — una por local
-    // Solo puede leer/escribir su propia sesión (storeId del doc)
+    // Perfiles de usuario (cajeras y admins) — rol y locales autorizados.
+    // Cada usuario solo puede leer su propio perfil. La escritura queda en
+    // false por ahora: el alta/baja de cuentas es manual desde la consola
+    // de Firebase mientras no exista un panel de administración (Fase 4)
+    // o una Cloud Function dedicada.
     // -----------------------------------------------------------------------
-    match /licenses/{licenseKey}/sessions/{storeId} {
-      allow read: if isActiveInstallation(licenseKey);
-      allow create, update: if isActiveInstallation(licenseKey);
-      allow delete: if isActiveInstallation(licenseKey);
+    match /licenses/{licenseKey}/users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
 
     // -----------------------------------------------------------------------

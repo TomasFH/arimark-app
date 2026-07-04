@@ -1,45 +1,40 @@
 /**
- * Sistema de sesiones por rol.
+ * Sistema de autenticación por rol — Firebase Auth para cajeras y admins.
  *
- * Cajeras:
- *   - Token en Firestore licenses/{key}/sessions/{storeId}
- *   - Solo una cajera por local a la vez
- *   - Renovación automática cada 30min mientras la app está en uso
- *   - Expiración automática si la app se cierra inesperadamente
+ * Ambos roles se autentican con email + contraseña contra Firebase Auth.
+ * El rol y los locales autorizados se resuelven leyendo el perfil en
+ * Firestore: `licenses/{key}/users/{uid}`. Firebase Auth es la única
+ * fuente de identidad — no hay control de concurrencia adicional (una
+ * cajera puede estar logueada en la PC y en su celular al mismo tiempo,
+ * caso de uso central de la app móvil companion).
  *
- * Admins:
- *   - Autenticación via Firebase Auth (email/contraseña) — no viven en users
- *   - Sesión local efímera via safeStorage
- *   - Sesiones simultáneas ilimitadas desde cualquier dispositivo
+ * En modo dev (APP_ENV=dev) Firebase está desactivado por completo: se
+ * acepta cualquier email/contraseña y se fabrica un perfil determinístico
+ * a partir del email, sin verificar rol ni locales autorizados.
+ *
+ * Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite
+ * y no dependen de Firebase — solo el acto de login lo requiere.
  */
 
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  Timestamp,
-} from 'firebase/firestore'
+import { getFirestore, doc, getDoc } from 'firebase/firestore'
 import {
   getAuth,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
-  type User,
 } from 'firebase/auth'
 import { getFirebaseApp } from './firebase'
 import { getSecret, setSecret, deleteSecret, SECRET_KEYS } from '../secureStorage'
-import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 
-const SESSION_DURATION_MINUTES = 30
-const SESSION_DURATION_MS = SESSION_DURATION_MINUTES * 60 * 1000
+export type UserRole = 'cashier' | 'admin'
 
-export interface CashierSession {
-  token: string
-  userId: string
-  storeId: string
-  expiresAt: Date
+export interface UserProfile {
+  uid: string
+  email: string
+  role: UserRole
+  authorizedStores: string[]
+  displayName: string
+  active: boolean
 }
 
 export interface AdminSession {
@@ -49,165 +44,105 @@ export interface AdminSession {
 }
 
 // ---------------------------------------------------------------------------
-// Cajeras
+// Autenticación — común a cajeras y admins
 // ---------------------------------------------------------------------------
 
 /**
- * Inicia sesión de cajera en un local específico.
- * Verifica que no haya otra cajera activa en ese local.
+ * Autentica contra Firebase Auth y resuelve el perfil de rol en Firestore.
+ * Rechaza si el perfil no existe, está inactivo, o el rol no coincide con
+ * `expectedRole`. No verifica `authorizedStores` — eso es responsabilidad
+ * del llamador (solo aplica a cajeras, que operan un local específico).
  */
-export async function startCashierSession(
+export async function signInWithRole(
   licenseKey: string,
-  storeId: string,
-  userId: string
-): Promise<{ ok: true; session: CashierSession } | { ok: false; error: string }> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
-
-  if (APP_ENV === 'dev') {
-    const session: CashierSession = {
-      token: uuidv4(),
-      userId,
-      storeId,
-      expiresAt: new Date(Date.now() + SESSION_DURATION_MS),
-    }
-    await setSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN, JSON.stringify(session))
-    return { ok: true, session }
-  }
-
-  try {
-    const app = getFirebaseApp()
-    const db = getFirestore(app)
-    const sessionRef = doc(db, 'licenses', licenseKey, 'sessions', storeId)
-    const snap = await getDoc(sessionRef)
-
-    if (snap.exists()) {
-      const data = snap.data() as { cashier_session_expires: Timestamp | null }
-      if (data.cashier_session_expires) {
-        const expiry = data.cashier_session_expires.toDate()
-        if (expiry > new Date()) {
-          return {
-            ok: false,
-            error: `Ya hay una cajera con sesión activa en este local hasta las ${expiry.toLocaleTimeString('es-AR')}.`,
-          }
-        }
-      }
-    }
-
-    const token = uuidv4()
-    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS)
-
-    await setDoc(sessionRef, {
-      cashier_session_token: token,
-      cashier_session_expires: Timestamp.fromDate(expiresAt),
-    })
-
-    const session: CashierSession = { token, userId, storeId, expiresAt }
-    await setSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN, JSON.stringify(session))
-
-    log.info('[session] Sesión de cajera iniciada', { storeId, userId })
-    return { ok: true, session }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    log.error('[session] Error al iniciar sesión de cajera', message)
-    return { ok: false, error: message }
-  }
-}
-
-/**
- * Renueva el token de sesión de cajera (llamar cada 30min).
- */
-export async function renewCashierSession(
-  licenseKey: string,
-  storeId: string,
-  session: CashierSession
-): Promise<boolean> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
-  const newExpiry = new Date(Date.now() + SESSION_DURATION_MS)
-
-  if (APP_ENV === 'dev') {
-    const updated = { ...session, expiresAt: newExpiry }
-    await setSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN, JSON.stringify(updated))
-    return true
-  }
-
-  try {
-    const app = getFirebaseApp()
-    const db = getFirestore(app)
-    const sessionRef = doc(db, 'licenses', licenseKey, 'sessions', storeId)
-    await setDoc(sessionRef, {
-      cashier_session_token: session.token,
-      cashier_session_expires: Timestamp.fromDate(newExpiry),
-    })
-    return true
-  } catch (err) {
-    log.error('[session] Error al renovar sesión de cajera', err)
-    return false
-  }
-}
-
-/**
- * Cierra la sesión de cajera.
- */
-export async function endCashierSession(licenseKey: string, storeId: string): Promise<void> {
-  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
-  deleteSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN)
-
-  if (APP_ENV === 'dev') return
-
-  try {
-    const app = getFirebaseApp()
-    const db = getFirestore(app)
-    const sessionRef = doc(db, 'licenses', licenseKey, 'sessions', storeId)
-    await deleteDoc(sessionRef)
-    log.info('[session] Sesión de cajera cerrada', { storeId })
-  } catch (err) {
-    log.warn('[session] Error al cerrar sesión en Firestore (no crítico)', err)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Admins (Firebase Auth email/contraseña)
-// ---------------------------------------------------------------------------
-
-/**
- * Login de admin via Firebase Auth.
- * Crea sesión local efímera para no repetir el login en cada apertura.
- */
-export async function loginAdmin(
   email: string,
-  password: string
-): Promise<{ ok: true; session: AdminSession; user: User } | { ok: false; error: string }> {
+  password: string,
+  expectedRole: UserRole
+): Promise<{ ok: true; profile: UserProfile } | { ok: false; error: string }> {
   const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
   if (APP_ENV === 'dev') {
-    const session: AdminSession = {
-      uid: 'dev-admin-uid',
-      email,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    const uid = `dev-${expectedRole}-${email.trim().toLowerCase()}`
+    return {
+      ok: true,
+      profile: {
+        uid,
+        email,
+        role: expectedRole,
+        authorizedStores: [],
+        displayName: email.split('@')[0] || email,
+        active: true,
+      },
     }
-    await setSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN, JSON.stringify(session))
-    return { ok: true, session, user: { uid: session.uid, email } as User }
   }
 
   try {
     const app = getFirebaseApp()
     const auth = getAuth(app)
     const credential = await signInWithEmailAndPassword(auth, email, password)
+    const uid = credential.user.uid
 
-    const session: AdminSession = {
-      uid: credential.user.uid,
-      email: credential.user.email ?? email,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    const db = getFirestore(app)
+    const profileRef = doc(db, 'licenses', licenseKey, 'users', uid)
+    const snap = await getDoc(profileRef)
+
+    if (!snap.exists()) {
+      log.warn('[session] Login sin perfil en Firestore', { uid, expectedRole })
+      return { ok: false, error: 'Usuario no autorizado.' }
     }
 
-    await setSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN, JSON.stringify(session))
-    log.info('[session] Admin autenticado', { uid: session.uid })
-    return { ok: true, session, user: credential.user }
+    const data = snap.data() as {
+      role: UserRole
+      authorizedStores?: string[]
+      displayName?: string
+      active?: boolean
+    }
+
+    if (data.active === false) {
+      return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
+    }
+    if (data.role !== expectedRole) {
+      log.warn('[session] Rol no coincide', { uid, expected: expectedRole, actual: data.role })
+      return { ok: false, error: 'Esta cuenta no tiene el permiso necesario.' }
+    }
+
+    const profile: UserProfile = {
+      uid,
+      email: credential.user.email ?? email,
+      role: data.role,
+      authorizedStores: data.authorizedStores ?? [],
+      displayName: data.displayName ?? email,
+      active: true,
+    }
+
+    log.info('[session] Login exitoso', { uid, role: expectedRole })
+    return { ok: true, profile }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    log.error('[session] Error en login admin', message)
+    log.error('[session] Error en signInWithRole', message)
     return { ok: false, error: 'Credenciales incorrectas o sin conexión.' }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Admins — sesión local efímera (24h) via safeStorage
+// ---------------------------------------------------------------------------
+
+export async function loginAdmin(
+  licenseKey: string,
+  email: string,
+  password: string
+): Promise<{ ok: true; session: AdminSession } | { ok: false; error: string }> {
+  const result = await signInWithRole(licenseKey, email, password, 'admin')
+  if (!result.ok) return result
+
+  const session: AdminSession = {
+    uid: result.profile.uid,
+    email: result.profile.email,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  }
+  await setSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN, JSON.stringify(session))
+  return { ok: true, session }
 }
 
 export async function logoutAdmin(): Promise<void> {
@@ -231,21 +166,6 @@ export function getStoredAdminSession(): AdminSession | null {
     const session = JSON.parse(raw) as AdminSession
     if (new Date(session.expiresAt) < new Date()) {
       deleteSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN)
-      return null
-    }
-    return session
-  } catch {
-    return null
-  }
-}
-
-export function getStoredCashierSession(): CashierSession | null {
-  const raw = getSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN)
-  if (!raw) return null
-  try {
-    const session = JSON.parse(raw) as CashierSession
-    if (new Date(session.expiresAt) < new Date()) {
-      deleteSecret(SECRET_KEYS.CASHIER_SESSION_TOKEN)
       return null
     }
     return session

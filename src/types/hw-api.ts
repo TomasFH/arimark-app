@@ -53,7 +53,7 @@ export interface ActivateInstallationPayload {
 }
 
 export interface CashierLoginPayload {
-  username: string
+  email: string
   password: string
   storeId: string
 }
@@ -239,7 +239,7 @@ export interface HwApi {
   /** Activa la instalación con un código de un solo uso */
   activateInstallation: (payload: ActivateInstallationPayload) => Promise<IpcResult>
 
-  /** Login de cajera (local, bcryptjs) */
+  /** Login de cajera (Firebase Auth — mismo mecanismo que admin, valida rol y local autorizado) */
   loginCashier: (payload: CashierLoginPayload) => Promise<IpcResult<SessionInfo>>
 
   /** Login de admin (Firebase Auth) */

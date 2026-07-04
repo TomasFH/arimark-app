@@ -54,8 +54,12 @@ Estos cambios se aplican **antes** de implementar nada, porque condicionan arqui
 
 ### Usuarios admin vs cajeras
 
-- La tabla local `users` mantiene a las **cajeras** (login local con bcrypt).
-- Los **admins** se autentican exclusivamente con Firebase Auth. En la PC del local, un flujo de "login admin" valida contra Firebase Auth y crea una sesión local efímera. Cero passwords de admin en local.
+> **Actualización jul 2026:** reemplaza el diseño original (cajeras con login local bcrypt). Ver "Nota de actualización — autenticación unificada" tras el cierre de Fase 1.
+
+- **Cajeras y admins se autentican por igual con Firebase Auth** (email + contraseña). Necesario para que una cajera pueda operar desde cualquier PC de cualquier local del cliente, y para que la futura app móvil (Fase 3) use el mismo mecanismo de identidad.
+- El rol y los locales autorizados de cada cuenta viven en Firestore (`licenses/{key}/users/{uid}`), nunca en SQLite.
+- La tabla local `users` es solo un **caché de perfil** (sin contraseñas) para que los FK de `shifts`/`sales`/`product_prices` resuelvan sin depender de internet — se upsertea automáticamente en el primer login de una cajera en cada PC.
+- Los datos operativos (turnos, ventas, stock) siguen siendo 100% locales en SQLite; solo el acto de login requiere Firebase.
 - Tabla `admin_devices(uid, license_key, ...)` solo para auditoría.
 
 ### Timezone
@@ -196,6 +200,10 @@ Entregado:
 
 ---
 
+> **Nota de actualización (jul 2026) — autenticación unificada:** antes de arrancar la Fase 3, se migró el login de cajeras de SQLite+bcrypt a **Firebase Auth** (mismo mecanismo que admin). Motivo: el cliente opera varios locales y una cajera puede necesitar loguearse desde la PC de cualquiera de ellos — con credenciales locales por PC esto era imposible sin duplicar cuentas a mano. Además, la app móvil companion de Fase 3 iba a usar Firebase Auth de todas formas; mantener dos sistemas de autenticación en paralelo agregaba complejidad, no la evitaba.
+>
+> Cambios concretos: la tabla `users` dejó de guardar `username`/`password` y pasó a ser un caché local de perfil (`firebase_uid`, sin credenciales); el rol (`cashier`/`admin`) y los locales autorizados de cada cuenta se resuelven en Firestore (`licenses/{key}/users/{uid}`); se eliminó el lock de "una cajera por local" en `sessions/{storeId}` (necesario para que la misma cajera pueda estar logueada en la PC y en su celular a la vez, caso de uso central de Fase 3); el perfil local se upsertea automáticamente en el primer login de una cajera en cada PC. La creación de cuentas nuevas es manual (consola de Firebase) hasta que exista un panel de administración (Fase 4) — deuda técnica señalada, no silenciada. Los datos operativos (turnos, ventas, stock) siguen siendo 100% locales en SQLite; solo el login requiere Firebase. Detalle completo en la sección "Usuarios admin vs cajeras" más arriba.
+
 > **Nota de reordenamiento (jun 2026):** tras la corrección del modelo de flujo de datos, las fases 2 en adelante se reordenaron. La app móvil (antes "emergencia móvil" en la última fase) pasó a ser un componente central y temprano, y se agregó una fase dedicada a la sección de administración de PLUs. Las fases 0 y 1 (con tags creados) no cambian.
 
 ### ✅ Fase 2 — POS de ventas por escaneo (COMPLETA)
@@ -243,28 +251,31 @@ Completado al cerrar Fase 2 (01/07/2026):
 
 ### 🔜 Fase 3 — App móvil companion (POS de respaldo + relay Firebase)
 
-> **Actualización jul 2026:** el cliente adquirió un lector USB keyboard-wedge, que pasa a ser el método principal de escaneo en la PC. La app móvil queda como respaldo operativo (cuando la PC no está disponible) y como alternativa cuando no hay lector. El scope de esta fase se reduce: ya no es el camino crítico del día a día.
+> **Actualización jul 2026:** el cliente adquirió un lector USB keyboard-wedge, que pasa a ser el método principal de escaneo en la PC. La app móvil queda como respaldo operativo (cuando la PC no está disponible) y como alternativa cuando no hay lector. El scope de esta fase se reduce: ya no es el camino crítico del día a día. Requiere primero la migración de autenticación a Firebase Auth (ver nota tras Fase 1) y la reestructuración del repo a monorepo pnpm.
 
 Objetivo: tener un respaldo operativo para cuando la PC no está disponible, y una alternativa de escaneo por cámara para locales sin lector USB.
 
-Transporte confirmado: **relay vía Firebase** (el móvil escribe el código/venta en un documento de sesión por local; la PC lo escucha en tiempo real). No requiere configurar la red del local y reutiliza el Firebase de licencias.
+**Etapa 0 — Reestructuración a monorepo pnpm** (prerrequisito de infraestructura):
+- `apps/desktop` (proyecto actual, movido tal cual con `git mv`), `apps/mobile` (PWA nueva), `packages/shared` (código puro reutilizable: `kretzBarcode.ts`, formateo, contratos de relay).
+- `firebase/firestore.rules` se mantiene en la raíz (infra compartida entre ambas apps).
+- Scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a `apps/desktop` vía `pnpm --filter` para no romper el flujo de trabajo existente.
 
 **Sub-etapa 3a — Escáner + relay (alternativa sin lector USB):**
-- App móvil como **PWA** (React) con escaneo de código de barras por cámara (lib a definir, ej. `@zxing/browser`).
-- Autenticación contra la misma licencia/local (sin exponer credenciales sensibles).
-- El móvil relaya cada código a la PC vía Firebase; la PC lo agrega a la venta en curso (mismo path que el lector USB).
-- Diseñado para que el futuro **lector USB** reemplace al móvil sin tocar la lógica de venta.
+- App móvil como **PWA** (React) con escaneo de código de barras por cámara (`@zxing/browser`).
+- Login con Firebase Auth (mismo mecanismo unificado que la PC — ver "Autenticación"). Si la cuenta está autorizada en más de un local, selector de local antes de escanear.
+- Relay vía Firestore: `licenses/{key}/relay/{storeId}/events/{eventId}` (ID generado en el celular = escritura idempotente). La PC escucha con `onSnapshot`, valida el código y lo agrega a la venta en curso — **mismo path que usa el lector USB**, sin lógica de venta nueva. La PC escribe `accepted`/`rejected` en el mismo evento; el celular lo lee y lo borra tras mostrar el resultado.
+- Diseñado para que el lector USB (ya implementado) reemplace al móvil sin tocar la lógica de venta.
 
-**Sub-etapa 3b — POS de respaldo en el móvil (PC no disponible):**
-- La app móvil puede **armar y cerrar ventas por sí sola** (escanear ítems + elegir medios de pago + confirmar) cuando la PC no está disponible (ej. corte de luz).
-- Operación normal sigue siendo desde la PC; el móvil es el respaldo.
+**Sub-etapa 3b/3c — POS de respaldo offline + sincronización (diseño confirmado jul 2026, implementación diferida):**
 
-**Sub-etapa 3c — Offline-first + sincronización:**
-- Persistencia local en el celular (ej. IndexedDB) de las ventas hechas sin conexión.
-- Al recuperar internet, **sincroniza a Firebase** y actualiza la lista de ventas.
-- Cada venta lleva UUID de dispositivo; sync **idempotente** → sin duplicados al incorporarse a Firebase y a la DB de la PC.
+Decisiones de diseño ya tomadas, documentadas para no perderlas antes de implementar:
 
-- Tests: parser/relay de códigos, manejo de duplicados y códigos inválidos, sync idempotente, persistencia offline.
+- **Login offline por PIN:** en el primer login exitoso con Firebase Auth en un celular, la app pide configurar un PIN de 4-6 dígitos (hash guardado localmente en el dispositivo, ej. IndexedDB con Web Crypto). Si `signInWithEmailAndPassword` falla por error de red (no por credencial inválida), se ofrece login por PIN reconstruyendo una sesión desde el último perfil cacheado. Al recuperar internet, se reintenta el login real de forma transparente; si la cuenta fue revocada por un admin, se fuerza el logout. El PIN es específico de ese dispositivo. Limitación aceptada: un celular que nunca tuvo login previo no puede entrar sin internet (no tiene datos locales de todas formas). **Este mecanismo no se replica en la PC** — si la PC pierde internet al reiniciarse, queda bloqueada hasta que vuelva la conexión (riesgo aceptado explícitamente: si hay PC, muy probablemente haya internet).
+- **POS completo offline en el celular:** cuando no hay PC disponible **y** tampoco hay internet en el celular, la cajera loguea por PIN y abre su propio turno en el celular con un UUID generado en el dispositivo. Las ventas de ese turno se registran localmente (IndexedDB) con sus propios UUIDs.
+- **Sincronización por bloque, sin fusión:** al recuperar internet, el celular sube el turno completo (metadata + ventas + ítems + pagos) a un staging en Firestore usando los UUIDs ya generados como IDs de documento (reintentos idempotentes, sin duplicados). La PC importa ese turno como una **entidad separada** en `shifts` (nuevo turno, no se fusiona con los turnos de la PC) — requiere un handler de importación nuevo, no reutiliza `sale.handler.ts`/`shift.handler.ts` (que generan sus propios IDs server-side).
+- **Reportes:** el reporte del día muestra todos los turnos en orden cronológico por `startedAt` (turno PC hasta el corte → turno celular durante el corte → turno PC al reanudar), sin fusionar. Puede requerir una columna `source`/`origin` en `shifts` para distinguir el origen visualmente.
+
+- Tests (al implementar 3b/3c): parser/relay de códigos, manejo de duplicados y códigos inválidos, sync idempotente, persistencia offline, importación de turno móvil sin duplicados.
 
 ### 🔜 Fase 4 — Sección de administración de PLUs (solo admins)
 

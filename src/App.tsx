@@ -45,9 +45,9 @@ export default function App() {
     })
   }, [])
 
-  async function handleCashierLogin(username: string, password: string): Promise<void> {
+  async function handleCashierLogin(email: string, password: string): Promise<void> {
     if (state.screen !== 'login') return
-    const result = await window.hw.loginCashier({ username, password, storeId: state.initStatus.defaultStoreId })
+    const result = await window.hw.loginCashier({ email, password, storeId: state.initStatus.defaultStoreId })
     if (!result.ok) throw new Error(result.error)
 
     const session = result.data

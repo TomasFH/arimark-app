@@ -1,16 +1,19 @@
 /**
  * Seed de datos de prueba para la base de datos de desarrollo.
- * Crea el local de prueba, cajeras, catálogo de productos y precios vigentes.
+ * Crea el local de prueba, catálogo de productos y precios vigentes.
  *
  * Uso:
  *   pnpm seed:dev    → APP_ENV=dev  → userData/dev/app.sqlite
  *
- * ADMINS: En modo dev el login de admin acepta cualquier email y contraseña.
- * No es necesario crearlos en la DB — usan Firebase Auth (o el bypass local).
+ * LOGIN: en modo dev, tanto cajeras como admins se autentican con Firebase
+ * Auth desactivado (bypass) — se acepta cualquier email/contraseña y el
+ * perfil local de cajera se upsertea automáticamente al loguearse (ver
+ * electron/ipc/auth.handler.ts). No es necesario pre-crear cajeras acá para
+ * poder loguearse; solo se crea un perfil fijo para satisfacer el FK
+ * `created_by` de los precios de referencia sembrados por este script.
  */
 
 import Database from 'better-sqlite3'
-import bcrypt from 'bcryptjs'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
@@ -37,11 +40,15 @@ const STORE = {
   address: 'Dirección de prueba',
 }
 
-const CASHIERS = [
-  { name: 'Cajera Uno',   username: 'cajera1', password: 'cajera1234' },
-  { name: 'Cajera Dos',   username: 'cajera2', password: 'cajera1234' },
-  { name: 'Cajera Tres',  username: 'cajera3', password: 'cajera1234' },
-]
+/**
+ * Perfil local fijo usado solo como `created_by` de los precios sembrados.
+ * El id coincide con el uid que fabrica el bypass de dev para
+ * cajera1@dev.local (ver electron/licensing/session.ts → signInWithRole).
+ */
+const SEED_PROFILE = {
+  id: 'dev-cashier-cajera1@dev.local',
+  name: 'Cajera Uno (dev)',
+}
 
 /**
  * Catálogo de productos de prueba con precios de referencia (Enero 2026).
@@ -151,30 +158,25 @@ async function main() {
     }
   }
 
-  // Insertar cajeras
-  for (const cashier of CASHIERS) {
-    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(cashier.username)
-    if (existing) {
-      console.log(`[seed] Usuario "${cashier.username}" ya existía — omitido`)
-      continue
-    }
-
-    const passwordHash = await bcrypt.hash(cashier.password, 10)
+  // Insertar perfil local fijo (created_by de los precios sembrados)
+  const existingProfile = db.prepare('SELECT id FROM users WHERE id = ?').get(SEED_PROFILE.id)
+  if (!existingProfile) {
     db.prepare(`
-      INSERT INTO users (id, store_id, name, username, password, role, active, created_at)
-      VALUES (?, ?, ?, ?, ?, 'cashier', 1, ?)
-    `).run(uuidv4(), DEFAULT_STORE_ID, cashier.name, cashier.username, passwordHash, new Date().toISOString())
-
-    console.log(`[seed] Cajera creada: "${cashier.username}" (contraseña: ${cashier.password})`)
+      INSERT INTO users (id, store_id, name, firebase_uid, role, active, created_at)
+      VALUES (?, ?, ?, ?, 'cashier', 1, ?)
+    `).run(SEED_PROFILE.id, DEFAULT_STORE_ID, SEED_PROFILE.name, SEED_PROFILE.id, new Date().toISOString())
+    console.log(`[seed] Perfil local creado: "${SEED_PROFILE.name}"`)
+  } else {
+    console.log(`[seed] Perfil local ya existía — omitido`)
   }
 
-  // Insertar / actualizar precios vigentes (requiere cajera1 como created_by)
-  const seedUser = db.prepare('SELECT id FROM users WHERE username = ?').get('cajera1') as
+  // Insertar / actualizar precios vigentes (requiere el perfil sembrado como created_by)
+  const seedUser = db.prepare('SELECT id FROM users WHERE id = ?').get(SEED_PROFILE.id) as
     | { id: string }
     | undefined
 
   if (!seedUser) {
-    console.warn('[seed] No se encontró cajera1 — precios omitidos')
+    console.warn('[seed] No se encontró el perfil sembrado — precios omitidos')
   } else {
     let priceCount = 0
     for (const product of PRODUCTS) {
@@ -204,13 +206,14 @@ async function main() {
 
   console.log('\n[seed] ✓ Seed completado.')
   console.log('\n─── Accesos de prueba ──────────────────────────────')
-  console.log('  Cajeras (pestaña "Cajera"):')
-  for (const c of CASHIERS) {
-    console.log(`    usuario: ${c.username.padEnd(10)} contraseña: ${c.password}`)
-  }
-  console.log('\n  Admins (pestaña "Administrador"):')
-  console.log(`    En modo ${APP_ENV} cualquier email y contraseña funcionan.`)
-  console.log('    Ejemplo: admin@prueba.com / admin1234')
+  console.log(`  En modo ${APP_ENV}, Firebase Auth está desactivado: tanto`)
+  console.log('  cajeras como admins pueden loguearse con CUALQUIER email y')
+  console.log('  contraseña. El perfil local de cajera se crea solo al')
+  console.log('  primer login (ver electron/ipc/auth.handler.ts).')
+  console.log('\n  Cajera de ejemplo (botón "Saltar login"):')
+  console.log('    email: cajera1@dev.local   contraseña: cajera1234')
+  console.log('\n  Admin de ejemplo:')
+  console.log('    email: admin@prueba.com   contraseña: admin1234')
   console.log('────────────────────────────────────────────────────\n')
 }
 
