@@ -3,7 +3,7 @@
  * Permite escanear códigos (cámara), entrada manual, y confirmar venta.
  * Persiste ventas en IndexedDB para sync posterior.
  */
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { parseKretzBarcode } from '@carniceria/shared'
 import { startBarcodeScanning } from '../lib/barcodeScanner'
@@ -106,18 +106,36 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
   function openScanner() {
     setShowScanner(true)
     setScanError(null)
-
-    if (!videoRef.current) return
-    void startBarcodeScanning(videoRef.current, handleBarcode).then(ctrl => {
-      stopScanRef.current = () => ctrl.stop()
-    })
+    // La cámara se inicia en el useEffect de abajo,
+    // una vez que el <video> esté montado en el DOM.
   }
 
+  // Inicia la cámara cuando el scanner está visible y el video está en el DOM.
+  useEffect(() => {
+    if (!showScanner) return
+    const video = videoRef.current
+    if (!video) return
+
+    let cancelled = false
+    void startBarcodeScanning(video, handleBarcode).then(ctrl => {
+      if (cancelled) {
+        ctrl.stop()
+      } else {
+        stopScanRef.current = () => ctrl.stop()
+      }
+    })
+
+    return () => {
+      cancelled = true
+      stopScanRef.current?.()
+      stopScanRef.current = null
+    }
+  }, [showScanner, handleBarcode])
+
   function closeScanner() {
-    stopScanRef.current?.()
-    stopScanRef.current = null
     setShowScanner(false)
     setScanError(null)
+    // El useEffect limpia stopScanRef al desmontar.
   }
 
   function removeItem(index: number) {
