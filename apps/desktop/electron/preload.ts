@@ -45,13 +45,6 @@ const hw: HwApi = {
   kretzReadPlu: payload => ipcRenderer.invoke(IPC.KRETZ_READ_PLU, payload),
 
   kretzReadPluCount: () => ipcRenderer.invoke(IPC.KRETZ_READ_PLU_COUNT),
-
-  // Relay de escaneo desde PWA móvil
-  onRelayScan: cb => {
-    const listener = (_event: Electron.IpcRendererEvent, digits: string) => cb(digits)
-    ipcRenderer.on(IPC.RELAY_SCAN, listener)
-    return () => ipcRenderer.removeListener(IPC.RELAY_SCAN, listener)
-  },
 }
 
 contextBridge.exposeInMainWorld('hw', hw)

@@ -26,7 +26,7 @@ export function registerShiftHandlers(): void {
       const shift = db
         .select()
         .from(shifts)
-        .where(and(eq(shifts.storeId, session.storeId), isNull(shifts.closedAt)))
+        .where(and(eq(shifts.storeId, session.storeId), isNull(shifts.closedAt), eq(shifts.source, 'desktop')))
         .orderBy(desc(shifts.startedAt))
         .limit(1)
         .all()[0]
@@ -77,7 +77,7 @@ export function registerShiftHandlers(): void {
       const existing = db
         .select()
         .from(shifts)
-        .where(and(eq(shifts.storeId, session.storeId), isNull(shifts.closedAt)))
+        .where(and(eq(shifts.storeId, session.storeId), isNull(shifts.closedAt), eq(shifts.source, 'desktop')))
         .limit(1)
         .all()[0]
 
@@ -100,6 +100,7 @@ export function registerShiftHandlers(): void {
         shiftType,
         startedAt: now,
         openingCash,
+        source: 'desktop',
       }).run()
 
       updateActiveShift(id)

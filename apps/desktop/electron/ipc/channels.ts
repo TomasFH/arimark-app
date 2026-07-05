@@ -38,9 +38,6 @@ export const IPC = {
   KRETZ_DELETE_PLU: 'ipc:kretz-delete-plu',
   KRETZ_READ_PLU: 'ipc:kretz-read-plu',
   KRETZ_READ_PLU_COUNT: 'ipc:kretz-read-plu-count',
-
-  // Relay de escaneo desde PWA móvil → renderer (push main → renderer)
-  RELAY_SCAN: 'ipc:relay-scan',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

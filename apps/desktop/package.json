@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:dev": "pnpm run build:main && cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron dist-electron/electron/db/migrate-cli.js",
     "seed:dev": "pnpm run build:main && cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron dist-electron/electron/db/seed-sandbox.js",
+    "seed:prod": "pnpm run build:main && cross-env APP_ENV=production ELECTRON_RUN_AS_NODE=1 electron dist-electron/electron/db/seed-sandbox.js",
     "test": "vitest run --config vitest.config.ts && vitest run --config vitest.config.renderer.ts",
     "test:main": "vitest run --config vitest.config.ts",
     "test:renderer": "vitest run --config vitest.config.renderer.ts",

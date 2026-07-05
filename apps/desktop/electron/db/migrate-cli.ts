@@ -4,16 +4,14 @@
  *   pnpm db:migrate:dev    → APP_ENV=dev
  */
 import path from 'path'
-import os from 'os'
 import fs from 'fs'
 import { runMigrations } from './migrate'
+import { getDbPathForEnv } from './paths'
 
 const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
 function getDbPath(): string {
-  const base = path.join(os.homedir(), 'AppData', 'Roaming', 'carniceria-app')
-  if (APP_ENV === 'dev') return path.join(base, 'dev', 'app.sqlite')
-  return path.join(base, 'app.sqlite')
+  return getDbPathForEnv(APP_ENV)
 }
 
 const dbPath = getDbPath()

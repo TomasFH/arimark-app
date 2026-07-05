@@ -91,7 +91,7 @@ importers:
         version: 4.7.0(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)(terser@5.48.0)(tsx@4.22.3))
       '@vitest/coverage-v8':
         specifier: ^3.2.3
-        version: 3.2.4(vitest@3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3))
+        version: 3.2.4(vitest@3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.0(postcss@8.5.15)
@@ -151,7 +151,7 @@ importers:
         version: 0.29.1
       vitest:
         specifier: ^3.2.3
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
       wait-on:
         specifier: ^9.0.10
         version: 9.0.10
@@ -167,6 +167,9 @@ importers:
       '@zxing/library':
         specifier: ^0.21.3
         version: 0.21.3
+      dexie:
+        specifier: ^4.4.4
+        version: 4.4.4
       firebase:
         specifier: ^11.8.1
         version: 11.10.0
@@ -195,6 +198,12 @@ importers:
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.0(postcss@8.5.15)
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
+      happy-dom:
+        specifier: ^20.10.6
+        version: 20.10.6
       postcss:
         specifier: ^8.5.3
         version: 8.5.15
@@ -212,7 +221,7 @@ importers:
         version: 0.21.2(vite@6.4.2(@types/node@22.19.19)(jiti@1.21.7)(terser@5.48.0)(tsx@4.22.3))(workbox-build@7.4.1(@types/babel__core@7.20.5))(workbox-window@7.4.1)
       vitest:
         specifier: '*'
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
 
   packages/shared:
     devDependencies:
@@ -221,7 +230,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: '*'
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
 
 packages:
 
@@ -2077,6 +2086,12 @@ packages:
   '@types/verror@1.10.11':
     resolution: {integrity: sha512-RlDm9K7+o5stv0Co8i8ZRGxDbrTxhJtgjqjFyVh/tXQyl/rYtTKlnTvZ88oSTeYREWurwx20Js4kTuKCsFkUtg==}
 
+  '@types/whatwg-mimetype@3.0.2':
+    resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
+
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
 
@@ -2447,6 +2462,10 @@ packages:
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
 
+  buffer-image-size@0.6.4:
+    resolution: {integrity: sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ==}
+    engines: {node: '>=4.0'}
+
   buffer@5.7.1:
     resolution: {integrity: sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==}
 
@@ -2754,6 +2773,9 @@ packages:
   detect-node@2.1.0:
     resolution: {integrity: sha512-T0NIuQpnTvFDATNuHN5roPwSBG83rFsuO+MXXH9/3N1eFbn4wcPjttvjMLEPWJ0RGUYgQE7cGgS3tNxbqCGM7g==}
 
+  dexie@4.4.4:
+    resolution: {integrity: sha512-jIwsYI8Os2hgnqc6O49YwFDKGc5v5QjGx0wPVp543ip1F53VFAKMLthV2pQosQcVTv3eAskTWYspOx195PM0FQ==}
+
   didyoumean@1.2.2:
     resolution: {integrity: sha512-gxtyfqMg7GKyhQmb056K7M3xszy/myH8w+B4RT+QXBQsvAOdc3XymqDDPHx1BgPgsdAA5SIifona89YtRATDzw==}
 
@@ -2937,6 +2959,10 @@ packages:
     resolution: {integrity: sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g==}
     engines: {node: '>=0.12'}
 
+  entities@7.0.1:
+    resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
+    engines: {node: '>=0.12'}
+
   env-paths@2.2.1:
     resolution: {integrity: sha512-+h1lkLKhZMTYjog1VEpJNG7NZJWcuc2DDk/qsqSTRRCOXiLjeQ1d1/udrUGhqMxUgAlwKNZ0cf2uqan5GLuS2A==}
     engines: {node: '>=6'}
@@ -3087,6 +3113,10 @@ packages:
   extsprintf@1.4.1:
     resolution: {integrity: sha512-Wrk35e8ydCKDj/ArClo1VrPVmN8zph5V4AtHwIuHhvMXsKf73UT3BOD+azBIW+3wOJ4FhEH7zyaJCFvChjYvMA==}
     engines: {'0': node >=0.6.0}
+
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
@@ -3312,6 +3342,10 @@ packages:
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
+
+  happy-dom@20.10.6:
+    resolution: {integrity: sha512-6QD0ilzDDt93tX44y8tbmZdAcdTRYDhUP+Asgi6pC8Pp5IA3cvaZGyoVN/EGtlq9ziT65iPuBBn3ASLr6hCgVw==}
+    engines: {node: '>=20.0.0'}
 
   has-bigints@1.1.0:
     resolution: {integrity: sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg==}
@@ -5054,6 +5088,10 @@ packages:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
     deprecated: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+  whatwg-mimetype@3.0.0:
+    resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
+    engines: {node: '>=12'}
 
   whatwg-mimetype@4.0.0:
     resolution: {integrity: sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg==}
@@ -7109,6 +7147,12 @@ snapshots:
   '@types/verror@1.10.11':
     optional: true
 
+  '@types/whatwg-mimetype@3.0.2': {}
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.19.19
+
   '@types/yauzl@2.10.3':
     dependencies:
       '@types/node': 22.19.19
@@ -7217,7 +7261,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/coverage-v8@3.2.4(vitest@3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3))':
+  '@vitest/coverage-v8@3.2.4(vitest@3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3))':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@bcoe/v8-coverage': 1.0.2
@@ -7232,7 +7276,7 @@ snapshots:
       std-env: 3.10.0
       test-exclude: 7.0.2
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
+      vitest: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3)
     transitivePeerDependencies:
       - supports-color
 
@@ -7603,6 +7647,10 @@ snapshots:
 
   buffer-from@1.1.2: {}
 
+  buffer-image-size@0.6.4:
+    dependencies:
+      '@types/node': 22.19.19
+
   buffer@5.7.1:
     dependencies:
       base64-js: 1.5.1
@@ -7933,6 +7981,8 @@ snapshots:
   detect-node@2.1.0:
     optional: true
 
+  dexie@4.4.4: {}
+
   didyoumean@1.2.2: {}
 
   dir-compare@4.2.0:
@@ -8087,6 +8137,8 @@ snapshots:
 
   entities@6.0.1: {}
 
+  entities@7.0.1: {}
+
   env-paths@2.2.1: {}
 
   err-code@2.0.3: {}
@@ -8122,7 +8174,7 @@ snapshots:
       has-property-descriptors: 1.0.2
       has-proto: 1.2.0
       has-symbols: 1.1.0
-      hasown: 2.0.3
+      hasown: 2.0.4
       internal-slot: 1.1.0
       is-array-buffer: 3.0.5
       is-callable: 1.2.7
@@ -8375,6 +8427,8 @@ snapshots:
 
   extsprintf@1.4.1:
     optional: true
+
+  fake-indexeddb@6.2.5: {}
 
   fast-deep-equal@3.1.3: {}
 
@@ -8673,6 +8727,19 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
+  happy-dom@20.10.6:
+    dependencies:
+      '@types/node': 22.19.19
+      '@types/whatwg-mimetype': 3.0.2
+      '@types/ws': 8.18.1
+      buffer-image-size: 0.6.4
+      entities: 7.0.1
+      whatwg-mimetype: 3.0.0
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   has-bigints@1.1.0: {}
 
   has-flag@4.0.0: {}
@@ -8794,7 +8861,7 @@ snapshots:
   internal-slot@1.1.0:
     dependencies:
       es-errors: 1.3.0
-      hasown: 2.0.3
+      hasown: 2.0.4
       side-channel: 1.1.1
 
   ip-address@10.2.0: {}
@@ -8897,7 +8964,7 @@ snapshots:
       call-bound: 1.0.4
       gopd: 1.2.0
       has-tostringtag: 1.0.2
-      hasown: 2.0.3
+      hasown: 2.0.4
 
   is-regexp@1.0.0: {}
 
@@ -10438,7 +10505,7 @@ snapshots:
       terser: 5.48.0
       tsx: 4.22.3
 
-  vitest@3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3):
+  vitest@3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(happy-dom@20.10.6)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.48.0)(tsx@4.22.3):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
@@ -10466,6 +10533,7 @@ snapshots:
     optionalDependencies:
       '@types/debug': 4.1.13
       '@types/node': 22.19.19
+      happy-dom: 20.10.6
       jsdom: 26.1.0
     transitivePeerDependencies:
       - jiti
@@ -10517,6 +10585,8 @@ snapshots:
   whatwg-encoding@3.1.1:
     dependencies:
       iconv-lite: 0.6.3
+
+  whatwg-mimetype@3.0.0: {}
 
   whatwg-mimetype@4.0.0: {}
 

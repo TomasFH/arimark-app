@@ -1,53 +1,73 @@
 /**
- * Seed de datos de prueba para la base de datos de desarrollo.
- * Crea el local de prueba, catálogo de productos y precios vigentes.
+ * Seed de datos de prueba para la base de datos.
+ * Crea el local, catálogo de productos y precios vigentes.
  *
  * Uso:
- *   pnpm seed:dev    → APP_ENV=dev  → userData/dev/app.sqlite
+ *   pnpm seed:dev   → APP_ENV=dev        → userData/dev/app.sqlite
+ *   pnpm seed:prod  → APP_ENV=production → userData/app.sqlite
+ *                     (store_id leído de config/business.json)
  *
- * LOGIN: en modo dev, tanto cajeras como admins se autentican con Firebase
- * Auth desactivado (bypass) — se acepta cualquier email/contraseña y el
- * perfil local de cajera se upsertea automáticamente al loguearse (ver
- * electron/ipc/auth.handler.ts). No es necesario pre-crear cajeras acá para
- * poder loguearse; solo se crea un perfil fijo para satisfacer el FK
- * `created_by` de los precios de referencia sembrados por este script.
+ * ⚠️  seed:prod es SOLO para testing. Borrar los datos antes del primer
+ *     turno real (o simplemente no ejecutarlo si la DB ya tiene datos reales).
+ *
+ * LOGIN: en modo dev Firebase Auth está desactivado (bypass). En modo
+ * producción se necesitan credenciales reales de Firebase.
  */
 
 import Database from 'better-sqlite3'
 import path from 'path'
-import os from 'os'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { runMigrations } from './migrate'
+import { getDbPathForEnv } from './paths'
 
 const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
 function getDbPath(): string {
-  const base = path.join(os.homedir(), 'AppData', 'Roaming', 'carniceria-app')
-  if (APP_ENV === 'dev') return path.join(base, 'dev', 'app.sqlite')
-  return path.join(base, 'app.sqlite')
+  return getDbPathForEnv(APP_ENV)
+}
+
+function getDefaultStoreId(): string {
+  if (APP_ENV === 'dev') return '00000000-0000-0000-0000-000000000001'
+
+  // En producción, leer el store_id real de config/business.json
+  const configPath = path.resolve(process.cwd(), 'config', 'business.json')
+  if (!fs.existsSync(configPath)) {
+    console.error('[seed] No se encontró config/business.json — necesario para seed:prod')
+    process.exit(1)
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+    default_store_id?: string
+  }
+  if (!config.default_store_id) {
+    console.error('[seed] business.json no tiene default_store_id')
+    process.exit(1)
+  }
+  return config.default_store_id
 }
 
 const DB_PATH = getDbPath()
-const DEFAULT_STORE_ID = '00000000-0000-0000-0000-000000000001'
+const DEFAULT_STORE_ID = getDefaultStoreId()
 
 /** Precios de referencia vigentes desde enero 2026 (lista del negocio). */
 const PRICES_VALID_FROM = '2026-01-01T00:00:00.000Z'
 
 const STORE = {
   id: DEFAULT_STORE_ID,
-  name: 'Local de Prueba (Dev)',
-  address: 'Dirección de prueba',
+  name: APP_ENV === 'dev' ? 'Local de Prueba (Dev)' : 'Local principal',
+  address: APP_ENV === 'dev' ? 'Dirección de prueba' : '',
 }
 
 /**
  * Perfil local fijo usado solo como `created_by` de los precios sembrados.
- * El id coincide con el uid que fabrica el bypass de dev para
- * cajera1@dev.local (ver electron/licensing/session.ts → signInWithRole).
+ * En dev coincide con el uid del bypass. En producción es un UID sintético
+ * que solo cumple el rol de FK — no corresponde a ningún usuario real.
  */
 const SEED_PROFILE = {
-  id: 'dev-cashier-cajera1@dev.local',
-  name: 'Cajera Uno (dev)',
+  id: APP_ENV === 'dev'
+    ? 'dev-cashier-cajera1@dev.local'
+    : 'seed-system-user-production-0000001',
+  name: APP_ENV === 'dev' ? 'Cajera Uno (dev)' : 'Sistema (seed)',
 }
 
 /**
@@ -108,6 +128,11 @@ const PRODUCTS = [
 
 async function main() {
   console.log(`[seed] Preparando DB ${APP_ENV} en:`, DB_PATH)
+
+  if (APP_ENV !== 'dev') {
+    console.warn('\n⚠️  ATENCIÓN: Estás sembrando la base de datos de PRODUCCIÓN.')
+    console.warn('   Esto es solo para testing. Borrá los datos antes del primer turno real.\n')
+  }
 
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
 
@@ -205,16 +230,23 @@ async function main() {
   db.close()
 
   console.log('\n[seed] ✓ Seed completado.')
-  console.log('\n─── Accesos de prueba ──────────────────────────────')
-  console.log(`  En modo ${APP_ENV}, Firebase Auth está desactivado: tanto`)
-  console.log('  cajeras como admins pueden loguearse con CUALQUIER email y')
-  console.log('  contraseña. El perfil local de cajera se crea solo al')
-  console.log('  primer login (ver electron/ipc/auth.handler.ts).')
-  console.log('\n  Cajera de ejemplo (botón "Saltar login"):')
-  console.log('    email: cajera1@dev.local   contraseña: cajera1234')
-  console.log('\n  Admin de ejemplo:')
-  console.log('    email: admin@prueba.com   contraseña: admin1234')
-  console.log('────────────────────────────────────────────────────\n')
+  if (APP_ENV === 'dev') {
+    console.log('\n─── Accesos de prueba ──────────────────────────────')
+    console.log(`  En modo ${APP_ENV}, Firebase Auth está desactivado: tanto`)
+    console.log('  cajeras como admins pueden loguearse con CUALQUIER email y')
+    console.log('  contraseña. El perfil local de cajera se crea solo al')
+    console.log('  primer login (ver electron/ipc/auth.handler.ts).')
+    console.log('\n  Cajera de ejemplo (botón "Saltar login"):')
+    console.log('    email: cajera1@dev.local   contraseña: cajera1234')
+    console.log('\n  Admin de ejemplo:')
+    console.log('    email: admin@prueba.com   contraseña: admin1234')
+    console.log('────────────────────────────────────────────────────\n')
+  } else {
+    console.log('\n  DB de producción sembrada con catálogo de prueba.')
+    console.log(`  Store ID: ${DEFAULT_STORE_ID}`)
+    console.log('  Iniciá la app con pnpm dev:prod y loguéate con Firebase Auth.')
+    console.log('  ⚠️  Recordá borrar estos datos antes del primer turno real.\n')
+  }
 }
 
 main().catch(err => {

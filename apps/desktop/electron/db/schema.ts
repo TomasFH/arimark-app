@@ -173,6 +173,12 @@ export const shifts = sqliteTable(
     deliveredTo: text('delivered_to'),
     notes: text('notes'),
     syncedAt: text('synced_at'),
+    /**
+     * Origen del turno.
+     * 'desktop' → creado desde la PC (valor por defecto).
+     * 'mobile'  → importado desde la PWA móvil (no afecta la lógica de turno activo).
+     */
+    source: text('source', { enum: ['desktop', 'mobile'] }).notNull().default('desktop'),
   },
   table => [index('idx_shifts_store').on(table.storeId, table.startedAt)]
 )

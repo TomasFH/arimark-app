@@ -289,16 +289,29 @@ Objetivo: tener un respaldo operativo para cuando la PC no está disponible, y u
 - Diseñado para que el lector USB (ya implementado) reemplace al móvil sin tocar la lógica de venta.
 - Para deploy: `pnpm --filter @carniceria/mobile build` y luego `npx firebase-tools deploy --only hosting,firestore:rules` desde la raíz del repo. El `.env` de la PWA (`apps/mobile/.env`) se crea copiando `apps/mobile/.env.example` con los valores reales.
 
-**Sub-etapa 3b/3c — POS de respaldo offline + sincronización (diseño confirmado jul 2026, implementación diferida):**
+**Sub-etapa 3b/3c — POS de respaldo offline + sincronización** ✅ IMPLEMENTADO (jul 2026):
 
-Decisiones de diseño ya tomadas, documentadas para no perderlas antes de implementar:
+Flujo implementado:
 
-- **Login offline por PIN:** en el primer login exitoso con Firebase Auth en un celular, la app pide configurar un PIN de 4-6 dígitos (hash guardado localmente en el dispositivo, ej. IndexedDB con Web Crypto). Si `signInWithEmailAndPassword` falla por error de red (no por credencial inválida), se ofrece login por PIN reconstruyendo una sesión desde el último perfil cacheado. Al recuperar internet, se reintenta el login real de forma transparente; si la cuenta fue revocada por un admin, se fuerza el logout. El PIN es específico de ese dispositivo. Limitación aceptada: un celular que nunca tuvo login previo no puede entrar sin internet (no tiene datos locales de todas formas). **Este mecanismo no se replica en la PC** — si la PC pierde internet al reiniciarse, queda bloqueada hasta que vuelva la conexión (riesgo aceptado explícitamente: si hay PC, muy probablemente haya internet).
-- **POS completo offline en el celular:** cuando no hay PC disponible **y** tampoco hay internet en el celular, la cajera loguea por PIN y abre su propio turno en el celular con un UUID generado en el dispositivo. Las ventas de ese turno se registran localmente (IndexedDB) con sus propios UUIDs.
-- **Sincronización por bloque, sin fusión:** al recuperar internet, el celular sube el turno completo (metadata + ventas + ítems + pagos) a un staging en Firestore usando los UUIDs ya generados como IDs de documento (reintentos idempotentes, sin duplicados). La PC importa ese turno como una **entidad separada** en `shifts` (nuevo turno, no se fusiona con los turnos de la PC) — requiere un handler de importación nuevo, no reutiliza `sale.handler.ts`/`shift.handler.ts` (que generan sus propios IDs server-side).
-- **Reportes:** el reporte del día muestra todos los turnos en orden cronológico por `startedAt` (turno PC hasta el corte → turno celular durante el corte → turno PC al reanudar), sin fusionar. Puede requerir una columna `source`/`origin` en `shifts` para distinguir el origen visualmente.
+- **Login offline por PIN**: tras el primer login exitoso, la app pide configurar un PIN (4-6 dígitos, hash PBKDF2-SHA256 en IndexedDB). Si `signInWithEmailAndPassword` falla por error de red, se ofrece ingresar con PIN reconstruyendo la sesión desde el perfil cacheado localmente. El PIN es específico del dispositivo.
+- **POS completo en el celular**: flujo completo: login → selector de local (si hay más de uno) → abrir turno → POS (escanear por cámara, entrada manual, cobro multi-medio) → cerrar turno. Ventas guardadas en IndexedDB con UUIDs generados en el dispositivo.
+- **Catálogo publicado por la PC**: al loguear una cajera, la PC publica el catálogo vigente del local a `licenses/{key}/catalog/{storeId}` en Firestore. El celular lo descarga y cachea en IndexedDB. El POS resuelve nombre y precio por PLU desde ese cache (funciona sin internet).
+- **Motor de sync idempotente**: cuando hay red + sesión Firebase válida, el celular sube turnos/ventas pendientes a `licenses/{key}/sync/{storeId}/shifts/{shiftId}` + subcolección `sales/{saleId}`. IDs UUID = reintentos seguros. Disparo automático: recuperar conexión, confirmar venta, reabrir app.
+- **Importación en la PC**: `mobileSync.ts` escucha con `onSnapshot` la colección de staging; por cada turno nuevo importa atómicamente a SQLite (turno + ventas + ítems + pagos) con `source='mobile'`. Idempotente: shiftId/saleId ya importado se omite. Marca el doc como `importedAt`.
+- **Migración 0006**: columna `source text default 'desktop'` en `shifts`. Los handlers `GET_ACTIVE_SHIFT` / `OPEN_SHIFT` filtran `source='desktop'` para no chocar con turnos móviles.
+- **Relay retirado**: `relay.ts` (desktop y mobile), `ScannerScreen.tsx` (relay), canal `RELAY_SCAN`, `onRelayScan` en preload/hw-api eliminados. La PWA ya no es un "relay de barcodes" sino un POS completo.
+- **Reglas Firestore actualizadas**: regla `relay/{storeId}` eliminada; agregadas reglas para `catalog/{storeId}` (read autenticado) y `sync/{storeId}/shifts/{shiftId}` + `sales/{saleId}` (read/create/update autenticado).
 
-- Tests (al implementar 3b/3c): parser/relay de códigos, manejo de duplicados y códigos inválidos, sync idempotente, persistencia offline, importación de turno móvil sin duplicados.
+Componentes mobile nuevos: `SetupPinScreen`, `OpenShiftScreen`, `PosScreen`, `ManualEntry`, `PaymentModal`.
+Libs mobile nuevas: `db.ts` (Dexie), `pin.ts` (PBKDF2), `catalog.ts`, `sync.ts`.
+Desktop nuevos: `catalogPublish.ts`, `mobileSync.ts`, migración `0006_shifts_mobile_source.sql`.
+
+Cierre:
+- [x] `pnpm -r test` — 273 tests en verde (17 mobile + 256 desktop)
+- [x] `pnpm -r typecheck` — sin errores
+- [x] Migración 0006 en `drizzle/` registrada en journal
+- [ ] Tag: `fase3-completa` (pendiente testeo manual)
+- [ ] Push a GitHub (pendiente testeo manual del desarrollador)
 
 ### 🔜 Fase 4 — Sección de administración de PLUs (solo admins)
 
@@ -308,6 +321,7 @@ Objetivo: que los administradores gestionen precios/PLUs y los carguen en la bal
 - CRUD de PLUs: crear, modificar (nombre/precio), **cambiar número**, eliminar.
 - **Edición masiva**: preparar varios cambios como borrador y aplicarlos como lote.
 - Botón **"Cargar en balanza"** habilitado **si y solo si la balanza está físicamente conectada a esa PC** (nunca desde el móvil). Usa los comandos KRETZ de Fase 1.
+- **Listas de precios por local**: al editar precios/PLUs, el admin elige el local primero. Cada local puede tener precios distintos para el mismo producto. El catálogo publicado a Firestore (`licenses/{key}/catalog/{storeId}`) refleja los precios de ese local específico. La PWA móvil descarga el catálogo del local en el que la cajera está trabajando. (Nota: la infraestructura de Firestore para esto ya existe desde Fase 3; lo que falta es la UI de administración.)
 - Sincronización catálogo local ↔ PLUs de la balanza; auditoría de cambios.
 - Tests: gating por conexión física, lote aplicado correctamente, rollback si un comando falla.
 

@@ -13,9 +13,6 @@ service cloud.firestore {
 
     // -----------------------------------------------------------------------
     // Licencias — legible por cualquier usuario autenticado (anónimo incluido).
-    // El doc solo contiene metadatos de plan; no hay datos sensibles.
-    // La verificación de instalación se hace por separado en installations/{uid}.
-    // El desarrollador escribe directamente desde la consola de Firebase.
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey} {
       allow read: if request.auth != null;
@@ -32,7 +29,6 @@ service cloud.firestore {
 
     // -----------------------------------------------------------------------
     // Instalaciones — solo escritura del propio UID (activación inicial)
-    // La creación solo puede ocurrir via Cloud Function activateInstallation
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey}/installations/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
@@ -42,11 +38,8 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Perfiles de usuario (cajeras y admins) — rol y locales autorizados.
-    // Cada usuario solo puede leer su propio perfil. La escritura queda en
-    // false por ahora: el alta/baja de cuentas es manual desde la consola
-    // de Firebase mientras no exista un panel de administración (Fase 4)
-    // o una Cloud Function dedicada.
+    // Perfiles de usuario (cajeras y admins) — cada uno lee solo el propio.
+    // Alta/baja manual desde consola hasta que exista panel admin (Fase 4).
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey}/users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
@@ -62,16 +55,39 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Relay de escaneo móvil → PC.
-    // Cualquier usuario autenticado (cajera o admin) puede leer, crear y
-    // actualizar eventos dentro de su local. Delete permitido para limpieza.
+    // Catálogo de productos por local.
+    // Escrito por la PC (proceso main de Electron, servidor de confianza).
+    // Leído por la PWA móvil cuando el usuario está autenticado.
     //
-    // DEUDA TÉCNICA: gating más fino (verificar que el uid pertenezca a la
-    // licencia y al storeId dado) se implementará cuando exista un panel admin
-    // que gestione autorizaciones de local por usuario.
+    // DEUDA TÉCNICA: gating fino (verificar que el uid pertenece a la licencia
+    // y tiene authorizedStores que incluya storeId) se implementa en Fase 4
+    // cuando exista el panel admin de precios por local.
     // -----------------------------------------------------------------------
-    match /licenses/{licenseKey}/relay/{storeId}/events/{eventId} {
-      allow read, create, update, delete: if request.auth != null;
+    match /licenses/{licenseKey}/catalog/{storeId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Solo la PC via Admin SDK / proceso main
+    }
+
+    // -----------------------------------------------------------------------
+    // Staging de turnos y ventas del celular para importación a la PC.
+    //
+    // - read:   permite que la PC (via onSnapshot) y la PWA (para marcar
+    //           syncedAt localmente) lean.
+    // - create: la PWA crea nuevos documentos (UUID de turno / venta).
+    // - update: la PWA marca syncedAt; la PC marca importedAt.
+    // - delete: no permitido — los docs son inmutables una vez creados.
+    //
+    // DEUDA TÉCNICA: verificar que el uid del token pertenece a la licencia
+    // y al storeId dado (requiere Fase 4).
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/sync/{storeId}/shifts/{shiftId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /licenses/{licenseKey}/sync/{storeId}/shifts/{shiftId}/sales/{saleId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
     }
   }
 }

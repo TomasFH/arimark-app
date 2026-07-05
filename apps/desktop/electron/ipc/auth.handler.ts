@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
 import { IPC } from './channels'
@@ -9,7 +9,8 @@ import { setActiveSession } from '../activeSession'
 import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession } from '../licensing/session'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
-import { startRelayListener, stopRelayListener } from '../licensing/relay'
+import { publishCatalog } from '../licensing/catalogPublish'
+import { startMobileSyncListener, stopMobileSyncListener } from '../licensing/mobileSync'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
@@ -129,14 +130,13 @@ export function registerAuthHandlers(): void {
 
       setActiveSession({ userId: profile.uid, storeId, shiftId: null })
 
-      // Iniciar listener de relay para recibir barcodes desde la PWA móvil.
-      // Los dígitos aceptados se reenvían al renderer via IPC RELAY_SCAN,
-      // usando el mismo camino que el lector USB físico.
-      startRelayListener(config.license_key, storeId, (digits: string) => {
-        BrowserWindow.getAllWindows().forEach(win => {
-          win.webContents.send(IPC.RELAY_SCAN, digits)
-        })
-      })
+      // Publicar catálogo a Firestore (para que la PWA móvil pueda descargarlo).
+      publishCatalog(config.license_key, storeId).catch(err =>
+        log.warn('[ipc:login-cashier] Error publicando catálogo', err)
+      )
+
+      // Iniciar listener de importación de turnos móviles.
+      startMobileSyncListener(config.license_key, storeId)
 
       log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
       return {
@@ -187,7 +187,7 @@ export function registerAuthHandlers(): void {
     const { role } = parsed.data
 
     if (role === 'cashier') {
-      stopRelayListener()
+      stopMobileSyncListener()
       setActiveSession(null)
     } else if (role === 'admin') {
       await logoutAdmin()

@@ -272,13 +272,6 @@ export interface HwApi {
   kretzReadPlu: (payload: ReadPluPayload) => Promise<IpcResult<PluRow | null>>
   /** Cantidad de PLUs almacenados en la balanza (cmd 5001) */
   kretzReadPluCount: () => Promise<IpcResult<{ count: number }>>
-
-  /**
-   * Registra callback cuando llega un barcode relayado desde la PWA móvil.
-   * El formato es idéntico al del lector USB físico (dígitos crudos del EAN-13).
-   * Retorna función de limpieza (unsub).
-   */
-  onRelayScan: (cb: (digits: string) => void) => () => void
 }
 
 declare global {

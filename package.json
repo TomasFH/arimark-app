@@ -7,6 +7,8 @@
     "dev:hw": "pnpm --filter @carniceria/desktop dev:hw",
     "dev:prod": "pnpm --filter @carniceria/desktop dev:prod",
     "build:prod": "pnpm --filter @carniceria/desktop build:prod",
+    "seed:dev": "pnpm --filter @carniceria/desktop seed:dev",
+    "seed:prod": "pnpm --filter @carniceria/desktop seed:prod",
     "mobile:dev": "pnpm --filter @carniceria/mobile dev",
     "mobile:build": "pnpm --filter @carniceria/mobile build",
     "test": "pnpm -r test",
