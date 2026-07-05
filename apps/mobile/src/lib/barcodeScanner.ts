@@ -7,14 +7,26 @@
  * 2. @zxing/browser (respaldo): decodificador puro en JS para navegadores
  *    sin BarcodeDetector (ej. Firefox, iOS Safari).
  *
- * Ambos caminos comparten el mismo stream de cámara (una sola llamada a
- * getUserMedia) para poder exponer control de linterna (torch).
+ * Ambos caminos:
+ *  - Comparten el mismo stream de cámara (una sola llamada a getUserMedia)
+ *    para poder exponer control de linterna (torch).
+ *  - Analizan SOLO la región central del frame (ROI) para evitar leer códigos
+ *    que están fuera del recuadro visible. Esto se logra recortando el frame
+ *    a un canvas antes de pasarlo al decodificador.
  */
 import { BrowserMultiFormatReader } from '@zxing/browser'
-import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library'
+import { BarcodeFormat, DecodeHintType } from '@zxing/library'
 
 /** Formato único que emiten los tickets KRETZ. */
 const EAN_13 = 'ean_13'
+
+/**
+ * Región de interés (ROI): fracción central del frame que se analiza.
+ * El resto del frame se ignora, de modo que solo se lee el código colocado
+ * dentro del recuadro visible. Estos valores deben coincidir con el overlay
+ * dibujado en PosScreen (SCAN_ROI exportado).
+ */
+export const SCAN_ROI = { widthFrac: 0.85, heightFrac: 0.35 }
 
 export interface ScanController {
   stop: () => void
@@ -69,9 +81,41 @@ function buildTorchControls(stream: MediaStream): Pick<ScanController, 'supports
 }
 
 /**
+ * Recorta la región central del video a un canvas. Retorna false si el video
+ * todavía no tiene dimensiones (no listo). El canvas queda con solo la ROI,
+ * de modo que el decodificador nunca ve el resto del frame.
+ */
+function drawRoiToCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement): boolean {
+  const vw = video.videoWidth
+  const vh = video.videoHeight
+  if (!vw || !vh) return false
+
+  const rw = Math.max(1, Math.round(vw * SCAN_ROI.widthFrac))
+  const rh = Math.max(1, Math.round(vh * SCAN_ROI.heightFrac))
+  const sx = Math.round((vw - rw) / 2)
+  const sy = Math.round((vh - rh) / 2)
+
+  if (canvas.width !== rw) canvas.width = rw
+  if (canvas.height !== rh) canvas.height = rh
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return false
+  ctx.drawImage(video, sx, sy, rw, rh, 0, 0, rw, rh)
+  return true
+}
+
+/** Abre la cámara y la conecta al elemento <video>. */
+async function openCameraStream(video: HTMLVideoElement): Promise<MediaStream> {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS })
+  video.srcObject = stream
+  await video.play()
+  return stream
+}
+
+/**
  * Inicia el escaneo sobre el elemento <video> dado.
- * Llama a onResult con el texto crudo cada vez que detecta un código.
- * El consumidor debe deduplicar/filtrar (ej. ignorar mientras procesa).
+ * Llama a onResult con el texto crudo cada vez que detecta un código dentro
+ * de la ROI. El consumidor debe deduplicar/filtrar (ej. ignorar mientras procesa).
  */
 export async function startBarcodeScanning(
   video: HTMLVideoElement,
@@ -96,28 +140,28 @@ export async function startBarcodeScanning(
   return startZxingScanning(video, onResult)
 }
 
-/** Camino nativo: getUserMedia propio + loop de detección con BarcodeDetector. */
+/** Camino nativo: BarcodeDetector sobre la ROI recortada en canvas. */
 async function startNativeScanning(
   video: HTMLVideoElement,
   onResult: (text: string) => void,
   detectorCtor: BarcodeDetectorCtor
 ): Promise<ScanController> {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS })
-  video.srcObject = stream
-  await video.play()
-
+  const stream = await openCameraStream(video)
   const detector = new detectorCtor({ formats: [EAN_13] })
+  const canvas = document.createElement('canvas')
   let stopped = false
 
   const loop = async () => {
     if (stopped) return
-    try {
-      const codes = await detector.detect(video)
-      if (codes.length > 0 && codes[0]?.rawValue) {
-        onResult(codes[0].rawValue)
+    if (drawRoiToCanvas(video, canvas)) {
+      try {
+        const codes = await detector.detect(canvas)
+        if (codes.length > 0 && codes[0]?.rawValue) {
+          onResult(codes[0].rawValue)
+        }
+      } catch {
+        // Frame no decodificable — continuar en silencio.
       }
-    } catch {
-      // Frame no decodificable — continuar en silencio.
     }
     if (!stopped) requestAnimationFrame(() => void loop())
   }
@@ -134,7 +178,7 @@ async function startNativeScanning(
   }
 }
 
-/** Camino de respaldo: @zxing gestiona su propio stream. */
+/** Camino de respaldo: @zxing decodifica la ROI recortada en canvas. */
 async function startZxingScanning(
   video: HTMLVideoElement,
   onResult: (text: string) => void
@@ -144,23 +188,31 @@ async function startZxingScanning(
   hints.set(DecodeHintType.TRY_HARDER, true)
 
   const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 })
+  const stream = await openCameraStream(video)
+  const canvas = document.createElement('canvas')
+  let stopped = false
 
-  const controls = await reader.decodeFromConstraints(
-    { video: VIDEO_CONSTRAINTS },
-    video,
-    (result, err) => {
-      if (err instanceof NotFoundException || !result) return
-      onResult(result.getText())
+  const loop = () => {
+    if (stopped) return
+    if (drawRoiToCanvas(video, canvas)) {
+      try {
+        const result = reader.decodeFromCanvas(canvas)
+        if (result) onResult(result.getText())
+      } catch {
+        // NotFoundException u otro: no hay código en la ROI este frame.
+      }
     }
-  )
-
-  const stream = (video.srcObject as MediaStream | null) ?? null
+    if (!stopped) setTimeout(loop, 120)
+  }
+  loop()
 
   return {
     engine: 'zxing',
-    stop: () => controls.stop(),
-    ...(stream
-      ? buildTorchControls(stream)
-      : { supportsTorch: false, setTorch: async () => {} }),
+    stop: () => {
+      stopped = true
+      stream.getTracks().forEach(t => t.stop())
+      video.srcObject = null
+    },
+    ...buildTorchControls(stream),
   }
 }

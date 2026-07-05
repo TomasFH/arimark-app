@@ -50,12 +50,31 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
   const [lastScan, setLastScan] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [pendingDup, setPendingDup] = useState<SaleItemDraft | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const stopScanRef = useRef<(() => void) | null>(null)
   const processingRef = useRef(false)
+  const itemsRef = useRef<SaleItemDraft[]>([])
 
   const total = items.reduce((s, i) => s + i.subtotal, 0)
+
+  // Espejo de items para leer el estado actual dentro de handleBarcode
+  // (que se memoiza y de otro modo capturaría un items obsoleto).
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
+
+  // Agrega el ítem resuelto al carrito, con feedback y cooldown de re-escaneo.
+  const commitItem = useCallback((item: SaleItemDraft) => {
+    setItems(prev => [...prev, item])
+    setLastScan(item.productName)
+    beep(true)
+    setTimeout(() => {
+      processingRef.current = false
+      setLastScan(null)
+    }, 1200)
+  }, [])
 
   const handleBarcode = useCallback((digits: string) => {
     if (processingRef.current) return
@@ -94,14 +113,30 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
       manualEntry: false,
     }
 
-    setItems(prev => [...prev, item])
-    setLastScan(product.name)
-    beep(true)
-    setTimeout(() => {
-      processingRef.current = false
-      setLastScan(null)
-    }, 1200)
-  }, [catalog])
+    // Detección de duplicado: mismo producto y mismo importe = probablemente
+    // un doble escaneo del mismo código. Se pide confirmación antes de agregar.
+    const isDuplicate = itemsRef.current.some(
+      i => i.productId === item.productId &&
+           Math.round(i.subtotal * 100) === Math.round(item.subtotal * 100)
+    )
+    if (isDuplicate) {
+      beep(false)
+      setPendingDup(item)  // processingRef sigue true hasta que el usuario decida
+      return
+    }
+
+    commitItem(item)
+  }, [catalog, commitItem])
+
+  function confirmDuplicate() {
+    if (pendingDup) commitItem(pendingDup)
+    setPendingDup(null)
+  }
+
+  function cancelDuplicate() {
+    setPendingDup(null)
+    processingRef.current = false
+  }
 
   function openScanner() {
     setShowScanner(true)
@@ -248,18 +283,30 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
 
       {/* Scanner embebido */}
       {showScanner && (
-        <div className="relative bg-black">
+        <div className="relative bg-black overflow-hidden">
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
             className="w-full"
-            style={{ maxHeight: '45vw', objectFit: 'cover' }}
+            style={{ height: '60vh', objectFit: 'cover' }}
           />
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="border-2 border-red-500 rounded w-3/4 h-12 opacity-70" />
+          {/* Overlay: la zona clara (recuadro) es la única región que se lee.
+              Todo lo de afuera está oscurecido y la app lo ignora. */}
+          <div className="absolute inset-0 pointer-events-none">
+            <div
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 border-2 border-red-500 rounded-lg"
+              style={{
+                width: '80%',
+                height: '38%',
+                boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)',
+              }}
+            />
           </div>
+          <p className="absolute bottom-2 left-1/2 -translate-x-1/2 text-white/80 text-xs bg-black/50 px-3 py-1 rounded-full">
+            Colocá el código dentro del recuadro
+          </p>
           <button
             onClick={closeScanner}
             className="absolute top-2 right-2 bg-black/60 text-white text-sm px-3 py-1.5 rounded-lg"
@@ -319,6 +366,36 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
           onConfirm={confirmSale}
           onCancel={() => setShowPayment(false)}
         />
+      )}
+
+      {pendingDup && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6">
+          <div className="w-full max-w-sm bg-gray-900 rounded-2xl p-5 space-y-4">
+            <div className="text-center">
+              <div className="text-4xl mb-2">⚠️</div>
+              <h2 className="text-white font-bold text-lg">¿Producto repetido?</h2>
+              <p className="text-gray-400 text-sm mt-2">
+                Ya escaneaste <span className="text-white font-semibold">{pendingDup.productName}</span> por{' '}
+                <span className="text-white font-semibold">{formatARS(pendingDup.subtotal)}</span> en este pedido.
+                ¿Querés agregarlo de nuevo?
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={cancelDuplicate}
+                className="bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-xl py-3 transition-colors"
+              >
+                No, cancelar
+              </button>
+              <button
+                onClick={confirmDuplicate}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl py-3 transition-colors"
+              >
+                Sí, agregar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
