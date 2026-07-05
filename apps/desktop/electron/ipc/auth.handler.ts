@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
 import { IPC } from './channels'
@@ -9,6 +9,7 @@ import { setActiveSession } from '../activeSession'
 import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession } from '../licensing/session'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
+import { startRelayListener, stopRelayListener } from '../licensing/relay'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,16 @@ export function registerAuthHandlers(): void {
       }
 
       setActiveSession({ userId: profile.uid, storeId, shiftId: null })
+
+      // Iniciar listener de relay para recibir barcodes desde la PWA móvil.
+      // Los dígitos aceptados se reenvían al renderer via IPC RELAY_SCAN,
+      // usando el mismo camino que el lector USB físico.
+      startRelayListener(config.license_key, storeId, (digits: string) => {
+        BrowserWindow.getAllWindows().forEach(win => {
+          win.webContents.send(IPC.RELAY_SCAN, digits)
+        })
+      })
+
       log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
       return {
         ok: true,
@@ -176,6 +187,7 @@ export function registerAuthHandlers(): void {
     const { role } = parsed.data
 
     if (role === 'cashier') {
+      stopRelayListener()
       setActiveSession(null)
     } else if (role === 'admin') {
       await logoutAdmin()

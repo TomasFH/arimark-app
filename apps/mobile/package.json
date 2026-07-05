@@ -1,0 +1,35 @@
+{
+  "name": "@carniceria/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PWA móvil para escaneo de códigos de barras y relay a la PC",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@carniceria/shared": "workspace:*",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
+    "firebase": "^11.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "*"
+  }
+}

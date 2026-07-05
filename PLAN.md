@@ -276,16 +276,18 @@ Completado al cerrar Fase 2 (01/07/2026):
 
 Objetivo: tener un respaldo operativo para cuando la PC no está disponible, y una alternativa de escaneo por cámara para locales sin lector USB.
 
-**Etapa 0 — Reestructuración a monorepo pnpm** (prerrequisito de infraestructura):
-- `apps/desktop` (proyecto actual, movido tal cual con `git mv`), `apps/mobile` (PWA nueva), `packages/shared` (código puro reutilizable: `kretzBarcode.ts`, formateo, contratos de relay).
+**Etapa 0 — Reestructuración a monorepo pnpm** ✅ IMPLEMENTADO (jul 2026):
+- `apps/desktop` (proyecto actual, movido con `git mv`, historia preservada), `apps/mobile` (PWA nueva), `packages/shared` (código puro reutilizable: `kretzBarcode.ts`, contratos de relay).
 - `firebase/firestore.rules` se mantiene en la raíz (infra compartida entre ambas apps).
 - Scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a `apps/desktop` vía `pnpm --filter` para no romper el flujo de trabajo existente.
+- `pnpm -r test`: 278 tests verdes (18 shared + 202 main + 53 renderer + 5 mobile).
 
-**Sub-etapa 3a — Escáner + relay (alternativa sin lector USB):**
-- App móvil como **PWA** (React) con escaneo de código de barras por cámara (`@zxing/browser`).
+**Sub-etapa 3a — Escáner + relay (alternativa sin lector USB):** ✅ IMPLEMENTADO (jul 2026)
+- App móvil como **PWA** (React + Vite + Tailwind) con escaneo de código de barras por cámara (`@zxing/browser`). Hosted en Firebase Hosting (HTTPS, necesario para cámara).
 - Login con Firebase Auth (mismo mecanismo unificado que la PC — ver "Autenticación"). Si la cuenta está autorizada en más de un local, selector de local antes de escanear.
-- Relay vía Firestore: `licenses/{key}/relay/{storeId}/events/{eventId}` (ID generado en el celular = escritura idempotente). La PC escucha con `onSnapshot`, valida el código y lo agrega a la venta en curso — **mismo path que usa el lector USB**, sin lógica de venta nueva. La PC escribe `accepted`/`rejected` en el mismo evento; el celular lo lee y lo borra tras mostrar el resultado.
+- Relay vía Firestore: `licenses/{key}/relay/{storeId}/events/{eventId}` (ID generado en el celular = escritura idempotente). La PC escucha con `onSnapshot`, valida el código y lo agrega a la venta en curso — **mismo path que usa el lector USB**, sin lógica de venta nueva. La PC escribe `accepted`/`rejected` en el mismo evento; el celular lo lee y muestra feedback.
 - Diseñado para que el lector USB (ya implementado) reemplace al móvil sin tocar la lógica de venta.
+- Para deploy: `pnpm --filter @carniceria/mobile build` y luego `npx firebase-tools deploy --only hosting,firestore:rules` desde la raíz del repo. El `.env` de la PWA (`apps/mobile/.env`) se crea copiando `apps/mobile/.env.example` con los valores reales.
 
 **Sub-etapa 3b/3c — POS de respaldo offline + sincronización (diseño confirmado jul 2026, implementación diferida):**
 

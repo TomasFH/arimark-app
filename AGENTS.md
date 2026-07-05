@@ -52,21 +52,32 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 
 ---
 
-## Arquitectura — separación de capas
+## Arquitectura — estructura del monorepo (desde jul 2026)
+
+El repo es un **monorepo pnpm** (`pnpm-workspace.yaml`):
+- `apps/desktop` — app Electron (proceso main + renderer React). Nunca se ejecuta código de red ni Firebase en el renderer.
+- `apps/mobile` — PWA React (Firebase Hosting, HTTPS). **Excepción legítima:** esta app accede a Firebase/Firestore directamente desde el navegador porque es un cliente web, no un proceso Electron. No rompe la regla "Firebase solo en main" porque esa regla aplica al desktop Electron.
+- `packages/shared` — código TypeScript puro sin dependencias de runtime: `kretzBarcode.ts`, `relay.ts` (tipos + helpers de path). Consumido como TS source por ambas apps (Vite lo transpila; no hay build step en shared).
+
+Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediante `pnpm --filter`.
+
+## Arquitectura — separación de capas (desktop)
 
 - Todo acceso a hardware soportado por la app (balanza KRETZ) y a servicios externos (Firebase) ocurre **exclusivamente en el proceso main** de Electron. Nunca en el renderer.
 - La app **no interactúa con la caja registradora** bajo ningún aspecto. Las cajeras la operan manualmente por fuera del sistema.
 - El renderer (React) **nunca** abre sockets, hace fetch, ni accede a Firebase directamente.
 - La comunicación entre main y renderer ocurre **únicamente mediante IPC tipado** a través del preload (`window.hw`).
-- Si el agente se encuentra escribiendo código de red o hardware en el renderer, debe detenerse, reorganizar la arquitectura y avisar al desarrollador antes de continuar.
+- El relay de escaneo móvil llega al renderer a través del canal `RELAY_SCAN` (IPC push main → renderer), usando el mismo `handleGlobalScan` que el lector USB.
+- Si el agente se encuentra escribiendo código de red o hardware en el renderer desktop, debe detenerse, reorganizar la arquitectura y avisar al desarrollador antes de continuar.
 
 ## Autenticación
 
-- **Cajeras y admins se autentican con Firebase Auth (email + contraseña).** No hay un sistema de login paralelo por rol: ambos flujos son simétricos (`signInWithRole` en `electron/licensing/session.ts`).
+- **Cajeras y admins se autentican con Firebase Auth (email + contraseña).** No hay un sistema de login paralelo por rol: ambos flujos son simétricos (`signInWithRole` en `apps/desktop/electron/licensing/session.ts`).
 - El rol (`cashier` | `admin`) y los locales autorizados (`authorizedStores`) de cada cuenta viven en Firestore, en `licenses/{licenseKey}/users/{uid}`. Nunca en SQLite.
 - La tabla SQLite `users` es solo un **caché local de perfil** (nombre, local, activo) para que los FK de `shifts`, `sales`, `product_prices`, etc. resuelvan sin depender de internet. No contiene contraseñas ni username. `id` = `firebaseUid`.
 - El perfil local se **upsertea automáticamente** en el primer login exitoso de una cajera en cualquier PC — esto es lo que permite que la misma cajera opere en distintos locales sin que el desarrollador tenga que precargar nada en cada PC.
-- No hay control de concurrencia entre dispositivos: la misma cajera puede estar logueada en la PC y en su celular (app companion, Fase 3) al mismo tiempo. Firebase Auth es la única fuente de identidad.
+- La PWA móvil usa **las mismas credenciales Firebase Auth** y lee el mismo perfil Firestore. El login es en `apps/mobile/src/lib/auth.ts`.
+- No hay control de concurrencia entre dispositivos: la misma cajera puede estar logueada en la PC y en su celular al mismo tiempo. Firebase Auth es la única fuente de identidad.
 - Alta de cuentas nuevas: mientras no exista un panel de administración (Fase 4) o una Cloud Function dedicada, la creación de una cuenta de cajera/admin (Firebase Auth + documento de perfil en Firestore) es **manual, desde la consola de Firebase**. Deuda técnica señalada, no silenciada.
 - Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. Si la PC se reinicia sin internet, no se puede volver a loguear una cajera (riesgo aceptado explícitamente por el desarrollador; no se implementa un PIN de emergencia en la PC, sí en el celular en Fase 3).
 

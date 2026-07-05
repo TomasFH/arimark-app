@@ -60,5 +60,18 @@ service cloud.firestore {
       allow create: if isActiveInstallation(licenseKey);
       allow read, update, delete: if false;
     }
+
+    // -----------------------------------------------------------------------
+    // Relay de escaneo móvil → PC.
+    // Cualquier usuario autenticado (cajera o admin) puede leer, crear y
+    // actualizar eventos dentro de su local. Delete permitido para limpieza.
+    //
+    // DEUDA TÉCNICA: gating más fino (verificar que el uid pertenezca a la
+    // licencia y al storeId dado) se implementará cuando exista un panel admin
+    // que gestione autorizaciones de local por usuario.
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/relay/{storeId}/events/{eventId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
   }
 }

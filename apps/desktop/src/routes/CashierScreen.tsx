@@ -75,6 +75,12 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
 
   useBarcodeScanner({ onScan: handleGlobalScan, disabled: anyModalOpen })
 
+  // Relay desde PWA móvil — mismo camino que el lector USB físico.
+  useEffect(() => {
+    const unsub = window.hw.onRelayScan(handleGlobalScan)
+    return unsub
+  }, [handleGlobalScan])
+
   function removeItem(localId: string) {
     setCart(prev => prev.filter(i => i.localId !== localId))
   }
