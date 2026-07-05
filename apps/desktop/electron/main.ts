@@ -149,6 +149,12 @@ app.whenReady().then(async () => {
   const migrateResult = await runMigrations(dbPath, migrationsFolder)
   if (!migrateResult.ok) {
     log.error('[main] Falló la migración de DB — la app puede no funcionar correctamente', migrateResult.error)
+    // runMigrations llama closeDb() al fallar y restaura el backup.
+    // Re-inicializamos la DB desde el backup restaurado para que los handlers
+    // IPC puedan seguir funcionando (sin la migración fallida, pero funcionales).
+    const { initDb } = await import('./db/client')
+    initDb(dbPath)
+    log.warn('[main] DB re-inicializada desde backup — la migración fallida no fue aplicada')
   }
 
   // 2. Calcular estado de inicialización (licencia, activación, config)
