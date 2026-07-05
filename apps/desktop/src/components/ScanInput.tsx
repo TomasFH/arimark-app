@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { parseKretzBarcode, centsToARS } from '../lib/kretzBarcode'
+import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
 import NumericInput from './NumericInput'
 import DecimalInput from './DecimalInput'
 import {

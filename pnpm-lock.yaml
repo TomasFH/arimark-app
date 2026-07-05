@@ -6,8 +6,13 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/desktop:
     dependencies:
+      '@carniceria/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
@@ -150,6 +155,15 @@ importers:
       wait-on:
         specifier: ^9.0.10
         version: 9.0.10
+
+  packages/shared:
+    devDependencies:
+      typescript:
+        specifier: '*'
+        version: 5.9.3
+      vitest:
+        specifier: '*'
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.19)(jiti@1.21.7)(jsdom@26.1.0)(tsx@4.22.3)
 
 packages:
 

@@ -6,7 +6,7 @@ import ProductsListModal from '../components/ProductsListModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
-import { parseKretzBarcode, centsToARS } from '../lib/kretzBarcode'
+import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
 import { buildItemFromBarcode } from '../lib/barcodeItem'
 
 interface Props {

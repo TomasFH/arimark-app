@@ -1,0 +1,18 @@
+{
+  "name": "@carniceria/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tipos y utilidades compartidas entre desktop y mobile",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vitest": "*"
+  }
+}
