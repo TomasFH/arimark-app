@@ -334,6 +334,14 @@ Cómo compilar el `.apk` (requiere Android Studio + JDK instalados en la máquin
 
 Componentes/libs mobile de esta sub-etapa: `connectivity.ts` (nuevo), `firebase.ts` (auth persistente), `auth.ts` (restauración de sesión), `App.tsx` (arranque por sesión + banner offline). Eliminados: `pin.ts`, `SetupPinScreen.tsx`, `LoginScreen.tsx` (código muerto).
 
+Cierre de sub-etapa 3d:
+- [x] `pnpm -r test` — 285 tests en verde (18 shared + 11 mobile + 203 main + 53 renderer)
+- [x] `pnpm -r typecheck` — sin errores
+- [x] Commit: `feat(fase3): empaquetar app móvil como nativa (Capacitor) + sesión persistente sin PIN`
+- [ ] Testeo manual (ver `apps/mobile/GUIA-INSTALACION.md` y checklist en repo) — pendiente
+- [ ] Tag: `fase3-completa` (pendiente testeo manual + aprobación del desarrollador)
+- [ ] Push a GitHub (pendiente aprobación del desarrollador)
+
 ### 🔜 Fase 4 — Sección de administración de PLUs (solo admins)
 
 Objetivo: que los administradores gestionen precios/PLUs y los carguen en la balanza, aprovechando los comandos KRETZ ya validados en Fase 1.

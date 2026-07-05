@@ -11,6 +11,9 @@
     "seed:prod": "pnpm --filter @carniceria/desktop seed:prod",
     "mobile:dev": "pnpm --filter @carniceria/mobile dev",
     "mobile:build": "pnpm --filter @carniceria/mobile build",
+    "mobile:deploy": "pnpm --filter @carniceria/mobile build && npx firebase-tools deploy --only hosting,firestore:rules",
+    "mobile:cap:sync": "pnpm --filter @carniceria/mobile cap:sync",
+    "mobile:cap:android": "pnpm --filter @carniceria/mobile cap:open:android",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
