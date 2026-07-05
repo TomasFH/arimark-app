@@ -2,30 +2,17 @@
  * Tests del handler de importación de turnos móviles (mobileSync).
  * Verifica: inserción atómica, idempotencia, resolución de FK, columna source.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { shifts, sales, saleItems, salePayments, users, stores } from '../../db/schema'
-import { eq } from 'drizzle-orm'
+import { shifts, sales, salePayments, users, stores } from '../../db/schema'
+import { eq, isNull, and } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 
 // ---------------------------------------------------------------------------
-// Helpers de seeding
+// Helper de seeding
 // ---------------------------------------------------------------------------
 async function seedStore(db: Awaited<ReturnType<typeof createInMemoryDb>>['db'], storeId = 'local1') {
   db.insert(stores).values({ id: storeId, name: 'Local 1', createdAt: new Date().toISOString() }).run()
-}
-
-async function seedProduct(db: Awaited<ReturnType<typeof createInMemoryDb>>['db']) {
-  const { products } = await import('../db/schema')
-  db.insert(products).values({
-    id: 'p1',
-    name: 'Vacío',
-    category: 'beef_cut',
-    unit: 'kg',
-    pluNumber: 5,
-    active: true,
-    createdAt: new Date().toISOString(),
-  }).run()
 }
 
 describe('migración 0006 - columna source en shifts', () => {
@@ -144,7 +131,6 @@ describe('importación de turno móvil — idempotencia y FK', () => {
       createdAt: new Date().toISOString(),
     }).run()
 
-    // Insertar un turno móvil sin cerrar
     db.insert(shifts).values({
       id: uuidv4(),
       storeId: 'local1',
@@ -156,7 +142,6 @@ describe('importación de turno móvil — idempotencia y FK', () => {
     }).run()
 
     // La consulta del shift handler filtra por source='desktop'
-    const { isNull, and } = await import('drizzle-orm')
     const activeDesktop = db
       .select()
       .from(shifts)
