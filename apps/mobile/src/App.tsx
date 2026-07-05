@@ -1,31 +1,30 @@
 /**
- * Orquestador de flujo del POS móvil.
+ * Orquestador de flujo del POS móvil (app nativa Capacitor, offline-first).
  *
  * Flujo:
- *   login (online o PIN offline)
- *     → [primer login] configurar PIN
- *     → selector de local (si hay más de uno)
- *     → descargar catálogo
- *     → (si no hay turno activo) abrir turno
- *     → POS (escanear, armar, cobrar)
- *     → al cerrar turno → volver al paso de abrir turno
+ *   [arranque] restaurar sesión persistida (funciona sin internet)
+ *     → si hay sesión → selector de local (si hay >1) → cargar contexto → POS
+ *     → si no hay sesión → login (email + contraseña, requiere internet la 1ª vez)
+ *
+ * No hay PIN ni claves offline: la sesión de Firebase queda guardada en el
+ * dispositivo tras el primer login con internet. Al reconectar, se resincroniza
+ * el catálogo y se suben los turnos/ventas pendientes automáticamente.
  */
-import { useState } from 'react'
-import { SetupPinScreen } from './components/SetupPinScreen'
+import { useEffect, useRef, useState } from 'react'
 import { StoreSelector } from './components/StoreSelector'
 import { OpenShiftScreen } from './components/OpenShiftScreen'
 import { PosScreen } from './components/PosScreen'
-import { signIn, signInWithPin, signOut } from './lib/auth'
-import { hasPinConfigured } from './lib/pin'
+import { signIn, signOut, restoreSession } from './lib/auth'
 import { syncCatalog, getCatalog } from './lib/catalog'
 import { db } from './lib/db'
 import { triggerSync, registerOnlineListener } from './lib/sync'
+import { useOnlineStatus, isOnline } from './lib/connectivity'
 import { v4 as uuidv4 } from 'uuid'
 import type { LocalProfile, CatalogProduct, LocalShift, ShiftType } from './types/pos'
 
 type Screen =
+  | 'checking'
   | 'login'
-  | 'setup-pin'
   | 'store-select'
   | 'loading'
   | 'open-shift'
@@ -40,41 +39,51 @@ interface SessionState {
 registerOnlineListener()
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('login')
+  const [screen, setScreen] = useState<Screen>('checking')
   const [session, setSession] = useState<SessionState | null>(null)
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
   const [activeShift, setActiveShift] = useState<LocalShift | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [showPinLogin, setShowPinLogin] = useState(false)
-  const [pinInput, setPinInput] = useState('')
-  const [pinError, setPinError] = useState<string | null>(null)
+
+  const online = useOnlineStatus()
+  const prevOnline = useRef(online)
+
+  // Restaurar sesión persistida al arrancar.
+  useEffect(() => {
+    let cancelled = false
+    restoreSession().then((result) => {
+      if (cancelled) return
+      if (result.ok) {
+        afterAuthentication(result.profile, result.mode)
+      } else {
+        setScreen('login')
+      }
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Al recuperar conexión: resincronizar catálogo y subir pendientes.
+  useEffect(() => {
+    const reconnected = !prevOnline.current && online
+    prevOnline.current = online
+    if (!reconnected || !session?.storeId) return
+
+    ;(async () => {
+      await syncCatalog(session.storeId)
+      const cat = await getCatalog(session.storeId)
+      setCatalog(cat)
+      triggerSync().catch(() => { /* silencioso */ })
+    })()
+  }, [online, session])
 
   async function handleLogin(email: string, password: string) {
     setLoginError(null)
     const result = await signIn(email, password)
-
     if (!result.ok) {
-      if (result.canUsePan) {
-        setShowPinLogin(true)
-        setLoginError('Sin conexión. Podés ingresar con tu PIN de emergencia.')
-      } else {
-        setLoginError(result.error)
-      }
+      setLoginError(result.error)
       return
     }
-
-    await afterAuthentication(result.profile, result.mode)
-  }
-
-  async function handlePinLogin() {
-    setPinError(null)
-    const result = await signInWithPin(pinInput)
-    if (!result.ok) {
-      setPinError(result.error)
-      setPinInput('')
-      return
-    }
-    setShowPinLogin(false)
     await afterAuthentication(result.profile, result.mode)
   }
 
@@ -82,18 +91,8 @@ export default function App() {
     const { authorizedStores } = profile
 
     if (authorizedStores.length === 1) {
-      const storeId = authorizedStores[0]!
-      const sess: SessionState = { profile, storeId, loginMode: mode }
+      const sess: SessionState = { profile, storeId: authorizedStores[0]!, loginMode: mode }
       setSession(sess)
-
-      // Solo necesita PIN setup si fue login online y aún no tiene PIN.
-      if (mode === 'online') {
-        const hasPin = await hasPinConfigured()
-        if (!hasPin) {
-          setScreen('setup-pin')
-          return
-        }
-      }
       await loadStoreContext(sess)
     } else {
       setSession({ profile, storeId: '', loginMode: mode })
@@ -105,14 +104,6 @@ export default function App() {
     if (!session) return
     const sess: SessionState = { ...session, storeId }
     setSession(sess)
-
-    if (session.loginMode === 'online') {
-      const hasPin = await hasPinConfigured()
-      if (!hasPin) {
-        setScreen('setup-pin')
-        return
-      }
-    }
     await loadStoreContext(sess)
   }
 
@@ -120,14 +111,13 @@ export default function App() {
     setScreen('loading')
 
     // Descargar catálogo si hay internet (no bloquea si falla).
-    if (navigator.onLine) {
+    if (await isOnline()) {
       await syncCatalog(sess.storeId)
     }
 
     const cat = await getCatalog(sess.storeId)
     setCatalog(cat)
 
-    // Buscar turno activo para este usuario en este local.
     const existing = await db.shifts
       .where('storeId').equals(sess.storeId)
       .filter(s => s.closedAt === null && s.userId === sess.profile.uid)
@@ -140,7 +130,6 @@ export default function App() {
       setScreen('open-shift')
     }
 
-    // Disparar sync en background.
     triggerSync().catch(() => { /* silencioso */ })
   }
 
@@ -180,135 +169,108 @@ export default function App() {
     setActiveShift(null)
     setCatalog([])
     setScreen('login')
-    setShowPinLogin(false)
-    setPinInput('')
     setLoginError(null)
   }
 
   // ----- Render -----
 
-  if (screen === 'login') {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-red-600 rounded-2xl mb-4">
-              <span className="text-white text-2xl">🥩</span>
-            </div>
-            <h1 className="text-white text-2xl font-bold">POS Móvil</h1>
-            <p className="text-gray-400 text-sm mt-1">Iniciá sesión para continuar</p>
-          </div>
+  function renderScreen() {
+    if (screen === 'checking') {
+      return <FullScreenSpinner label="Abriendo..." />
+    }
 
-          {!showPinLogin ? (
-            <LoginFormFields
-              error={loginError}
-              onSubmit={handleLogin}
-              onSwitchToPin={() => setShowPinLogin(true)}
-            />
-          ) : (
-            <div className="space-y-4">
-              <p className="text-orange-400 text-sm text-center">{loginError}</p>
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">PIN de emergencia</label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={pinInput}
-                  onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-3 text-xl tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="• • • •"
-                />
+    if (screen === 'login') {
+      return (
+        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm">
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-red-600 rounded-2xl mb-4">
+                <span className="text-white text-2xl">🥩</span>
               </div>
-              {pinError && (
-                <div className="bg-red-900/50 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
-                  {pinError}
-                </div>
-              )}
-              <button
-                onClick={handlePinLogin}
-                disabled={pinInput.length < 4}
-                className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 text-white font-semibold rounded-lg px-4 py-3 transition-colors"
-              >
-                Ingresar con PIN
-              </button>
-              <button
-                onClick={() => { setShowPinLogin(false); setLoginError(null) }}
-                className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 transition-colors"
-              >
-                ← Volver
-              </button>
+              <h1 className="text-white text-2xl font-bold">POS Móvil</h1>
+              <p className="text-gray-400 text-sm mt-1">Iniciá sesión para continuar</p>
             </div>
-          )}
+            <LoginFormFields error={loginError} online={online} onSubmit={handleLogin} />
+          </div>
         </div>
-      </div>
-    )
+      )
+    }
+
+    if (screen === 'store-select' && session) {
+      return (
+        <StoreSelector
+          stores={session.profile.authorizedStores}
+          onSelect={handleStoreSelect}
+        />
+      )
+    }
+
+    if (screen === 'loading') {
+      return <FullScreenSpinner label="Cargando..." />
+    }
+
+    if (screen === 'open-shift' && session) {
+      return (
+        <OpenShiftScreen
+          displayName={session.profile.displayName}
+          storeId={session.storeId}
+          onOpen={handleOpenShift}
+          onLogout={handleLogout}
+        />
+      )
+    }
+
+    if (screen === 'pos' && session && activeShift) {
+      return (
+        <PosScreen
+          shift={activeShift}
+          catalog={catalog}
+          onCloseShift={handleCloseShift}
+        />
+      )
+    }
+
+    return null
   }
 
-  if (screen === 'setup-pin' && session) {
-    return (
-      <SetupPinScreen
-        uid={session.profile.uid}
-        onDone={() => loadStoreContext(session)}
-      />
-    )
-  }
-
-  if (screen === 'store-select' && session) {
-    return (
-      <StoreSelector
-        stores={session.profile.authorizedStores}
-        onSelect={handleStoreSelect}
-      />
-    )
-  }
-
-  if (screen === 'loading') {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-10 h-10 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Cargando...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (screen === 'open-shift' && session) {
-    return (
-      <OpenShiftScreen
-        displayName={session.profile.displayName}
-        storeId={session.storeId}
-        onOpen={handleOpenShift}
-        onLogout={handleLogout}
-      />
-    )
-  }
-
-  if (screen === 'pos' && session && activeShift) {
-    return (
-      <PosScreen
-        shift={activeShift}
-        catalog={catalog}
-        onCloseShift={handleCloseShift}
-      />
-    )
-  }
-
-  return null
+  return (
+    <>
+      {renderScreen()}
+      {!online && <OfflineBanner />}
+    </>
+  )
 }
 
 // ---------------------------------------------------------------------------
-// Sub-componente de formulario de login (email + contraseña)
+// Sub-componentes
 // ---------------------------------------------------------------------------
+
+function FullScreenSpinner({ label }: { label: string }) {
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-10 h-10 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-gray-400 text-sm">{label}</p>
+      </div>
+    </div>
+  )
+}
+
+function OfflineBanner() {
+  return (
+    <div className="fixed bottom-0 inset-x-0 z-50 bg-amber-500 text-black text-center text-sm font-medium py-2 px-4 shadow-lg">
+      Sin conexión — trabajando offline. Se sincronizará al recuperar internet.
+    </div>
+  )
+}
 
 interface LoginFormFieldsProps {
   error: string | null
+  online: boolean
   onSubmit: (email: string, password: string) => void
-  onSwitchToPin: () => void
 }
 
-function LoginFormFields({ error, onSubmit, onSwitchToPin }: LoginFormFieldsProps) {
+function LoginFormFields({ error, online, onSubmit }: LoginFormFieldsProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -322,6 +284,12 @@ function LoginFormFields({ error, onSubmit, onSwitchToPin }: LoginFormFieldsProp
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {!online && (
+        <div className="bg-amber-900/40 border border-amber-700 text-amber-200 rounded-lg px-4 py-3 text-sm">
+          El primer ingreso en este celular necesita internet. Después vas a poder
+          usar la app sin conexión.
+        </div>
+      )}
       <div>
         <label className="block text-sm text-gray-300 mb-1">Email</label>
         <input
@@ -347,7 +315,7 @@ function LoginFormFields({ error, onSubmit, onSwitchToPin }: LoginFormFieldsProp
         />
       </div>
 
-      {error && !error.includes('PIN') && (
+      {error && (
         <div className="bg-red-900/50 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
           {error}
         </div>
@@ -359,14 +327,6 @@ function LoginFormFields({ error, onSubmit, onSwitchToPin }: LoginFormFieldsProp
         className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white font-semibold rounded-lg px-4 py-3 transition-colors"
       >
         {loading ? 'Iniciando sesión...' : 'Ingresar'}
-      </button>
-
-      <button
-        type="button"
-        onClick={onSwitchToPin}
-        className="w-full text-gray-500 hover:text-gray-300 text-xs py-2 transition-colors"
-      >
-        ¿Sin internet? Ingresar con PIN
       </button>
     </form>
   )

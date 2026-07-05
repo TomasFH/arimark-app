@@ -2,15 +2,22 @@
   "name": "@carniceria/mobile",
   "version": "0.1.0",
   "private": true,
-  "description": "PWA móvil para escaneo de códigos de barras y relay a la PC",
+  "description": "App móvil (POS de emergencia offline-first) empaquetada con Capacitor",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "cap:sync": "pnpm run build && cap sync",
+    "cap:add:android": "pnpm run build && cap add android",
+    "cap:open:android": "cap open android",
+    "apk:debug": "pnpm run build && cap sync android && cap run android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/network": "^8.0.1",
     "@carniceria/shared": "workspace:*",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
@@ -21,6 +28,8 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.4.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@types/uuid": "^10.0.0",

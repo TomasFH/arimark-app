@@ -20,9 +20,9 @@ import {
   setDoc,
   collection,
 } from 'firebase/firestore'
-import { getAuth } from 'firebase/auth'
-import { firebaseApp, LICENSE_KEY } from '../firebase'
+import { firebaseApp, auth, LICENSE_KEY } from '../firebase'
 import { db } from './db'
+import { isOnline, onConnectivityChange } from './connectivity'
 import type { LocalShift, LocalSale } from '../types/pos'
 
 const firestore = getFirestore(firebaseApp)
@@ -35,9 +35,8 @@ let syncInProgress = false
  */
 export async function triggerSync(): Promise<void> {
   if (syncInProgress) return
-  if (!navigator.onLine) return
+  if (!(await isOnline())) return
 
-  const auth = getAuth(firebaseApp)
   if (!auth.currentUser) return
 
   syncInProgress = true
@@ -136,7 +135,9 @@ async function uploadSale(storeId: string, shiftId: string, sale: LocalSale): Pr
 
 /** Registra el listener para disparar sync al recuperar la conexión. */
 export function registerOnlineListener(): void {
-  window.addEventListener('online', () => {
-    triggerSync().catch(() => { /* silencioso */ })
+  onConnectivityChange((online) => {
+    if (online) {
+      triggerSync().catch(() => { /* silencioso */ })
+    }
   })
 }

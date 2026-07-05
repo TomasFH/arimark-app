@@ -9,11 +9,15 @@ import { vi } from 'vitest'
 
 vi.mock('../firebase', () => ({
   firebaseApp: {},
+  auth: { currentUser: null },
   LICENSE_KEY: 'test-license',
 }))
 
 vi.mock('firebase/auth', () => ({
   getAuth: vi.fn(() => ({ currentUser: null })),
+  initializeAuth: vi.fn(() => ({ currentUser: null })),
+  indexedDBLocalPersistence: {},
+  browserLocalPersistence: {},
   signInWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
   onAuthStateChanged: vi.fn(() => () => {}),

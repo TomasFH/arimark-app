@@ -302,16 +302,37 @@ Flujo implementado:
 - **Relay retirado**: `relay.ts` (desktop y mobile), `ScannerScreen.tsx` (relay), canal `RELAY_SCAN`, `onRelayScan` en preload/hw-api eliminados. La PWA ya no es un "relay de barcodes" sino un POS completo.
 - **Reglas Firestore actualizadas**: regla `relay/{storeId}` eliminada; agregadas reglas para `catalog/{storeId}` (read autenticado) y `sync/{storeId}/shifts/{shiftId}` + `sales/{saleId}` (read/create/update autenticado).
 
-Componentes mobile nuevos: `SetupPinScreen`, `OpenShiftScreen`, `PosScreen`, `ManualEntry`, `PaymentModal`.
-Libs mobile nuevas: `db.ts` (Dexie), `pin.ts` (PBKDF2), `catalog.ts`, `sync.ts`.
+Componentes mobile nuevos: `OpenShiftScreen`, `PosScreen`, `ManualEntry`, `PaymentModal`.
+Libs mobile nuevas: `db.ts` (Dexie), `catalog.ts`, `sync.ts`, `connectivity.ts`.
 Desktop nuevos: `catalogPublish.ts`, `mobileSync.ts`, migración `0006_shifts_mobile_source.sql`.
 
 Cierre:
-- [x] `pnpm -r test` — 273 tests en verde (17 mobile + 256 desktop)
+- [x] `pnpm -r test` — suite en verde
 - [x] `pnpm -r typecheck` — sin errores
 - [x] Migración 0006 en `drizzle/` registrada en journal
 - [ ] Tag: `fase3-completa` (pendiente testeo manual)
 - [ ] Push a GitHub (pendiente testeo manual del desarrollador)
+
+**Sub-etapa 3d — App nativa instalable (Capacitor) + sesión persistente** ✅ IMPLEMENTADO (jul 2026):
+
+Motivo del cambio (feedback del desarrollador): la PWA en navegador solo abre offline si fue cargada antes de perder internet, y el caso de uso del celular es **justamente la emergencia** (corte de luz/internet). Además el PIN offline era una fricción que las cajeras probablemente no recordarían. Se decidió empaquetar la app como **instalable nativa** y reemplazar el PIN por **sesión persistente**.
+
+- **Empaquetado con Capacitor** (`@capacitor/core`, `@capacitor/android`, `@capacitor/network`, `@capacitor/cli`). `capacitor.config.ts` con `webDir: 'dist'`: los assets web construidos por Vite se copian **dentro** del instalador → la app **siempre abre offline**, incluso recién instalada y sin haber tenido internet nunca. No se define `server.url` (carga siempre desde archivos locales).
+- **Distribución sin app store**: `.apk` compilable con Android Studio y compartible por link/WhatsApp. El proyecto Android vive en `apps/mobile/android/`.
+- **Estrategia híbrida por plataforma (decisión jul 2026)**: Android usa la app nativa (`.apk`, garantía dura de apertura offline). **iOS se sirve como PWA** (misma base de código; "Agregar a pantalla de inicio" desde Safari), evitando el costo/fricción de Xcode + cuenta Apple + distribución fuera de la App Store (el desarrollador no tiene Mac). Riesgo asumido de iOS: WebKit puede desalojar el almacenamiento local tras semanas de inactividad → se mitiga con la **disciplina de abrir la app rutinariamente** (documentado en `apps/mobile/GUIA-INSTALACION.md`). El trabajo nativo no se descarta: `cap add ios` sigue disponible si en el futuro se justifica.
+- **Íconos y branding**: íconos PWA (`public/icon-192.png`, `icon-512.png`, `apple-touch-icon.png`) generados como placeholder neutro (barra de código + etiqueta, sin marca de cliente, coherente con la regla de agnosticismo). Nombre de la app unificado a "POS Móvil" (manifest + `index.html`). Guía de instalación/uso para cajeras en `apps/mobile/GUIA-INSTALACION.md`.
+- **Sesión persistente (sin PIN)**: `firebase.ts` usa `initializeAuth` con `indexedDBLocalPersistence` + `browserLocalPersistence`. Tras iniciar sesión **una vez con internet**, el refresh token queda en el dispositivo; `restoreSession()` (en `auth.ts`) rehidrata al usuario al abrir la app **con o sin conexión** y usa el perfil cacheado en IndexedDB. Eliminados `pin.ts`, `SetupPinScreen`, `signInWithPin` y el store `pin` de Dexie (schema v2).
+- **Conectividad y resync**: `connectivity.ts` (plugin `@capacitor/network` con fallback a `navigator.onLine`) expone `isOnline`, `onConnectivityChange` y el hook `useOnlineStatus`. La UI muestra un banner "Sin conexión" y, al reconectar, resincroniza el catálogo y sube turnos/ventas pendientes automáticamente.
+- **Permisos Android**: `CAMERA` (escáner), `ACCESS_NETWORK_STATE` e `INTERNET` declarados en `AndroidManifest.xml`.
+
+Requisito operativo documentado: para poder usar la app offline, la cajera debe haber iniciado sesión **al menos una vez con internet** en ese celular (configuración inicial). No hay login offline de una cuenta nueva sin conexión (riesgo aceptado, coherente con "instalar y configurar antes de la emergencia").
+
+Cómo compilar el `.apk` (requiere Android Studio + JDK instalados en la máquina de build):
+1. `pnpm --filter @carniceria/mobile build` (genera `dist/` con las envs de Firebase).
+2. `pnpm --filter @carniceria/mobile cap:sync` (copia assets al proyecto nativo).
+3. `pnpm --filter @carniceria/mobile cap:open:android` (abre Android Studio) → Build > Build APK(s); o `./gradlew assembleDebug` dentro de `apps/mobile/android/`.
+
+Componentes/libs mobile de esta sub-etapa: `connectivity.ts` (nuevo), `firebase.ts` (auth persistente), `auth.ts` (restauración de sesión), `App.tsx` (arranque por sesión + banner offline). Eliminados: `pin.ts`, `SetupPinScreen.tsx`, `LoginScreen.tsx` (código muerto).
 
 ### 🔜 Fase 4 — Sección de administración de PLUs (solo admins)
 

@@ -12,11 +12,11 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
       manifest: {
-        name: 'Carnicería — Escáner',
-        short_name: 'Escáner',
-        description: 'Escaneá códigos de balanza y relayalos a la caja',
+        name: 'POS Móvil',
+        short_name: 'POS',
+        description: 'Punto de venta de emergencia offline para el local',
         theme_color: '#1a1a1a',
-        background_color: '#ffffff',
+        background_color: '#1a1a1a',
         display: 'standalone',
         orientation: 'portrait',
         icons: [

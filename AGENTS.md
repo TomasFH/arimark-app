@@ -56,7 +56,7 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 
 El repo es un **monorepo pnpm** (`pnpm-workspace.yaml`):
 - `apps/desktop` — app Electron (proceso main + renderer React). Nunca se ejecuta código de red ni Firebase en el renderer.
-- `apps/mobile` — PWA React (Firebase Hosting, HTTPS). **Excepción legítima:** esta app accede a Firebase/Firestore directamente desde el navegador porque es un cliente web, no un proceso Electron. No rompe la regla "Firebase solo en main" porque esa regla aplica al desktop Electron.
+- `apps/mobile` — app React empaquetada como **nativa instalable con Capacitor** (`.apk` en Android; proyecto iOS preparado). Los assets web se empaquetan dentro del instalador (`webDir: 'dist'`), por lo que la app siempre abre offline, incluso recién instalada. El proyecto nativo Android vive en `apps/mobile/android/`. **Excepción legítima:** esta app accede a Firebase/Firestore directamente desde su WebView porque es un cliente web, no un proceso Electron. No rompe la regla "Firebase solo en main" porque esa regla aplica al desktop Electron. El acceso offline se resuelve con **sesión persistente de Firebase Auth** (login una sola vez con internet), no con PIN.
 - `packages/shared` — código TypeScript puro sin dependencias de runtime: `kretzBarcode.ts`, `relay.ts` (tipos + helpers de path). Consumido como TS source por ambas apps (Vite lo transpila; no hay build step en shared).
 
 Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediante `pnpm --filter`.
@@ -76,10 +76,10 @@ Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediant
 - El rol (`cashier` | `admin`) y los locales autorizados (`authorizedStores`) de cada cuenta viven en Firestore, en `licenses/{licenseKey}/users/{uid}`. Nunca en SQLite.
 - La tabla SQLite `users` es solo un **caché local de perfil** (nombre, local, activo) para que los FK de `shifts`, `sales`, `product_prices`, etc. resuelvan sin depender de internet. No contiene contraseñas ni username. `id` = `firebaseUid`.
 - El perfil local se **upsertea automáticamente** en el primer login exitoso de una cajera en cualquier PC — esto es lo que permite que la misma cajera opere en distintos locales sin que el desarrollador tenga que precargar nada en cada PC.
-- La PWA móvil usa **las mismas credenciales Firebase Auth** y lee el mismo perfil Firestore. El login es en `apps/mobile/src/lib/auth.ts`.
+- La app móvil usa **las mismas credenciales Firebase Auth** y lee el mismo perfil Firestore. El login es en `apps/mobile/src/lib/auth.ts`. La sesión queda persistida en el dispositivo (`initializeAuth` con `indexedDBLocalPersistence`), así que tras el primer login con internet la cajera opera offline sin volver a ingresar credenciales ni PIN. `restoreSession()` rehidrata al usuario al abrir la app.
 - No hay control de concurrencia entre dispositivos: la misma cajera puede estar logueada en la PC y en su celular al mismo tiempo. Firebase Auth es la única fuente de identidad.
 - Alta de cuentas nuevas: mientras no exista un panel de administración (Fase 4) o una Cloud Function dedicada, la creación de una cuenta de cajera/admin (Firebase Auth + documento de perfil en Firestore) es **manual, desde la consola de Firebase**. Deuda técnica señalada, no silenciada.
-- Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. Si la PC se reinicia sin internet, no se puede volver a loguear una cajera (riesgo aceptado explícitamente por el desarrollador; no se implementa un PIN de emergencia en la PC, sí en el celular en Fase 3).
+- Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. Si la PC se reinicia sin internet, no se puede volver a loguear una cajera (riesgo aceptado explícitamente por el desarrollador; no se implementa un PIN de emergencia en la PC). En el **celular** el acceso offline se logra con la sesión persistente de Firebase Auth: la cajera debe haberse logueado al menos una vez con internet en ese dispositivo (configuración inicial), y de ahí en más la app abre y opera offline sin credenciales.
 
 ## IPC y validación
 

@@ -1,35 +1,40 @@
 /**
  * Autenticación del POS móvil.
  *
- * Modos de login:
- *  1. Online (Firebase): verifica credenciales + perfil Firestore. Cachea perfil
- *     en IndexedDB para habilitar el login por PIN offline posteriormente.
- *  2. Offline por PIN: si Firebase falla por error de red, permite acceder usando
- *     el PIN configurado en este dispositivo. La sesión se marca como "offline"
- *     y se revalida automáticamente al recuperar conexión.
+ * Modelo: sesión persistente de Firebase Auth. No hay PIN ni claves offline.
  *
- * El PIN se configura en el primer login exitoso (si el dispositivo no tiene uno).
+ *  1. Login online (email + contraseña): verifica credenciales, lee el perfil
+ *     desde Firestore y lo cachea en IndexedDB. Firebase guarda el refresh
+ *     token localmente (ver `firebase.ts`).
+ *  2. Restauración de sesión: al reabrir la app, `restoreSession()` recupera al
+ *     usuario ya autenticado desde la persistencia local — con o SIN internet —
+ *     y devuelve el perfil cacheado. La cajera nunca vuelve a ingresar
+ *     credenciales mientras no cierre sesión explícitamente.
+ *
+ * Requisito para operar offline: haber iniciado sesión al menos una vez con
+ * internet en ese dispositivo (durante la configuración inicial).
  */
 import {
-  getAuth,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   type User,
 } from 'firebase/auth'
 import { getFirestore, doc, getDoc } from 'firebase/firestore'
-import { firebaseApp, LICENSE_KEY } from '../firebase'
+import { firebaseApp, auth, LICENSE_KEY } from '../firebase'
 import { db } from './db'
-import { verifyPin, getPinUid } from './pin'
 import type { LocalProfile } from '../types/pos'
 
 export type { LocalProfile }
 
 export type SignInResult =
-  | { ok: true; profile: LocalProfile; mode: 'online' | 'offline' }
-  | { ok: false; error: string; canUsePan?: boolean }
+  | { ok: true; profile: LocalProfile; mode: 'online' }
+  | { ok: false; error: string }
 
-const auth = getAuth(firebaseApp)
+export type RestoreResult =
+  | { ok: true; profile: LocalProfile; mode: 'online' | 'offline' }
+  | { ok: false }
+
 const firestore = getFirestore(firebaseApp)
 
 /** Errores de Firebase que indican falta de red (no credenciales inválidas). */
@@ -40,44 +45,46 @@ const NETWORK_ERRORS = new Set([
 ])
 
 /**
- * Login online con Firebase Auth + perfil Firestore.
- * Cachea el perfil en IndexedDB al completarse con éxito.
+ * Lee el perfil de Firestore para un uid, valida el rol y lo cachea localmente.
+ * Devuelve null si el usuario no está registrado o su rol no está autorizado.
  */
-async function signInOnline(
-  email: string,
-  password: string
-): Promise<{ ok: true; profile: LocalProfile } | { ok: false; error: string; isNetworkError: boolean }> {
+async function fetchAndCacheProfile(
+  uid: string,
+  email: string
+): Promise<LocalProfile | null> {
+  const profileRef = doc(firestore, 'licenses', LICENSE_KEY, 'users', uid)
+  const snap = await getDoc(profileRef)
+  if (!snap.exists()) return null
+
+  const data = snap.data()
+  const role = data['role'] as 'cashier' | 'admin'
+  if (role !== 'cashier' && role !== 'admin') return null
+
+  const profile: LocalProfile = {
+    uid,
+    displayName: data['displayName'] ?? email,
+    role,
+    authorizedStores: data['authorizedStores'] ?? [],
+    email,
+  }
+
+  await db.profile.put(profile)
+  return profile
+}
+
+/** Login online con Firebase Auth + perfil Firestore. */
+export async function signIn(email: string, password: string): Promise<SignInResult> {
   try {
     const credential = await signInWithEmailAndPassword(auth, email, password)
     const uid = credential.user.uid
 
-    const profileRef = doc(firestore, 'licenses', LICENSE_KEY, 'users', uid)
-    const snap = await getDoc(profileRef)
-
-    if (!snap.exists()) {
+    const profile = await fetchAndCacheProfile(uid, email)
+    if (!profile) {
       await firebaseSignOut(auth)
-      return { ok: false, error: 'Usuario no registrado en este sistema.', isNetworkError: false }
+      return { ok: false, error: 'Usuario no registrado o sin rol autorizado.' }
     }
 
-    const data = snap.data()
-    const role = data['role'] as 'cashier' | 'admin'
-    if (role !== 'cashier' && role !== 'admin') {
-      await firebaseSignOut(auth)
-      return { ok: false, error: 'Rol de usuario no autorizado.', isNetworkError: false }
-    }
-
-    const profile: LocalProfile = {
-      uid,
-      displayName: data['displayName'] ?? email,
-      role,
-      authorizedStores: data['authorizedStores'] ?? [],
-      email,
-    }
-
-    // Cachear perfil para habilitar el login offline posterior.
-    await db.profile.put(profile)
-
-    return { ok: true, profile }
+    return { ok: true, profile, mode: 'online' }
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? ''
     if (
@@ -85,60 +92,54 @@ async function signInOnline(
       code === 'auth/wrong-password' ||
       code === 'auth/invalid-credential'
     ) {
-      return { ok: false, error: 'Credenciales incorrectas.', isNetworkError: false }
+      return { ok: false, error: 'Credenciales incorrectas.' }
     }
     if (NETWORK_ERRORS.has(code) || !navigator.onLine) {
-      return { ok: false, error: 'Sin conexión.', isNetworkError: true }
+      return {
+        ok: false,
+        error: 'Sin conexión. Para el primer ingreso en este celular necesitás internet.',
+      }
     }
-    return { ok: false, error: 'Error al iniciar sesión.', isNetworkError: false }
+    return { ok: false, error: 'Error al iniciar sesión.' }
   }
 }
 
 /**
- * Login offline por PIN.
- * Solo posible si el dispositivo tiene PIN configurado y perfil cacheado.
+ * Restaura la sesión persistida al abrir la app.
+ *
+ * Espera a que Firebase resuelva el estado de auth desde la persistencia local
+ * (funciona offline) y devuelve el perfil correspondiente:
+ *  - Perfil cacheado en IndexedDB → uso inmediato (con o sin internet).
+ *  - Sin caché pero con internet → lo baja de Firestore y lo cachea.
+ *  - Sin sesión previa → { ok: false } (hay que loguearse).
  */
-async function signInOfflineWithPin(pin: string): Promise<SignInResult> {
-  const valid = await verifyPin(pin)
-  if (!valid) {
-    return { ok: false, error: 'PIN incorrecto.' }
-  }
+export function restoreSession(): Promise<RestoreResult> {
+  return new Promise((resolve) => {
+    const unsub = onAuthStateChanged(auth, async (user: User | null) => {
+      unsub()
+      if (!user) {
+        resolve({ ok: false })
+        return
+      }
 
-  const uid = await getPinUid()
-  if (!uid) {
-    return { ok: false, error: 'No hay sesión guardada para este PIN.' }
-  }
+      const cached = await db.profile.get(user.uid)
+      if (cached) {
+        resolve({ ok: true, profile: cached, mode: navigator.onLine ? 'online' : 'offline' })
+        return
+      }
 
-  const profile = await db.profile.get(uid)
-  if (!profile) {
-    return { ok: false, error: 'No hay perfil local disponible. Iniciá sesión con internet primero.' }
-  }
+      if (navigator.onLine) {
+        const profile = await fetchAndCacheProfile(user.uid, user.email ?? '')
+        if (profile) {
+          resolve({ ok: true, profile, mode: 'online' })
+          return
+        }
+      }
 
-  return { ok: true, profile, mode: 'offline' }
-}
-
-/**
- * Intenta login online. Si hay error de red y el dispositivo tiene PIN,
- * retorna { canUsePan: true } para que la UI ofrezca el login por PIN.
- */
-export async function signIn(email: string, password: string): Promise<SignInResult> {
-  const result = await signInOnline(email, password)
-  if (result.ok) {
-    return { ok: true, profile: result.profile, mode: 'online' }
-  }
-
-  if (result.isNetworkError) {
-    const { hasPinConfigured } = await import('./pin')
-    const hasPin = await hasPinConfigured()
-    return { ok: false, error: result.error, canUsePan: hasPin }
-  }
-
-  return { ok: false, error: result.error }
-}
-
-/** Login solo con PIN (cuando el usuario elige explícitamente esa opción). */
-export async function signInWithPin(pin: string): Promise<SignInResult> {
-  return signInOfflineWithPin(pin)
+      // Sesión válida pero sin perfil accesible (offline y sin caché).
+      resolve({ ok: false })
+    })
+  })
 }
 
 export function signOut(): Promise<void> {

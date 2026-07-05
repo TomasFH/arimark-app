@@ -4,20 +4,16 @@
  *
  * Stores:
  *  - profile:  perfil del usuario autenticado (uid, role, locales autorizados)
- *  - pin:      hash PBKDF2 del PIN de emergencia
  *  - catalog:  catálogo de productos por local (descargado de Firestore)
  *  - shifts:   turnos creados en el celular, pendientes de sync
  *  - sales:    ventas confirmadas en el celular, pendientes de sync
+ *
+ * El acceso offline ya no depende de un PIN: la sesión de Firebase Auth queda
+ * persistida en IndexedDB (ver firebase.ts), por lo que la versión 2 del schema
+ * elimina el antiguo store `pin`.
  */
 import Dexie, { type EntityTable } from 'dexie'
 import type { LocalProfile, CatalogProduct, LocalShift, LocalSale } from '../types/pos'
-
-export interface PinRecord {
-  id: 1  // Siempre un único registro.
-  uid: string
-  hashB64: string
-  saltB64: string
-}
 
 export interface CatalogRecord {
   /** storeId — clave primaria. */
@@ -28,7 +24,6 @@ export interface CatalogRecord {
 
 class MobileDb extends Dexie {
   profile!: EntityTable<LocalProfile, 'uid'>
-  pin!: EntityTable<PinRecord, 'id'>
   catalog!: EntityTable<CatalogRecord, 'storeId'>
   shifts!: EntityTable<LocalShift, 'id'>
   sales!: EntityTable<LocalSale, 'id'>
@@ -42,6 +37,11 @@ class MobileDb extends Dexie {
       catalog:  'storeId',
       shifts:   'id, storeId, syncStatus, closedAt',
       sales:    'id, shiftId, storeId, syncStatus, createdAt',
+    })
+
+    // v2: se elimina el store `pin` (login offline ahora es sesión persistente).
+    this.version(2).stores({
+      pin: null,
     })
   }
 }
