@@ -6,6 +6,7 @@ import LicenseErrorScreen from './routes/LicenseErrorScreen'
 import OpenShiftScreen from './routes/OpenShiftScreen'
 import CashierScreen from './routes/CashierScreen'
 import AdminScreen from './routes/AdminScreen'
+import AdminHubScreen from './routes/AdminHubScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
 
 type AppState =
@@ -15,6 +16,7 @@ type AppState =
   | { screen: 'login'; initStatus: InitStatus }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
+  | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
@@ -65,7 +67,30 @@ export default function App() {
     if (state.screen !== 'login') return
     const result = await window.hw.loginAdmin({ email, password })
     if (!result.ok) throw new Error(result.error)
-    setState({ screen: 'admin', session: result.data, initStatus: state.initStatus })
+    setState({ screen: 'admin-hub', session: result.data, initStatus: state.initStatus })
+  }
+
+  async function handleAdminGoToCashier(): Promise<void> {
+    if (state.screen !== 'admin-hub') return
+    const shiftResult = await window.hw.getActiveShift()
+    if (shiftResult.ok && shiftResult.data) {
+      setState({ screen: 'cashier', session: state.session, shift: shiftResult.data, initStatus: state.initStatus })
+    } else {
+      setState({ screen: 'shift-required', session: state.session, initStatus: state.initStatus })
+    }
+  }
+
+  function handleAdminGoToPanel(): void {
+    if (state.screen !== 'admin-hub') return
+    setState({ screen: 'admin', session: state.session, initStatus: state.initStatus })
+  }
+
+  function handleReturnToAdminHub(): void {
+    const session = 'session' in state ? state.session : null
+    const initStatus = 'initStatus' in state ? state.initStatus : null
+    if (session && initStatus && session.role === 'admin') {
+      setState({ screen: 'admin-hub', session, initStatus })
+    }
   }
 
 
@@ -119,13 +144,27 @@ export default function App() {
       )}
 
       {state.screen === 'shift-required' && (
-        <OpenShiftScreen onShiftOpened={handleShiftOpened} />
+        <OpenShiftScreen
+          onShiftOpened={handleShiftOpened}
+          onCancel={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
+        />
       )}
 
       {state.screen === 'cashier' && (
         <CashierScreen
           session={state.session}
           shift={state.shift}
+          onLogout={handleLogout}
+          onReturnToHub={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
+        />
+      )}
+
+      {state.screen === 'admin-hub' && (
+        <AdminHubScreen
+          session={state.session}
+          initStatus={state.initStatus}
+          onGoToAdminPanel={handleAdminGoToPanel}
+          onGoToCashier={() => void handleAdminGoToCashier()}
           onLogout={handleLogout}
         />
       )}
@@ -134,6 +173,7 @@ export default function App() {
         <AdminScreen
           session={state.session}
           onLogout={handleLogout}
+          onReturnToHub={handleReturnToAdminHub}
         />
       )}
     </div>

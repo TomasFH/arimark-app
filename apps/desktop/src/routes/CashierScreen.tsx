@@ -13,6 +13,7 @@ interface Props {
   session: SessionInfo
   shift: ShiftInfo
   onLogout: () => void
+  onReturnToHub?: () => void
 }
 
 /** Producto genérico usado cuando el PLU no está mapeado a un producto real. */
@@ -23,7 +24,7 @@ interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout }: Props) {
+export default function CashierScreen({ session, shift, onLogout, onReturnToHub }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -161,6 +162,14 @@ export default function CashierScreen({ session, shift, onLogout }: Props) {
           <span className="text-sm text-gray-400">
             {session.role === 'cashier' ? 'Cajera' : 'Admin'}
           </span>
+          {onReturnToHub && (
+            <button
+              onClick={onReturnToHub}
+              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-600 hover:text-white transition-colors"
+            >
+              ← Panel admin
+            </button>
+          )}
           <button
             onClick={onLogout}
             className="rounded-md bg-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-600"

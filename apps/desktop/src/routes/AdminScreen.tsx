@@ -39,13 +39,14 @@ const CATEGORY_LABELS: Record<AdminProductRow['category'], string> = {
 interface Props {
   session: SessionInfo
   onLogout: () => void
+  onReturnToHub: () => void
 }
 
 // ---------------------------------------------------------------------------
 // Pantalla principal
 // ---------------------------------------------------------------------------
 
-export default function AdminScreen({ onLogout }: Props) {
+export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [selectedStoreId, setSelectedStoreId] = useState<string>('')
   const [products, setProducts] = useState<AdminProductRow[]>([])
@@ -115,25 +116,34 @@ export default function AdminScreen({ onLogout }: Props) {
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-        <div>
-          <h1 className="text-lg font-semibold">Administración — Productos</h1>
-          {stores.length > 1 && (
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-gray-400">Local:</span>
-              <select
-                value={selectedStoreId}
-                onChange={e => setSelectedStoreId(e.target.value)}
-                className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
-              >
-                {stores.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          {stores.length === 1 && (
-            <p className="text-xs text-gray-400 mt-0.5">{stores[0]?.name}</p>
-          )}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onReturnToHub}
+            className="text-gray-400 hover:text-white transition-colors text-sm"
+            title="Volver al menú principal"
+          >
+            ← Volver
+          </button>
+          <div>
+            <h1 className="text-lg font-semibold">Administración — Productos</h1>
+            {stores.length > 1 && (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-gray-400">Local:</span>
+                <select
+                  value={selectedStoreId}
+                  onChange={e => setSelectedStoreId(e.target.value)}
+                  className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
+                >
+                  {stores.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {stores.length === 1 && (
+              <p className="text-xs text-gray-400 mt-0.5">{stores[0]?.name}</p>
+            )}
+          </div>
         </div>
         <button
           onClick={onLogout}

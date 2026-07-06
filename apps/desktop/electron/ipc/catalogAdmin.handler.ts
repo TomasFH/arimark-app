@@ -42,7 +42,7 @@ const createProductSchema = z.object({
 })
 
 const updateProductSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().min(1),
   name: z.string().min(1).max(100).optional(),
   category: categoryEnum.optional(),
   unit: unitEnum.optional(),
@@ -51,14 +51,14 @@ const updateProductSchema = z.object({
 })
 
 const setProductPriceSchema = z.object({
-  productId: z.string().uuid(),
-  storeId: z.string().uuid(),
+  productId: z.string().min(1),
+  storeId: z.string().min(1),
   price: z.number().int().min(0),
 })
 
 const setProductAvailabilitySchema = z.object({
-  productId: z.string().uuid(),
-  storeId: z.string().uuid(),
+  productId: z.string().min(1),
+  storeId: z.string().min(1),
   available: z.boolean(),
 })
 
@@ -140,7 +140,7 @@ export function registerCatalogAdminHandlers(): void {
 
   // ---- GET_ALL_PRODUCTS ----
   ipcMain.handle(IPC.GET_ALL_PRODUCTS, (_event, storeId: unknown): IpcResult<AdminProductRow[]> => {
-    const parsed = z.string().uuid().safeParse(storeId)
+    const parsed = z.string().min(1).safeParse(storeId)
     if (!parsed.success) {
       return { ok: false, error: 'storeId inválido.', code: 'VALIDATION_ERROR' }
     }

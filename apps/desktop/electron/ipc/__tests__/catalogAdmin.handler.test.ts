@@ -125,7 +125,7 @@ describe('catalogAdmin.handler', () => {
 
     it('rechaza storeId inválido', () => {
       vi.mocked(getDb).mockReturnValue(makeDb([]))
-      const result = getHandler('ipc:get-all-products')({}, 'no-un-uuid') as { ok: boolean; code: string }
+      const result = getHandler('ipc:get-all-products')({}, '') as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
     })
@@ -183,7 +183,7 @@ describe('catalogAdmin.handler', () => {
 
     it('rechaza payload malformado (id no es uuid)', () => {
       vi.mocked(getDb).mockReturnValue(makeDb([]))
-      const result = getHandler('ipc:update-product')({}, { id: 'not-uuid', name: 'X' }) as { ok: boolean; code: string }
+      const result = getHandler('ipc:update-product')({}, { id: '', name: 'X' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
     })
@@ -213,7 +213,7 @@ describe('catalogAdmin.handler', () => {
     it('rechaza payload malformado (productId no uuid)', async () => {
       vi.mocked(getDb).mockReturnValue(makeDb([]))
       const result = await getHandler('ipc:set-product-price')({}, {
-        productId: 'bad', storeId: STORE_ID, price: 100,
+        productId: '', storeId: STORE_ID, price: 100,
       }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
@@ -262,7 +262,7 @@ describe('catalogAdmin.handler', () => {
     it('rechaza payload malformado', () => {
       vi.mocked(getDb).mockReturnValue(makeDb([]))
       const result = getHandler('ipc:set-product-availability')({}, {
-        productId: 'bad', storeId: STORE_ID, available: true,
+        productId: '', storeId: STORE_ID, available: true,
       }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
