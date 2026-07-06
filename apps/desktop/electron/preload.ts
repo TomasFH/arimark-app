@@ -33,6 +33,18 @@ const hw: HwApi = {
 
   getProducts: () => ipcRenderer.invoke(IPC.GET_PRODUCTS),
 
+  getAllProducts: (storeId) => ipcRenderer.invoke(IPC.GET_ALL_PRODUCTS, storeId),
+
+  getStores: () => ipcRenderer.invoke(IPC.GET_STORES),
+
+  createProduct: (payload) => ipcRenderer.invoke(IPC.CREATE_PRODUCT, payload),
+
+  updateProduct: (payload) => ipcRenderer.invoke(IPC.UPDATE_PRODUCT, payload),
+
+  setProductPrice: (payload) => ipcRenderer.invoke(IPC.SET_PRODUCT_PRICE, payload),
+
+  setProductAvailability: (payload) => ipcRenderer.invoke(IPC.SET_PRODUCT_AVAILABILITY, payload),
+
   createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
 
   // Gestión de PLUs (balanza KRETZ)

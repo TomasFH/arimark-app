@@ -22,6 +22,14 @@ export const IPC = {
   // Productos (catálogo local)
   GET_PRODUCTS: 'ipc:get-products',
 
+  // Catálogo admin — CRUD de productos y precios (solo admins)
+  GET_ALL_PRODUCTS: 'ipc:get-all-products',
+  CREATE_PRODUCT: 'ipc:create-product',
+  UPDATE_PRODUCT: 'ipc:update-product',
+  SET_PRODUCT_PRICE: 'ipc:set-product-price',
+  SET_PRODUCT_AVAILABILITY: 'ipc:set-product-availability',
+  GET_STORES: 'ipc:get-stores',
+
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',
 

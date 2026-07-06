@@ -5,6 +5,7 @@ import ActivationScreen from './routes/ActivationScreen'
 import LicenseErrorScreen from './routes/LicenseErrorScreen'
 import OpenShiftScreen from './routes/OpenShiftScreen'
 import CashierScreen from './routes/CashierScreen'
+import AdminScreen from './routes/AdminScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
 
 type AppState =
@@ -130,18 +131,10 @@ export default function App() {
       )}
 
       {state.screen === 'admin' && (
-        <div className="flex flex-1 items-center justify-center bg-gray-900">
-          <div className="text-center space-y-3">
-            <p className="text-lg font-semibold text-white">Panel de administrador</p>
-            <p className="text-sm text-gray-400">Disponible en Fase 5</p>
-            <button
-              onClick={handleLogout}
-              className="mt-4 rounded-lg bg-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-600"
-            >
-              Cerrar sesión
-            </button>
-          </div>
-        </div>
+        <AdminScreen
+          session={state.session}
+          onLogout={handleLogout}
+        />
       )}
     </div>
   )

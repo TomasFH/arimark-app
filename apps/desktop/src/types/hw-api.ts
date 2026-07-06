@@ -139,6 +139,58 @@ export interface ProductRow {
 }
 
 // ---------------------------------------------------------------------------
+// Catálogo admin — gestión de productos y precios
+// ---------------------------------------------------------------------------
+
+/** Producto completo para el panel admin (incluye productos sin PLU y estado activo). */
+export interface AdminProductRow {
+  id: string
+  name: string
+  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  unit: 'kg' | 'unit'
+  pluNumber: number | null
+  active: boolean
+  /** Precio vigente en el local seleccionado. null si no hay precio cargado. */
+  price: number | null
+  /** Disponibilidad en el local seleccionado (de store_products). */
+  available: boolean
+}
+
+export interface StoreRow {
+  id: string
+  name: string
+}
+
+export interface CreateProductPayload {
+  name: string
+  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  unit: 'kg' | 'unit'
+  pluNumber: number | null
+}
+
+export interface UpdateProductPayload {
+  id: string
+  name?: string
+  category?: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  unit?: 'kg' | 'unit'
+  pluNumber?: number | null
+  active?: boolean
+}
+
+export interface SetProductPricePayload {
+  productId: string
+  storeId: string
+  /** Nuevo precio en pesos (entero). 0 = sin precio (elimina el precio vigente). */
+  price: number
+}
+
+export interface SetProductAvailabilityPayload {
+  productId: string
+  storeId: string
+  available: boolean
+}
+
+// ---------------------------------------------------------------------------
 // Ventas (POS)
 // ---------------------------------------------------------------------------
 export interface SaleItemPayload {
@@ -257,6 +309,24 @@ export interface HwApi {
 
   /** Retorna todos los productos del catálogo con PLU asignado, ordenados por PLU asc */
   getProducts: () => Promise<IpcResult<ProductRow[]>>
+
+  /** Retorna todos los productos (con y sin PLU) con precio y disponibilidad para el local dado — solo admin */
+  getAllProducts: (storeId: string) => Promise<IpcResult<AdminProductRow[]>>
+
+  /** Lista de locales del sistema — solo admin */
+  getStores: () => Promise<IpcResult<StoreRow[]>>
+
+  /** Crea un producto nuevo — solo admin */
+  createProduct: (payload: CreateProductPayload) => Promise<IpcResult<{ id: string }>>
+
+  /** Edita nombre, categoría, unidad, PLU o estado activo de un producto — solo admin */
+  updateProduct: (payload: UpdateProductPayload) => Promise<IpcResult>
+
+  /** Cambia el precio vigente de un producto en un local (cierra el anterior y abre uno nuevo) — solo admin */
+  setProductPrice: (payload: SetProductPricePayload) => Promise<IpcResult>
+
+  /** Activa o desactiva la disponibilidad de un producto en un local — solo admin */
+  setProductAvailability: (payload: SetProductAvailabilityPayload) => Promise<IpcResult>
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>
