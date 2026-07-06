@@ -102,6 +102,11 @@ export function registerAuthHandlers(): void {
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         }
         await setSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN, JSON.stringify(session))
+
+        // Setear sesión activa con el local por defecto para que el admin
+        // pueda operar turnos en modo cajera de emergencia sin error NO_SESSION.
+        setActiveSession({ userId: profile.uid, storeId: config.default_store_id, shiftId: null })
+
         log.info('[ipc:login] Admin autenticado', { email })
         return {
           ok: true,
