@@ -6,11 +6,12 @@ import { getDb } from '../db/client'
 import { users } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { setActiveSession } from '../activeSession'
-import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession } from '../licensing/session'
+import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession, signInAutoDetect } from '../licensing/session'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
 import { publishCatalog } from '../licensing/catalogPublish'
 import { startMobileSyncListener, stopMobileSyncListener } from '../licensing/mobileSync'
+import { setSecret, SECRET_KEYS } from '../secureStorage'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,11 @@ const cashierLoginSchema = z.object({
 })
 
 const adminLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+})
+
+const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 })
@@ -68,6 +74,96 @@ export function registerAuthHandlers(): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: message }
+    }
+  })
+
+  ipcMain.handle(IPC.LOGIN, async (_event, payload: unknown): Promise<IpcResult<SessionInfo>> => {
+    const parsed = loginSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:login] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
+    }
+
+    const { email, password } = parsed.data
+    const config = getBusinessConfig()
+    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+
+    try {
+      const result = await signInAutoDetect(config.license_key, email, password)
+      if (!result.ok) return { ok: false, error: result.error }
+
+      const { profile } = result
+
+      if (profile.role === 'admin') {
+        // Flujo admin: guardar sesión en safeStorage
+        const session = {
+          uid: profile.uid,
+          email: profile.email,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }
+        await setSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN, JSON.stringify(session))
+        log.info('[ipc:login] Admin autenticado', { email })
+        return {
+          ok: true,
+          data: {
+            role: 'admin',
+            userId: profile.uid,
+            expiresAt: session.expiresAt.toISOString(),
+          },
+        }
+      }
+
+      // Flujo cajera: usar el primer local autorizado o el default
+      const storeId = (APP_ENV !== 'dev' && profile.authorizedStores.length > 0)
+        ? profile.authorizedStores[0]!
+        : config.default_store_id
+
+      const db = getDb()
+      const existing = db
+        .select()
+        .from(users)
+        .where(eq(users.firebaseUid, profile.uid))
+        .limit(1)
+        .all()[0]
+
+      if (!existing) {
+        db.insert(users).values({
+          id: profile.uid,
+          storeId,
+          name: profile.displayName,
+          firebaseUid: profile.uid,
+          role: 'cashier',
+          active: true,
+          createdAt: new Date().toISOString(),
+        }).run()
+        log.info('[ipc:login] Perfil cajera creado', { uid: profile.uid, storeId })
+      } else if (!existing.active) {
+        return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
+      } else if (existing.storeId !== storeId || existing.name !== profile.displayName) {
+        db.update(users).set({ storeId, name: profile.displayName }).where(eq(users.id, existing.id)).run()
+      }
+
+      setActiveSession({ userId: profile.uid, storeId, shiftId: null })
+
+      publishCatalog(config.license_key, storeId).catch(err =>
+        log.warn('[ipc:login] Error publicando catálogo', err)
+      )
+      startMobileSyncListener(config.license_key, storeId)
+
+      log.info('[ipc:login] Cajera autenticada', { email, storeId })
+      return {
+        ok: true,
+        data: {
+          role: 'cashier',
+          userId: profile.uid,
+          storeId,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        },
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:login] Error inesperado', message)
+      return { ok: false, error: 'Error interno al iniciar sesión.' }
     }
   })
 

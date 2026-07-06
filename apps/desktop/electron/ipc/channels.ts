@@ -35,6 +35,7 @@ export const IPC = {
 
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
+  LOGIN: 'ipc:login',
   LOGIN_CASHIER: 'ipc:login-cashier',
   LOGIN_ADMIN: 'ipc:login-admin',
   LOGOUT: 'ipc:logout',

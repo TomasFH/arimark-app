@@ -21,6 +21,8 @@ const hw: HwApi = {
 
   activateInstallation: payload => ipcRenderer.invoke(IPC.ACTIVATE_INSTALLATION, payload),
 
+  login: payload => ipcRenderer.invoke(IPC.LOGIN, payload),
+
   loginCashier: payload => ipcRenderer.invoke(IPC.LOGIN_CASHIER, payload),
 
   loginAdmin: payload => ipcRenderer.invoke(IPC.LOGIN_ADMIN, payload),

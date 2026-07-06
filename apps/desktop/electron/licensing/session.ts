@@ -128,6 +128,84 @@ export async function signInWithRole(
   }
 }
 
+/**
+ * Igual que signInWithRole pero detecta el rol automáticamente desde Firestore,
+ * sin que el llamador lo especifique. Usado por el login unificado.
+ *
+ * En dev: infiere el rol del email (contiene "admin" → admin, resto → cashier).
+ */
+export async function signInAutoDetect(
+  licenseKey: string,
+  email: string,
+  password: string,
+): Promise<{ ok: true; profile: UserProfile } | { ok: false; error: string }> {
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+
+  if (APP_ENV === 'dev') {
+    const role: UserRole = email.toLowerCase().includes('admin') ? 'admin' : 'cashier'
+    const uid = `dev-${role}-${email.trim().toLowerCase()}`
+    return {
+      ok: true,
+      profile: {
+        uid,
+        email,
+        role,
+        authorizedStores: [],
+        displayName: email.split('@')[0] || email,
+        active: true,
+      },
+    }
+  }
+
+  try {
+    const app = getFirebaseApp()
+    const auth = getAuth(app)
+    const credential = await signInWithEmailAndPassword(auth, email, password)
+    const uid = credential.user.uid
+    await credential.user.getIdToken(true)
+
+    const db = getFirestore(app)
+    const profileRef = doc(db, 'licenses', licenseKey, 'users', uid)
+    const snap = await getDoc(profileRef)
+
+    if (!snap.exists()) {
+      log.warn('[session] Login sin perfil en Firestore', { uid })
+      return { ok: false, error: 'Usuario no autorizado.' }
+    }
+
+    const data = snap.data() as {
+      role: UserRole
+      authorizedStores?: string[]
+      displayName?: string
+      active?: boolean
+    }
+
+    if (data.active === false) {
+      return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
+    }
+    if (data.role !== 'cashier' && data.role !== 'admin') {
+      log.warn('[session] Rol desconocido en Firestore', { uid, role: data.role })
+      return { ok: false, error: 'Rol no reconocido. Contactar al administrador.' }
+    }
+
+    const profile: UserProfile = {
+      uid,
+      email: credential.user.email ?? email,
+      role: data.role,
+      authorizedStores: data.authorizedStores ?? [],
+      displayName: data.displayName ?? email,
+      active: true,
+    }
+
+    log.info('[session] Login autodetect exitoso', { uid, role: data.role })
+    return { ok: true, profile }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    log.error('[session] Error en signInAutoDetect', message)
+    return { ok: false, error: 'Credenciales incorrectas o sin conexión.' }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Admins — sesión local efímera (24h) via safeStorage
 // ---------------------------------------------------------------------------

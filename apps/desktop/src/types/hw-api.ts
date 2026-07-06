@@ -52,6 +52,11 @@ export interface ActivateInstallationPayload {
   activationCode: string
 }
 
+export interface LoginPayload {
+  email: string
+  password: string
+}
+
 export interface CashierLoginPayload {
   email: string
   password: string
@@ -290,6 +295,9 @@ export interface HwApi {
 
   /** Activa la instalación con un código de un solo uso */
   activateInstallation: (payload: ActivateInstallationPayload) => Promise<IpcResult>
+
+  /** Login unificado: detecta el rol automáticamente desde Firestore */
+  login: (payload: LoginPayload) => Promise<IpcResult<SessionInfo>>
 
   /** Login de cajera (Firebase Auth — mismo mecanismo que admin, valida rol y local autorizado) */
   loginCashier: (payload: CashierLoginPayload) => Promise<IpcResult<SessionInfo>>

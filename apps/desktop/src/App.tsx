@@ -48,26 +48,23 @@ export default function App() {
     })
   }, [])
 
-  async function handleCashierLogin(email: string, password: string): Promise<void> {
+  async function handleLogin(email: string, password: string): Promise<void> {
     if (state.screen !== 'login') return
-    const result = await window.hw.loginCashier({ email, password, storeId: state.initStatus.defaultStoreId })
+    const result = await window.hw.login({ email, password })
     if (!result.ok) throw new Error(result.error)
 
     const session = result.data
-    // Verificar si hay un turno activo antes de mostrar el POS
+    if (session.role === 'admin') {
+      setState({ screen: 'admin-hub', session, initStatus: state.initStatus })
+      return
+    }
+    // cajera
     const shiftResult = await window.hw.getActiveShift()
     if (shiftResult.ok && shiftResult.data) {
       setState({ screen: 'cashier', session, shift: shiftResult.data, initStatus: state.initStatus })
     } else {
       setState({ screen: 'shift-required', session, initStatus: state.initStatus })
     }
-  }
-
-  async function handleAdminLogin(email: string, password: string): Promise<void> {
-    if (state.screen !== 'login') return
-    const result = await window.hw.loginAdmin({ email, password })
-    if (!result.ok) throw new Error(result.error)
-    setState({ screen: 'admin-hub', session: result.data, initStatus: state.initStatus })
   }
 
   async function handleAdminGoToCashier(): Promise<void> {
@@ -138,8 +135,7 @@ export default function App() {
       {state.screen === 'login' && (
         <LoginScreen
           businessName={state.initStatus.businessName}
-          onCashierLogin={handleCashierLogin}
-          onAdminLogin={handleAdminLogin}
+          onLogin={handleLogin}
         />
       )}
 

@@ -1,20 +1,16 @@
 import { useState } from 'react'
 
-type LoginMode = 'cashier' | 'admin'
-
 const isDevMode = import.meta.env['VITE_APP_ENV'] === 'dev'
 
 const DEV_EMAIL = 'cajera1@dev.local'
 const DEV_PASSWORD = 'cajera1234'
 
 interface Props {
-  onCashierLogin: (email: string, password: string) => Promise<void>
-  onAdminLogin: (email: string, password: string) => Promise<void>
+  onLogin: (email: string, password: string) => Promise<void>
   businessName: string
 }
 
-export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName }: Props) {
-  const [mode, setMode] = useState<LoginMode>('cashier')
+export default function LoginScreen({ onLogin, businessName }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -24,13 +20,8 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
-      if (mode === 'cashier') {
-        await onCashierLogin(email, password)
-      } else {
-        await onAdminLogin(email, password)
-      }
+      await onLogin(email, password)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión.')
     } finally {
@@ -46,27 +37,9 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
           <p className="mt-1 text-sm text-gray-500">Sistema de gestión</p>
         </div>
 
-        <div className="flex rounded-lg bg-gray-100 p-1">
-          {(['cashier', 'admin'] as LoginMode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => { setMode(m); setError(''); setEmail(''); setPassword('') }}
-              className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-                mode === m
-                  ? 'bg-white shadow text-gray-900'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {m === 'cashier' ? 'Cajera' : 'Administrador'}
-            </button>
-          ))}
-        </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
               value={email}
@@ -79,9 +52,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contraseña
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
             <input
               type="password"
               value={password}
@@ -113,7 +84,7 @@ export default function LoginScreen({ onCashierLogin, onAdminLogin, businessName
                 setLoading(true)
                 setError('')
                 try {
-                  await onCashierLogin(DEV_EMAIL, DEV_PASSWORD)
+                  await onLogin(DEV_EMAIL, DEV_PASSWORD)
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Error al saltar login.')
                 } finally {
