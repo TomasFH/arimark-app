@@ -416,6 +416,48 @@ Sección o panel **exclusivo para administradores** donde puedan registrar el **
 
 ---
 
+## Checklist de testeo con balanza física — Fase 4
+
+Ejecutar cuando la balanza KRETZ REPORT NX esté disponible. Prerequisitos: ver `SESION_CAMPO_2026-06-15_KRETZ_PLU.md`.
+
+### Preparación
+- [ ] Cerrar iTegra y cualquier otro programa que use COM8.
+- [ ] Verificar en Administrador de dispositivos que la balanza aparece en COM8 (driver JDATAGATE instalado).
+- [ ] Ejecutar `pnpm seed:dev` para asegurarse de tener el catálogo de prueba cargado.
+- [ ] Iniciar la app con hardware real: `pnpm --filter @carniceria/desktop dev:hw` (usa COM8 + mock en todo lo demás).
+
+### Verificación de conexión base
+- [ ] Loguearse como admin en la app.
+- [ ] Ir al Panel de administración.
+- [ ] Hacer click en **"Cargar en balanza"** → debe aparecer el modal de confirmación (no un error).
+- [ ] Si aparece error "La balanza no respondió", volver a la sección Hardware (DevTools → Hardware), verificar que el indicador diga "connected" y reintentar.
+
+### Carga masiva del catálogo
+- [ ] Con el modal abierto, hacer click en **"Cargar en balanza"**.
+- [ ] Verificar que la barra de progreso avanza PLU a PLU durante el envío.
+- [ ] Al finalizar, el resumen debe mostrar todos los productos enviados correctamente (0 fallidos).
+- [ ] En la pantalla de la balanza, navegar a la lista de PLUs y confirmar que los productos aparecen con los nombres y precios correctos (precio en pantalla = pesos con un decimal, ej. $16.322,0).
+- [ ] Verificar en particular un precio redondo (ej. Pollo $4.069 → debe mostrar $4.069,0) y uno con 5 dígitos (ej. Lomo $24.466 → debe mostrar $24.466,0).
+
+### Verificación de upsert (no destruye lo existente)
+- [ ] Cambiar el precio de un producto en el panel admin (ej. Asado de tira → nuevo precio).
+- [ ] Hacer "Cargar en balanza" nuevamente.
+- [ ] Confirmar en pantalla de la balanza que el PLU de Asado de tira refleja el precio nuevo.
+- [ ] Los PLUs que no estaban en el catálogo de la app (si hubiera alguno cargado manualmente) deben seguir intactos en la balanza.
+
+### Caso de error controlado
+- [ ] Desconectar el cable USB de la balanza.
+- [ ] Intentar "Cargar en balanza" → debe mostrar el error "La balanza no respondió" sin haber enviado nada.
+- [ ] Reconectar, verificar enlace (el driver reconecta automáticamente en ~5 segundos) y cargar de nuevo → debe funcionar.
+
+### Cierre de fase 4
+- [ ] Suite completa verde: `pnpm -r test`
+- [ ] Typecheck: `pnpm --filter @carniceria/desktop typecheck`
+- [ ] Crear tag: `git tag -a fase4-completa -m "Fase 4 cerrada: panel admin PLU + carga masiva KRETZ validada en campo"`
+- [ ] Push (pendiente aprobación del desarrollador).
+
+---
+
 ## Checklist de cierre de cada fase
 
 Antes de crear el tag de git, verificar:
