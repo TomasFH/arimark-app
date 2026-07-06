@@ -107,6 +107,26 @@ export function registerAuthHandlers(): void {
         // pueda operar turnos en modo cajera de emergencia sin error NO_SESSION.
         setActiveSession({ userId: profile.uid, storeId: config.default_store_id, shiftId: null })
 
+        // Upsert en la tabla users para que los FK de sales resuelvan cuando
+        // el admin opera como cajera. El rol se guarda como 'cashier' porque
+        // la tabla SQLite solo soporta ese rol; la identidad real (admin)
+        // vive en Firestore. Ver AGENTS.md — "caché local de perfil".
+        const db = getDb()
+        const existing = db.select().from(users).where(eq(users.firebaseUid, profile.uid)).limit(1).all()[0]
+        if (!existing) {
+          db.insert(users).values({
+            id: profile.uid,
+            storeId: config.default_store_id,
+            name: profile.displayName,
+            firebaseUid: profile.uid,
+            role: 'cashier',
+            active: true,
+            createdAt: new Date().toISOString(),
+          }).run()
+        } else if (existing.name !== profile.displayName) {
+          db.update(users).set({ name: profile.displayName }).where(eq(users.id, existing.id)).run()
+        }
+
         log.info('[ipc:login] Admin autenticado', { email })
         return {
           ok: true,

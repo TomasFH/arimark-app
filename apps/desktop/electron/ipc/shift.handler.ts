@@ -26,7 +26,12 @@ export function registerShiftHandlers(): void {
       const shift = db
         .select()
         .from(shifts)
-        .where(and(eq(shifts.storeId, session.storeId), isNull(shifts.closedAt), eq(shifts.source, 'desktop')))
+        .where(and(
+          eq(shifts.storeId, session.storeId),
+          eq(shifts.userId, session.userId),
+          isNull(shifts.closedAt),
+          eq(shifts.source, 'desktop')
+        ))
         .orderBy(desc(shifts.startedAt))
         .limit(1)
         .all()[0]
@@ -73,18 +78,25 @@ export function registerShiftHandlers(): void {
     try {
       const db = getDb()
 
-      // Verificar que no haya ya un turno abierto para este local
+      // Verificar que el mismo usuario no tenga ya un turno abierto.
+      // Dos usuarios distintos pueden tener turnos abiertos simultáneamente
+      // en el mismo local (caso de traspaso, admin en modo cajera, etc.).
       const existing = db
         .select()
         .from(shifts)
-        .where(and(eq(shifts.storeId, session.storeId), isNull(shifts.closedAt), eq(shifts.source, 'desktop')))
+        .where(and(
+          eq(shifts.storeId, session.storeId),
+          eq(shifts.userId, session.userId),
+          isNull(shifts.closedAt),
+          eq(shifts.source, 'desktop')
+        ))
         .limit(1)
         .all()[0]
 
       if (existing) {
         return {
           ok: false,
-          error: 'Ya existe un turno abierto para este local.',
+          error: 'Ya tenés un turno abierto. Cerralo antes de abrir uno nuevo.',
           code: 'SHIFT_ALREADY_OPEN',
         }
       }

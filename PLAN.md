@@ -362,6 +362,19 @@ Objetivo: que los administradores gestionen precios/PLUs y los carguen en la bal
 - Diferencia de caja automática.
 - Test obligatorio: cierre con diferencia de caja, cierre a ciegas.
 
+**Diseño de aislamiento de turnos y traspaso entre cajeras (pendiente de implementar en esta fase):**
+
+Desde Fase 4, `getActiveShift` y `openShift` filtran por `userId` además de `storeId`. Esto significa:
+- Cada cajera/admin tiene su propio turno; nunca hereda el turno de otra persona.
+- Dos usuarios distintos pueden tener turnos abiertos simultáneamente en el mismo local (caso de traspaso o admin en modo cajera de emergencia).
+
+El flujo de traspaso correcto (cajera A se va, cajera B la reemplaza en medio del turno) queda definido así para cuando se implemente el cierre:
+1. Cajera A cierra su turno: ejecuta el proceso completo de cierre (conteo de billetes, diferencia de caja, gastos).
+2. Una vez cerrado el turno de A, cajera B puede iniciar sesión y abrir su propio turno.
+3. Los registros de ventas quedan separados por `userId` — las ventas de A no afectan el cierre de B.
+
+Mientras no exista la pantalla de cierre de turno, los turnos abiertos se acumulan en la DB sin cerrarse. No hay pérdida de datos ni mezcla de registros. Es deuda técnica conocida, no silenciada.
+
 ### Fase 6 — Clientes especiales y deudas
 
 - ABM de clientes (restaurant, mayorista, otros).
