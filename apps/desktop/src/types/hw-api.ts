@@ -262,6 +262,47 @@ export interface DeletePluPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Historial de precios (auditoría)
+// ---------------------------------------------------------------------------
+
+export interface PriceHistoryRow {
+  id: string
+  price: number
+  validFrom: string
+  validTo: string | null
+  createdBy: string
+}
+
+export interface GetPriceHistoryPayload {
+  productId: string
+  storeId: string
+}
+
+// ---------------------------------------------------------------------------
+// ABM de cajeras
+// ---------------------------------------------------------------------------
+
+export interface CashierRow {
+  uid: string
+  displayName: string
+  email: string
+  authorizedStores: string[]
+  active: boolean
+}
+
+export interface CreateCashierPayload {
+  displayName: string
+  email: string
+  password: string
+  authorizedStores: string[]
+}
+
+export interface ToggleCashierPayload {
+  uid: string
+  active: boolean
+}
+
+// ---------------------------------------------------------------------------
 // Carga masiva del catálogo a la balanza (KRETZ_SYNC_CATALOG)
 // ---------------------------------------------------------------------------
 
@@ -374,6 +415,18 @@ export interface HwApi {
 
   /** Activa o desactiva la disponibilidad de un producto en un local — solo admin */
   setProductAvailability: (payload: SetProductAvailabilityPayload) => Promise<IpcResult>
+
+  /** Historial completo de precios de un producto en un local — solo admin */
+  getProductPriceHistory: (payload: GetPriceHistoryPayload) => Promise<IpcResult<PriceHistoryRow[]>>
+
+  /** Lista cajeras del sistema — solo admin */
+  listCashiers: () => Promise<IpcResult<CashierRow[]>>
+
+  /** Crea una cuenta de cajera en Firebase Auth + perfil en Firestore — solo admin */
+  createCashier: (payload: CreateCashierPayload) => Promise<IpcResult<{ uid: string }>>
+
+  /** Activa o desactiva una cajera en Firestore — solo admin */
+  toggleCashier: (payload: ToggleCashierPayload) => Promise<IpcResult>
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>

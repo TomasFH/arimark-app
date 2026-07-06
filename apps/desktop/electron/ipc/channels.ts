@@ -29,6 +29,12 @@ export const IPC = {
   SET_PRODUCT_PRICE: 'ipc:set-product-price',
   SET_PRODUCT_AVAILABILITY: 'ipc:set-product-availability',
   GET_STORES: 'ipc:get-stores',
+  GET_PRODUCT_PRICE_HISTORY: 'ipc:get-product-price-history',
+
+  // ABM de cajeras (solo admins)
+  LIST_CASHIERS: 'ipc:list-cashiers',
+  CREATE_CASHIER: 'ipc:create-cashier',
+  TOGGLE_CASHIER: 'ipc:toggle-cashier',
 
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',

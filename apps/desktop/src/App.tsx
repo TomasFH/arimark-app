@@ -7,6 +7,7 @@ import OpenShiftScreen from './routes/OpenShiftScreen'
 import CashierScreen from './routes/CashierScreen'
 import AdminScreen from './routes/AdminScreen'
 import AdminHubScreen from './routes/AdminHubScreen'
+import CashierManagementScreen from './routes/CashierManagementScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
 
 type AppState =
@@ -18,6 +19,7 @@ type AppState =
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
   | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -80,6 +82,11 @@ export default function App() {
   function handleAdminGoToPanel(): void {
     if (state.screen !== 'admin-hub') return
     setState({ screen: 'admin', session: state.session, initStatus: state.initStatus })
+  }
+
+  function handleGoToCashierManagement(): void {
+    if (state.screen !== 'admin-hub') return
+    setState({ screen: 'cashier-management', session: state.session, initStatus: state.initStatus })
   }
 
   function handleReturnToAdminHub(): void {
@@ -161,6 +168,7 @@ export default function App() {
           initStatus={state.initStatus}
           onGoToAdminPanel={handleAdminGoToPanel}
           onGoToCashier={() => void handleAdminGoToCashier()}
+          onGoToCashierManagement={handleGoToCashierManagement}
           onLogout={handleLogout}
         />
       )}
@@ -170,6 +178,12 @@ export default function App() {
           session={state.session}
           onLogout={handleLogout}
           onReturnToHub={handleReturnToAdminHub}
+        />
+      )}
+
+      {state.screen === 'cashier-management' && (
+        <CashierManagementScreen
+          onBack={handleReturnToAdminHub}
         />
       )}
     </div>

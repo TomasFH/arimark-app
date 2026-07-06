@@ -16,16 +16,16 @@
  */
 import { ipcMain } from 'electron'
 import log from 'electron-log'
-import { and, asc, eq, gt, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { products, productPrices, storeProducts, stores } from '../db/schema'
+import { products, productPrices, storeProducts, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { publishCatalog } from '../licensing/catalogPublish'
 import { getBusinessConfig } from '../businessConfig'
-import type { IpcResult, AdminProductRow, StoreRow } from '../../src/types/hw-api'
+import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación Zod
@@ -349,8 +349,7 @@ export function registerCatalogAdminHandlers(): void {
   })
 
   // ---- SET_PRODUCT_AVAILABILITY ----
-  ipcMain.handle(IPC.SET_PRODUCT_AVAILABILITY, (_event, payload: unknown): IpcResult => {
-    const parsed = setProductAvailabilitySchema.safeParse(payload)
+  ipcMain.handle(IPC.SET_PRODUCT_AVAILABILITY, (_event, payload: unknown): IpcResult => {    const parsed = setProductAvailabilitySchema.safeParse(payload)
     if (!parsed.success) {
       log.warn('[ipc:set-product-availability] Payload inválido', parsed.error.flatten())
       return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
@@ -382,6 +381,59 @@ export function registerCatalogAdminHandlers(): void {
     } catch (err) {
       log.error('[ipc:set-product-availability] Error', err)
       return { ok: false, error: 'Error al cambiar la disponibilidad.', code: 'DB_ERROR' }
+    }
+  })
+
+  // ---- GET_PRODUCT_PRICE_HISTORY ----
+  ipcMain.handle(IPC.GET_PRODUCT_PRICE_HISTORY, (_event, payload: unknown): IpcResult<PriceHistoryRow[]> => {
+    const schema = z.object({ productId: z.string().min(1), storeId: z.string().min(1) })
+    const parsed = schema.safeParse(payload)
+    if (!parsed.success) {
+      return { ok: false, error: 'Payload inválido.', code: 'VALIDATION_ERROR' }
+    }
+
+    try {
+      const db = getDb()
+      const rows = db
+        .select({
+          id: productPrices.id,
+          price: productPrices.price,
+          validFrom: productPrices.validFrom,
+          validTo: productPrices.validTo,
+          createdBy: productPrices.createdBy,
+        })
+        .from(productPrices)
+        .where(
+          and(
+            eq(productPrices.productId, parsed.data.productId),
+            eq(productPrices.storeId, parsed.data.storeId)
+          )
+        )
+        .orderBy(desc(productPrices.validFrom))
+        .all()
+
+      // Enriquecer con el nombre del usuario que hizo el cambio
+      const userIds = [...new Set(rows.map(r => r.createdBy))]
+      const userRows = userIds.length > 0
+        ? db.select({ id: users.id, name: users.name }).from(users)
+            .where(or(...userIds.map(id => eq(users.id, id))))
+            .all()
+        : []
+      const userMap = new Map(userRows.map(u => [u.id, u.name]))
+
+      return {
+        ok: true,
+        data: rows.map(r => ({
+          id: r.id,
+          price: r.price,
+          validFrom: r.validFrom,
+          validTo: r.validTo ?? null,
+          createdBy: userMap.get(r.createdBy) ?? r.createdBy,
+        })),
+      }
+    } catch (err) {
+      log.error('[ipc:get-product-price-history] Error', err)
+      return { ok: false, error: 'Error al leer el historial de precios.', code: 'DB_ERROR' }
     }
   })
 }
