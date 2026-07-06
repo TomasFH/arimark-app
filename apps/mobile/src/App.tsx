@@ -234,10 +234,10 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className={!online ? 'pb-10' : undefined}>
       {renderScreen()}
       {!online && <OfflineBanner />}
-    </>
+    </div>
   )
 }
 
