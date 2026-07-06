@@ -349,10 +349,10 @@ Objetivo: que los administradores gestionen precios/PLUs y los carguen en la bal
 - Vista **exclusiva para admins** (rol verificado), no visible para cajeras.
 - CRUD de PLUs: crear, modificar (nombre/precio), **cambiar número**, eliminar.
 - **Edición masiva**: preparar varios cambios como borrador y aplicarlos como lote.
-- Botón **"Cargar en balanza"** habilitado **si y solo si la balanza está físicamente conectada a esa PC** (nunca desde el móvil). Usa los comandos KRETZ de Fase 1.
+- Botón **"Cargar en balanza"** habilitado **si y solo si la balanza está físicamente conectada a esa PC** (nunca desde el móvil). Usa los comandos KRETZ de Fase 1. **[✅ Implementado — carga masiva]** `KRETZ_SYNC_CATALOG` verifica el enlace R30 (`0002`) antes de enviar; si la balanza no responde aborta sin escribir nada. Vuelca todos los productos activos con PLU y precio vigente del local vía comando `2005` (upsert: crea o sobreescribe, nunca borra PLUs existentes). Envío secuencial (cola serial) con barra de progreso en tiempo real (`KRETZ_SYNC_PROGRESS`, push main→renderer) para que el operador no desenchufe la balanza. Conversión de precio: pesos × 10, 6 dígitos, 1 decimal implícito (compatible iTegra, confirmado en sesión 15/06). Omite productos sin precio o con precio > $99.999 y los reporta. UI en `KretzSyncModal.tsx` + botón en `AdminScreen`.
 - **Listas de precios por local**: al editar precios/PLUs, el admin elige el local primero. Cada local puede tener precios distintos para el mismo producto. El catálogo publicado a Firestore (`licenses/{key}/catalog/{storeId}`) refleja los precios de ese local específico. La PWA móvil descarga el catálogo del local en el que la cajera está trabajando. (Nota: la infraestructura de Firestore para esto ya existe desde Fase 3; lo que falta es la UI de administración.)
-- Sincronización catálogo local ↔ PLUs de la balanza; auditoría de cambios.
-- Tests: gating por conexión física, lote aplicado correctamente, rollback si un comando falla.
+- Sincronización catálogo local ↔ PLUs de la balanza; auditoría de cambios. **[Envío ✅; auditoría de cambios pendiente]**
+- Tests: gating por conexión física, lote aplicado correctamente, rollback si un comando falla. **[✅ gating + lote + fallo aislado cubiertos en `kretzSync.handler.test.ts`; nota: un fallo a mitad no hace rollback físico de los PLUs ya escritos —el hardware no lo permite— pero se reporta exactamente cuáles quedaron cargados y cuáles fallaron]**
 
 ### Fase 5 — Cierre de jornada y gastos
 

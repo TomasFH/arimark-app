@@ -6,6 +6,7 @@ import { registerInitStatusHandler } from './initStatus.handler'
 import { registerShiftHandlers } from './shift.handler'
 import { registerSaleHandlers } from './sale.handler'
 import { registerKretzPluHandlers } from './kretzPlu.handler'
+import { registerKretzSyncHandler } from './kretzSync.handler'
 import { registerProductsHandlers } from './products.handler'
 import { registerCatalogAdminHandlers } from './catalogAdmin.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
@@ -19,6 +20,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerShiftHandlers()
   registerSaleHandlers()
   registerKretzPluHandlers(manager)
+  registerKretzSyncHandler(manager)
   registerProductsHandlers()
   registerCatalogAdminHandlers()
 }

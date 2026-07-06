@@ -47,6 +47,10 @@ export const IPC = {
   KRETZ_DELETE_PLU: 'ipc:kretz-delete-plu',
   KRETZ_READ_PLU: 'ipc:kretz-read-plu',
   KRETZ_READ_PLU_COUNT: 'ipc:kretz-read-plu-count',
+
+  // Carga masiva del catálogo a la balanza (solo admin, balanza conectada)
+  KRETZ_SYNC_CATALOG: 'ipc:kretz-sync-catalog',
+  KRETZ_SYNC_PROGRESS: 'ipc:kretz-sync-progress',  // push main → renderer
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

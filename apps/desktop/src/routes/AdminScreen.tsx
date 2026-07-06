@@ -13,6 +13,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import NumericInput from '../components/NumericInput'
+import KretzSyncModal from '../components/KretzSyncModal'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import type {
   AdminProductRow,
@@ -57,6 +58,7 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   const [editProduct, setEditProduct] = useState<AdminProductRow | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [priceProduct, setPriceProduct] = useState<AdminProductRow | null>(null)
+  const [showSync, setShowSync] = useState(false)
 
   // Filtro
   const [filterText, setFilterText] = useState('')
@@ -162,6 +164,13 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
           onChange={e => setFilterText(e.target.value)}
           className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500"
         />
+        <button
+          onClick={() => setShowSync(true)}
+          className="border border-gray-700 hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          title="Enviar el catálogo del local a la balanza conectada por USB"
+        >
+          Cargar en balanza
+        </button>
         <button
           onClick={() => setShowCreate(true)}
           className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -280,6 +289,14 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
           storeId={selectedStoreId}
           onClose={() => setPriceProduct(null)}
           onSaved={() => { setPriceProduct(null); void loadProducts(selectedStoreId) }}
+        />
+      )}
+
+      {showSync && (
+        <KretzSyncModal
+          storeId={selectedStoreId}
+          store={stores.find(s => s.id === selectedStoreId)}
+          onClose={() => setShowSync(false)}
         />
       )}
     </div>

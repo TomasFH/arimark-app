@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc/channels'
-import type { HwApi, HardwareStatus } from '../src/types/hw-api'
+import type { HwApi, HardwareStatus, KretzSyncProgress } from '../src/types/hw-api'
 
 const hw: HwApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.GET_APP_INFO),
@@ -59,6 +59,14 @@ const hw: HwApi = {
   kretzReadPlu: payload => ipcRenderer.invoke(IPC.KRETZ_READ_PLU, payload),
 
   kretzReadPluCount: () => ipcRenderer.invoke(IPC.KRETZ_READ_PLU_COUNT),
+
+  kretzSyncCatalog: storeId => ipcRenderer.invoke(IPC.KRETZ_SYNC_CATALOG, storeId),
+
+  onKretzSyncProgress: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: KretzSyncProgress) => cb(progress)
+    ipcRenderer.on(IPC.KRETZ_SYNC_PROGRESS, listener)
+    return () => ipcRenderer.removeListener(IPC.KRETZ_SYNC_PROGRESS, listener)
+  },
 }
 
 contextBridge.exposeInMainWorld('hw', hw)

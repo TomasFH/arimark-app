@@ -262,6 +262,45 @@ export interface DeletePluPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Carga masiva del catálogo a la balanza (KRETZ_SYNC_CATALOG)
+// ---------------------------------------------------------------------------
+
+/** Evento de progreso emitido por cada PLU durante la carga masiva. */
+export interface KretzSyncProgress {
+  /** Índice 1-based del ítem en proceso. */
+  current: number
+  /** Total de ítems a enviar (productos con PLU y precio). */
+  total: number
+  pluNumber: number
+  name: string
+  status: 'sending' | 'ok' | 'error'
+  error?: string
+}
+
+/** Producto omitido de la carga y su motivo. */
+export interface KretzSyncSkipped {
+  pluNumber: number | null
+  name: string
+  reason: 'no_price' | 'price_too_high'
+}
+
+/** Producto que falló al enviarse a la balanza. */
+export interface KretzSyncFailure {
+  pluNumber: number
+  name: string
+  error: string
+}
+
+/** Resumen final de la carga masiva. */
+export interface KretzSyncResult {
+  /** Ítems que se intentaron enviar (con PLU y precio válido). */
+  total: number
+  succeeded: number
+  failed: KretzSyncFailure[]
+  skipped: KretzSyncSkipped[]
+}
+
+// ---------------------------------------------------------------------------
 // Hardware — configuración de periféricos
 // ---------------------------------------------------------------------------
 export interface HardwareConfig {
@@ -350,6 +389,12 @@ export interface HwApi {
   kretzReadPlu: (payload: ReadPluPayload) => Promise<IpcResult<PluRow | null>>
   /** Cantidad de PLUs almacenados en la balanza (cmd 5001) */
   kretzReadPluCount: () => Promise<IpcResult<{ count: number }>>
+
+  /** Carga masiva del catálogo del local a la balanza (verifica enlace R30 primero) */
+  kretzSyncCatalog: (storeId: string) => Promise<IpcResult<KretzSyncResult>>
+
+  /** Registra callback de progreso durante la carga masiva. Devuelve función para desuscribir. */
+  onKretzSyncProgress: (cb: (progress: KretzSyncProgress) => void) => () => void
 }
 
 declare global {
