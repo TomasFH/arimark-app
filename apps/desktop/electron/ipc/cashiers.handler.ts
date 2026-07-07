@@ -2,20 +2,28 @@
  * Handlers IPC para ABM de cajeras (solo admins).
  *
  * Operaciones:
- *  - LIST_CASHIERS   — lista todos los usuarios con role='cashier' del sistema
- *  - CREATE_CASHIER  — crea una cuenta en Firebase Auth + perfil en Firestore
- *  - TOGGLE_CASHIER  — activa o desactiva una cajera en Firestore (el perfil en
- *                      SQLite se actualiza en el próximo login de la cajera)
+ *  - LIST_CASHIERS   — lista usuarios con role='cashier' y deleted != true
+ *  - CREATE_CASHIER  — crea Auth user + perfil Firestore. Genera contraseña
+ *                      temporal internamente y envía email de configuración
+ *                      de contraseña para que la cajera la defina ella misma.
+ *                      Si el Firestore write falla, hace rollback del Auth user.
+ *  - TOGGLE_CASHIER  — activa/desactiva (active: boolean) en Firestore
+ *  - DELETE_CASHIER  — soft-delete: marca deleted:true + active:false en
+ *                      Firestore. El Auth user persiste hasta que una Cloud
+ *                      Function lo limpie (client SDK no puede borrar usuarios
+ *                      ajenos). Los datos históricos en SQLite quedan intactos.
  *
- * Estrategia de creación de usuarios:
- *  Para crear una cuenta sin cerrar la sesión del admin, se usa una segunda
- *  instancia de Firebase App ('cashier-creation'). Esta instancia se inicializa
- *  con la misma configuración que la principal y se usa exclusivamente para
- *  createUserWithEmailAndPassword, cerrando su sesión inmediatamente después.
+ * === REGLAS DE FIRESTORE REQUERIDAS (copiar en Firebase Console) ===
+ *
+ *   match /licenses/{licenseKey}/users/{userId} {
+ *     // Cualquier usuario autenticado puede leer su propio perfil (para login)
+ *     allow read: if request.auth != null && request.auth.uid == userId;
+ *     // Admins pueden leer y escribir todos los perfiles de su licencia
+ *     allow read, write: if request.auth != null
+ *       && get(/databases/$(database)/documents/licenses/$(licenseKey)/users/$(request.auth.uid)).data.role == 'admin';
+ *   }
  *
  * En dev: todo funciona con mocks en memoria — no se toca Firebase.
- *
- * Validación: todos los payloads pasan por zod antes de llegar a Firebase.
  */
 
 import { ipcMain } from 'electron'
@@ -33,13 +41,16 @@ import type { IpcResult, CashierRow } from '../../src/types/hw-api'
 const createCashierSchema = z.object({
   displayName: z.string().min(2).max(80),
   email: z.string().email(),
-  password: z.string().min(6),
   authorizedStores: z.array(z.string().min(1)).min(1),
 })
 
 const toggleCashierSchema = z.object({
   uid: z.string().min(1),
   active: z.boolean(),
+})
+
+const deleteCashierSchema = z.object({
+  uid: z.string().min(1),
 })
 
 // ---------------------------------------------------------------------------
@@ -55,13 +66,13 @@ function devListCashiers(): IpcResult<CashierRow[]> {
   return { ok: true, data: [..._devCashiers] }
 }
 
-function devCreateCashier(
-  displayName: string, email: string, authorizedStores: string[]
-): IpcResult<{ uid: string }> {
+function devCreateCashier(displayName: string, email: string, authorizedStores: string[]): IpcResult<{ uid: string }> {
   const uid = `dev-cashier-${email.trim().toLowerCase()}`
-  const existing = _devCashiers.find(c => c.uid === uid)
-  if (existing) return { ok: false, error: 'Ya existe una cajera con ese email.', code: 'ALREADY_EXISTS' }
+  if (_devCashiers.find(c => c.uid === uid)) {
+    return { ok: false, error: 'Ya existe una cajera con ese email.', code: 'ALREADY_EXISTS' }
+  }
   _devCashiers.push({ uid, displayName, email, authorizedStores, active: true })
+  log.info('[ipc:create-cashier] dev — cajera creada, email de configuración se enviaría:', email)
   return { ok: true, data: { uid } }
 }
 
@@ -72,15 +83,32 @@ function devToggleCashier(uid: string, active: boolean): IpcResult {
   return { ok: true, data: undefined }
 }
 
+function devDeleteCashier(uid: string): IpcResult {
+  const idx = _devCashiers.findIndex(c => c.uid === uid)
+  if (idx === -1) return { ok: false, error: 'Cajera no encontrada.', code: 'NOT_FOUND' }
+  _devCashiers.splice(idx, 1)
+  return { ok: true, data: undefined }
+}
+
 // ---------------------------------------------------------------------------
-// Firebase helpers — cargados on-demand para no romper dev
+// Firebase helpers — cargados on-demand
 // ---------------------------------------------------------------------------
+
+function generateTempPassword(): string {
+  const a = Math.random().toString(36).slice(2, 10)
+  const b = Math.random().toString(36).toUpperCase().slice(2, 6)
+  return `${a}${b}!`
+}
 
 async function firebaseListCashiers(licenseKey: string): Promise<IpcResult<CashierRow[]>> {
   const { getFirestore, collection, getDocs, query, where } = await import('firebase/firestore')
   const app = getFirebaseApp()
   const db = getFirestore(app)
-  const q = query(collection(db, 'licenses', licenseKey, 'users'), where('role', '==', 'cashier'))
+  const q = query(
+    collection(db, 'licenses', licenseKey, 'users'),
+    where('role', '==', 'cashier'),
+    where('deleted', '!=', true)
+  )
   const snap = await getDocs(q)
   const rows: CashierRow[] = snap.docs.map(d => {
     const data = d.data() as {
@@ -104,51 +132,93 @@ async function firebaseCreateCashier(
   licenseKey: string,
   displayName: string,
   email: string,
-  password: string,
   authorizedStores: string[],
 ): Promise<IpcResult<{ uid: string }>> {
-  const { getAuth, createUserWithEmailAndPassword, signOut } = await import('firebase/auth')
+  const { getAuth, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } = await import('firebase/auth')
   const { getFirestore, doc, setDoc } = await import('firebase/firestore')
   const { initializeApp, getApps } = await import('firebase/app')
 
   const mainApp = getFirebaseApp()
-  // Reusar o crear la app secundaria para no afectar la sesión del admin
   const secondaryName = 'cashier-creation'
   const secondaryApp =
     getApps().find(a => a.name === secondaryName) ??
     initializeApp((mainApp as { options: object }).options, secondaryName)
 
   const secondaryAuth = getAuth(secondaryApp)
+  const tempPassword = generateTempPassword()
 
   let uid: string
+  let authUserCreated = false
   try {
-    const credential = await createUserWithEmailAndPassword(secondaryAuth, email, password)
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, email, tempPassword)
     uid = credential.user.uid
+    authUserCreated = true
+
+    // Escribir perfil en Firestore
+    const db = getFirestore(mainApp)
+    try {
+      await setDoc(doc(db, 'licenses', licenseKey, 'users', uid), {
+        role: 'cashier',
+        displayName,
+        email,
+        authorizedStores,
+        active: true,
+        deleted: false,
+      })
+    } catch (firestoreErr) {
+      // Rollback: borrar el Auth user recién creado para no dejar un huérfano.
+      // Solo es posible porque tenemos la credencial del usuario antes de firmar out.
+      try {
+        await credential.user.delete()
+        log.info('[ipc:create-cashier] Rollback: Auth user eliminado tras fallo de Firestore', { email })
+      } catch (rollbackErr) {
+        log.error('[ipc:create-cashier] No se pudo hacer rollback del Auth user', rollbackErr)
+      }
+      await signOut(secondaryAuth)
+      throw firestoreErr
+    }
+
+    // Enviar email para que la cajera defina su propia contraseña.
+    // No es bloqueante: si falla, el admin puede reenviarla desde Firebase Console.
+    try {
+      await sendPasswordResetEmail(secondaryAuth, email)
+      log.info('[ipc:create-cashier] Email de configuración de contraseña enviado a', email)
+    } catch (emailErr) {
+      log.warn('[ipc:create-cashier] No se pudo enviar email de contraseña, continuar de todas formas', emailErr)
+    }
+
     await signOut(secondaryAuth)
+    return { ok: true, data: { uid } }
+
   } catch (err) {
-    const code = (err as { code?: string }).code
-    if (code === 'auth/email-already-in-use') {
-      return { ok: false, error: 'Ya existe una cuenta con ese email.', code: 'ALREADY_EXISTS' }
+    if (!authUserCreated) {
+      // El error ocurrió en createUserWithEmailAndPassword
+      const code = (err as { code?: string }).code
+      if (code === 'auth/email-already-in-use') {
+        return { ok: false, error: 'Ya existe una cuenta con ese email.', code: 'ALREADY_EXISTS' }
+      }
     }
     throw err
   }
-
-  const db = getFirestore(mainApp)
-  await setDoc(doc(db, 'licenses', licenseKey, 'users', uid), {
-    role: 'cashier',
-    displayName,
-    email,
-    authorizedStores,
-    active: true,
-  })
-
-  return { ok: true, data: { uid } }
 }
 
 async function firebaseToggleCashier(licenseKey: string, uid: string, active: boolean): Promise<IpcResult> {
   const { getFirestore, doc, updateDoc } = await import('firebase/firestore')
   const db = getFirestore(getFirebaseApp())
   await updateDoc(doc(db, 'licenses', licenseKey, 'users', uid), { active })
+  return { ok: true, data: undefined }
+}
+
+async function firebaseDeleteCashier(licenseKey: string, uid: string): Promise<IpcResult> {
+  const { getFirestore, doc, updateDoc } = await import('firebase/firestore')
+  const db = getFirestore(getFirebaseApp())
+  // Soft-delete: el Auth user persiste (requiere Cloud Function para eliminación física).
+  // El perfil queda marcado como deleted:true + active:false para excluirlo del listado
+  // sin romper referencias históricas en SQLite.
+  await updateDoc(doc(db, 'licenses', licenseKey, 'users', uid), {
+    deleted: true,
+    active: false,
+  })
   return { ok: true, data: undefined }
 }
 
@@ -166,6 +236,14 @@ export function registerCashiersHandlers(): void {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log.error('[ipc:list-cashiers] Error', msg)
+      // PERMISSION_DENIED implica que las reglas de Firestore no están configuradas.
+      if (msg.includes('PERMISSION_DENIED') || msg.includes('Missing or insufficient permissions')) {
+        return {
+          ok: false,
+          error: 'Sin permiso para leer las cajeras. Verificar reglas de Firestore (ver AGENTS.md).',
+          code: 'PERMISSION_DENIED',
+        }
+      }
       return { ok: false, error: 'Error al listar cajeras.' }
     }
   })
@@ -177,18 +255,25 @@ export function registerCashiersHandlers(): void {
       return { ok: false, error: parsed.error.errors[0]?.message ?? 'Datos inválidos.', code: 'VALIDATION_ERROR' }
     }
 
-    const { displayName, email, password, authorizedStores } = parsed.data
+    const { displayName, email, authorizedStores } = parsed.data
 
     if (!isFirebaseAvailable()) return devCreateCashier(displayName, email, authorizedStores)
 
     try {
       const { license_key } = getBusinessConfig()
-      const result = await firebaseCreateCashier(license_key, displayName, email, password, authorizedStores)
+      const result = await firebaseCreateCashier(license_key, displayName, email, authorizedStores)
       if (result.ok) log.info('[ipc:create-cashier] Cajera creada', { email })
       return result
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log.error('[ipc:create-cashier] Error', msg)
+      if (msg.includes('PERMISSION_DENIED') || msg.includes('Missing or insufficient permissions')) {
+        return {
+          ok: false,
+          error: 'Sin permiso para crear la cajera. Verificar reglas de Firestore (ver AGENTS.md).',
+          code: 'PERMISSION_DENIED',
+        }
+      }
       return { ok: false, error: 'Error al crear la cajera.' }
     }
   })
@@ -212,6 +297,28 @@ export function registerCashiersHandlers(): void {
       const msg = err instanceof Error ? err.message : String(err)
       log.error('[ipc:toggle-cashier] Error', msg)
       return { ok: false, error: 'Error al actualizar la cajera.' }
+    }
+  })
+
+  ipcMain.handle(IPC.DELETE_CASHIER, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = deleteCashierSchema.safeParse(payload)
+    if (!parsed.success) {
+      return { ok: false, error: 'Payload inválido.', code: 'VALIDATION_ERROR' }
+    }
+
+    const { uid } = parsed.data
+
+    if (!isFirebaseAvailable()) return devDeleteCashier(uid)
+
+    try {
+      const { license_key } = getBusinessConfig()
+      const result = await firebaseDeleteCashier(license_key, uid)
+      log.info('[ipc:delete-cashier] Cajera eliminada (soft)', { uid })
+      return result
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:delete-cashier] Error', msg)
+      return { ok: false, error: 'Error al eliminar la cajera.' }
     }
   })
 }

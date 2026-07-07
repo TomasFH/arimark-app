@@ -293,13 +293,16 @@ export interface CashierRow {
 export interface CreateCashierPayload {
   displayName: string
   email: string
-  password: string
   authorizedStores: string[]
 }
 
 export interface ToggleCashierPayload {
   uid: string
   active: boolean
+}
+
+export interface DeleteCashierPayload {
+  uid: string
 }
 
 // ---------------------------------------------------------------------------
@@ -427,6 +430,9 @@ export interface HwApi {
 
   /** Activa o desactiva una cajera en Firestore — solo admin */
   toggleCashier: (payload: ToggleCashierPayload) => Promise<IpcResult>
+
+  /** Elimina (soft-delete) una cajera — solo admin. El Auth user persiste hasta que una Cloud Function lo limpie. */
+  deleteCashier: (payload: DeleteCashierPayload) => Promise<IpcResult>
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>

@@ -207,12 +207,12 @@ export function registerCatalogAdminHandlers(): void {
       // Verificar PLU único si se proporcionó
       if (pluNumber !== null) {
         const existing = db
-          .select({ id: products.id })
+          .select({ id: products.id, name: products.name })
           .from(products)
           .where(eq(products.pluNumber, pluNumber))
           .get()
         if (existing) {
-          return { ok: false, error: `El PLU ${pluNumber} ya está en uso.`, code: 'PLU_CONFLICT' }
+          return { ok: false, error: `El PLU ${pluNumber} ya está en uso por "${existing.name}".`, code: 'PLU_CONFLICT' }
         }
       }
 
@@ -261,12 +261,12 @@ export function registerCatalogAdminHandlers(): void {
       // Verificar PLU único si se cambia
       if (pluNumber !== undefined && pluNumber !== null) {
         const conflict = db
-          .select({ id: products.id })
+          .select({ id: products.id, name: products.name })
           .from(products)
           .where(and(eq(products.pluNumber, pluNumber)))
           .get()
         if (conflict && conflict.id !== id) {
-          return { ok: false, error: `El PLU ${pluNumber} ya está en uso.`, code: 'PLU_CONFLICT' }
+          return { ok: false, error: `El PLU ${pluNumber} ya está en uso por "${conflict.name}".`, code: 'PLU_CONFLICT' }
         }
       }
 

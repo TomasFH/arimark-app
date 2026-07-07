@@ -52,6 +52,7 @@ const hw: HwApi = {
   listCashiers: () => ipcRenderer.invoke(IPC.LIST_CASHIERS),
   createCashier: (payload) => ipcRenderer.invoke(IPC.CREATE_CASHIER, payload),
   toggleCashier: (payload) => ipcRenderer.invoke(IPC.TOGGLE_CASHIER, payload),
+  deleteCashier: (payload) => ipcRenderer.invoke(IPC.DELETE_CASHIER, payload),
 
   createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
 

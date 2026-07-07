@@ -35,6 +35,7 @@ export const IPC = {
   LIST_CASHIERS: 'ipc:list-cashiers',
   CREATE_CASHIER: 'ipc:create-cashier',
   TOGGLE_CASHIER: 'ipc:toggle-cashier',
+  DELETE_CASHIER: 'ipc:delete-cashier',
 
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',

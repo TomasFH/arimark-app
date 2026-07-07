@@ -46,6 +46,14 @@ function fmtDate(iso: string) {
   })
 }
 
+/** Elimina diacríticos (tildes, ñ, etc.) y convierte a minúsculas para búsquedas. */
+function normalize(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+/** Precio máximo soportado por la balanza KRETZ (6 dígitos con 1 decimal implícito). */
+const KRETZ_MAX_PRICE = 99_999
+
 interface Props {
   session: SessionInfo
   onLogout: () => void
@@ -70,6 +78,7 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   const [bulkMode, setBulkMode] = useState(false)
   const [bulkDraft, setBulkDraft] = useState<Map<string, string>>(new Map())
   const [bulkSaving, setBulkSaving] = useState(false)
+  const [pendingStoreId, setPendingStoreId] = useState<string | null>(null)
 
   // Filtro
   const [filterText, setFilterText] = useState('')
@@ -97,15 +106,12 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
     if (selectedStoreId) void loadProducts(selectedStoreId)
   }, [selectedStoreId, loadProducts])
 
-  // Al cambiar de local, resetear edición masiva
-  useEffect(() => {
-    setBulkMode(false)
-    setBulkDraft(new Map())
-  }, [selectedStoreId])
+  // Al cambiar de local se reemplaza el useEffect que cancelaba automáticamente el modo
+  // masivo. Ahora se intercepta el cambio si hay modificaciones pendientes sin guardar.
 
   const filtered = products.filter(p => {
-    const q = filterText.toLowerCase()
-    return p.name.toLowerCase().includes(q) || String(p.pluNumber ?? '').includes(q)
+    const q = normalize(filterText)
+    return normalize(p.name).includes(q) || String(p.pluNumber ?? '').includes(q)
   })
 
   async function handleToggleAvailability(p: AdminProductRow) {
@@ -176,7 +182,16 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                 <span className="text-xs text-gray-400">Local:</span>
                 <select
                   value={selectedStoreId}
-                  onChange={e => setSelectedStoreId(e.target.value)}
+                  onChange={e => {
+                    const next = e.target.value
+                    if (bulkMode && pendingChanges > 0) {
+                      setPendingStoreId(next)
+                    } else {
+                      setBulkMode(false)
+                      setBulkDraft(new Map())
+                      setSelectedStoreId(next)
+                    }
+                  }}
                   className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
                 >
                   {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -357,10 +372,10 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
 
       {/* Modales */}
       {showCreate && (
-        <ProductFormModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); void loadProducts(selectedStoreId) }} />
+        <ProductFormModal storeId={selectedStoreId} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); void loadProducts(selectedStoreId) }} />
       )}
       {editProduct && (
-        <ProductFormModal product={editProduct} onClose={() => setEditProduct(null)} onSaved={() => { setEditProduct(null); void loadProducts(selectedStoreId) }} />
+        <ProductFormModal storeId={selectedStoreId} product={editProduct} onClose={() => setEditProduct(null)} onSaved={() => { setEditProduct(null); void loadProducts(selectedStoreId) }} />
       )}
       {priceProduct && (
         <PriceModal product={priceProduct} storeId={selectedStoreId} onClose={() => setPriceProduct(null)} onSaved={() => { setPriceProduct(null); void loadProducts(selectedStoreId) }} />
@@ -370,6 +385,22 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       )}
       {historyProduct && (
         <PriceHistoryModal product={historyProduct} storeId={selectedStoreId} onClose={() => setHistoryProduct(null)} />
+      )}
+      {pendingStoreId && (
+        <UnsavedChangesModal
+          pendingChanges={pendingChanges}
+          onSave={() => void handleBulkSave().then(() => {
+            setSelectedStoreId(pendingStoreId)
+            setPendingStoreId(null)
+          })}
+          onDiscard={() => {
+            setBulkMode(false)
+            setBulkDraft(new Map())
+            setSelectedStoreId(pendingStoreId)
+            setPendingStoreId(null)
+          }}
+          onCancel={() => setPendingStoreId(null)}
+        />
       )}
     </div>
   )
@@ -397,19 +428,25 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
 // ---------------------------------------------------------------------------
 
 interface ProductFormModalProps {
+  storeId: string
   product?: AdminProductRow
   onClose: () => void
   onSaved: () => void
 }
 
-function ProductFormModal({ product, onClose, onSaved }: ProductFormModalProps) {
+function ProductFormModal({ storeId, product, onClose, onSaved }: ProductFormModalProps) {
   const isEdit = Boolean(product)
   const [name, setName] = useState(product?.name ?? '')
   const [category, setCategory] = useState<AdminProductRow['category']>(product?.category ?? 'beef_cut')
   const [unit, setUnit] = useState<'kg' | 'unit'>(product?.unit ?? 'kg')
   const [pluRaw, setPluRaw] = useState(product?.pluNumber != null ? String(product.pluNumber) : '')
+  // Precio solo se muestra en creación (al editar se usa el PriceModal dedicado)
+  const [priceRaw, setPriceRaw] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const priceValue = parseNumericInput(priceRaw)
+  const priceOverLimit = priceValue !== null && priceValue > KRETZ_MAX_PRICE
 
   async function handleSave() {
     setError(null)
@@ -419,6 +456,7 @@ function ProductFormModal({ product, onClose, onSaved }: ProductFormModalProps) 
       setError('El PLU debe ser un número entre 1 y 999.'); return
     }
     setSaving(true)
+    let productId: string | undefined
     if (isEdit && product) {
       const payload: UpdateProductPayload = { id: product.id }
       if (name !== product.name) payload.name = name
@@ -427,11 +465,20 @@ function ProductFormModal({ product, onClose, onSaved }: ProductFormModalProps) 
       if (pluNumber !== product.pluNumber) payload.pluNumber = pluNumber
       const r = await window.hw.updateProduct(payload)
       if (!r.ok) { setError(r.error); setSaving(false); return }
+      productId = product.id
     } else {
       const payload: CreateProductPayload = { name: name.trim(), category, unit, pluNumber }
       const r = await window.hw.createProduct(payload)
       if (!r.ok) { setError(r.error); setSaving(false); return }
+      productId = r.data.id
     }
+
+    // Guardar precio inicial si se especificó (solo en creación)
+    if (!isEdit && priceValue && priceValue > 0 && productId) {
+      const pr = await window.hw.setProductPrice({ productId, storeId, price: priceValue })
+      if (!pr.ok) { setError(pr.error); setSaving(false); return }
+    }
+
     setSaving(false)
     onSaved()
   }
@@ -467,6 +514,18 @@ function ProductFormModal({ product, onClose, onSaved }: ProductFormModalProps) 
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
               placeholder="Sin asignar" />
           </Field>
+          {!isEdit && (
+            <Field label={`Precio inicial ($/${unit === 'kg' ? 'kg' : 'unidad'}, opcional)`}>
+              <NumericInput value={priceRaw} onChange={setPriceRaw}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                placeholder="Dejar en blanco si no tiene precio aún" />
+              {priceOverLimit && (
+                <p className="text-xs text-amber-400 mt-1">
+                  El precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — este producto no podrá cargarse en la balanza.
+                </p>
+              )}
+            </Field>
+          )}
         </div>
         {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}
         <div className="flex gap-3 mt-6">
@@ -497,6 +556,9 @@ function PriceModal({ product, storeId, onClose, onSaved }: PriceModalProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const priceValue = parseNumericInput(priceRaw)
+  const priceOverLimit = priceValue !== null && priceValue > KRETZ_MAX_PRICE
+
   async function handleSave() {
     setError(null)
     const parsed = priceRaw === '' ? 0 : parseNumericInput(priceRaw)
@@ -520,6 +582,11 @@ function PriceModal({ product, storeId, onClose, onSaved }: PriceModalProps) {
             placeholder="0" autoFocus />
         </Field>
         {product.price != null && <p className="text-xs text-gray-500 mt-1">Precio actual: {fmtARS(product.price)}</p>}
+        {priceOverLimit && (
+          <p className="text-xs text-amber-400 mt-2">
+            El precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — este producto no podrá cargarse en la balanza.
+          </p>
+        )}
         <p className="text-xs text-gray-600 mt-2">Dejar en blanco o poner 0 para quitar el precio.</p>
         {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}
         <div className="flex gap-3 mt-6">
@@ -612,5 +679,44 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
       {children}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Modal cambios sin guardar (al cambiar de local en modo masivo)
+// ---------------------------------------------------------------------------
+
+interface UnsavedChangesModalProps {
+  pendingChanges: number
+  onSave: () => void
+  onDiscard: () => void
+  onCancel: () => void
+}
+
+function UnsavedChangesModal({ pendingChanges, onSave, onDiscard, onCancel }: UnsavedChangesModalProps) {
+  return (
+    <ModalOverlay onClose={onCancel}>
+      <div className="bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+        <h2 className="text-lg font-semibold mb-2">Cambios sin guardar</h2>
+        <p className="text-sm text-gray-400 mb-5">
+          Tenés {pendingChanges} cambio{pendingChanges !== 1 ? 's' : ''} de precio sin guardar en este local.
+          ¿Qué querés hacer antes de cambiar de local?
+        </p>
+        <div className="space-y-2">
+          <button onClick={onSave}
+            className="w-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
+            Guardar cambios y continuar
+          </button>
+          <button onClick={onDiscard}
+            className="w-full bg-gray-800 hover:bg-red-900/40 text-gray-300 hover:text-red-300 text-sm font-medium py-2 rounded-lg transition-colors">
+            Descartar cambios y continuar
+          </button>
+          <button onClick={onCancel}
+            className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 rounded-lg transition-colors">
+            Cancelar (quedarme en este local)
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
   )
 }

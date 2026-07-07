@@ -73,7 +73,15 @@ export class HardwareManager {
       this._kretzReconnectDelay = MIN_RECONNECT_MS
       // Estado actualizado via evento 'connected' en _wireKretzEvents
     } catch (err) {
-      log.error('[hardware] Fallo al conectar KRETZ', err)
+      const msg = err instanceof Error ? err.message : String(err)
+      // "Puerto serial no configurado" es el estado normal cuando la balanza
+      // todavía no está enchufada o no fue configurada. No es un error crítico.
+      const isUnconfigured = msg.toLowerCase().includes('no configurado') || msg.toLowerCase().includes('not configured')
+      if (isUnconfigured) {
+        log.debug('[hardware] KRETZ: puerto no configurado, reintentando en background')
+      } else {
+        log.warn('[hardware] Fallo al conectar KRETZ', msg)
+      }
       setHardwareStatus({ scale: 'error' })
       this._scheduleReconnect()
     }
@@ -83,7 +91,7 @@ export class HardwareManager {
     this._clearReconnect('kretz')
     const delay = this._kretzReconnectDelay
 
-    log.info(`[hardware] Reconexión kretz en ${delay}ms`)
+    log.debug(`[hardware] Reconexión kretz en ${delay}ms`)
     const timer = setTimeout(() => {
       this._kretzReconnectDelay = Math.min(this._kretzReconnectDelay * 2, MAX_RECONNECT_MS)
       void this._connectKretz()

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron', () => ({ ipcMain: { handle: vi.fn() } }))
-vi.mock('electron-log', () => ({ default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } }))
+vi.mock('electron-log', () => ({ default: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }))
 vi.mock('../../licensing/firebase', () => ({
   isFirebaseAvailable: vi.fn().mockReturnValue(false),
   getFirebaseApp: vi.fn(),
@@ -17,6 +17,10 @@ function getHandler(channel: string): HandlerFn {
   if (!call) throw new Error(`Handler no registrado: ${channel}`)
   return call[1] as HandlerFn
 }
+
+// Contador para generar emails únicos sin depender de Date.now() (puede repetirse en tests rápidos)
+let _seq = 0
+function uniqueEmail(prefix: string) { return `${prefix}_${++_seq}@test.com` }
 
 describe('cashiers.handler (dev mode — mocks en memoria)', () => {
   beforeEach(() => {
@@ -35,19 +39,17 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
     const result = await getHandler('ipc:create-cashier')({}, {
       displayName: 'Test',
       email: 'no-es-email',
-      password: '123456',
       authorizedStores: ['local1'],
     }) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('VALIDATION_ERROR')
   })
 
-  it('CREATE_CASHIER rechaza contraseña menor a 6 caracteres', async () => {
+  it('CREATE_CASHIER rechaza locales vacíos', async () => {
     const result = await getHandler('ipc:create-cashier')({}, {
       displayName: 'Test',
-      email: 'nueva@test.com',
-      password: '12345',
-      authorizedStores: ['local1'],
+      email: 'test@test.com',
+      authorizedStores: [],
     }) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('VALIDATION_ERROR')
@@ -55,68 +57,42 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
 
   it('CREATE_CASHIER crea una cajera en dev y la lista devuelve una más', async () => {
     const before = (await getHandler('ipc:list-cashiers')({}) as { ok: boolean; data: unknown[] }).data.length
-
-    const uniqueEmail = `nueva_unica_${Date.now()}@test.com`
     const create = await getHandler('ipc:create-cashier')({}, {
       displayName: 'Nueva Cajera',
-      email: uniqueEmail,
-      password: 'segura123',
+      email: uniqueEmail('nueva'),
       authorizedStores: ['local1'],
     }) as { ok: boolean; data: { uid: string } }
     expect(create.ok).toBe(true)
     expect(create.data.uid).toBeTruthy()
-
     const after = (await getHandler('ipc:list-cashiers')({}) as { ok: boolean; data: unknown[] }).data.length
     expect(after).toBe(before + 1)
   })
 
-  it('TOGGLE_CASHIER desactiva una cajera activa', async () => {
-    // Crear una cajera conocida para evitar depender del estado global del módulo
-    const email = `toggle_test_${Date.now()}@test.com`
-    const created = await getHandler('ipc:create-cashier')({}, {
-      displayName: 'Cajera Toggle',
-      email,
-      password: 'pass123',
-      authorizedStores: ['local1'],
+  it('TOGGLE_CASHIER desactiva una cajera creada', async () => {
+    const c = await getHandler('ipc:create-cashier')({}, {
+      displayName: 'Cajera Toggle', email: uniqueEmail('toggle_off'), authorizedStores: ['l1'],
     }) as { ok: boolean; data: { uid: string } }
-    expect(created.ok).toBe(true)
-    const uid = created.data.uid
-
-    const toggle = await getHandler('ipc:toggle-cashier')({}, { uid, active: false }) as { ok: boolean }
+    expect(c.ok).toBe(true)
+    const toggle = await getHandler('ipc:toggle-cashier')({}, { uid: c.data.uid, active: false }) as { ok: boolean }
     expect(toggle.ok).toBe(true)
-
     const list = await getHandler('ipc:list-cashiers')({}) as { ok: boolean; data: { uid: string; active: boolean }[] }
-    const updated = list.data.find(c => c.uid === uid)
-    expect(updated?.active).toBe(false)
+    expect(list.data.find(x => x.uid === c.data.uid)?.active).toBe(false)
   })
 
   it('TOGGLE_CASHIER reactiva una cajera inactiva', async () => {
-    const email = `reactivate_test_${Date.now()}@test.com`
-    const created = await getHandler('ipc:create-cashier')({}, {
-      displayName: 'Cajera Reactiva',
-      email,
-      password: 'pass123',
-      authorizedStores: ['local1'],
+    const c = await getHandler('ipc:create-cashier')({}, {
+      displayName: 'Cajera Toggle', email: uniqueEmail('toggle_on'), authorizedStores: ['l1'],
     }) as { ok: boolean; data: { uid: string } }
-    expect(created.ok).toBe(true)
-    const uid = created.data.uid
-
-    // Desactivar primero
-    await getHandler('ipc:toggle-cashier')({}, { uid, active: false })
-    // Luego reactivar
-    const toggle = await getHandler('ipc:toggle-cashier')({}, { uid, active: true }) as { ok: boolean }
+    expect(c.ok).toBe(true)
+    await getHandler('ipc:toggle-cashier')({}, { uid: c.data.uid, active: false })
+    const toggle = await getHandler('ipc:toggle-cashier')({}, { uid: c.data.uid, active: true }) as { ok: boolean }
     expect(toggle.ok).toBe(true)
-
     const list = await getHandler('ipc:list-cashiers')({}) as { ok: boolean; data: { uid: string; active: boolean }[] }
-    const updated = list.data.find(c => c.uid === uid)
-    expect(updated?.active).toBe(true)
+    expect(list.data.find(x => x.uid === c.data.uid)?.active).toBe(true)
   })
 
   it('TOGGLE_CASHIER con UID inexistente retorna NOT_FOUND', async () => {
-    const result = await getHandler('ipc:toggle-cashier')({}, {
-      uid: 'uid-que-no-existe',
-      active: false,
-    }) as { ok: boolean; code: string }
+    const result = await getHandler('ipc:toggle-cashier')({}, { uid: 'no-existe', active: false }) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('NOT_FOUND')
   })
@@ -126,5 +102,27 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
     expect(result.ok).toBe(false)
     expect(result.code).toBe('VALIDATION_ERROR')
   })
-})
 
+  it('DELETE_CASHIER elimina una cajera y desaparece de la lista', async () => {
+    const c = await getHandler('ipc:create-cashier')({}, {
+      displayName: 'Borrar Test', email: uniqueEmail('delete'), authorizedStores: ['l1'],
+    }) as { ok: boolean; data: { uid: string } }
+    expect(c.ok).toBe(true)
+    const del = await getHandler('ipc:delete-cashier')({}, { uid: c.data.uid }) as { ok: boolean }
+    expect(del.ok).toBe(true)
+    const list = await getHandler('ipc:list-cashiers')({}) as { ok: boolean; data: { uid: string }[] }
+    expect(list.data.find(x => x.uid === c.data.uid)).toBeUndefined()
+  })
+
+  it('DELETE_CASHIER con UID inexistente retorna NOT_FOUND', async () => {
+    const result = await getHandler('ipc:delete-cashier')({}, { uid: 'no-existe' }) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NOT_FOUND')
+  })
+
+  it('DELETE_CASHIER rechaza payload inválido', async () => {
+    const result = await getHandler('ipc:delete-cashier')({}, { uid: '' }) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('VALIDATION_ERROR')
+  })
+})
