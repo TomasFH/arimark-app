@@ -104,27 +104,27 @@ async function firebaseListCashiers(licenseKey: string): Promise<IpcResult<Cashi
   const { getFirestore, collection, getDocs, query, where } = await import('firebase/firestore')
   const app = getFirebaseApp()
   const db = getFirestore(app)
-  const q = query(
-    collection(db, 'licenses', licenseKey, 'users'),
-    where('role', '==', 'cashier'),
-    where('deleted', '!=', true)
-  )
+  // Solo filtramos por 'role' para evitar necesitar un índice compuesto.
+  // El filtro de deleted se aplica en memoria.
+  const q = query(collection(db, 'licenses', licenseKey, 'users'), where('role', '==', 'cashier'))
   const snap = await getDocs(q)
-  const rows: CashierRow[] = snap.docs.map(d => {
-    const data = d.data() as {
-      displayName?: string
-      email?: string
-      authorizedStores?: string[]
-      active?: boolean
-    }
-    return {
-      uid: d.id,
-      displayName: data.displayName ?? '',
-      email: data.email ?? '',
-      authorizedStores: data.authorizedStores ?? [],
-      active: data.active !== false,
-    }
-  })
+  const rows: CashierRow[] = snap.docs
+    .filter(d => d.data()['deleted'] !== true)
+    .map(d => {
+      const data = d.data() as {
+        displayName?: string
+        email?: string
+        authorizedStores?: string[]
+        active?: boolean
+      }
+      return {
+        uid: d.id,
+        displayName: data.displayName ?? '',
+        email: data.email ?? '',
+        authorizedStores: data.authorizedStores ?? [],
+        active: data.active !== false,
+      }
+    })
   return { ok: true, data: rows }
 }
 

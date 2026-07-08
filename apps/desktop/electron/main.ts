@@ -26,6 +26,8 @@ import type { InitStatus } from '../src/types/hw-api'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
+// En desarrollo mostramos info+ en consola; debug queda solo para archivos de log.
+log.transports.console.level = 'info'
 log.info('[main] Iniciando app', { version: app.getVersion(), env: process.env['APP_ENV'] })
 
 const isDev = process.env['NODE_ENV'] === 'development'
