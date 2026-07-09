@@ -2,14 +2,14 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { eq } from 'drizzle-orm'
+import { eq, and, desc, inArray } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { sales, saleItems, salePayments } from '../db/schema'
+import { sales, saleItems, salePayments, products } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getStoredAdminSession } from './auth.handler'
 import { notifySaleOccurred } from './inactivityDaemon'
-import type { IpcResult, SaleResult } from '../../src/types/hw-api'
+import type { IpcResult, SaleResult, ShiftSaleRow } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación
@@ -186,6 +186,107 @@ export function registerSaleHandlers(): void {
     log.info('[ipc:create-sale] Venta confirmada', { saleId, total, payments: payments.length })
     notifySaleOccurred()
     return { ok: true, data: { saleId, total } }
+  })
+
+  // -------------------------------------------------------------------------
+  // Listado de ventas del turno activo (vista en vivo tipo cuaderno)
+  // -------------------------------------------------------------------------
+  ipcMain.handle(IPC.GET_SHIFT_SALES, (_event): IpcResult<ShiftSaleRow[]> => {
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
+
+    try {
+      const db = getDb()
+
+      const saleRows = db
+        .select({
+          id: sales.id,
+          total: sales.total,
+          manualEntry: sales.manualEntry,
+          createdAt: sales.createdAt,
+        })
+        .from(sales)
+        .where(and(eq(sales.shiftId, session.shiftId), eq(sales.status, 'confirmed')))
+        .orderBy(desc(sales.createdAt))
+        .all()
+
+      if (saleRows.length === 0) return { ok: true, data: [] }
+
+      const saleIds = saleRows.map(s => s.id)
+
+      // Ítems de todas las ventas (join con products para el nombre y unidad)
+      const itemRows = db
+        .select({
+          saleId: saleItems.saleId,
+          productName: products.name,
+          unit: products.unit,
+          quantity: saleItems.quantity,
+          unitPrice: saleItems.unitPrice,
+          subtotal: saleItems.subtotal,
+        })
+        .from(saleItems)
+        .innerJoin(products, eq(saleItems.productId, products.id))
+        .where(inArray(saleItems.saleId, saleIds))
+        .all()
+
+      // Pagos de todas las ventas
+      const paymentRows = db
+        .select({
+          saleId: salePayments.saleId,
+          paymentMethod: salePayments.paymentMethod,
+          amount: salePayments.amount,
+        })
+        .from(salePayments)
+        .where(inArray(salePayments.saleId, saleIds))
+        .all()
+
+      const itemsBySale = new Map<string, ShiftSaleRow['items']>()
+      for (const it of itemRows) {
+        const list = itemsBySale.get(it.saleId) ?? []
+        list.push({
+          productName: it.productName,
+          quantity: it.quantity,
+          unit: it.unit,
+          unitPrice: it.unitPrice,
+          subtotal: it.subtotal,
+        })
+        itemsBySale.set(it.saleId, list)
+      }
+
+      const paymentsBySale = new Map<string, typeof paymentRows>()
+      for (const p of paymentRows) {
+        const list = paymentsBySale.get(p.saleId) ?? []
+        list.push(p)
+        paymentsBySale.set(p.saleId, list)
+      }
+
+      const data: ShiftSaleRow[] = saleRows.map(s => {
+        const pays = paymentsBySale.get(s.id) ?? []
+        const cashAmount = pays
+          .filter(p => p.paymentMethod === 'cash')
+          .reduce((sum, p) => sum + p.amount, 0)
+        const digitalAmount = pays
+          .filter(p => p.paymentMethod !== 'cash')
+          .reduce((sum, p) => sum + p.amount, 0)
+        return {
+          id: s.id,
+          createdAt: s.createdAt,
+          total: s.total,
+          cashAmount,
+          digitalAmount,
+          paymentMethods: pays.map(p => p.paymentMethod),
+          manualEntry: s.manualEntry,
+          items: itemsBySale.get(s.id) ?? [],
+        }
+      })
+
+      return { ok: true, data }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:get-shift-sales] Error inesperado', message)
+      return { ok: false, error: 'Error al obtener las ventas del turno.' }
+    }
   })
 }
 

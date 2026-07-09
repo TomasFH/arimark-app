@@ -43,6 +43,10 @@ export const IPC = {
 
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',
+  GET_SHIFT_SALES: 'ipc:get-shift-sales',
+
+  // Herramientas de desarrollo (solo APP_ENV=dev)
+  DEV_GENERATE_SALES: 'ipc:dev-generate-sales',
 
   // Gastos del turno
   REGISTER_EXPENSE: 'ipc:register-expense',

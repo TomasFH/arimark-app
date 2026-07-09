@@ -4,8 +4,10 @@ import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
-import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
+import ShiftSalesModal from './ShiftSalesModal'
+import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
+import { summarizePaymentMethods } from '../lib/paymentMethod'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
 import { buildItemFromBarcode } from '../lib/barcodeItem'
@@ -32,11 +34,14 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [showSalesModal, setShowSalesModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
   // Balance en tiempo real
   const [cashInHand, setCashInHand] = useState<number | null>(null)
+  // Ventas del turno (columna en vivo)
+  const [shiftSales, setShiftSales] = useState<ShiftSaleRow[]>([])
   // Feedback visual cuando el lector captura un escaneo global
   const [scanFlash, setScanFlash] = useState<string | null>(null)
   const scanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -48,16 +53,26 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     })
   }, [])
 
-  // Cargar balance inicial y refrescar cada 30 segundos
+  // Cargar balance + ventas y refrescar cada 30 segundos
   function refreshBalance(): void {
     void window.hw.getShiftSummary().then(r => {
       if (r.ok) setCashInHand(r.data.cashInHand)
     })
   }
 
+  function refreshSales(): void {
+    void window.hw.getShiftSales().then(r => {
+      if (r.ok) setShiftSales(r.data)
+    })
+  }
+
   useEffect(() => {
     refreshBalance()
-    const interval = setInterval(refreshBalance, 30_000)
+    refreshSales()
+    const interval = setInterval(() => {
+      refreshBalance()
+      refreshSales()
+    }, 30_000)
     return () => clearInterval(interval)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -137,6 +152,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
       setLastSaleId(result.data.saleId)
       setCart([])
       refreshBalance() // actualizar balance después de cada venta
+      refreshSales()   // actualizar lista de ventas del turno
     } catch {
       setError('Error de comunicación. Reintentar.')
     } finally {
@@ -231,7 +247,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
             <ScanInput onAddItem={addItem} products={products} />
           </div>
 
-          <DevToolsPanel />
+          <DevToolsPanel onDataChanged={() => { refreshBalance(); refreshSales() }} />
         </div>
 
         {/* Columna central: venta en curso + acción de cobro */}
@@ -337,6 +353,59 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
             </button>
           </div>
         </div>
+
+        {/* Columna derecha: ventas del turno en vivo (como el cuaderno) */}
+        <div className="flex w-96 flex-col border-l border-gray-800 bg-gray-900">
+          <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-200">Ventas del turno</h2>
+              <p className="text-[11px] text-gray-500">
+                {shiftSales.length} venta{shiftSales.length !== 1 ? 's' : ''} · {formatARS(shiftSales.reduce((s, v) => s + v.total, 0))}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowSalesModal(true)}
+              disabled={shiftSales.length === 0}
+              className="rounded-md border border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-400 hover:border-gray-600 hover:text-white transition-colors disabled:opacity-40"
+            >
+              Ver todo
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {shiftSales.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-2 px-4 text-center">
+                <p className="text-3xl">🧾</p>
+                <p className="text-xs">Las ventas confirmadas aparecerán acá</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-800/60">
+                {shiftSales.map(sale => (
+                  <li key={sale.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 tabular-nums">
+                          {new Date(sale.createdAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className="text-[11px] text-gray-400 truncate">
+                          {sale.items.length} ítem{sale.items.length !== 1 ? 's' : ''} · {summarizePaymentMethods(sale.paymentMethods)}
+                        </span>
+                      </div>
+                      {sale.cashAmount > 0 && sale.digitalAmount > 0 && (
+                        <p className="text-[10px] text-gray-600">
+                          <span className="text-emerald-500">{formatARS(sale.cashAmount)} efvo</span>
+                          {' + '}
+                          <span className="text-sky-500">{formatARS(sale.digitalAmount)} dig</span>
+                        </p>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-white shrink-0">{formatARS(sale.total)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Modal de cobro */}
@@ -359,6 +428,11 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
           onRegistered={() => { setShowExpenseModal(false); refreshBalance() }}
           onCancel={() => setShowExpenseModal(false)}
         />
+      )}
+
+      {/* Vista ampliada de ventas del turno */}
+      {showSalesModal && (
+        <ShiftSalesModal onClose={() => setShowSalesModal(false)} />
       )}
     </div>
   )

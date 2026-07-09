@@ -276,6 +276,36 @@ export interface SaleResult {
 }
 
 // ---------------------------------------------------------------------------
+// Listado de ventas del turno (vista en vivo tipo cuaderno)
+// ---------------------------------------------------------------------------
+export interface ShiftSaleItem {
+  productName: string
+  quantity: number
+  unit: 'kg' | 'unit'
+  unitPrice: number
+  subtotal: number
+}
+
+export interface ShiftSaleRow {
+  id: string
+  createdAt: string
+  total: number
+  /** Parte del total cobrada en efectivo (0 si fue 100% digital). */
+  cashAmount: number
+  /** Parte del total cobrada con medios digitales (débito/wallet/crédito). */
+  digitalAmount: number
+  /** Medios de pago usados en la venta (para el badge). */
+  paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+  manualEntry: boolean
+  items: ShiftSaleItem[]
+}
+
+/** Payload dev-only para generar ventas ficticias de prueba. */
+export interface DevGenerateSalesPayload {
+  count: number
+}
+
+// ---------------------------------------------------------------------------
 // Gestión de PLUs (balanza KRETZ)
 // ---------------------------------------------------------------------------
 
@@ -501,6 +531,15 @@ export interface HwApi {
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>
+
+  /** Lista las ventas confirmadas del turno activo (vista en vivo) */
+  getShiftSales: () => Promise<IpcResult<ShiftSaleRow[]>>
+
+  /**
+   * Genera ventas ficticias de prueba en el turno activo. Solo disponible en
+   * APP_ENV=dev; en producción el handler no se registra.
+   */
+  devGenerateSales: (payload: DevGenerateSalesPayload) => Promise<IpcResult<{ created: number }>>
 
   /** Registra un gasto durante el turno activo */
   registerExpense: (payload: RegisterExpensePayload) => Promise<IpcResult<{ id: string }>>

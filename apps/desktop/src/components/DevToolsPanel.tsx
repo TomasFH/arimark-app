@@ -16,7 +16,7 @@ const APP_ENV = import.meta.env['VITE_APP_ENV'] as string
 // Tipos internos
 // ---------------------------------------------------------------------------
 
-type TabId = 'hardware' | 'plus'
+type TabId = 'hardware' | 'plus' | 'sales'
 
 interface LogEntry {
   id: number
@@ -199,10 +199,81 @@ function EventLog({ entries }: { entries: LogEntry[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Sub-componente: tab Ventas de prueba (solo dev)
+// ---------------------------------------------------------------------------
+
+function SalesTab({ onLog, onDataChanged }: { onLog: (entry: Omit<LogEntry, 'id'>) => void; onDataChanged?: () => void }) {
+  const [count, setCount] = useState('10')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function generate(n: number) {
+    setBusy(true)
+    setMsg('')
+    try {
+      const result = await window.hw.devGenerateSales({ count: n })
+      if (result.ok) {
+        setMsg(`✓ ${result.data.created} venta(s) generada(s)`)
+        onLog({ time: nowTime(), level: 'info', message: `${result.data.created} ventas de prueba generadas` })
+        onDataChanged?.()
+      } else {
+        setMsg(`Error: ${result.error}`)
+        onLog({ time: nowTime(), level: 'error', message: `Generar ventas: ${result.error}` })
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const parsedCount = Math.max(1, Math.min(200, parseInt(count, 10) || 0))
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Ventas ficticias</p>
+        <p className="text-[10px] text-gray-500 leading-relaxed">
+          Genera ventas confirmadas en el turno actual usando el catálogo real. Sirve para probar
+          la lista de ventas, el balance en efectivo y el cierre de caja. Solo en modo dev.
+        </p>
+
+        <button
+          onClick={() => void generate(1)}
+          disabled={busy}
+          className="w-full rounded border border-emerald-700 bg-emerald-900/40 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-900/60 disabled:opacity-40"
+        >
+          + 1 venta
+        </button>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={count}
+            onChange={e => setCount(e.target.value.replace(/[^0-9]/g, ''))}
+            className="w-16 rounded bg-gray-900 px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:ring-1 focus:ring-yellow-500"
+          />
+          <button
+            onClick={() => void generate(parsedCount)}
+            disabled={busy}
+            className="flex-1 rounded border border-yellow-700 bg-yellow-900/40 py-1.5 text-xs font-semibold text-yellow-300 hover:bg-yellow-900/60 disabled:opacity-40"
+          >
+            {busy ? 'Generando…' : `Generar ${parsedCount} ventas`}
+          </button>
+        </div>
+
+        {msg && (
+          <p className={`text-[10px] ${msg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>{msg}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Componente principal
 // ---------------------------------------------------------------------------
 
-export default function DevToolsPanel() {
+export default function DevToolsPanel({ onDataChanged }: { onDataChanged?: () => void } = {}) {
   if (APP_ENV === 'production') return null
 
   const isSandbox = APP_ENV === 'dev'
@@ -260,6 +331,16 @@ export default function DevToolsPanel() {
             >
               PLUs
             </button>
+            <button
+              onClick={() => setTab('sales')}
+              className={`flex-1 rounded py-1 text-[10px] font-semibold transition-colors ${
+                tab === 'sales'
+                  ? isSandbox ? 'bg-yellow-700 text-white' : 'bg-orange-700 text-white'
+                  : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+              }`}
+            >
+              Ventas
+            </button>
           </div>
 
           {tab === 'hardware' && (
@@ -272,6 +353,13 @@ export default function DevToolsPanel() {
           {tab === 'plus' && (
             <div className="max-h-[70vh] overflow-y-auto pr-1">
               <PluManagerPanel />
+            </div>
+          )}
+
+          {tab === 'sales' && (
+            <div className="space-y-2">
+              <SalesTab onLog={addLog} onDataChanged={onDataChanged} />
+              <EventLog entries={logEntries} />
             </div>
           )}
         </div>
