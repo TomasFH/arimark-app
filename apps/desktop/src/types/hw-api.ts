@@ -104,6 +104,15 @@ export interface ShiftSummary {
   openingCash: number
   salesCount: number
   totalRevenue: number
+  /** Total cobrado en efectivo durante el turno */
+  totalCashSales: number
+  /** Total gastado en efectivo durante el turno */
+  totalExpenses: number
+  /**
+   * Efectivo estimado en caja = apertura + ventas en efectivo - gastos en efectivo.
+   * No incluye el efectivo declarado al cerrar.
+   */
+  cashInHand: number
 }
 
 export interface CloseShiftPayload {
@@ -112,6 +121,26 @@ export interface CloseShiftPayload {
   safeAmount?: number
   deliveredAmount?: number
   deliveredTo?: string
+  notes?: string
+  /** Conteo de billetes al cerrar (denominación → cantidad) */
+  billDenominations?: Array<{ denomination: number; quantity: number }>
+}
+
+// ---------------------------------------------------------------------------
+// Gastos del turno
+// ---------------------------------------------------------------------------
+export interface ExpenseRow {
+  id: string
+  category: string
+  amount: number
+  notes: string | null
+  createdAt: string
+  createdBy: string
+}
+
+export interface RegisterExpensePayload {
+  category: string
+  amount: number
   notes?: string
 }
 
@@ -472,6 +501,18 @@ export interface HwApi {
 
   /** Crea una venta (ítems + pagos) de forma atómica */
   createSale: (payload: CreateSalePayload) => Promise<IpcResult<SaleResult>>
+
+  /** Registra un gasto durante el turno activo */
+  registerExpense: (payload: RegisterExpensePayload) => Promise<IpcResult<{ id: string }>>
+
+  /** Lista los gastos del turno activo */
+  getShiftExpenses: () => Promise<IpcResult<ExpenseRow[]>>
+
+  /**
+   * Retorna las categorías de gasto usadas previamente (para autocomplete).
+   * Incluye sugerencias predefinidas si aún no hay historial.
+   */
+  getExpenseCategories: () => Promise<IpcResult<string[]>>
 
   // ---- Gestión de PLUs ----
   /** Prueba de enlace con la balanza (cmd 0002) */

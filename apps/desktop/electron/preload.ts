@@ -68,6 +68,12 @@ const hw: HwApi = {
 
   createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
 
+  registerExpense: payload => ipcRenderer.invoke(IPC.REGISTER_EXPENSE, payload),
+
+  getShiftExpenses: () => ipcRenderer.invoke(IPC.GET_SHIFT_EXPENSES),
+
+  getExpenseCategories: () => ipcRenderer.invoke(IPC.GET_EXPENSE_CATEGORIES),
+
   // Gestión de PLUs (balanza KRETZ)
   kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),
 

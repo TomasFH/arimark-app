@@ -307,9 +307,8 @@ export const expenses = sqliteTable(
     shiftId: text('shift_id')
       .notNull()
       .references(() => shifts.id),
-    category: text('category', {
-      enum: ['supplies', 'cleaning', 'services', 'other'],
-    }).notNull(),
+    /** Categoría del gasto — texto libre, sin enum para permitir categorías personalizadas. */
+    category: text('category').notNull(),
     amount: real('amount').notNull(),
     notes: text('notes'),
     createdAt: text('created_at').notNull(),

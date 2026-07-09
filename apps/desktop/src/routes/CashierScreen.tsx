@@ -3,6 +3,7 @@ import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
+import ExpenseModal from './ExpenseModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
@@ -30,9 +31,12 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
+  const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
+  // Balance en tiempo real
+  const [cashInHand, setCashInHand] = useState<number | null>(null)
   // Feedback visual cuando el lector captura un escaneo global
   const [scanFlash, setScanFlash] = useState<string | null>(null)
   const scanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -42,6 +46,20 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     window.hw.getProducts().then(res => {
       if (res.ok) setProducts(res.data)
     })
+  }, [])
+
+  // Cargar balance inicial y refrescar cada 30 segundos
+  function refreshBalance(): void {
+    void window.hw.getShiftSummary().then(r => {
+      if (r.ok) setCashInHand(r.data.cashInHand)
+    })
+  }
+
+  useEffect(() => {
+    refreshBalance()
+    const interval = setInterval(refreshBalance, 30_000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0)
@@ -118,6 +136,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
 
       setLastSaleId(result.data.saleId)
       setCart([])
+      refreshBalance() // actualizar balance después de cada venta
     } catch {
       setError('Error de comunicación. Reintentar.')
     } finally {
@@ -140,6 +159,12 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         <div className="flex items-center gap-4">
           <span className="text-sm font-semibold text-amber-400">{shiftLabel}</span>
           <span className="text-xs text-gray-500">Turno abierto</span>
+          {/* Balance estimado en caja */}
+          {cashInHand !== null && (
+            <span className="text-xs text-emerald-400 font-medium">
+              💵 {formatARS(cashInHand)} en caja
+            </span>
+          )}
           {/* Indicador del lector USB */}
           {scanFlash ? (
             <span className="flex items-center gap-1.5 rounded-md bg-green-900/40 px-2 py-1 text-[11px] text-green-300 animate-pulse">
@@ -159,6 +184,12 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
             className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-600 hover:text-white transition-colors"
           >
             📋 Productos
+          </button>
+          <button
+            onClick={() => setShowExpenseModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-orange-600 hover:text-orange-300 transition-colors"
+          >
+            💸 Gasto
           </button>
           <span className="text-sm text-gray-400">
             {session.role === 'cashier' ? 'Cajera' : 'Admin'}
@@ -320,6 +351,14 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
       {/* Modal de lista de productos */}
       {showProductsModal && (
         <ProductsListModal onClose={() => setShowProductsModal(false)} />
+      )}
+
+      {/* Modal de registro de gastos */}
+      {showExpenseModal && (
+        <ExpenseModal
+          onRegistered={() => { setShowExpenseModal(false); refreshBalance() }}
+          onCancel={() => setShowExpenseModal(false)}
+        />
       )}
     </div>
   )

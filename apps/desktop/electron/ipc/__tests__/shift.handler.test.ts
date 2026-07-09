@@ -196,6 +196,8 @@ describe('shift.handler', () => {
       }
       const mockShiftAll = vi.fn().mockReturnValue([shift])
       const mockSalesAll = vi.fn().mockReturnValue([{ salesCount: 5, totalRevenue: 25000 }])
+      const mockCashAll = vi.fn().mockReturnValue([{ totalCash: 15000 }])
+      const mockExpensesAll = vi.fn().mockReturnValue([{ totalExpenses: 500 }])
 
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn()
@@ -210,13 +212,27 @@ describe('shift.handler', () => {
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockSalesAll }),
             }),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: mockCashAll }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
+            }),
           }),
       } as unknown as ReturnType<typeof getDb>)
 
-      const result = getHandler('ipc:get-shift-summary')({}) as { ok: boolean; data: { salesCount: number; totalRevenue: number } }
+      const result = getHandler('ipc:get-shift-summary')({}) as { ok: boolean; data: { salesCount: number; totalRevenue: number; cashInHand: number } }
       expect(result.ok).toBe(true)
       expect(result.data.salesCount).toBe(5)
       expect(result.data.totalRevenue).toBe(25000)
+      // cashInHand = openingCash(1000) + cashSales(15000) - expenses(500) = 15500
+      expect(result.data.cashInHand).toBe(15500)
     })
 
     it('retorna salesCount 0 y totalRevenue 0 si no hay ventas', () => {
@@ -229,6 +245,8 @@ describe('shift.handler', () => {
       }
       const mockShiftAll = vi.fn().mockReturnValue([shift])
       const mockSalesAll = vi.fn().mockReturnValue([{ salesCount: 0, totalRevenue: null }])
+      const mockCashAll = vi.fn().mockReturnValue([{ totalCash: null }])
+      const mockExpensesAll = vi.fn().mockReturnValue([{ totalExpenses: null }])
 
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn()
@@ -242,6 +260,18 @@ describe('shift.handler', () => {
           .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockSalesAll }),
+            }),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: mockCashAll }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
             }),
           }),
       } as unknown as ReturnType<typeof getDb>)
@@ -277,37 +307,43 @@ describe('shift.handler', () => {
 
     it('cierra el turno con datos de arqueo y detiene el daemon', () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
-      const mockRun = vi.fn()
-      vi.mocked(getDb).mockReturnValue({
+      const mockTx = vi.fn(fn => fn({
         update: vi.fn().mockReturnValue({
           set: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({ run: mockRun }),
+            where: vi.fn().mockReturnValue({ run: vi.fn() }),
           }),
         }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ run: vi.fn() }) }),
+      }))
+      vi.mocked(getDb).mockReturnValue({
+        transaction: mockTx,
       } as unknown as ReturnType<typeof getDb>)
 
       const result = getHandler('ipc:close-shift')({}, { closingCash: 1200, safeAmount: 800 })
       expect(result).toMatchObject({ ok: true })
-      expect(mockRun).toHaveBeenCalledOnce()
+      expect(mockTx).toHaveBeenCalledOnce()
       expect(updateActiveShift).toHaveBeenCalledWith(null)
       expect(stopDaemon).toHaveBeenCalledOnce()
     })
 
     it('cierra el turno automáticamente sin datos de caja (auto-close por inactividad)', () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
-      const mockRun = vi.fn()
-      vi.mocked(getDb).mockReturnValue({
+      const mockTx = vi.fn(fn => fn({
         update: vi.fn().mockReturnValue({
           set: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({ run: mockRun }),
+            where: vi.fn().mockReturnValue({ run: vi.fn() }),
           }),
         }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ run: vi.fn() }) }),
+      }))
+      vi.mocked(getDb).mockReturnValue({
+        transaction: mockTx,
       } as unknown as ReturnType<typeof getDb>)
 
       // Payload vacío = auto-close
       const result = getHandler('ipc:close-shift')({}, {})
       expect(result).toMatchObject({ ok: true })
-      expect(mockRun).toHaveBeenCalledOnce()
+      expect(mockTx).toHaveBeenCalledOnce()
       expect(stopDaemon).toHaveBeenCalledOnce()
     })
   })

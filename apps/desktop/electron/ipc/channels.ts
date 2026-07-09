@@ -44,6 +44,11 @@ export const IPC = {
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',
 
+  // Gastos del turno
+  REGISTER_EXPENSE: 'ipc:register-expense',
+  GET_SHIFT_EXPENSES: 'ipc:get-shift-expenses',
+  GET_EXPENSE_CATEGORIES: 'ipc:get-expense-categories',
+
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
   LOGIN: 'ipc:login',

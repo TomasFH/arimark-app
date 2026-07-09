@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { eq, and, isNull, desc, count, sum } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { shifts, sales } from '../db/schema'
+import { shifts, sales, salePayments, expenses, billDenominations } from '../db/schema'
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
@@ -16,12 +16,18 @@ const openShiftSchema = z.object({
   openingCash: z.number().min(0),
 })
 
+const billDenominationSchema = z.object({
+  denomination: z.number().positive(),
+  quantity: z.number().int().min(0),
+})
+
 const closeShiftSchema = z.object({
   closingCash: z.number().min(0).optional(),
   safeAmount: z.number().min(0).optional(),
   deliveredAmount: z.number().min(0).optional(),
   deliveredTo: z.string().optional(),
   notes: z.string().optional(),
+  billDenominations: z.array(billDenominationSchema).optional(),
 })
 
 export function registerShiftHandlers(): void {
@@ -170,7 +176,8 @@ export function registerShiftHandlers(): void {
         return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
       }
 
-      const [stats] = db
+      // Ventas confirmadas del turno
+      const [salesStats] = db
         .select({
           salesCount: count(sales.id),
           totalRevenue: sum(sales.total),
@@ -182,6 +189,29 @@ export function registerShiftHandlers(): void {
         ))
         .all()
 
+      // Total cobrado en efectivo: join sales → sale_payments donde paymentMethod = 'cash'
+      const [cashStats] = db
+        .select({ totalCash: sum(salePayments.amount) })
+        .from(salePayments)
+        .innerJoin(sales, eq(salePayments.saleId, sales.id))
+        .where(and(
+          eq(sales.shiftId, session.shiftId),
+          eq(sales.status, 'confirmed'),
+          eq(salePayments.paymentMethod, 'cash')
+        ))
+        .all()
+
+      // Total de gastos del turno
+      const [expenseStats] = db
+        .select({ totalExpenses: sum(expenses.amount) })
+        .from(expenses)
+        .where(eq(expenses.shiftId, session.shiftId))
+        .all()
+
+      const totalCashSales = Number(cashStats?.totalCash ?? 0)
+      const totalExpenses = Number(expenseStats?.totalExpenses ?? 0)
+      const cashInHand = shift.openingCash + totalCashSales - totalExpenses
+
       return {
         ok: true,
         data: {
@@ -189,8 +219,11 @@ export function registerShiftHandlers(): void {
           shiftType: shift.shiftType,
           startedAt: shift.startedAt,
           openingCash: shift.openingCash,
-          salesCount: stats?.salesCount ?? 0,
-          totalRevenue: Number(stats?.totalRevenue ?? 0),
+          salesCount: salesStats?.salesCount ?? 0,
+          totalRevenue: Number(salesStats?.totalRevenue ?? 0),
+          totalCashSales,
+          totalExpenses,
+          cashInHand,
         },
       }
     } catch (err) {
@@ -218,19 +251,36 @@ export function registerShiftHandlers(): void {
     try {
       const db = getDb()
       const now = new Date().toISOString()
-      const { closingCash, safeAmount, deliveredAmount, deliveredTo, notes } = parsed.data
+      const { closingCash, safeAmount, deliveredAmount, deliveredTo, notes, billDenominations: denoms } = parsed.data
 
-      db.update(shifts)
-        .set({
-          closedAt: now,
-          closingCash: closingCash ?? null,
-          safeAmount: safeAmount ?? null,
-          deliveredAmount: deliveredAmount ?? null,
-          deliveredTo: deliveredTo ?? null,
-          notes: notes ?? null,
-        })
-        .where(eq(shifts.id, session.shiftId))
-        .run()
+      db.transaction(tx => {
+        tx.update(shifts)
+          .set({
+            closedAt: now,
+            closingCash: closingCash ?? null,
+            safeAmount: safeAmount ?? null,
+            deliveredAmount: deliveredAmount ?? null,
+            deliveredTo: deliveredTo ?? null,
+            notes: notes ?? null,
+          })
+          .where(eq(shifts.id, session.shiftId!))
+          .run()
+
+        if (denoms && denoms.length > 0) {
+          for (const d of denoms) {
+            if (d.quantity <= 0) continue
+            tx.insert(billDenominations)
+              .values({
+                id: uuidv4(),
+                shiftId: session.shiftId!,
+                denomination: d.denomination,
+                quantity: d.quantity,
+                subtotal: d.denomination * d.quantity,
+              })
+              .run()
+          }
+        }
+      })
 
       const closedShiftId = session.shiftId
       updateActiveShift(null)
