@@ -28,22 +28,24 @@ function getDbPath(): string {
 }
 
 function getDefaultStoreId(): string {
+  // Leer business.json si existe — comportamiento idéntico a getBusinessConfig() en la app.
+  // En dev mode sin business.json se usa el ID de fallback para el sandbox.
+  const configPath = path.resolve(process.cwd(), 'config', 'business.json')
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+        default_store_id?: string
+      }
+      if (config.default_store_id) return config.default_store_id
+    } catch {
+      // Si el archivo existe pero no se puede parsear, caer al fallback.
+    }
+  }
+
   if (APP_ENV === 'dev') return '00000000-0000-0000-0000-000000000001'
 
-  // En producción, leer el store_id real de config/business.json
-  const configPath = path.resolve(process.cwd(), 'config', 'business.json')
-  if (!fs.existsSync(configPath)) {
-    console.error('[seed] No se encontró config/business.json — necesario para seed:prod')
-    process.exit(1)
-  }
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
-    default_store_id?: string
-  }
-  if (!config.default_store_id) {
-    console.error('[seed] business.json no tiene default_store_id')
-    process.exit(1)
-  }
-  return config.default_store_id
+  console.error('[seed] No se encontró config/business.json — necesario para seed:prod')
+  process.exit(1)
 }
 
 const DB_PATH = getDbPath()
