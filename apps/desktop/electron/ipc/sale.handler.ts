@@ -8,6 +8,7 @@ import { getDb } from '../db/client'
 import { sales, saleItems, salePayments } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getStoredAdminSession } from './auth.handler'
+import { notifySaleOccurred } from './inactivityDaemon'
 import type { IpcResult, SaleResult } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
@@ -183,6 +184,7 @@ export function registerSaleHandlers(): void {
     }
 
     log.info('[ipc:create-sale] Venta confirmada', { saleId, total, payments: payments.length })
+    notifySaleOccurred()
     return { ok: true, data: { saleId, total } }
   })
 }

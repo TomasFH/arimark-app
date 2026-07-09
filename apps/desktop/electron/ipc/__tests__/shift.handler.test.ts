@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
+  BrowserWindow: { getAllWindows: vi.fn().mockReturnValue([]) },
 }))
 
 vi.mock('electron-log', () => ({
-  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }))
 
 vi.mock('../../db/client', () => ({
@@ -17,9 +18,20 @@ vi.mock('../../activeSession', () => ({
   updateActiveShift: vi.fn(),
 }))
 
+vi.mock('../inactivityDaemon', () => ({
+  startDaemon: vi.fn(),
+  stopDaemon: vi.fn(),
+  dismissWarning: vi.fn(),
+}))
+
+vi.mock('../../businessConfig', () => ({
+  getBusinessConfig: vi.fn().mockReturnValue({ inactivityThresholdHours: 2 }),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession, updateActiveShift } from '../../activeSession'
+import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
 import { registerShiftHandlers } from '../shift.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
@@ -30,7 +42,8 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const SESSION = { userId: 'user-001', storeId: 'store-001', shiftId: null }
+const SESSION_NO_SHIFT = { userId: 'user-001', storeId: 'store-001', shiftId: null }
+const SESSION_WITH_SHIFT = { userId: 'user-001', storeId: 'store-001', shiftId: 'shift-001' }
 
 describe('shift.handler', () => {
   beforeEach(() => {
@@ -49,7 +62,7 @@ describe('shift.handler', () => {
     })
 
     it('retorna null si no hay turno abierto', () => {
-      vi.mocked(getActiveSession).mockReturnValue(SESSION)
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const mockAll = vi.fn().mockReturnValue([])
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
@@ -68,8 +81,8 @@ describe('shift.handler', () => {
       expect(result.data).toBeNull()
     })
 
-    it('retorna el turno activo si existe', () => {
-      vi.mocked(getActiveSession).mockReturnValue(SESSION)
+    it('retorna el turno activo si existe e inicia el daemon', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const shift = {
         id: 'shift-001',
         storeId: 'store-001',
@@ -95,6 +108,7 @@ describe('shift.handler', () => {
       const result = getHandler('ipc:get-active-shift')({}) as { ok: boolean; data: { id: string } }
       expect(result.ok).toBe(true)
       expect(result.data.id).toBe('shift-001')
+      expect(startDaemon).toHaveBeenCalledWith(2)
     })
   })
 
@@ -114,7 +128,7 @@ describe('shift.handler', () => {
     })
 
     it('rechaza si ya existe un turno abierto', () => {
-      vi.mocked(getActiveSession).mockReturnValue(SESSION)
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const mockAll = vi.fn().mockReturnValue([{ id: 'existing-shift' }])
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
@@ -130,8 +144,8 @@ describe('shift.handler', () => {
       expect(result).toMatchObject({ ok: false, code: 'SHIFT_ALREADY_OPEN' })
     })
 
-    it('crea un turno y actualiza la sesión activa', () => {
-      vi.mocked(getActiveSession).mockReturnValue(SESSION)
+    it('crea un turno, actualiza la sesión activa e inicia el daemon', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const mockAll = vi.fn().mockReturnValue([])
       const mockRun = vi.fn()
       vi.mocked(getDb).mockReturnValue({
@@ -151,7 +165,161 @@ describe('shift.handler', () => {
       expect(result.ok).toBe(true)
       expect(result.data.openingCash).toBe(500)
       expect(mockRun).toHaveBeenCalledOnce()
-      expect(vi.mocked(updateActiveShift)).toHaveBeenCalledWith(expect.any(String))
+      expect(updateActiveShift).toHaveBeenCalledWith(expect.any(String))
+      expect(startDaemon).toHaveBeenCalledWith(2)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // GET_SHIFT_SUMMARY
+  // ---------------------------------------------------------------------------
+  describe('GET_SHIFT_SUMMARY', () => {
+    it('retorna error si no hay sesión', () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const result = getHandler('ipc:get-shift-summary')({})
+      expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
+    })
+
+    it('retorna error si no hay turno activo en sesión', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = getHandler('ipc:get-shift-summary')({})
+      expect(result).toMatchObject({ ok: false, code: 'NO_SHIFT' })
+    })
+
+    it('retorna resumen con ventas', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const shift = {
+        id: 'shift-001',
+        shiftType: 'morning',
+        startedAt: '2026-01-01T08:00:00.000Z',
+        openingCash: 1000,
+      }
+      const mockShiftAll = vi.fn().mockReturnValue([shift])
+      const mockSalesAll = vi.fn().mockReturnValue([{ salesCount: 5, totalRevenue: 25000 }])
+
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn()
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({ all: mockShiftAll }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({ all: mockSalesAll }),
+            }),
+          }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-shift-summary')({}) as { ok: boolean; data: { salesCount: number; totalRevenue: number } }
+      expect(result.ok).toBe(true)
+      expect(result.data.salesCount).toBe(5)
+      expect(result.data.totalRevenue).toBe(25000)
+    })
+
+    it('retorna salesCount 0 y totalRevenue 0 si no hay ventas', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const shift = {
+        id: 'shift-001',
+        shiftType: 'evening',
+        startedAt: '2026-01-01T16:00:00.000Z',
+        openingCash: 500,
+      }
+      const mockShiftAll = vi.fn().mockReturnValue([shift])
+      const mockSalesAll = vi.fn().mockReturnValue([{ salesCount: 0, totalRevenue: null }])
+
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn()
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({ all: mockShiftAll }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({ all: mockSalesAll }),
+            }),
+          }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-shift-summary')({}) as { ok: boolean; data: { salesCount: number; totalRevenue: number } }
+      expect(result.ok).toBe(true)
+      expect(result.data.salesCount).toBe(0)
+      expect(result.data.totalRevenue).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // CLOSE_SHIFT
+  // ---------------------------------------------------------------------------
+  describe('CLOSE_SHIFT', () => {
+    it('rechaza payload inválido', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const result = getHandler('ipc:close-shift')({}, { closingCash: -1 })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
+
+    it('rechaza si no hay sesión', () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const result = getHandler('ipc:close-shift')({}, {})
+      expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
+    })
+
+    it('rechaza si no hay turno activo en sesión', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = getHandler('ipc:close-shift')({}, { closingCash: 500 })
+      expect(result).toMatchObject({ ok: false, code: 'NO_SHIFT' })
+    })
+
+    it('cierra el turno con datos de arqueo y detiene el daemon', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const mockRun = vi.fn()
+      vi.mocked(getDb).mockReturnValue({
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ run: mockRun }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:close-shift')({}, { closingCash: 1200, safeAmount: 800 })
+      expect(result).toMatchObject({ ok: true })
+      expect(mockRun).toHaveBeenCalledOnce()
+      expect(updateActiveShift).toHaveBeenCalledWith(null)
+      expect(stopDaemon).toHaveBeenCalledOnce()
+    })
+
+    it('cierra el turno automáticamente sin datos de caja (auto-close por inactividad)', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const mockRun = vi.fn()
+      vi.mocked(getDb).mockReturnValue({
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ run: mockRun }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      // Payload vacío = auto-close
+      const result = getHandler('ipc:close-shift')({}, {})
+      expect(result).toMatchObject({ ok: true })
+      expect(mockRun).toHaveBeenCalledOnce()
+      expect(stopDaemon).toHaveBeenCalledOnce()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // DISMISS_INACTIVITY_WARNING
+  // ---------------------------------------------------------------------------
+  describe('DISMISS_INACTIVITY_WARNING', () => {
+    it('llama dismissWarning y retorna ok', () => {
+      const result = getHandler('ipc:dismiss-inactivity-warning')({})
+      expect(result).toMatchObject({ ok: true })
+      expect(dismissWarning).toHaveBeenCalledOnce()
     })
   })
 })

@@ -95,6 +95,27 @@ export interface OpenShiftPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Cierre de turno
+// ---------------------------------------------------------------------------
+export interface ShiftSummary {
+  shiftId: string
+  shiftType: ShiftType
+  startedAt: string
+  openingCash: number
+  salesCount: number
+  totalRevenue: number
+}
+
+export interface CloseShiftPayload {
+  /** Efectivo en caja al cerrar. Opcional en cierre automático por inactividad. */
+  closingCash?: number
+  safeAmount?: number
+  deliveredAmount?: number
+  deliveredTo?: string
+  notes?: string
+}
+
+// ---------------------------------------------------------------------------
 // Ítems de venta — se arman en la PC escaneando los códigos de barras del
 // ticket físico (o por entrada manual de emergencia). Cada código = 1 ítem.
 // La balanza NO envía pedidos a la PC (ver PLAN.md → Modelo de flujo de datos).
@@ -397,6 +418,21 @@ export interface HwApi {
 
   /** Abre un nuevo turno para la cajera autenticada */
   openShift: (payload: OpenShiftPayload) => Promise<IpcResult<ShiftInfo>>
+
+  /** Retorna resumen del turno activo: ventas, total, horario */
+  getShiftSummary: () => Promise<IpcResult<ShiftSummary>>
+
+  /** Cierra el turno activo con datos de arqueo */
+  closeShift: (payload: CloseShiftPayload) => Promise<IpcResult>
+
+  /**
+   * Suscribe un callback al aviso de inactividad (main → renderer push).
+   * Retorna función de cleanup para desuscribir.
+   */
+  onShiftInactivityWarning: (cb: () => void) => () => void
+
+  /** Descarta el aviso de inactividad y reinicia el timer */
+  dismissInactivityWarning: () => Promise<void>
 
   /** Retorna todos los productos del catálogo con PLU asignado, ordenados por PLU asc */
   getProducts: () => Promise<IpcResult<ProductRow[]>>

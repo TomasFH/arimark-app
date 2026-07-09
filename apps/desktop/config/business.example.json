@@ -8,5 +8,6 @@
   "theme": {
     "primary": "#1a1a1a",
     "accent": "#e53e3e"
-  }
+  },
+  "inactivityThresholdHours": 2
 }

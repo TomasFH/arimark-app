@@ -195,6 +195,25 @@ async function firebaseCreateCashier(
       // El error ocurrió en createUserWithEmailAndPassword
       const code = (err as { code?: string }).code
       if (code === 'auth/email-already-in-use') {
+        // Verificar si el email tiene un perfil en Firestore.
+        // Si no tiene perfil → cuenta huérfana (Auth existe pero no el documento).
+        // Si tiene perfil → ya está registrada normalmente.
+        try {
+          const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore')
+          const db = getFirestore(mainApp)
+          const snap = await getDocs(
+            query(collection(db, 'licenses', licenseKey, 'users'), where('email', '==', email))
+          )
+          if (snap.empty) {
+            return {
+              ok: false,
+              error: `El email "${email}" existe en el sistema de autenticación pero no tiene perfil en la app (cuenta incompleta). Eliminala desde Firebase Console → Authentication → Users y volvé a intentarlo.`,
+              code: 'ORPHANED_AUTH_USER',
+            }
+          }
+        } catch {
+          // Si falla la verificación, mostrar mensaje genérico
+        }
         return { ok: false, error: 'Ya existe una cuenta con ese email.', code: 'ALREADY_EXISTS' }
       }
     }

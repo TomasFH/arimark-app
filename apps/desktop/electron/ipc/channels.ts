@@ -18,6 +18,10 @@ export const IPC = {
   // Turnos
   GET_ACTIVE_SHIFT: 'ipc:get-active-shift',
   OPEN_SHIFT: 'ipc:open-shift',
+  GET_SHIFT_SUMMARY: 'ipc:get-shift-summary',
+  CLOSE_SHIFT: 'ipc:close-shift',
+  SHIFT_INACTIVITY_WARNING: 'ipc:shift-inactivity-warning',   // push main → renderer
+  DISMISS_INACTIVITY_WARNING: 'ipc:dismiss-inactivity-warning',
 
   // Productos (catálogo local)
   GET_PRODUCTS: 'ipc:get-products',

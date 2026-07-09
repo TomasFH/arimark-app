@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { DevBanner } from './components/SandboxBanner'
 import LoginScreen from './routes/LoginScreen'
 import ActivationScreen from './routes/ActivationScreen'
 import LicenseErrorScreen from './routes/LicenseErrorScreen'
 import OpenShiftScreen from './routes/OpenShiftScreen'
 import CashierScreen from './routes/CashierScreen'
+import CloseShiftScreen from './routes/CloseShiftScreen'
 import AdminScreen from './routes/AdminScreen'
 import AdminHubScreen from './routes/AdminHubScreen'
 import CashierManagementScreen from './routes/CashierManagementScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
+
+const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
 type AppState =
   | { screen: 'loading' }
@@ -17,12 +20,72 @@ type AppState =
   | { screen: 'login'; initStatus: InitStatus }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
+  | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
+  const [showInactivityWarning, setShowInactivityWarning] = useState(false)
+  const [inactivityCountdown, setInactivityCountdown] = useState(INACTIVITY_COUNTDOWN_SECONDS)
+
+  // Suscribirse al aviso de inactividad del main process.
+  // Se activa solo cuando hay un turno abierto (pantalla 'cashier' o 'close-shift').
+  useEffect(() => {
+    const hasShift = state.screen === 'cashier' || state.screen === 'close-shift'
+    if (!hasShift) return
+
+    const unsub = window.hw.onShiftInactivityWarning(() => {
+      setInactivityCountdown(INACTIVITY_COUNTDOWN_SECONDS)
+      setShowInactivityWarning(true)
+    })
+    return unsub
+  }, [state.screen])
+
+  // Countdown de 5 minutos cuando el aviso está activo.
+  useEffect(() => {
+    if (!showInactivityWarning) return
+
+    const interval = setInterval(() => {
+      setInactivityCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(interval)
+          void handleAutoClose()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1_000)
+
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInactivityWarning])
+
+  const handleAutoClose = useCallback(async () => {
+    setShowInactivityWarning(false)
+    await window.hw.closeShift({})
+    await handleLogout()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
+
+  async function handleDismissInactivity() {
+    setShowInactivityWarning(false)
+    await window.hw.dismissInactivityWarning()
+  }
+
+  function handleGoToCloseShift() {
+    setShowInactivityWarning(false)
+    const session = 'session' in state ? state.session : null
+    const initStatus = 'initStatus' in state ? state.initStatus : null
+    if (session && initStatus) {
+      setState({ screen: 'close-shift', session, initStatus })
+    }
+  }
+
+  async function handleShiftClosed() {
+    await handleLogout()
+  }
 
   useEffect(() => {
     window.hw.getInitStatus().then(result => {
@@ -118,6 +181,10 @@ export default function App() {
     if (initStatus) setState({ screen: 'login', initStatus })
   }
 
+  const countdownMinutes = Math.floor(inactivityCountdown / 60)
+  const countdownSeconds = inactivityCountdown % 60
+  const countdownDisplay = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+
   return (
     <div className="flex min-h-screen flex-col">
       <DevBanner />
@@ -158,7 +225,26 @@ export default function App() {
           session={state.session}
           shift={state.shift}
           onLogout={handleLogout}
+          onCloseShift={handleGoToCloseShift}
           onReturnToHub={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
+        />
+      )}
+
+      {state.screen === 'close-shift' && (
+        <CloseShiftScreen
+          onConfirmed={() => void handleShiftClosed()}
+          onCancel={() => {
+            const session = state.session
+            const initStatus = state.initStatus
+            // Para volver a caja necesitamos el ShiftInfo; lo recuperamos del main.
+            void window.hw.getActiveShift().then(r => {
+              if (r.ok && r.data) {
+                setState({ screen: 'cashier', session, shift: r.data, initStatus })
+              } else {
+                setState({ screen: 'shift-required', session, initStatus })
+              }
+            })
+          }}
         />
       )}
 
@@ -185,6 +271,35 @@ export default function App() {
         <CashierManagementScreen
           onBack={handleReturnToAdminHub}
         />
+      )}
+
+      {/* Modal de aviso de inactividad — overlay global */}
+      {showInactivityWarning && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl border border-amber-500/40 w-full max-w-sm p-6 shadow-2xl space-y-4 text-center">
+            <div className="text-4xl">⏰</div>
+            <h2 className="text-lg font-bold text-white">¿Seguís trabajando?</h2>
+            <p className="text-sm text-gray-400">
+              No hubo actividad en la caja por un tiempo. Si no respondés, el turno se cerrará
+              automáticamente para proteger los registros.
+            </p>
+            <div className="text-3xl font-mono font-bold text-amber-400">{countdownDisplay}</div>
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                onClick={() => void handleDismissInactivity()}
+                className="w-full py-3 rounded-xl bg-green-700 hover:bg-green-600 font-semibold text-white transition-colors"
+              >
+                Seguir trabajando
+              </button>
+              <button
+                onClick={handleGoToCloseShift}
+                className="w-full py-3 rounded-xl bg-red-700 hover:bg-red-600 font-semibold text-white transition-colors"
+              >
+                Cerrar turno ahora
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

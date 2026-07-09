@@ -13,6 +13,7 @@ interface Props {
   session: SessionInfo
   shift: ShiftInfo
   onLogout: () => void
+  onCloseShift: () => void
   onReturnToHub?: () => void
 }
 
@@ -24,7 +25,7 @@ interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout, onReturnToHub }: Props) {
+export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -170,6 +171,12 @@ export default function CashierScreen({ session, shift, onLogout, onReturnToHub 
               ← Panel admin
             </button>
           )}
+          <button
+            onClick={onCloseShift}
+            className="rounded-md bg-red-700 px-3 py-1.5 text-xs text-white hover:bg-red-600 transition-colors"
+          >
+            Cerrar caja
+          </button>
           <button
             onClick={onLogout}
             className="rounded-md bg-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-600"

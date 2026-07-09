@@ -33,6 +33,18 @@ const hw: HwApi = {
 
   openShift: payload => ipcRenderer.invoke(IPC.OPEN_SHIFT, payload),
 
+  getShiftSummary: () => ipcRenderer.invoke(IPC.GET_SHIFT_SUMMARY),
+
+  closeShift: payload => ipcRenderer.invoke(IPC.CLOSE_SHIFT, payload),
+
+  onShiftInactivityWarning: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.SHIFT_INACTIVITY_WARNING, listener)
+    return () => ipcRenderer.removeListener(IPC.SHIFT_INACTIVITY_WARNING, listener)
+  },
+
+  dismissInactivityWarning: () => ipcRenderer.invoke(IPC.DISMISS_INACTIVITY_WARNING),
+
   getProducts: () => ipcRenderer.invoke(IPC.GET_PRODUCTS),
 
   getAllProducts: (storeId) => ipcRenderer.invoke(IPC.GET_ALL_PRODUCTS, storeId),

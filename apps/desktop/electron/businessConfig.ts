@@ -23,6 +23,8 @@ export const businessConfigSchema = z.object({
   default_store_id: z.string().min(1, 'default_store_id es obligatorio'),
   logo_path: z.string().default(''),
   theme: themeSchema,
+  /** Horas sin ventas antes de mostrar el aviso de cierre automático de turno. */
+  inactivityThresholdHours: z.number().min(0.5).max(24).default(2),
 })
 
 export type BusinessConfig = z.infer<typeof businessConfigSchema>
@@ -89,5 +91,6 @@ function getSandboxConfig(): BusinessConfig {
     default_store_id: '00000000-0000-0000-0000-000000000001',
     logo_path: '',
     theme: { primary: '#1a1a1a', accent: '#e53e3e' },
+    inactivityThresholdHours: 2,
   }
 }
