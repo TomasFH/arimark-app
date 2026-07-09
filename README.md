@@ -40,7 +40,7 @@ En modo `dev`, si se define `KRETZ_PORT=COM8`, se usa el driver real de la balan
 
 ## Configuración por cliente
 
-Copiar `config/business.example.json` a `config/business.json` e ingresar los datos reales del cliente:
+Copiar `apps/desktop/config/business.example.json` a `apps/desktop/config/business.json` e ingresar los datos reales del cliente:
 
 ```json
 {
@@ -49,11 +49,12 @@ Copiar `config/business.example.json` a `config/business.json` e ingresar los da
   "timezone": "America/Argentina/Buenos_Aires",
   "default_store_id": "...",
   "logo_path": "",
-  "theme": {}
+  "theme": {},
+  "inactivityThresholdHours": 2
 }
 ```
 
-`config/business.json` **no se versiona** (está en `.gitignore`).
+`apps/desktop/config/business.json` **no se versiona** (está en `.gitignore`). En el instalador `.exe` se empaqueta automáticamente en `resources/business.json`.
 
 ## Comandos
 
@@ -62,12 +63,16 @@ pnpm install          # instalar dependencias
 pnpm dev              # modo pruebas con mock de balanza (desarrollo local)
 pnpm dev:hw           # modo pruebas con balanza real en COM8 (carnicería)
 pnpm dev:prod         # modo producción desde fuente (requiere business.json y Firebase)
-pnpm build:prod       # compilar instalador de producción
+pnpm build:prod       # compilar instalador de producción (.exe)
 pnpm test             # ejecutar suite completa
 pnpm test:coverage    # suite + reporte de cobertura
 pnpm db:generate      # generar migraciones desde schema.ts
 pnpm seed:dev         # poblar DB de dev con datos de prueba (cajeras, productos)
 ```
+
+## Build de producción (instalador `.exe`)
+
+Ver [`apps/desktop/BUILD-PRODUCCION.md`](./apps/desktop/BUILD-PRODUCCION.md) para el protocolo completo: prerrequisitos (`business.json`, `.env.production`, Firebase), comando `pnpm build:prod`, diferencias con `pnpm dev`, ubicación de logs y verificación post-build.
 
 ## Onboarding al local real
 

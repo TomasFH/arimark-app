@@ -484,9 +484,9 @@ Protocolo operativo para la primera instalación en la PC del cliente. No improv
 - **Firebase**: Firestore y Authentication activos. Reglas de Firestore deployadas (versión actual del repo). Proyecto real de producción, no el emulador.
 - **Licencia generada**: documento `licenses/{license_key}` en Firestore con `activo: true`. `license_key` anotado.
 - **Usuarios creados**: cuentas en Firebase Auth (email + contraseña) con perfil en `licenses/{key}/users/{uid}` (campos: `role`, `displayName`, `authorizedStores`, `active: true`). Alta manual desde consola de Firebase hasta que exista el panel de administración (Fase 4).
-- **`config/business.json` preparado** con: `business_name`, `license_key`, `default_store_id`, `timezone`, `logo_path`, `theme`. No se versiona. Copiar del template `config/business.example.json`.
-- **`.env.production` preparado** en la raíz del proyecto con las claves `VITE_FIREBASE_*` del proyecto Firebase. No se versiona.
-- **Instalador `.exe` compilado** con `APP_ENV=production`. Probado en una PC limpia (sin Node, sin el proyecto en disco). Verificado que el banner de pruebas **no** aparece y que el botón de bypass de login no existe.
+- **`apps/desktop/config/business.json` preparado** con: `business_name`, `license_key`, `default_store_id`, `timezone`, `inactivityThresholdHours`, `logo_path`, `theme`. No se versiona. Copiar del template `apps/desktop/config/business.example.json`. Ver [`apps/desktop/BUILD-PRODUCCION.md`](./apps/desktop/BUILD-PRODUCCION.md).
+- **`.env.production` preparado** en la raíz del proyecto con las claves `VITE_FIREBASE_*` del proyecto Firebase. No se versiona. Las variables se incrustan en el build — no se pueden cambiar post-instalación sin recompilar.
+- **Instalador `.exe` compilado** con `pnpm build:prod` (`APP_ENV=production`). Salida en `apps/desktop/release/`. Probado en una PC limpia (sin Node, sin el proyecto en disco). Verificado que el banner de pruebas **no** aparece y que el botón de bypass de login no existe.
 - **Build de producción verificado**: `afterPack` no encontró artefactos de dev.
 - **Driver JDATAGATE** de KRETZ descargado (compatible con REPORT NX). En USB o carpeta accesible.
 - **Suite de tests en verde al 100%** antes de compilar el instalador final.
@@ -496,7 +496,7 @@ Protocolo operativo para la primera instalación en la PC del cliente. No improv
 Ejecutar en este orden. No saltear pasos.
 
 1. Instalar driver JDATAGATE de KRETZ. Reiniciar si lo pide. Verificar en Administrador de dispositivos que el puerto aparece.
-2. Copiar `config/business.json` y `.env.production` a las rutas correctas del proyecto antes de compilar el instalador.
+2. Verificar que `apps/desktop/config/business.json` y `.env.production` están completos **antes** de compilar (`pnpm build:prod`). Ver [`apps/desktop/BUILD-PRODUCCION.md`](./apps/desktop/BUILD-PRODUCCION.md).
 3. Ejecutar el instalador `.exe`. Aceptar UAC si aparece.
 4. Primera apertura: el local por defecto se crea automáticamente en SQLite. Verificar que aparece la pantalla de login (sin banner amarillo ni botón bypass).
 5. Iniciar sesión con las credenciales de Firebase Auth. Verificar que la sesión queda activa.

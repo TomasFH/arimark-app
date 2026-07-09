@@ -16,6 +16,11 @@ module.exports = {
     '!dist-electron/**/__mocks__/**',
     '!dist-electron/**/__tests__/**',
   ],
+  // business.json del cliente — debe existir en config/ antes de compilar.
+  // En runtime la app lo lee desde resources/business.json (ver businessConfig.ts).
+  extraResources: [
+    { from: 'config/business.json', to: 'business.json' },
+  ],
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     signAndEditExecutable: false,
