@@ -240,20 +240,34 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
           {mode === 'cash-detail' && (
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-sm text-gray-300">
-                  ¿Con cuánto paga el cliente?{' '}
-                  <span className="text-gray-600">(opcional)</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-gray-300">
+                    ¿Con cuánto paga el cliente?
+                  </label>
+                  {/* Botón sutil para llenar con el total exacto (pago justo) */}
+                  <button
+                    type="button"
+                    onClick={() => setClientCash(formatIntegerWithDots(String(Math.round(total))))}
+                    className="text-xs text-amber-500 hover:text-amber-300 border border-amber-700/50 rounded px-2 py-0.5 hover:bg-amber-900/20 transition-colors"
+                  >
+                    Paga justo · {formatARS(total)}
+                  </button>
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
                   <NumericInput
                     value={clientCash}
                     onChange={setClientCash}
-                    placeholder="0"
+                    placeholder="Monto recibido"
                     autoFocus
                     className="w-full rounded-xl bg-gray-800 pl-8 pr-4 py-3 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-500 border border-gray-700"
                   />
                 </div>
+                {clientCash === '' && (
+                  <p className="text-xs text-gray-500">
+                    Ingresá el monto que entrega el cliente para calcular el vuelto, o usá el botón si paga con el monto exacto.
+                  </p>
+                )}
               </div>
 
               {cashChange > 0.005 && (
@@ -273,7 +287,7 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
 
               <button
                 onClick={handleCashConfirm}
-                disabled={cashInsufficient}
+                disabled={cashInsufficient || clientCash === ''}
                 className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40"
               >
                 Confirmar cobro · {formatARS(total)}

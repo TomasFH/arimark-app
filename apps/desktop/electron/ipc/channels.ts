@@ -44,6 +44,7 @@ export const IPC = {
   // Ventas (POS)
   CREATE_SALE: 'ipc:create-sale',
   GET_SHIFT_SALES: 'ipc:get-shift-sales',
+  CANCEL_SALE: 'ipc:cancel-sale',
 
   // Herramientas de desarrollo (solo APP_ENV=dev)
   DEV_GENERATE_SALES: 'ipc:dev-generate-sales',

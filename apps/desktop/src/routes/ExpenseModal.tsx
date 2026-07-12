@@ -17,13 +17,15 @@ export default function ExpenseModal({ onRegistered, onCancel }: Props) {
   const [notes, setNotes] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  // Las sugerencias se muestran solo tras escribir o hacer click explícito después del focus inicial.
+  const hasInteractedRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const categoryRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void window.hw.getExpenseCategories().then(r => {
-      if (r.ok) setSuggestions(r.data)
+      if (r.ok) setSuggestions([...r.data].sort((a, b) => a.localeCompare(b, 'es-AR')))
     })
     categoryRef.current?.focus()
   }, [])
@@ -62,8 +64,20 @@ export default function ExpenseModal({ onRegistered, onCancel }: Props) {
             ref={categoryRef}
             type="text"
             value={category}
-            onChange={e => { setCategory(e.target.value); setShowSuggestions(true) }}
-            onFocus={() => setShowSuggestions(true)}
+            onChange={e => {
+              setCategory(e.target.value)
+              hasInteractedRef.current = true
+              setShowSuggestions(true)
+            }}
+            onFocus={() => {
+              // Al hacer click explícito (no el foco automático del mount) mostrar sugerencias
+              if (hasInteractedRef.current) setShowSuggestions(true)
+            }}
+            onClick={() => {
+              // Click explícito siempre abre sugerencias
+              hasInteractedRef.current = true
+              setShowSuggestions(true)
+            }}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             placeholder="Insumos, Limpieza…"
             maxLength={80}

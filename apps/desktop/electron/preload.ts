@@ -69,6 +69,7 @@ const hw: HwApi = {
   createSale: payload => ipcRenderer.invoke(IPC.CREATE_SALE, payload),
 
   getShiftSales: () => ipcRenderer.invoke(IPC.GET_SHIFT_SALES),
+  cancelSale: (saleId: string) => ipcRenderer.invoke(IPC.CANCEL_SALE, saleId),
 
   devGenerateSales: payload => ipcRenderer.invoke(IPC.DEV_GENERATE_SALES, payload),
 

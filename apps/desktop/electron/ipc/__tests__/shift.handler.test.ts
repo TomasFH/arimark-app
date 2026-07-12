@@ -221,6 +221,16 @@ describe('shift.handler', () => {
             }),
           })
           .mockReturnValueOnce({
+            // desglose digital por tipo (groupBy)
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({
+                  groupBy: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
+                }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
             }),
@@ -266,6 +276,16 @@ describe('shift.handler', () => {
             from: vi.fn().mockReturnValue({
               innerJoin: vi.fn().mockReturnValue({
                 where: vi.fn().mockReturnValue({ all: mockCashAll }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            // desglose digital por tipo (groupBy)
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({
+                  groupBy: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
+                }),
               }),
             }),
           })

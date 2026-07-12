@@ -97,6 +97,14 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
     }
 
     function onKeyDown(e: KeyboardEvent) {
+      // Tecla mantenida físicamente (key-repeat del OS): nunca es un lector de barras.
+      // Sin este check, el scanner interpreta los eventos repetidos como un scan y
+      // previene la escritura (o restaura el campo al valor previo).
+      if (e.repeat) {
+        clearBuffer()
+        return
+      }
+
       const now = Date.now()
       const activeEl = document.activeElement
       const tag = (activeEl?.tagName ?? '').toLowerCase()

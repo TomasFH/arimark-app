@@ -199,7 +199,7 @@ export const sales = sqliteTable(
     customerId: text('customer_id').references(() => customers.id),
     total: real('total').notNull(),
     isDebt: integer('is_debt', { mode: 'boolean' }).notNull().default(false),
-    status: text('status', { enum: ['in_progress', 'confirmed', 'discarded'] }).notNull(),
+    status: text('status', { enum: ['in_progress', 'confirmed', 'discarded', 'cancelled'] }).notNull(),
     manualEntry: integer('manual_entry', { mode: 'boolean' }).notNull().default(false),
     manualApprovedBy: text('manual_approved_by').references(() => users.id),
     manualApprovedAt: text('manual_approved_at'),

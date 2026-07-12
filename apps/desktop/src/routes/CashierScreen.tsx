@@ -4,6 +4,7 @@ import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
+import ExpenseListModal from './ExpenseListModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
@@ -34,6 +35,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [showExpenseListModal, setShowExpenseListModal] = useState(false)
   const [showSalesModal, setShowSalesModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -206,6 +208,12 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
             className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-orange-600 hover:text-orange-300 transition-colors"
           >
             💸 Gasto
+          </button>
+          <button
+            onClick={() => setShowExpenseListModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-amber-600 hover:text-amber-300 transition-colors"
+          >
+            📋 Ver gastos
           </button>
           <span className="text-sm text-gray-400">
             {session.role === 'cashier' ? 'Cajera' : 'Admin'}
@@ -430,9 +438,13 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         />
       )}
 
+      {showExpenseListModal && (
+        <ExpenseListModal onClose={() => setShowExpenseListModal(false)} />
+      )}
+
       {/* Vista ampliada de ventas del turno */}
       {showSalesModal && (
-        <ShiftSalesModal onClose={() => setShowSalesModal(false)} />
+        <ShiftSalesModal onClose={() => { setShowSalesModal(false); refreshSales() }} />
       )}
     </div>
   )

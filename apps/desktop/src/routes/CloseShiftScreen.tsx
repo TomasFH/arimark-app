@@ -1,24 +1,51 @@
 /**
  * Pantalla de arqueo de caja — cierre deliberado de turno.
  *
- * Muestra el resumen del turno, permite contar billetes por denominación
- * y calcula la diferencia entre el efectivo esperado y el contado.
+ * Flujo:
+ *  1. Ver resumen del turno (ventas, efectivo, digital por tipo).
+ *  2. Declarar monto entregado / depositado en caja fuerte (opcional).
+ *  3. Contar billetes del efectivo que queda en caja registradora.
+ *     - Modo cantidad: cuántos billetes de cada denominación.
+ *     - Modo monto: monto total por denominación (validado como múltiplo).
+ *     La preferencia se guarda en localStorage.
+ *  4. Al confirmar → pantalla de resumen final con botón "Finalizar".
  */
 import { useEffect, useState } from 'react'
 import NumericInput from '../components/NumericInput'
-import { parseNumericInput } from '../lib/numericInput'
+import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import type { ShiftSummary } from '../types/hw-api'
 
-/** Denominaciones válidas en pesos argentinos (actualizar si cambia la emisión). */
-const DENOMINATIONS = [10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10]
+/** Denominaciones vigentes en Argentina (sin billete de $5.000). */
+const DENOMINATIONS = [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10]
+
+const BILL_MODE_KEY = 'close-shift-bill-mode'
+type BillMode = 'quantity' | 'total'
 
 interface BillRow {
   denomination: number
-  quantity: string // string para el NumericInput; parseado al enviar
+  /** Modo cantidad: cuántos billetes. */
+  quantity: string
+  /** Modo monto: total acumulado para esa denominación. */
+  total: string
+  /** Error de validación en modo monto. */
+  totalError: string | null
 }
 
 function initialBillRows(): BillRow[] {
-  return DENOMINATIONS.map(d => ({ denomination: d, quantity: '' }))
+  return DENOMINATIONS.map(d => ({ denomination: d, quantity: '', total: '', totalError: null }))
+}
+
+function loadBillMode(): BillMode {
+  const stored = localStorage.getItem(BILL_MODE_KEY)
+  return stored === 'total' ? 'total' : 'quantity'
+}
+
+function saveBillMode(mode: BillMode): void {
+  localStorage.setItem(BILL_MODE_KEY, mode)
+}
+
+function fmtDenomination(d: number): string {
+  return `$${d.toLocaleString('es-AR')}`
 }
 
 interface Props {
@@ -30,13 +57,28 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   const [summary, setSummary] = useState<ShiftSummary | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [safeAmountRaw, setSafeAmountRaw] = useState('')
+  // Entrega / depósito
   const [deliveredAmountRaw, setDeliveredAmountRaw] = useState('')
   const [deliveredTo, setDeliveredTo] = useState('')
   const [notes, setNotes] = useState('')
+
+  // Conteo de billetes
+  const [billMode, setBillMode] = useState<BillMode>(loadBillMode)
   const [billRows, setBillRows] = useState<BillRow[]>(initialBillRows)
+
+  // Estado del formulario
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Pantalla de confirmación post-cierre
+  const [closed, setClosed] = useState(false)
+  const [closedSummary, setClosedSummary] = useState<{
+    deliveredAmount: number
+    deliveredTo: string
+    countedRegister: number
+    diff: number
+    notes: string
+  } | null>(null)
 
   useEffect(() => {
     void window.hw.getShiftSummary().then(r => {
@@ -45,39 +87,96 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
     })
   }, [])
 
-  /** Total contado en billetes */
-  const countedCash = billRows.reduce((acc, r) => {
-    const qty = parseNumericInput(r.quantity) ?? 0
-    return acc + r.denomination * qty
-  }, 0)
-
-  /** Diferencia: positiva = sobrante, negativa = faltante */
-  const diff = summary ? countedCash - summary.cashInHand : null
-
-  function updateBillRow(denomination: number, quantity: string) {
-    setBillRows(prev => prev.map(r => r.denomination === denomination ? { ...r, quantity } : r))
+  function handleBillModeChange(mode: BillMode): void {
+    saveBillMode(mode)
+    setBillMode(mode)
+    // Limpiar errores de validación al cambiar de modo
+    setBillRows(prev => prev.map(r => ({ ...r, totalError: null })))
   }
 
+  function updateBillRow(denomination: number, field: 'quantity' | 'total', value: string) {
+    setBillRows(prev =>
+      prev.map(r => {
+        if (r.denomination !== denomination) return r
+        const updated = { ...r, [field]: value }
+        // Validar en tiempo real solo si hay valor ingresado
+        if (field === 'total' && value !== '' && value !== '0') {
+          const parsed = parseNumericInput(value)
+          if (parsed !== null && parsed > 0 && parsed % denomination !== 0) {
+            updated.totalError = `Debe ser múltiplo de ${fmtDenomination(denomination)}`
+          } else {
+            updated.totalError = null
+          }
+        } else {
+          updated.totalError = null
+        }
+        return updated
+      })
+    )
+  }
+
+  /** Validar modo monto: todos los totales ingresados deben ser múltiplos de su denominación. */
+  function validateTotalMode(): boolean {
+    let valid = true
+    setBillRows(prev =>
+      prev.map(r => {
+        const parsed = parseNumericInput(r.total)
+        if (parsed !== null && parsed > 0 && parsed % r.denomination !== 0) {
+          valid = false
+          return { ...r, totalError: `Debe ser múltiplo de ${fmtDenomination(r.denomination)}` }
+        }
+        return { ...r, totalError: null }
+      })
+    )
+    return valid
+  }
+
+  const deliveredAmount = parseNumericInput(deliveredAmountRaw) ?? 0
+
+  /** Efectivo que quedará en caja = esperado − monto entregado. */
+  const expectedRegister = summary ? Math.max(0, summary.cashInHand - deliveredAmount) : 0
+
+  /** Total contado en billetes para la caja registradora. */
+  const countedRegister = billRows.reduce((acc, r) => {
+    if (billMode === 'quantity') {
+      const qty = parseNumericInput(r.quantity) ?? 0
+      return acc + r.denomination * qty
+    } else {
+      const tot = parseNumericInput(r.total) ?? 0
+      return acc + tot
+    }
+  }, 0)
+
+  /** Diferencia: positiva = sobrante, negativa = faltante (respecto a expectedRegister). */
+  const diff = countedRegister - expectedRegister
+
   async function handleConfirm() {
-    if (countedCash < 0) {
-      setSaveError('El conteo de billetes no puede ser negativo.')
+    if (billMode === 'total' && !validateTotalMode()) {
+      setSaveError('Hay montos que no son múltiplos de su denominación. Corregalos antes de cerrar.')
       return
     }
 
     setSaving(true)
     setSaveError(null)
 
-    const safeAmount = parseNumericInput(safeAmountRaw) ?? undefined
-    const deliveredAmount = parseNumericInput(deliveredAmountRaw) ?? undefined
-
     const billDenominations = billRows
-      .map(r => ({ denomination: r.denomination, quantity: parseNumericInput(r.quantity) ?? 0 }))
+      .map(r => {
+        const qty =
+          billMode === 'quantity'
+            ? (parseNumericInput(r.quantity) ?? 0)
+            : Math.round((parseNumericInput(r.total) ?? 0) / r.denomination)
+        return { denomination: r.denomination, quantity: qty }
+      })
       .filter(r => r.quantity > 0)
 
+    const closingCash =
+      countedRegister > 0 || deliveredAmount > 0
+        ? countedRegister + deliveredAmount
+        : undefined
+
     const r = await window.hw.closeShift({
-      closingCash: countedCash > 0 ? countedCash : undefined,
-      safeAmount,
-      deliveredAmount,
+      closingCash,
+      deliveredAmount: deliveredAmount > 0 ? deliveredAmount : undefined,
       deliveredTo: deliveredTo.trim() || undefined,
       notes: notes.trim() || undefined,
       billDenominations: billDenominations.length > 0 ? billDenominations : undefined,
@@ -88,16 +187,97 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       setSaveError(r.error)
       return
     }
-    onConfirmed()
+
+    // Guardar resumen para la pantalla de confirmación
+    setClosedSummary({
+      deliveredAmount,
+      deliveredTo: deliveredTo.trim(),
+      countedRegister,
+      diff,
+      notes: notes.trim(),
+    })
+    setClosed(true)
   }
 
+  // ---------------------------------------------------------------------------
+  // Pantalla de confirmación post-cierre
+  // ---------------------------------------------------------------------------
+  if (closed && closedSummary && summary) {
+    const shiftLabel = summary.shiftType === 'morning' ? 'Mañana' : 'Tarde'
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
+        <div className="max-w-md w-full space-y-6">
+          <div className="text-center space-y-2">
+            <div className="text-5xl">✅</div>
+            <h1 className="text-2xl font-bold text-emerald-400">Caja cerrada</h1>
+            <p className="text-sm text-gray-400">El turno quedó registrado correctamente.</p>
+          </div>
+
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5 space-y-3 text-sm">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Resumen del cierre</h2>
+            <Row label="Turno" value={shiftLabel} />
+            <Row label="Ventas" value={String(summary.salesCount)} />
+            <Row label="Total vendido" value={fmt(summary.totalRevenue)} />
+            <Row label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
+            {(summary.totalDebitSales + summary.totalWalletSales + summary.totalCreditSales) > 0 && (
+              <Row label="Total digital" value={fmt(summary.totalDebitSales + summary.totalWalletSales + summary.totalCreditSales)} />
+            )}
+            {summary.totalExpenses > 0 && (
+              <Row label="Gastos" value={fmt(summary.totalExpenses)} />
+            )}
+            <div className="border-t border-gray-800 pt-2">
+              <Row label="Efectivo esperado" value={fmt(summary.cashInHand)} bold />
+            </div>
+            {closedSummary.deliveredAmount > 0 && (
+              <Row
+                label={closedSummary.deliveredTo ? `Entregado a ${closedSummary.deliveredTo}` : 'Monto entregado'}
+                value={fmt(closedSummary.deliveredAmount)}
+              />
+            )}
+            {closedSummary.countedRegister > 0 && (
+              <Row label="Contado en caja" value={fmt(closedSummary.countedRegister)} />
+            )}
+            {closedSummary.countedRegister > 0 && (
+              <div className={`rounded-lg px-3 py-2 text-xs font-semibold ${
+                closedSummary.diff === 0
+                  ? 'bg-emerald-900/40 text-emerald-300'
+                  : closedSummary.diff > 0
+                  ? 'bg-blue-900/40 text-blue-300'
+                  : 'bg-red-900/40 text-red-300'
+              }`}>
+                {closedSummary.diff === 0
+                  ? '✓ Caja cuadrada'
+                  : closedSummary.diff > 0
+                  ? `▲ Sobrante: ${fmt(closedSummary.diff)}`
+                  : `▼ Faltante: ${fmt(Math.abs(closedSummary.diff))}`}
+              </div>
+            )}
+            {closedSummary.notes && (
+              <Row label="Notas" value={closedSummary.notes} />
+            )}
+          </div>
+
+          <button
+            onClick={onConfirmed}
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors"
+          >
+            Finalizar sesión
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Formulario de cierre
+  // ---------------------------------------------------------------------------
   const shiftLabel = summary?.shiftType === 'morning' ? 'Mañana' : 'Tarde'
   const startedFormatted = summary
-    ? new Date(summary.startedAt).toLocaleString('es-AR', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      })
+    ? new Date(summary.startedAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })
     : '—'
+  const totalDigital = summary
+    ? summary.totalDebitSales + summary.totalWalletSales + summary.totalCreditSales
+    : 0
 
   return (
     <div className="min-h-screen bg-gray-950 text-white overflow-y-auto">
@@ -107,110 +287,217 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
           <p className="text-sm text-gray-400">Registrá el arqueo antes de finalizar el turno</p>
         </div>
 
-        {/* Resumen del turno */}
+        {/* ── Resumen del turno ── */}
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-3">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Resumen del turno</h2>
           {loadError ? (
             <p className="text-red-400 text-sm">{loadError}</p>
           ) : summary ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <Stat label="Turno" value={shiftLabel} />
-              <Stat label="Apertura" value={startedFormatted} />
-              <Stat label="Efectivo inicial" value={fmt(summary.openingCash)} />
-              <Stat label="Ventas" value={String(summary.salesCount)} />
-              <Stat label="Total vendido" value={fmt(summary.totalRevenue)} />
-              <Stat label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
-              <Stat label="Gastos en efectivo" value={fmt(summary.totalExpenses)} />
-              <Stat label="Efectivo esperado" value={fmt(summary.cashInHand)} highlight />
-            </div>
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <Stat label="Turno" value={shiftLabel} />
+                <Stat label="Apertura" value={startedFormatted} />
+                <Stat label="Efectivo inicial" value={fmt(summary.openingCash)} />
+                <Stat label="Ventas" value={String(summary.salesCount)} />
+                <Stat label="Total vendido" value={fmt(summary.totalRevenue)} />
+                <Stat label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
+                {totalDigital > 0 && (
+                  <Stat label="Total digital" value={fmt(totalDigital)} />
+                )}
+                {summary.totalExpenses > 0 && (
+                  <Stat label="Gastos" value={fmt(summary.totalExpenses)} />
+                )}
+                <Stat label="Efectivo esperado" value={fmt(summary.cashInHand)} highlight />
+              </div>
+
+              {/* Desglose digital por tipo */}
+              {totalDigital > 0 && (
+                <div className="mt-2 pt-3 border-t border-gray-800">
+                  <p className="text-xs text-gray-500 mb-2 font-semibold uppercase tracking-wider">Desglose digital</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {summary.totalDebitSales > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Débito</p>
+                        <p className="text-sm font-semibold text-sky-300">{fmt(summary.totalDebitSales)}</p>
+                      </div>
+                    )}
+                    {summary.totalWalletSales > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Billetera</p>
+                        <p className="text-sm font-semibold text-violet-300">{fmt(summary.totalWalletSales)}</p>
+                      </div>
+                    )}
+                    {summary.totalCreditSales > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Crédito</p>
+                        <p className="text-sm font-semibold text-amber-300">{fmt(summary.totalCreditSales)}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-gray-500 text-sm animate-pulse">Cargando resumen…</p>
           )}
         </div>
 
-        {/* Grilla de denominaciones */}
+        {/* ── Monto a entregar / depositar ── */}
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Conteo de billetes</h2>
-            <span className="text-sm font-semibold text-white">Total contado: <span className="text-emerald-400">{fmt(countedCash)}</span></span>
-          </div>
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+            Entrega / depósito en caja fuerte
+          </h2>
+          <p className="text-xs text-gray-500">
+            Si vas a entregar o depositar parte del efectivo antes del conteo de caja, registralo acá.
+          </p>
 
-          <div className="grid grid-cols-2 gap-2">
-            {billRows.map(row => (
-              <div key={row.denomination} className="flex items-center gap-2">
-                <span className="w-24 text-sm text-gray-300 font-medium text-right">
-                  {row.denomination >= 1000
-                    ? `$${row.denomination / 1000}K`
-                    : `$${row.denomination}`}
-                </span>
-                <span className="text-xs text-gray-500">×</span>
-                <NumericInput
-                  value={row.quantity}
-                  onChange={v => updateBillRow(row.denomination, v)}
-                  placeholder="0"
-                  className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-center"
-                />
-                <span className="text-xs text-gray-500 w-24 text-right">
-                  {parseNumericInput(row.quantity) ? fmt(row.denomination * (parseNumericInput(row.quantity) ?? 0)) : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Diferencia */}
-          {summary && countedCash > 0 && diff !== null && (
-            <div className={`rounded-lg px-4 py-3 text-sm font-semibold ${
-              diff === 0
-                ? 'bg-emerald-900/40 text-emerald-300'
-                : diff > 0
-                ? 'bg-blue-900/40 text-blue-300'
-                : 'bg-red-900/40 text-red-300'
-            }`}>
-              {diff === 0
-                ? '✓ Caja cuadrada — no hay diferencia'
-                : diff > 0
-                ? `▲ Sobrante: ${fmt(diff)} (hay más efectivo del esperado)`
-                : `▼ Faltante: ${fmt(Math.abs(diff))} (hay menos efectivo del esperado)`}
-            </div>
-          )}
-        </div>
-
-        {/* Datos adicionales */}
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Datos adicionales</h2>
-
-          <Field label="Monto al cofre (opcional)">
-            <NumericInput
-              value={safeAmountRaw}
-              onChange={setSafeAmountRaw}
-              placeholder="0"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            />
-          </Field>
-
-          <Field label="Monto entregado (opcional)">
+          <Field label="Monto a entregar o depositar (opcional)">
             <NumericInput
               value={deliveredAmountRaw}
-              onChange={setDeliveredAmountRaw}
+              onChange={v => setDeliveredAmountRaw(v)}
               placeholder="0"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
             />
           </Field>
 
-          {(parseNumericInput(deliveredAmountRaw) ?? 0) > 0 && (
-            <Field label="¿A quién se entregó?">
+          {deliveredAmount > 0 && (
+            <Field label="¿A quién se entregó / dónde se depositó? (opcional)">
               <input
                 type="text"
                 value={deliveredTo}
                 onChange={e => setDeliveredTo(e.target.value)}
-                placeholder="Nombre o cargo"
+                placeholder="Nombre, cargo o 'Caja fuerte'"
                 maxLength={80}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
             </Field>
           )}
 
-          <Field label="Notas (opcional)">
+          {summary && deliveredAmount > 0 && (
+            <div className="rounded-lg bg-gray-800 px-4 py-2 text-sm">
+              <span className="text-gray-400">Efectivo a contar para caja: </span>
+              <span className="font-semibold text-emerald-400">{fmt(expectedRegister)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* ── Conteo de billetes (caja registradora) ── */}
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Conteo de billetes</h2>
+              {summary && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Efectivo en caja a contabilizar: <span className="text-white font-medium">{fmt(expectedRegister)}</span>
+                </p>
+              )}
+            </div>
+            {/* Toggle de modo */}
+            <div className="flex rounded-lg overflow-hidden border border-gray-700 text-xs">
+              <button
+                onClick={() => handleBillModeChange('quantity')}
+                className={`px-3 py-1.5 transition-colors ${
+                  billMode === 'quantity'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                Por cantidad
+              </button>
+              <button
+                onClick={() => handleBillModeChange('total')}
+                className={`px-3 py-1.5 transition-colors ${
+                  billMode === 'total'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                Por monto
+              </button>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-gray-600">
+            {billMode === 'quantity'
+              ? 'Ingresá cuántos billetes de cada tipo tenés en la caja.'
+              : 'Ingresá el monto total por denominación (ej.: si tenés 5 billetes de $10.000, ingresá $50.000). Debe ser múltiplo de la denominación.'}
+          </p>
+
+          <div className="grid grid-cols-1 gap-1.5">
+            {billRows.map(row => {
+              const lineValue =
+                billMode === 'quantity'
+                  ? (parseNumericInput(row.quantity) ?? 0) * row.denomination
+                  : (parseNumericInput(row.total) ?? 0)
+
+              return (
+                <div key={row.denomination} className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-24 text-sm text-gray-300 font-medium text-right shrink-0">
+                      {fmtDenomination(row.denomination)}
+                    </span>
+                    {billMode === 'quantity' ? (
+                      <>
+                        <span className="text-xs text-gray-500">×</span>
+                        <NumericInput
+                          value={row.quantity}
+                          onChange={v => updateBillRow(row.denomination, 'quantity', v)}
+                          placeholder="0"
+                          className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-center"
+                        />
+                        <span className="text-xs text-gray-500 flex-1 text-right">
+                          {lineValue > 0 ? fmt(lineValue) : ''}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs text-gray-500">=</span>
+                        <NumericInput
+                          value={row.total}
+                          onChange={v => updateBillRow(row.denomination, 'total', v)}
+                          placeholder="0"
+                          className={`flex-1 bg-gray-800 border rounded-lg px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none ${
+                            row.totalError ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-blue-500'
+                          }`}
+                        />
+                      </>
+                    )}
+                  </div>
+                  {row.totalError && (
+                    <p className="text-xs text-red-400 pl-26 pl-[6.5rem]">{row.totalError}</p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Total contado y diferencia */}
+          <div className="pt-2 border-t border-gray-800 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Total contado en caja</span>
+              <span className="font-semibold text-white">{fmt(countedRegister)}</span>
+            </div>
+            {summary && countedRegister > 0 && (
+              <div className={`rounded-lg px-4 py-2.5 text-sm font-semibold ${
+                diff === 0
+                  ? 'bg-emerald-900/40 text-emerald-300'
+                  : diff > 0
+                  ? 'bg-blue-900/40 text-blue-300'
+                  : 'bg-red-900/40 text-red-300'
+              }`}>
+                {diff === 0
+                  ? '✓ Caja cuadrada'
+                  : diff > 0
+                  ? `▲ Sobrante: ${fmt(diff)} (hay más efectivo del esperado en caja)`
+                  : `▼ Faltante: ${fmt(Math.abs(diff))} (hay menos efectivo del esperado en caja)`}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Notas ── */}
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
+          <Field label="Notas del turno (opcional)">
             <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
@@ -247,6 +534,10 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Componentes internos
+// ---------------------------------------------------------------------------
+
 function fmt(n: number) {
   return `$${n.toLocaleString('es-AR')}`
 }
@@ -265,6 +556,15 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
     <div className="space-y-0.5">
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`text-base font-semibold ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value}</p>
+    </div>
+  )
+}
+
+function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-400">{label}</span>
+      <span className={bold ? 'font-bold text-white' : 'text-white'}>{value}</span>
     </div>
   )
 }

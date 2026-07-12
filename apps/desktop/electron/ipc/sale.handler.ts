@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { eq, and, desc, inArray } from 'drizzle-orm'
+import { eq, and, desc, inArray, ne } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { sales, saleItems, salePayments, products } from '../db/schema'
@@ -203,11 +203,16 @@ export function registerSaleHandlers(): void {
         .select({
           id: sales.id,
           total: sales.total,
+          status: sales.status,
           manualEntry: sales.manualEntry,
           createdAt: sales.createdAt,
         })
         .from(sales)
-        .where(and(eq(sales.shiftId, session.shiftId), eq(sales.status, 'confirmed')))
+        .where(and(
+          eq(sales.shiftId, session.shiftId),
+          ne(sales.status, 'in_progress'),
+          ne(sales.status, 'discarded'),
+        ))
         .orderBy(desc(sales.createdAt))
         .all()
 
@@ -273,6 +278,7 @@ export function registerSaleHandlers(): void {
           id: s.id,
           createdAt: s.createdAt,
           total: s.total,
+          status: s.status as 'confirmed' | 'cancelled',
           cashAmount,
           digitalAmount,
           paymentMethods: pays.map(p => p.paymentMethod),
@@ -286,6 +292,50 @@ export function registerSaleHandlers(): void {
       const message = err instanceof Error ? err.message : String(err)
       log.error('[ipc:get-shift-sales] Error inesperado', message)
       return { ok: false, error: 'Error al obtener las ventas del turno.' }
+    }
+  })
+
+  // -------------------------------------------------------------------------
+  // Cancelar una venta (soft delete — status → 'cancelled').
+  // -------------------------------------------------------------------------
+  ipcMain.handle(IPC.CANCEL_SALE, (_event, payload: unknown): IpcResult => {
+    const parsed = z.string().uuid().safeParse(payload)
+    if (!parsed.success) {
+      return { ok: false, error: 'ID de venta inválido.', code: 'VALIDATION_ERROR' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
+
+    try {
+      const db = getDb()
+      const sale = db
+        .select({ id: sales.id, status: sales.status, shiftId: sales.shiftId })
+        .from(sales)
+        .where(eq(sales.id, parsed.data))
+        .get()
+
+      if (!sale) {
+        return { ok: false, error: 'Venta no encontrada.', code: 'NOT_FOUND' }
+      }
+      if (sale.shiftId !== session.shiftId) {
+        return { ok: false, error: 'La venta no pertenece al turno activo.', code: 'FORBIDDEN' }
+      }
+      if (sale.status === 'cancelled') {
+        return { ok: false, error: 'La venta ya estaba cancelada.', code: 'ALREADY_CANCELLED' }
+      }
+      if (sale.status !== 'confirmed') {
+        return { ok: false, error: 'Solo se pueden cancelar ventas confirmadas.', code: 'INVALID_STATUS' }
+      }
+
+      db.update(sales).set({ status: 'cancelled' }).where(eq(sales.id, parsed.data)).run()
+      log.info('[ipc:cancel-sale] Venta cancelada', { saleId: parsed.data })
+      return { ok: true, data: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:cancel-sale] Error inesperado', message)
+      return { ok: false, error: 'Error al cancelar la venta.' }
     }
   })
 }

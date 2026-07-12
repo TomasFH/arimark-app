@@ -201,6 +201,23 @@ export function registerShiftHandlers(): void {
         ))
         .all()
 
+      // Totales por tipo de pago digital (débito / billetera / crédito)
+      const digitalStats = db
+        .select({ method: salePayments.paymentMethod, total: sum(salePayments.amount) })
+        .from(salePayments)
+        .innerJoin(sales, eq(salePayments.saleId, sales.id))
+        .where(and(
+          eq(sales.shiftId, session.shiftId),
+          eq(sales.status, 'confirmed'),
+        ))
+        .groupBy(salePayments.paymentMethod)
+        .all()
+
+      const digitalByMethod: Record<string, number> = {}
+      for (const row of digitalStats) {
+        digitalByMethod[row.method] = Number(row.total ?? 0)
+      }
+
       // Total de gastos del turno
       const [expenseStats] = db
         .select({ totalExpenses: sum(expenses.amount) })
@@ -209,6 +226,9 @@ export function registerShiftHandlers(): void {
         .all()
 
       const totalCashSales = Number(cashStats?.totalCash ?? 0)
+      const totalDebitSales = digitalByMethod['debit'] ?? 0
+      const totalWalletSales = digitalByMethod['wallet'] ?? 0
+      const totalCreditSales = digitalByMethod['credit'] ?? 0
       const totalExpenses = Number(expenseStats?.totalExpenses ?? 0)
       const cashInHand = shift.openingCash + totalCashSales - totalExpenses
 
@@ -222,6 +242,9 @@ export function registerShiftHandlers(): void {
           salesCount: salesStats?.salesCount ?? 0,
           totalRevenue: Number(salesStats?.totalRevenue ?? 0),
           totalCashSales,
+          totalDebitSales,
+          totalWalletSales,
+          totalCreditSales,
           totalExpenses,
           cashInHand,
         },

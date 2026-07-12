@@ -20,7 +20,12 @@ let _lastSaleAt = 0
 let _timer: ReturnType<typeof setInterval> | null = null
 let _warningActive = false
 
-const CHECK_INTERVAL_MS = 60_000 // revisar cada 1 minuto
+/** Intervalo de chequeo en ms. Se recalcula en startDaemon según el umbral.
+ *  Máximo: 60 s. Mínimo: 5 s. Siempre ≤ umbral/4 para no saltarse el disparo. */
+function _checkIntervalMs(thresholdHours: number): number {
+  const thresholdMs = thresholdHours * 3_600_000
+  return Math.max(5_000, Math.min(60_000, Math.floor(thresholdMs / 4)))
+}
 
 /**
  * Notifica al daemon que se registró una venta.
@@ -69,9 +74,9 @@ export function startDaemon(thresholdHours: number): void {
         win.webContents.send(IPC.SHIFT_INACTIVITY_WARNING)
       })
     }
-  }, CHECK_INTERVAL_MS)
+  }, _checkIntervalMs(thresholdHours))
 
-  log.debug(`[inactivityDaemon] Iniciado (umbral: ${thresholdHours}h)`)
+  log.debug(`[inactivityDaemon] Iniciado (umbral: ${thresholdHours}h, chequeo: ${_checkIntervalMs(thresholdHours) / 1000}s)`)
 }
 
 /**

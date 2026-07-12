@@ -106,6 +106,12 @@ export interface ShiftSummary {
   totalRevenue: number
   /** Total cobrado en efectivo durante el turno */
   totalCashSales: number
+  /** Total cobrado con débito durante el turno */
+  totalDebitSales: number
+  /** Total cobrado con billetera virtual durante el turno */
+  totalWalletSales: number
+  /** Total cobrado con crédito durante el turno */
+  totalCreditSales: number
   /** Total gastado en efectivo durante el turno */
   totalExpenses: number
   /**
@@ -290,6 +296,8 @@ export interface ShiftSaleRow {
   id: string
   createdAt: string
   total: number
+  /** Estado de la venta: 'confirmed' | 'cancelled' */
+  status: 'confirmed' | 'cancelled'
   /** Parte del total cobrada en efectivo (0 si fue 100% digital). */
   cashAmount: number
   /** Parte del total cobrada con medios digitales (débito/wallet/crédito). */
@@ -534,6 +542,9 @@ export interface HwApi {
 
   /** Lista las ventas confirmadas del turno activo (vista en vivo) */
   getShiftSales: () => Promise<IpcResult<ShiftSaleRow[]>>
+
+  /** Cancela una venta (soft delete: status → 'cancelled'). Solo en el turno activo. */
+  cancelSale: (saleId: string) => Promise<IpcResult>
 
   /**
    * Genera ventas ficticias de prueba en el turno activo. Solo disponible en
