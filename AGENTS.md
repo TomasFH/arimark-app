@@ -185,6 +185,7 @@ Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refier
 
 - Los mocks de hardware (`__mocks__/kretzDriver.ts`) **nunca se incluyen en el bundle de producción**. El `afterPack` lo verifica.
 - En `APP_ENV=dev` sin `KRETZ_PORT`, la app usa automáticamente el mock KRETZ.
+- **Detección automática de puerto (jul 2026):** DevTools → Hardware → "Detectar balanza automáticamente" sondea todos los COM con R30 (`0002`), conecta en caliente y persiste el puerto en `safeStorage`. Necesario cuando la balanza enumeró en un COM distinto al configurado (ej. COM11 vs COM8). `pnpm dev:hw` fuerza COM8 por env — la detección en caliente lo sobreescribe sin reiniciar.
 - En tests, los mocks se importan directamente.
 - Los modos de fallo inyectables (`timeout`, `garbage`, `disconnect`, `malformed_response`) deben estar implementados y testeados antes de cerrar la Fase 1.
 

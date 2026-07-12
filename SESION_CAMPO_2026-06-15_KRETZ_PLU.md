@@ -25,19 +25,23 @@ Documento relacionado (sesión anterior, contexto general): `SESION_CAMPO_2026-0
 ## Cómo arrancar para probar PLUs
 
 ```bash
-pnpm dev:fieldtest
+pnpm dev:hw    # fuerza COM8; si la balanza está en otro COM, ver detección automática abajo
+# o
+pnpm dev       # mock por defecto; luego detectar balanza desde DevTools
 ```
 
 Requisitos:
-- Balanza enchufada por USB → **COM8** (verificar en Administrador de dispositivos).
-- **Cerrar iTegra** y cualquier otra app que use COM8 antes de probar.
-- Login admin en la app → DevTools → pestaña **PLUs**.
+- Balanza enchufada por USB (verificar el número de COM en Administrador de dispositivos; **puede ser COM8, COM11 u otro**).
+- **Cerrar iTegra** y cualquier otra app que use ese puerto antes de probar.
+- Login admin en la app → DevTools → pestaña **Hardware** o **PLUs**.
 
-Variables de entorno relevantes (ya vienen en el script `dev:fieldtest`):
+**Detección automática de puerto (jul 2026):** DevTools → Hardware → **"Detectar balanza automáticamente"**. La app sondea todos los COM con el protocolo R30 (`0002`), se conecta en caliente al que responda y guarda el puerto en `safeStorage`. No requiere reiniciar la app. Validado en campo con dos balanzas REPORT NX idénticas (COM8 y COM11).
+
+Variables de entorno relevantes:
 
 ```
-APP_ENV=fieldtest
-KRETZ_PORT=COM8
+APP_ENV=dev
+KRETZ_PORT=COM8   # solo si se usa pnpm dev:hw; la detección automática ignora esto en caliente
 ```
 
 ---
@@ -421,13 +425,31 @@ Tests específicos KRETZ:
 
 ---
 
+## Actualización de campo — 12/07/2026
+
+Sesión en la carnicería con **dos balanzas KRETZ REPORT NX** (misma marca y modelo).
+
+| Prueba | Resultado |
+|--------|-----------|
+| Carga masiva del catálogo (Fase 4, `KRETZ_SYNC_CATALOG`) | ✅ Funciona |
+| Balanza habitual (COM8) | ✅ Funciona |
+| Segunda balanza, primer uso (COM11) | ❌ Falló con puerto fijo COM8 (`pnpm dev:hw`) |
+| Detección automática de puerto + reconexión en caliente | ✅ Funciona en COM11 |
+
+**Lección:** dos balanzas idénticas no se distinguen por nombre de dispositivo; el número de COM depende de la PC y del puerto USB. Cambiar el COM manualmente en DevTools y reiniciar **no alcanza** si `pnpm dev:hw` fuerza `KRETZ_PORT=COM8` por variable de entorno. La detección automática (sondeo R30 en todos los COM) resuelve el caso sin reiniciar.
+
+**Archivos de la feature:** `electron/hardware/kretz/portDetect.ts`, `electron/ipc/kretzPort.handler.ts`, botón en `DevToolsPanel.tsx` (pestaña Hardware).
+
+---
+
 ## Pendientes / no resuelto en esta sesión
 
 | Tema | Estado |
 |------|--------|
 | Peso en vivo (`1524`) integrado en UI de ventas | Implementado en driver, no en flujo de venta |
 | Ventas por escaneo EAN-13 | Sigue siendo estrategia paralela (ver sesión 07/06) |
-| Sincronización masiva de PLUs (volcado completo tipo iTegra) | No implementado |
+| Sincronización masiva de PLUs (volcado completo tipo iTegra) | ✅ Implementado (`KRETZ_SYNC_CATALOG`, validado 12/07/2026) |
+| Detección automática de puerto COM | ✅ Implementado (jul 2026) |
 | Borrado de PLU (`3005`) desde la app | Implementado |
 
 ---
@@ -435,8 +457,9 @@ Tests específicos KRETZ:
 ## Checklist para próxima sesión de prueba
 
 - [ ] Cerrar iTegra antes de abrir arimark-app
-- [ ] Verificar COM8 en Administrador de dispositivos
-- [ ] `pnpm dev:fieldtest`
+- [ ] Verificar en Administrador de dispositivos en qué COM aparece la balanza (puede variar)
+- [ ] `pnpm dev` o `pnpm dev:hw`
+- [ ] DevTools → Hardware → **"Detectar balanza automáticamente"** (si el COM no es COM8)
 - [ ] DevTools → PLUs → “Verificar conexión” → debe decir R30 OK
 - [ ] Buscar PLU existente por número real (no por posición)
 - [ ] Crear PLU de prueba con precio > $10.000

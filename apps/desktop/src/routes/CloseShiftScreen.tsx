@@ -12,7 +12,7 @@
  */
 import { useEffect, useState } from 'react'
 import NumericInput from '../components/NumericInput'
-import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
+import { parseNumericInput } from '../lib/numericInput'
 import type { ShiftSummary } from '../types/hw-api'
 
 /** Denominaciones vigentes en Argentina (sin billete de $5.000). */

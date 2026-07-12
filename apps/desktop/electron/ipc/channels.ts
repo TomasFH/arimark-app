@@ -14,6 +14,7 @@ export const IPC = {
   // Configuración de hardware
   GET_HARDWARE_CONFIG: 'ipc:get-hardware-config',
   SET_HARDWARE_CONFIG: 'ipc:set-hardware-config',
+  KRETZ_DETECT_PORT: 'ipc:kretz-detect-port',
 
   // Turnos
   GET_ACTIVE_SHIFT: 'ipc:get-active-shift',

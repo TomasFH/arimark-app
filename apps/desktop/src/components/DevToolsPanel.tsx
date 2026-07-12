@@ -64,6 +64,8 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
   const [editPort, setEditPort] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [detecting, setDetecting] = useState(false)
+  const [detectMsg, setDetectMsg] = useState('')
 
   // Cargar estado y config al montar
   useEffect(() => {
@@ -88,6 +90,32 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
     })
     return unsub
   }, [onLog])
+
+  async function handleDetect() {
+    setDetecting(true)
+    setDetectMsg('')
+    setSaveMsg('')
+    onLog({ time: nowTime(), level: 'info', message: 'Detectando balanza en los puertos serie…' })
+    try {
+      const result = await window.hw.kretzDetectPort()
+      if (result.ok) {
+        const port = result.data.port
+        setConfig(prev => ({ ...prev, kretzPort: port }))
+        setEditPort(port)
+        setDetectMsg(`Balanza detectada en ${port} y conectada.`)
+        onLog({ time: nowTime(), level: 'info', message: `Balanza detectada en ${port}` })
+      } else {
+        setDetectMsg(result.error)
+        onLog({ time: nowTime(), level: 'warn', message: `Detección: ${result.error}` })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setDetectMsg(`Error: ${msg}`)
+      onLog({ time: nowTime(), level: 'error', message: `Detección falló: ${msg}` })
+    } finally {
+      setDetecting(false)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -126,6 +154,26 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
             <p className="text-[10px] text-gray-600">Puerto: {config.kretzPort || 'mock'}</p>
           </div>
         </div>
+      </div>
+
+      {/* Detección automática de la balanza */}
+      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Detectar balanza</p>
+        <p className="text-[10px] text-gray-600 leading-relaxed">
+          Sondea todos los puertos COM y se conecta al que responda. Cerrá iTegra antes de detectar.
+        </p>
+        <button
+          onClick={handleDetect}
+          disabled={detecting}
+          className="w-full rounded border border-sky-700 bg-sky-900/40 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-900/60 disabled:opacity-40"
+        >
+          {detecting ? 'Detectando…' : 'Detectar balanza automáticamente'}
+        </button>
+        {detectMsg && (
+          <p className={`text-[10px] ${detectMsg.startsWith('Error') || detectMsg.startsWith('No se detectó') ? 'text-red-400' : 'text-green-400'}`}>
+            {detectMsg}
+          </p>
+        )}
       </div>
 
       {/* Configuración de hardware */}

@@ -19,6 +19,8 @@ const hw: HwApi = {
 
   setHardwareConfig: payload => ipcRenderer.invoke(IPC.SET_HARDWARE_CONFIG, payload),
 
+  kretzDetectPort: () => ipcRenderer.invoke(IPC.KRETZ_DETECT_PORT),
+
   activateInstallation: payload => ipcRenderer.invoke(IPC.ACTIVATE_INSTALLATION, payload),
 
   login: payload => ipcRenderer.invoke(IPC.LOGIN, payload),

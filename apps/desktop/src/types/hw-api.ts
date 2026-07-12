@@ -464,6 +464,13 @@ export interface HwApi {
   /** Guarda la configuración de hardware */
   setHardwareConfig: (payload: SetHardwareConfigPayload) => Promise<IpcResult>
 
+  /**
+   * Detecta automáticamente el puerto de la balanza KRETZ sondeando el protocolo
+   * R30 en todos los puertos serie. Si la encuentra, la conecta en caliente y
+   * guarda el puerto. Devuelve el puerto detectado o un error si ninguna respondió.
+   */
+  kretzDetectPort: () => Promise<IpcResult<{ port: string }>>
+
   /** Activa la instalación con un código de un solo uso */
   activateInstallation: (payload: ActivateInstallationPayload) => Promise<IpcResult>
 

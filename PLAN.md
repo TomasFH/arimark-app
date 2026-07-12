@@ -181,6 +181,7 @@ Entregado:
 - `electron/hardware/kretz/kretzDriver.ts` — driver real via `serialport`, protocolo R30, baud 115200
 - PLU management completo: probar enlace (cmd 0002), leer (cmd 5005/5001), crear/actualizar (cmd 2005), borrar (cmd 3005). Validado en carnicería con balanza KRETZ REPORT NX (sesión 15/06/2026).
 - Hardware manager: dev sin `KRETZ_PORT` usa mock; dev con `KRETZ_PORT` o producción usa driver real; gestiona conexión, reconexión con backoff exponencial, `setHardwareStatus()`.
+- **Detección automática de puerto (jul 2026):** `portDetect.ts` sondea todos los puertos COM con el protocolo R30 (`0002`) y conecta en caliente al que responde. Validado en campo con dos balanzas REPORT NX idénticas en COM8 y COM11. UI en DevTools → Hardware → "Detectar balanza automáticamente"; el puerto se persiste en `safeStorage`.
 - IPC tipado con zod para todos los comandos de PLU y configuración de puerto.
 - Panel DevTools integrado en la app (solo modo dev) para diagnóstico, log de eventos y gestión de PLUs.
 - Tests de modos de fallo del mock (`timeout`, `garbage`, `disconnect`, `malformed_response`): implementados y testeados.
@@ -421,16 +422,17 @@ Sección o panel **exclusivo para administradores** donde puedan registrar el **
 Ejecutar cuando la balanza KRETZ REPORT NX esté disponible. Prerequisitos: ver `SESION_CAMPO_2026-06-15_KRETZ_PLU.md`.
 
 ### Preparación
-- [ ] Cerrar iTegra y cualquier otro programa que use COM8.
-- [ ] Verificar en Administrador de dispositivos que la balanza aparece en COM8 (driver JDATAGATE instalado).
+- [ ] Cerrar iTegra y cualquier otro programa que use el puerto COM de la balanza.
+- [ ] Verificar en Administrador de dispositivos que la balanza aparece como puerto COM (driver JDATAGATE instalado). **El número de COM puede variar** entre PCs o balanzas idénticas (ej. COM8 en una, COM11 en otra).
 - [ ] Ejecutar `pnpm seed:dev` para asegurarse de tener el catálogo de prueba cargado.
-- [ ] Iniciar la app con hardware real: `pnpm --filter @carniceria/desktop dev:hw` (usa COM8 + mock en todo lo demás).
+- [ ] Iniciar la app: `pnpm dev` o `pnpm dev:hw` (este último fuerza COM8 por variable de entorno; si la balanza está en otro COM, usar detección automática — ver abajo).
+- [ ] **Detectar la balanza:** DevTools → pestaña **Hardware** → **"Detectar balanza automáticamente"**. La app sondea todos los puertos COM, se conecta al que responda R30 y guarda el puerto (sin reiniciar). Alternativa manual: ingresar el COM en el mismo panel y guardar (requiere reinicio).
 
 ### Verificación de conexión base
 - [ ] Loguearse como admin en la app.
 - [ ] Ir al Panel de administración.
 - [ ] Hacer click en **"Cargar en balanza"** → debe aparecer el modal de confirmación (no un error).
-- [ ] Si aparece error "La balanza no respondió", volver a la sección Hardware (DevTools → Hardware), verificar que el indicador diga "connected" y reintentar.
+- [ ] Si aparece error "La balanza no respondió", ir a DevTools → Hardware: verificar indicador "Conectado", ejecutar **"Detectar balanza automáticamente"** (cerrar iTegra antes) y reintentar.
 
 ### Carga masiva del catálogo
 - [ ] Con el modal abierto, hacer click en **"Cargar en balanza"**.

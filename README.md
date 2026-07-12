@@ -36,7 +36,7 @@ Ver [`AGENTS.md`](./AGENTS.md) para el conjunto completo de reglas que gobiernan
 
 **Los datos de pruebas nunca se mezclan con producción.**
 
-En modo `dev`, si se define `KRETZ_PORT=COM8`, se usa el driver real de la balanza. Si no está definido, se usa el mock. Esto permite usar el mismo entorno de pruebas tanto en la PC de desarrollo (sin balanza) como en la carnicería (con balanza real).
+En modo `dev`, si se define `KRETZ_PORT=COM8`, se usa el driver real de la balanza. Si no está definido, se usa el mock. En la carnicería, si la balanza enumeró en otro COM (ej. COM11), usar **DevTools → Hardware → "Detectar balanza automáticamente"**: sondea todos los puertos con el protocolo R30 y conecta sin reiniciar la app.
 
 ## Configuración por cliente
 
@@ -61,7 +61,7 @@ Copiar `apps/desktop/config/business.example.json` a `apps/desktop/config/busine
 ```bash
 pnpm install          # instalar dependencias
 pnpm dev              # modo pruebas con mock de balanza (desarrollo local)
-pnpm dev:hw           # modo pruebas con balanza real en COM8 (carnicería)
+pnpm dev:hw           # modo pruebas con balanza real (fuerza COM8; si la balanza está en otro COM, usar detección automática en DevTools)
 pnpm dev:prod         # modo producción desde fuente (requiere business.json y Firebase)
 pnpm build:prod       # compilar instalador de producción (.exe)
 pnpm test             # ejecutar suite completa
