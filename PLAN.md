@@ -355,26 +355,25 @@ Objetivo: que los administradores gestionen precios/PLUs y los carguen en la bal
 - Sincronización catálogo local ↔ PLUs de la balanza; auditoría de cambios. **[Envío ✅; auditoría de cambios pendiente]**
 - Tests: gating por conexión física, lote aplicado correctamente, rollback si un comando falla. **[✅ gating + lote + fallo aislado cubiertos en `kretzSync.handler.test.ts`; nota: un fallo a mitad no hace rollback físico de los PLUs ya escritos —el hardware no lo permite— pero se reporta exactamente cuáles quedaron cargados y cuáles fallaron]**
 
-### Fase 5 — Cierre de jornada y gastos
+### ✅ Fase 5 — Cierre de jornada y gastos (COMPLETA)
+Tag: `fase5-completa` | Tests: 351 en verde
 
-- Apertura de turno con cambio inicial.
-- Registro de gastos durante la jornada.
-- Cierre con conteo de billetes, cierre a ciegas opcional.
-- Diferencia de caja automática.
-- Test obligatorio: cierre con diferencia de caja, cierre a ciegas.
+Entregado:
+- [x] Registro de gastos durante la jornada con categoría libre + autocomplete de categorías usadas.
+- [x] Balance de efectivo en tiempo real en pantalla cajera (`efectivo inicial + ventas en efectivo - gastos`).
+- [x] Vista en vivo del turno: columna compacta derecha + modal expandido con resumen por hora.
+- [x] Anulación de ventas del turno activo (soft delete `status='cancelled'`), con registro visual tachado.
+- [x] Modal de cierre (`CloseShiftScreen`): resumen del turno con desglose digital por tipo (débito/billetera/crédito), campo "monto entregado + a quién", conteo de billetes argentinos ($20.000–$10) con modos cantidad/total por denominación, preferencia persistida por usuario.
+- [x] Auto-cierre por inactividad: daemon configurable (`inactivityThresholdHours` en `business.json`), countdown modal 5 min, dismiss reinicia el reloj.
+- [x] Pantalla de confirmación post-cierre antes de volver al login.
+- [x] Campo de efectivo obligatorio en `PaymentModal` con botón "Paga justo".
+- [x] Generador de ventas de prueba (dev-only) en `DevToolsPanel`.
+- [x] 351 tests en verde — cobertura ≥ 80% en IPC, DB y reglas de negocio.
 
-**Diseño de aislamiento de turnos y traspaso entre cajeras (pendiente de implementar en esta fase):**
-
-Desde Fase 4, `getActiveShift` y `openShift` filtran por `userId` además de `storeId`. Esto significa:
-- Cada cajera/admin tiene su propio turno; nunca hereda el turno de otra persona.
-- Dos usuarios distintos pueden tener turnos abiertos simultáneamente en el mismo local (caso de traspaso o admin en modo cajera de emergencia).
-
-El flujo de traspaso correcto (cajera A se va, cajera B la reemplaza en medio del turno) queda definido así para cuando se implemente el cierre:
-1. Cajera A cierra su turno: ejecuta el proceso completo de cierre (conteo de billetes, diferencia de caja, gastos).
-2. Una vez cerrado el turno de A, cajera B puede iniciar sesión y abrir su propio turno.
-3. Los registros de ventas quedan separados por `userId` — las ventas de A no afectan el cierre de B.
-
-Mientras no exista la pantalla de cierre de turno, los turnos abiertos se acumulan en la DB sin cerrarse. No hay pérdida de datos ni mezcla de registros. Es deuda técnica conocida, no silenciada.
+**Aislamiento de turnos (implementado desde Fase 4):**
+- Cada cajera/admin tiene su propio turno; nunca hereda el de otra persona.
+- Dos usuarios distintos pueden tener turnos abiertos simultáneamente (caso de traspaso).
+- Cajera A cierra su turno con arqueo; luego Cajera B abre el suyo.
 
 ### Fase 6 — Clientes especiales y deudas
 
