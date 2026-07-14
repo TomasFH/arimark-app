@@ -394,6 +394,106 @@ export interface DeleteCashierPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Clientes especiales y deudas (Fase 6)
+// ---------------------------------------------------------------------------
+
+export interface CustomerRow {
+  id: string
+  storeId: string
+  name: string
+  dni: string | null
+  phone: string | null
+  type: 'restaurant' | 'wholesale' | 'other' | null
+  notes: string | null
+  active: boolean
+  createdAt: string
+}
+
+export interface CreateCustomerPayload {
+  name: string
+  dni?: string
+  phone?: string
+  type?: 'restaurant' | 'wholesale' | 'other'
+  notes?: string
+}
+
+export interface UpdateCustomerPayload {
+  id: string
+  name?: string
+  dni?: string
+  phone?: string
+  type?: 'restaurant' | 'wholesale' | 'other'
+  notes?: string
+  active?: boolean
+}
+
+export interface GetCustomersPayload {
+  search?: string
+  activeOnly?: boolean
+}
+
+export interface DebtEventRow {
+  id: string
+  customerId: string
+  customerName: string
+  saleId: string | null
+  storeId: string
+  eventType: 'created' | 'partial_payment' | 'paid' | 'cancelled' | 'reopened'
+  amount: number
+  dueDate: string | null
+  notes: string | null
+  createdAt: string
+  createdBy: string
+}
+
+export interface CustomerDebtSummary {
+  customerId: string
+  customerName: string
+  customerDni: string | null
+  customerPhone: string | null
+  /** Saldo algebraico. >0 = debe; ≤0 = saldado/sin deuda. */
+  balance: number
+  lastEventAt: string
+  events: DebtEventRow[]
+}
+
+export interface CreateDebtPayload {
+  saleId: string
+  customerId?: string
+  newCustomer?: { name: string; dni?: string; phone?: string }
+  dueDate?: string
+  notes?: string
+}
+
+export interface AddDebtPaymentPayload {
+  customerId: string
+  amount: number
+  notes?: string
+}
+
+export interface CancelDebtPayload {
+  customerId: string
+  saleId?: string
+  notes?: string
+}
+
+export interface CustomerPriceRow {
+  id: string
+  customerId: string
+  productId: string
+  productName: string
+  price: number
+  validFrom: string
+  validTo: string | null
+}
+
+export interface SetCustomerPricePayload {
+  customerId: string
+  productId: string
+  price: number
+}
+
+// ---------------------------------------------------------------------------
 // Carga masiva del catálogo a la balanza (KRETZ_SYNC_CATALOG)
 // ---------------------------------------------------------------------------
 
@@ -570,6 +670,34 @@ export interface HwApi {
    * Incluye sugerencias predefinidas si aún no hay historial.
    */
   getExpenseCategories: () => Promise<IpcResult<string[]>>
+
+  // ---- Clientes especiales (Fase 6) ----
+  /** Crea un cliente nuevo */
+  createCustomer: (payload: CreateCustomerPayload) => Promise<IpcResult<CustomerRow>>
+  /** Lista clientes (con búsqueda opcional por nombre/DNI/teléfono) */
+  getCustomers: (payload?: GetCustomersPayload) => Promise<IpcResult<CustomerRow[]>>
+  /** Edita nombre, DNI, teléfono, tipo, notas o estado activo */
+  updateCustomer: (payload: UpdateCustomerPayload) => Promise<IpcResult<CustomerRow>>
+
+  // ---- Deudas / cuenta corriente (Fase 6) ----
+  /** Marca una venta como deuda y la asocia a un cliente (existente o nuevo) */
+  createDebt: (payload: CreateDebtPayload) => Promise<IpcResult<DebtEventRow>>
+  /** Lista deudas activas con saldo algebraico por cliente */
+  getDebts: () => Promise<IpcResult<CustomerDebtSummary[]>>
+  /** Saldo y ledger completo de un cliente */
+  getCustomerBalance: (payload: { customerId: string }) => Promise<IpcResult<CustomerDebtSummary>>
+  /** Registra un pago parcial o total */
+  addDebtPayment: (payload: AddDebtPaymentPayload) => Promise<IpcResult<DebtEventRow>>
+  /** Cancela la deuda activa de un cliente (anulación, no borrado) */
+  cancelDebt: (payload: CancelDebtPayload) => Promise<IpcResult>
+
+  // ---- Precios especiales por cliente (Fase 6, solo admins) ----
+  /** Precios especiales vigentes del cliente en el local activo */
+  getCustomerPrices: (payload: { customerId: string }) => Promise<IpcResult<CustomerPriceRow[]>>
+  /** Establece o actualiza el precio especial de un producto para un cliente */
+  setCustomerPrice: (payload: SetCustomerPricePayload) => Promise<IpcResult<CustomerPriceRow>>
+  /** Elimina el precio especial vigente (cierra validTo; no borra historial) */
+  deleteCustomerPrice: (payload: { customerId: string; productId: string }) => Promise<IpcResult>
 
   // ---- Gestión de PLUs ----
   /** Prueba de enlace con la balanza (cmd 0002) */

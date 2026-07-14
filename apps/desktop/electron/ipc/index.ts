@@ -12,6 +12,8 @@ import { registerKretzSyncHandler } from './kretzSync.handler'
 import { registerProductsHandlers } from './products.handler'
 import { registerCatalogAdminHandlers } from './catalogAdmin.handler'
 import { registerCashiersHandlers } from './cashiers.handler'
+import { registerCustomerHandlers } from './customers.handler'
+import { registerDebtHandlers } from './debts.handler'
 import { registerDevSeedHandlers } from './devSeed.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
 
@@ -30,6 +32,8 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerProductsHandlers()
   registerCatalogAdminHandlers()
   registerCashiersHandlers()
+  registerCustomerHandlers()
+  registerDebtHandlers()
 
   // Herramientas de desarrollo — nunca en producción.
   if ((process.env['APP_ENV'] ?? 'dev') !== 'production') {

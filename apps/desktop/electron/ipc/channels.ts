@@ -55,6 +55,23 @@ export const IPC = {
   GET_SHIFT_EXPENSES: 'ipc:get-shift-expenses',
   GET_EXPENSE_CATEGORIES: 'ipc:get-expense-categories',
 
+  // Clientes especiales (Fase 6)
+  CREATE_CUSTOMER: 'ipc:create-customer',
+  GET_CUSTOMERS: 'ipc:get-customers',
+  UPDATE_CUSTOMER: 'ipc:update-customer',
+
+  // Deudas / cuenta corriente (Fase 6)
+  CREATE_DEBT: 'ipc:create-debt',
+  GET_DEBTS: 'ipc:get-debts',
+  GET_CUSTOMER_BALANCE: 'ipc:get-customer-balance',
+  ADD_DEBT_PAYMENT: 'ipc:add-debt-payment',
+  CANCEL_DEBT: 'ipc:cancel-debt',
+
+  // Precios especiales por cliente (Fase 6, solo admins)
+  GET_CUSTOMER_PRICES: 'ipc:get-customer-prices',
+  SET_CUSTOMER_PRICE: 'ipc:set-customer-price',
+  DELETE_CUSTOMER_PRICE: 'ipc:delete-customer-price',
+
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
   LOGIN: 'ipc:login',

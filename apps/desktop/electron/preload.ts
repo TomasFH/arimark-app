@@ -81,6 +81,23 @@ const hw: HwApi = {
 
   getExpenseCategories: () => ipcRenderer.invoke(IPC.GET_EXPENSE_CATEGORIES),
 
+  // Clientes especiales (Fase 6)
+  createCustomer: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER, payload),
+  getCustomers: payload => ipcRenderer.invoke(IPC.GET_CUSTOMERS, payload),
+  updateCustomer: payload => ipcRenderer.invoke(IPC.UPDATE_CUSTOMER, payload),
+
+  // Deudas / cuenta corriente (Fase 6)
+  createDebt: payload => ipcRenderer.invoke(IPC.CREATE_DEBT, payload),
+  getDebts: () => ipcRenderer.invoke(IPC.GET_DEBTS),
+  getCustomerBalance: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_BALANCE, payload),
+  addDebtPayment: payload => ipcRenderer.invoke(IPC.ADD_DEBT_PAYMENT, payload),
+  cancelDebt: payload => ipcRenderer.invoke(IPC.CANCEL_DEBT, payload),
+
+  // Precios especiales por cliente (Fase 6, solo admins)
+  getCustomerPrices: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_PRICES, payload),
+  setCustomerPrice: payload => ipcRenderer.invoke(IPC.SET_CUSTOMER_PRICE, payload),
+  deleteCustomerPrice: payload => ipcRenderer.invoke(IPC.DELETE_CUSTOMER_PRICE, payload),
+
   // Gestión de PLUs (balanza KRETZ)
   kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),
 

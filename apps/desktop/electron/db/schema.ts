@@ -116,6 +116,7 @@ export const customers = sqliteTable('customers', {
     .notNull()
     .references(() => stores.id),
   name: text('name').notNull(),
+  dni: text('dni'),
   phone: text('phone'),
   type: text('type', { enum: ['restaurant', 'wholesale', 'other'] }),
   notes: text('notes'),
@@ -281,6 +282,8 @@ export const debtEvents = sqliteTable(
       enum: ['created', 'partial_payment', 'paid', 'cancelled', 'reopened'],
     }).notNull(),
     amount: real('amount').notNull(),
+    // Fecha acordada de pago — solo se usa en eventos 'created'. UTC ISO 8601.
+    dueDate: text('due_date'),
     notes: text('notes'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
