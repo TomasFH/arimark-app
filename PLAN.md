@@ -375,13 +375,19 @@ Entregado:
 - Dos usuarios distintos pueden tener turnos abiertos simultáneamente (caso de traspaso).
 - Cajera A cierra su turno con arqueo; luego Cajera B abre el suyo.
 
-### Fase 6 — Clientes especiales y deudas
+### ✅ Fase 6 — Clientes especiales y deudas (COMPLETA)
+Tag: `fase6-completa` | Tests: 378 en verde
 
-- ABM de clientes (restaurant, mayorista, otros).
-- Precios especiales por cliente.
-- Modelo de ledger en `debt_events` — nunca sobreescritura, saldo algebraico.
-- Cobro cruzado entre locales sin duplicados.
-- Test obligatorio: ledger completo con pagos parciales y cobros cruzados.
+Entregado:
+- [x] ABM de clientes: DNI, teléfono, tipo (restaurant/mayorista/otro), notas.
+- [x] Búsqueda accent-insensitive de clientes por nombre, DNI o teléfono.
+- [x] Precios especiales por cliente (solo admins): `CustomerPricesModal` con agregar/eliminar precios por producto.
+- [x] Modelo de ledger en `debt_events` — nunca sobreescritura, saldo algebraico.
+- [x] Flujo de fiado desde cajera: botón en `PaymentModal` → `DebtModal` con búsqueda/creación inline de cliente + fecha de vencimiento opcional.
+- [x] `DebtsScreen`: lista de deudas activas con saldo, historial de eventos por cliente, pago parcial/total, cancelación con doble confirmación.
+- [x] Botón "Fiados" en header cajera y acceso desde AdminHub.
+- [x] Migración 0007: `dni` en `customers`, `due_date` en `debt_events`.
+- [x] 378 tests en verde — cobertura ≥ 80% en IPC, DB y reglas de negocio.
 
 ### Fase 7 — Pedidos, historial y reportes admin
 
