@@ -6,6 +6,7 @@ import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
 import ExpenseListModal from './ExpenseListModal'
 import ShiftSalesModal from './ShiftSalesModal'
+import DebtModal from '../components/DebtModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { summarizePaymentMethods } from '../lib/paymentMethod'
@@ -19,6 +20,7 @@ interface Props {
   onLogout: () => void
   onCloseShift: () => void
   onReturnToHub?: () => void
+  onViewDebts?: () => void
 }
 
 /** Producto genérico usado cuando el PLU no está mapeado a un producto real. */
@@ -29,7 +31,7 @@ interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub }: Props) {
+export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -37,6 +39,9 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showExpenseListModal, setShowExpenseListModal] = useState(false)
   const [showSalesModal, setShowSalesModal] = useState(false)
+  const [showDebtModal, setShowDebtModal] = useState(false)
+  const [debtLoading, setDebtLoading] = useState(false)
+  const [debtError, setDebtError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
@@ -168,6 +173,68 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     setShowPaymentModal(true)
   }
 
+  function handleOpenFiado() {
+    setShowPaymentModal(false)
+    setDebtError(null)
+    setShowDebtModal(true)
+  }
+
+  async function handleConfirmFiado(payload: {
+    customerId?: string
+    newCustomer?: { name: string; dni?: string; phone?: string }
+    dueDate?: string
+    notes?: string
+  }) {
+    if (cart.length === 0) return
+    setDebtLoading(true)
+    setDebtError(null)
+
+    try {
+      // 1. Crear la venta marcada como deuda (sin pagos — total = 0 de caja)
+      const saleResult = await window.hw.createSale({
+        items: cart.map(item => ({
+          productId: item.productId ?? FALLBACK_PRODUCT_ID,
+          quantity: item.unit === 'unit' ? Math.round(item.weightKg) : item.weightKg,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+        })),
+        payments: [], // fiado: sin cobro inmediato
+        isDebt: true,
+        customerId: payload.customerId,
+        manualEntry: hasManualItems,
+        notes: payload.notes,
+      })
+
+      if (!saleResult.ok) {
+        setDebtError(saleResult.error ?? 'Error al registrar la venta.')
+        return
+      }
+
+      // 2. Crear el evento de deuda en el ledger
+      const debtResult = await window.hw.createDebt({
+        saleId: saleResult.data.saleId,
+        customerId: payload.customerId,
+        newCustomer: payload.newCustomer,
+        dueDate: payload.dueDate ? new Date(payload.dueDate).toISOString() : undefined,
+        notes: payload.notes,
+      })
+
+      if (!debtResult.ok) {
+        setDebtError(debtResult.error ?? 'Error al registrar la deuda.')
+        return
+      }
+
+      setShowDebtModal(false)
+      setCart([])
+      refreshBalance()
+      refreshSales()
+    } catch {
+      setDebtError('Error de comunicación. Reintentar.')
+    } finally {
+      setDebtLoading(false)
+    }
+  }
+
   const shiftLabel = shift.shiftType === 'morning' ? '🌅 Mañana' : '🌙 Tarde'
 
   return (
@@ -215,6 +282,14 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
           >
             📋 Ver gastos
           </button>
+          {onViewDebts && (
+            <button
+              onClick={onViewDebts}
+              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-amber-600 hover:text-amber-300 transition-colors"
+            >
+              📒 Fiados
+            </button>
+          )}
           <span className="text-sm text-gray-400">
             {session.role === 'cashier' ? 'Cajera' : 'Admin'}
           </span>
@@ -421,7 +496,19 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         <PaymentModal
           total={cartTotal}
           onConfirm={handleConfirmSale}
+          onFiado={handleOpenFiado}
           onClose={() => setShowPaymentModal(false)}
+        />
+      )}
+
+      {/* Modal de fiado */}
+      {showDebtModal && cart.length > 0 && (
+        <DebtModal
+          total={cartTotal}
+          onConfirm={handleConfirmFiado}
+          onClose={() => { setShowDebtModal(false); setDebtError(null) }}
+          loading={debtLoading}
+          error={debtError}
         />
       )}
 

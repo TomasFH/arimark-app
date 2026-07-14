@@ -30,7 +30,8 @@ const salePaymentSchema = z.object({
 const createSaleSchema = z
   .object({
     items: z.array(saleItemSchema).min(1),
-    payments: z.array(salePaymentSchema).min(1),
+    // isDebt=true: pagos pueden estar vacíos (la deuda se registra vía createDebt)
+    payments: z.array(salePaymentSchema).min(0),
     customerId: z.string().optional(),
     isDebt: z.boolean().optional(),
     manualEntry: z.boolean().optional(),
@@ -38,6 +39,9 @@ const createSaleSchema = z
   })
   .refine(
     data => {
+      // En ventas fiado el pago es diferido: no se valida la suma
+      if (data.isDebt) return true
+      if (data.payments.length === 0) return false
       const itemTotal = Math.round(data.items.reduce((sum, i) => sum + i.subtotal, 0))
       const paymentTotal = Math.round(data.payments.reduce((sum, p) => sum + p.amount, 0))
       return Math.abs(itemTotal - paymentTotal) < 0.5

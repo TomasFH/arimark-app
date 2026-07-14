@@ -9,6 +9,7 @@ import CloseShiftScreen from './routes/CloseShiftScreen'
 import AdminScreen from './routes/AdminScreen'
 import AdminHubScreen from './routes/AdminHubScreen'
 import CashierManagementScreen from './routes/CashierManagementScreen'
+import DebtsScreen from './routes/DebtsScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
@@ -24,6 +25,7 @@ type AppState =
   | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -227,6 +229,7 @@ export default function App() {
           onLogout={handleLogout}
           onCloseShift={handleGoToCloseShift}
           onReturnToHub={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
+          onViewDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus, fromCashier: state.shift })}
         />
       )}
 
@@ -255,6 +258,7 @@ export default function App() {
           onGoToAdminPanel={handleAdminGoToPanel}
           onGoToCashier={() => void handleAdminGoToCashier()}
           onGoToCashierManagement={handleGoToCashierManagement}
+          onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
           onLogout={handleLogout}
         />
       )}
@@ -270,6 +274,20 @@ export default function App() {
       {state.screen === 'cashier-management' && (
         <CashierManagementScreen
           onBack={handleReturnToAdminHub}
+        />
+      )}
+
+      {state.screen === 'debts' && (
+        <DebtsScreen
+          isAdmin={state.session.role === 'admin'}
+          storeId={state.session.storeId ?? state.initStatus.defaultStoreId}
+          onBack={() => {
+            if (state.fromCashier) {
+              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+            } else {
+              handleReturnToAdminHub()
+            }
+          }}
         />
       )}
 

@@ -15,12 +15,14 @@ interface PaymentRow {
 interface Props {
   total: number
   onConfirm: (payments: SalePaymentPayload[], notes?: string) => void
+  /** Llamado cuando la cajera elige cobro diferido (fiado). */
+  onFiado?: () => void
   onClose: () => void
 }
 
 type ModalMode = 'single' | 'cash-detail' | 'split'
 
-export default function PaymentModal({ total, onConfirm, onClose }: Props) {
+export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Props) {
   const [mode, setMode] = useState<ModalMode>('single')
   const [clientCash, setClientCash] = useState('')
   const [notes, setNotes] = useState('')
@@ -225,13 +227,22 @@ export default function PaymentModal({ total, onConfirm, onClose }: Props) {
                 </button>
               </div>
 
-              <div className="mt-5 text-center">
+              <div className="mt-5 flex items-center justify-between">
                 <button
                   onClick={() => setMode('split')}
                   className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors"
                 >
                   Dividir en varios medios de pago
                 </button>
+                {onFiado && (
+                  <button
+                    onClick={onFiado}
+                    className="text-xs text-amber-600 hover:text-amber-400 border border-amber-800/60 rounded-lg px-3 py-1.5 hover:bg-amber-900/20 transition-colors font-medium"
+                    title="El cliente se lleva la mercadería y paga después"
+                  >
+                    📒 Fiado
+                  </button>
+                )}
               </div>
             </>
           )}

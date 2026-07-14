@@ -10,10 +10,11 @@ interface Props {
   onGoToAdminPanel: () => void
   onGoToCashier: () => void
   onGoToCashierManagement: () => void
+  onGoToDebts: () => void
   onLogout: () => void
 }
 
-export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onLogout }: Props) {
+export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToDebts, onLogout }: Props) {
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       {/* Header */}
@@ -81,6 +82,23 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
               <p className="text-base font-semibold text-white">Gestión de cajeras</p>
               <p className="text-sm text-gray-400 mt-0.5">
                 Crear, activar y desactivar cuentas de cajeras
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
+          </button>
+
+          {/* Fiados y deudas */}
+          <button
+            onClick={onGoToDebts}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-amber-600/20 flex items-center justify-center text-3xl">
+              📒
+            </div>
+            <div>
+              <p className="text-base font-semibold text-white">Fiados / Cuentas corrientes</p>
+              <p className="text-sm text-gray-400 mt-0.5">
+                Ver deudas pendientes, registrar pagos y cancelar deudas
               </p>
             </div>
             <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>

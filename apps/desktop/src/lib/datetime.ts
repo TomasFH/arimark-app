@@ -104,3 +104,23 @@ export function endOfDayUtc(dateStr?: string): string {
   const localStr = date.toLocaleDateString('en-CA', { timeZone: _timezone })
   return new Date(`${localStr}T23:59:59.999Z`).toISOString()
 }
+
+/**
+ * Formato relativo simple para fechas de vencimiento.
+ * Ej: "hoy", "mañana", "en 3 días", "hace 2 días".
+ */
+export function formatRelativeDate(dateStr: string): string {
+  const now = new Date()
+  const target = new Date(dateStr)
+  // Normalizar a día local
+  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate())
+  const diffMs = targetDay.getTime() - nowDay.getTime()
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffDays === 0) return 'hoy'
+  if (diffDays === 1) return 'mañana'
+  if (diffDays === -1) return 'ayer'
+  if (diffDays > 0) return `en ${diffDays} días`
+  return `hace ${Math.abs(diffDays)} días`
+}
