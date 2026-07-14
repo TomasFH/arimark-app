@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Checklist de campo — Balanza y pruebas operativas</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #111;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 12mm;
+    }
+    h1 { font-size: 18pt; margin: 0 0 4mm; border-bottom: 2px solid #222; padding-bottom: 3mm; }
+    h2 { font-size: 12pt; margin: 7mm 0 3mm; color: #222; page-break-after: avoid; }
+    h3 { font-size: 10.5pt; margin: 4mm 0 2mm; page-break-after: avoid; }
+    p, li { margin: 0 0 2mm; }
+    ul { margin: 0 0 3mm 5mm; padding-left: 4mm; }
+    .meta { font-size: 9.5pt; color: #444; margin-bottom: 6mm; }
+    .box {
+      border: 1px solid #ccc;
+      background: #f8f8f8;
+      padding: 4mm 5mm;
+      margin: 3mm 0 5mm;
+      border-radius: 2px;
+    }
+    .warn { border-left: 4px solid #c90; background: #fff9e6; padding: 3mm 4mm; margin: 3mm 0; }
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li { margin-bottom: 2.5mm; padding-left: 7mm; position: relative; }
+    .checklist li::before {
+      content: "☐";
+      position: absolute;
+      left: 0;
+      font-size: 12pt;
+      line-height: 1.2;
+    }
+    .notes { border: 1px dashed #999; min-height: 14mm; margin-top: 2mm; padding: 2mm; }
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 3mm 0 5mm; }
+    th, td { border: 1px solid #ccc; padding: 2mm 3mm; text-align: left; vertical-align: top; }
+    th { background: #eee; }
+    .page-break { page-break-before: always; }
+    @media print {
+      body { padding: 0; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+
+<h1>Checklist de campo — Balanza KRETZ y pruebas operativas</h1>
+<p class="meta">
+  Proyecto: carniceria-app · Repositorio: github.com/TomasFH/arimark-app<br />
+  Uso: imprimir o guardar como PDF · Orden sugerido de ejecución · Fecha: _______________
+</p>
+
+<div class="box">
+  <strong>Objetivo de la visita</strong>
+  <ol>
+    <li>Probar carga masiva/automatizada de PLUs en la balanza KRETZ REPORT NX.</li>
+    <li>Validar lectura de tickets (EAN-13) y flujo de venta por escaneo.</li>
+    <li>Recopilar información para definir el modelo de stock con los dueños.</li>
+  </ol>
+</div>
+
+<h2>Fase 0 — Antes de salir / en la PC del local</h2>
+<ul class="checklist">
+  <li>Clonar o actualizar el repo: <code>git pull origin main</code></li>
+  <li>Instalar dependencias: <code>pnpm install</code></li>
+  <li>Poblar catálogo de prueba: <code>pnpm seed:dev</code></li>
+  <li>Tener a mano los documentos del repo (por si no hay internet):
+    <ul>
+      <li><strong>PLAN.md</strong> — Checklist Fase 4 (carga masiva)</li>
+      <li><strong>SESION_CAMPO_2026-06-15_KRETZ_PLU.md</strong> — protocolo y precios</li>
+      <li><strong>SESION_CAMPO_2026-06-07.md</strong> — tickets EAN-13 y limitaciones</li>
+    </ul>
+  </li>
+  <li>Llevar cable USB de la balanza y, si es posible, lector de código de barras USB</li>
+</ul>
+
+<h2>Fase 1 — Preparación del hardware</h2>
+<ul class="checklist">
+  <li><strong>Cerrar iTegra</strong> y cualquier otro programa que use el puerto serial</li>
+  <li>Conectar la balanza KRETZ REPORT NX por USB</li>
+  <li>Abrir Administrador de dispositivos → verificar que aparece como <strong>COM8</strong> (driver JDATAGATE instalado)</li>
+  <li>Si el puerto no es COM8, anotar el puerto real: _______________</li>
+  <li>Conectar lector USB keyboard-wedge (si se va a probar escaneo de tickets)</li>
+</ul>
+
+<div class="warn">
+  <strong>Recordatorio:</strong> el puerto serial USB de la REPORT NX sirve para <em>programar PLUs</em>, no para recibir ventas en tiempo real. Las ventas entran por escaneo del ticket impreso.
+</div>
+
+<h2>Fase 2 — Arrancar la aplicación</h2>
+<ul class="checklist">
+  <li>Desde la raíz del proyecto ejecutar: <code>pnpm dev:hw</code></li>
+  <li>Confirmar banner <strong>"MODO PRUEBAS"</strong> (APP_ENV=dev, datos separados de producción)</li>
+  <li>Confirmar en logs que el puerto serial abrió: <code>[kretz] Puerto serial abierto { port: 'COM8' }</code></li>
+  <li>Iniciar sesión como <strong>admin</strong> (botón "Saltar login" disponible en dev)</li>
+</ul>
+
+<p><strong>Notas de arranque:</strong></p>
+<div class="notes"></div>
+
+<h2>Fase 3 — Verificación de conexión con la balanza</h2>
+<ul class="checklist">
+  <li>Ir al <strong>Panel de administración</strong></li>
+  <li>Hacer clic en <strong>"Cargar en balanza"</strong> → debe abrir el modal de confirmación (no error inmediato)</li>
+  <li>Si falla con "La balanza no respondió": DevTools → pestaña Hardware → indicador "connected" → reintentar</li>
+  <li>Opcional (DevTools → PLUs): "Verificar conexión" → debe responder <strong>R30 OK</strong></li>
+</ul>
+
+<h2>Fase 4 — Carga masiva del catálogo (prueba principal)</h2>
+<ul class="checklist">
+  <li>En el modal, confirmar <strong>"Cargar en balanza"</strong></li>
+  <li>Verificar que la <strong>barra de progreso avanza PLU a PLU</strong></li>
+  <li>Al finalizar: resumen con <strong>0 fallidos</strong> (o anotar cuáles fallaron abajo)</li>
+  <li>En la pantalla de la balanza: navegar lista de PLUs y confirmar nombres correctos</li>
+  <li>Verificar precios en pantalla = pesos con un decimal (ej. $16.322,0)</li>
+  <li>Probar un precio redondo (ej. Pollo ~$4.069 → debe verse $4.069,0)</li>
+  <li>Probar un precio de 5 dígitos (ej. Lomo ~$24.466 → debe verse $24.466,0)</li>
+  <li>Probar un precio &gt; $10.000 (históricamente sensible en protocolo R30)</li>
+</ul>
+
+<h3>Productos con error o precio incorrecto</h3>
+<table>
+  <tr><th>Producto / PLU</th><th>Esperado</th><th>Mostrado en balanza</th><th>Observación</th></tr>
+  <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+</table>
+
+<h2>Fase 5 — Verificación de upsert (no borra PLUs existentes)</h2>
+<ul class="checklist">
+  <li>Cambiar el precio de un producto en el panel admin (ej. Asado de tira)</li>
+  <li>Volver a ejecutar <strong>"Cargar en balanza"</strong></li>
+  <li>Confirmar en balanza que ese PLU refleja el precio nuevo</li>
+  <li>Confirmar que PLUs cargados manualmente fuera del catálogo <strong>siguen intactos</strong></li>
+</ul>
+
+<h2>Fase 6 — Error controlado (desconexión USB)</h2>
+<ul class="checklist">
+  <li>Desconectar cable USB de la balanza</li>
+  <li>Intentar "Cargar en balanza" → debe mostrar error <strong>sin enviar nada parcial</strong></li>
+  <li>Reconectar USB → esperar reconexión automática (~5 s)</li>
+  <li>Reintentar carga → debe funcionar normalmente</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2>Fase 7 — Tickets y escaneo (flujo de venta)</h2>
+<p>Prerequisito: PLUs cargados en balanza (Fase 4).</p>
+
+<h3>7.1 — Imprimir tickets reales</h3>
+<ul class="checklist">
+  <li>En la balanza, pesar un producto usando un <strong>PLU del catálogo</strong></li>
+  <li>Imprimir el ticket con código de barras</li>
+  <li>Repetir con al menos 2 productos distintos</li>
+  <li>Probar un producto con precio total &gt; $1.000 (ver si imprime código)</li>
+  <li>Probar pesaje <strong>sin PLU</strong> (precio manual) y anotar si el código sale con PLU=0000</li>
+</ul>
+
+<h3>7.2 — Anotar datos del ticket (inspección empírica)</h3>
+<table>
+  <tr><th>#</th><th>Producto</th><th>EAN-13 completo (13 dígitos)</th><th>Peso visible</th><th>Importe</th><th>¿Código OK?</th></tr>
+  <tr><td>1</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>2</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>3</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+</table>
+
+<div class="warn">
+  <strong>Limitaciones conocidas (sesión 07/06/2026):</strong>
+  ventas ≥ $1.000 pueden no imprimir código; pesaje manual puede generar PLU=0000.
+  Validar si siguen vigentes con la configuración actual.
+</div>
+
+<h3>7.3 — Escaneo en la app</h3>
+<ul class="checklist">
+  <li>Abrir pantalla de caja / turno abierto</li>
+  <li>Confirmar indicador <strong>"Lector listo"</strong> en el header</li>
+  <li>Escanear ticket → producto debe cargarse solo en la venta</li>
+  <li>Verificar nombre del producto y monto correctos</li>
+  <li>Escanear segundo ítem del mismo ticket (si aplica)</li>
+  <li>Completar pago y confirmar venta</li>
+  <li>Verificar venta en historial del turno</li>
+</ul>
+
+<p><strong>Problemas de escaneo:</strong></p>
+<div class="notes"></div>
+
+<h2>Fase 8 — Pruebas operativas adicionales (opcional)</h2>
+<ul class="checklist">
+  <li>Registrar un <strong>gasto</strong> del turno y verificar en resumen</li>
+  <li>Ver ventas del turno en modal de historial</li>
+  <li>Probar <strong>anulación</strong> de una venta (si se usa en la visita)</li>
+  <li>Probar flujo de <strong>cierre de turno</strong> con arqueo</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2>Fase 9 — Charla con dueños: definición de stock</h2>
+<p>No hay implementación de stock aún (Fase 8 bloqueada en PLAN.md). Usar esta charla para definir el modelo antes de codificar.</p>
+
+<h3>Preguntas clave</h3>
+<ul class="checklist">
+  <li>¿Para qué quieren ver stock? (disponibilidad para cajeras/dueños vs. control de ganancias)</li>
+  <li>¿Qué productos son críticos si faltan?</li>
+  <li>¿Cómo hacen el conteo del domingo? ¿Qué pesan, cuánto tarda, quién lo hace?</li>
+  <li>¿Cuántas medias res entran por semana? ¿Quién las recibe y las pesa?</li>
+  <li>¿Aceptarían declarar "desposté esta media res" sin pesar cada corte individual?</li>
+  <li>¿Qué diferencia semanal les preocuparía investigar?</li>
+  <li>¿Qué carga de registro <strong>no</strong> aceptarían en el día a día?</li>
+</ul>
+
+<h3>Regla de diseño acordada</h3>
+<div class="box">
+  <em>Nunca pedir un dato cuyo costo de registrar sea mayor que el beneficio de tenerlo.</em><br /><br />
+  Stock durante la semana = proyección razonable. Inventario físico semanal = fuente de verdad que recalibra.
+</div>
+
+<h3>Notas de la charla</h3>
+<div class="notes" style="min-height: 40mm;"></div>
+<div class="notes" style="min-height: 40mm;"></div>
+
+<h2>Fase 10 — Cierre de la visita</h2>
+<ul class="checklist">
+  <li>Documentar errores con captura de pantalla + log (<code>userData/dev/logs/</code> en dev)</li>
+  <li>Anotar puerto COM real, versión de balanza y configuración iTegra si aplica</li>
+  <li>Guardar fotos de 2–3 tickets con código legible</li>
+  <li>Decidir si la carga masiva quedó validada para cerrar Fase 4</li>
+  <li>Decidir próximos pasos de stock según respuestas de la charla</li>
+</ul>
+
+<h3>Resumen final</h3>
+<table>
+  <tr><th>Área</th><th>Resultado</th><th>Acción pendiente</th></tr>
+  <tr><td>Carga masiva PLUs</td><td>☐ OK &nbsp; ☐ Parcial &nbsp; ☐ Falló</td><td>&nbsp;</td></tr>
+  <tr><td>Escaneo de tickets</td><td>☐ OK &nbsp; ☐ Parcial &nbsp; ☐ Falló</td><td>&nbsp;</td></tr>
+  <tr><td>Flujo de venta</td><td>☐ OK &nbsp; ☐ Parcial &nbsp; ☐ Falló</td><td>&nbsp;</td></tr>
+  <tr><td>Charla stock</td><td>☐ Completa &nbsp; ☐ Parcial &nbsp; ☐ Pendiente</td><td>&nbsp;</td></tr>
+</table>
+
+<p class="meta" style="margin-top: 8mm;">
+  Referencias en el repo: PLAN.md (Checklist Fase 4 y deploy), SESION_CAMPO_2026-06-15_KRETZ_PLU.md, SESION_CAMPO_2026-06-07.md, EXPLORACION_BALANZAS.md, README.md (pnpm dev:hw).
+</p>
+
+</body>
+</html>

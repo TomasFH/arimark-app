@@ -390,18 +390,35 @@ Mientras no exista la pantalla de cierre de turno, los turnos abiertos se acumul
 - Panel admin: historial de ventas, reportes por turno/período. (El catálogo/precios se gestionan en Fase 4.)
 - Registro local de medios de pago. La app no interactúa con caja registradora ni terminal de pago.
 
-### Fase 8 — Stock ⚠️ BLOQUEADA
+### Fase 8 — Stock ⚠️ DISEÑO ACORDADO — IMPLEMENTACIÓN BLOQUEADA
 
-**No codificar hasta que el desarrollador confirme haber tenido la charla con el carnicero titular sobre el manejo de ingreso de mercadería.** La estructura de `stock_entries` existe en el schema pero el flujo operativo está pendiente de definición.
+> **Especificación funcional completa:** [`docs/STOCK_DOMINIO_FUNCIONAL.md`](./docs/STOCK_DOMINIO_FUNCIONAL.md). Ese documento es la fuente de verdad del dominio. Lo que sigue es un resumen del enfoque; no duplicar definiciones aquí.
 
-**Idea registrada — descarte de mercadería (solo admins, pendiente de profundizar):**
+**Modelo por eventos con disponibilidad estimada.**
 
-Sección o panel **exclusivo para administradores** donde puedan registrar el **descarte de mercadería** (productos que se pierden y no se venden).
+La charla con los dueños del negocio (jul 2026) definió el enfoque:
 
-- **Motivación principal:** contingencias como un **corte de luz prolongado** que obligue a desechar productos refrigerados o congelados.
-- **Alcance inicial (solo anotado):** registrar qué se descartó, cuánto y por qué; reflejar el impacto en stock; dejar trazabilidad para auditoría.
-- **Pendiente de definir** en la charla con el titular: flujo exacto, campos obligatorios (motivo, producto, peso/cantidad), si requiere confirmación doble, reportes, etc.
-- **No implementar** antes de cerrar el modelo general de stock (ingreso + movimientos).
+- El sistema no busca stock exacto. Los dueños llevan más de veinte años con estimaciones y no van a cambiar esa forma de operar. El objetivo es automatizar los cálculos que hoy hacen mentalmente y conservar evidencia histórica consultable.
+- El stock no es una fotografía: es la consecuencia de eventos fechados. Los eventos son hechos observados (ingresos, ventas, conteos físicos, descartes, devoluciones, cambios de condición) o estimaciones operativas (distribución de una media res entre cortes mediante perfiles de rendimiento aprobados).
+- **La aplicación proyecta, no afirma.** Cuando el desposte no fue pesado corte por corte, el sistema estima la disponibilidad probable usando el perfil vigente y lo comunica como estimación, nunca como certeza.
+- **La aplicación conserva evidencia, no la descarta.** Los conteos físicos corrigen la disponibilidad actual; no borran ni reinterpretan los eventos históricos.
+- **La aplicación sugiere, no decide.** Puede señalar que los datos observados divergen del perfil vigente, pero la recalibración siempre es manual y requiere aprobación de un administrador.
+
+**Disponibilidad clasificada por condición (no por ubicación física):**
+- Disponible para venta inmediata (mostrador + cámara refrigerada cuando ambos están aptos).
+- Congelado (mismo producto, condición distinta: altera decisiones de compra, rotación y respaldo).
+- Otros estados solo si crean una decisión operativa real.
+
+**Eventos de registro obligatorio:** ingreso de mercadería, venta confirmada (automático desde POS), conteo físico por condición, descarte o merma excepcional, devolución al proveedor, cambio relevante de condición (congelar/descongelar).
+
+**Descarte de mercadería** (incluyendo el caso de corte de luz prolongado) es un evento obligatorio dentro del modelo general, no una función aislada. Registra qué se descartó, cuánto, por qué y quién lo declaró.
+
+**Decisiones pendientes que bloquean partes de la implementación** (ver spec completa):
+- Modelo de ingreso para pollo, cerdo, embutidos y congelados.
+- Tratamiento de devoluciones de clientes.
+- Flujo de transferencias entre locales.
+- Definición de umbrales para sugerencias de recalibración.
+- Canal de alertas de disponibilidad baja.
 
 ### Fase 9 — Empleados, vales y asistencia
 
