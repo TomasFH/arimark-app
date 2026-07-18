@@ -234,6 +234,14 @@ describe('shift.handler', () => {
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
             }),
+          })
+          .mockReturnValueOnce({
+            // fiados del turno
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([{ debtsCount: 0, totalDebts: null }]) }),
+              }),
+            }),
           }),
       } as unknown as ReturnType<typeof getDb>)
 
@@ -292,6 +300,14 @@ describe('shift.handler', () => {
           .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
+            }),
+          })
+          .mockReturnValueOnce({
+            // fiados del turno
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([{ debtsCount: 0, totalDebts: null }]) }),
+              }),
             }),
           }),
       } as unknown as ReturnType<typeof getDb>)

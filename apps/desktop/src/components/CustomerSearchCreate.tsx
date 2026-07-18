@@ -1,10 +1,15 @@
 /**
- * Componente de búsqueda/creación de clientes.
- * Permite buscar un cliente existente por nombre o teléfono,
- * o iniciar la creación de uno nuevo inline.
+ * Búsqueda de clientes con creación inline cuando no se selecciona ninguno.
+ *
+ * Flujo:
+ * - Cajera escribe nombre o teléfono → se muestran sugerencias.
+ * - Si elige una → onSelect con el cliente existente.
+ * - Si escribe y confirma sin elegir (Enter o botón) → se pide el teléfono y
+ *   se llama a onCreateNew.  No hay botón "+ Crear nuevo" separado.
  */
 import { useState, useEffect, useRef } from 'react'
 import type { CustomerRow } from '../types/hw-api'
+import { formatPhoneInput, parsePhoneNumber } from '../lib/phoneInput'
 
 interface Props {
   onSelect: (customer: CustomerRow) => void
@@ -12,30 +17,31 @@ interface Props {
   autoFocus?: boolean
 }
 
+type Mode = 'search' | 'new-phone'
+
 export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CustomerRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<'search' | 'create'>('search')
+  const [mode, setMode] = useState<Mode>('search')
 
-  // Formulario de creación
-  const [newName, setNewName] = useState('')
-  const [newPhone, setNewPhone] = useState('')
-  const [createError, setCreateError] = useState('')
+  // Solo se usa en modo 'new-phone'
+  const [phoneRaw, setPhoneRaw] = useState('')
+  const [phoneError, setPhoneError] = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
+  const phoneRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (autoFocus && inputRef.current) {
-      inputRef.current.focus()
-    }
+    if (autoFocus && inputRef.current) inputRef.current.focus()
   }, [autoFocus])
 
   useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults([])
-      return
-    }
+    if (mode === 'new-phone' && phoneRef.current) phoneRef.current.focus()
+  }, [mode])
+
+  useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); return }
     let cancelled = false
     setLoading(true)
     window.hw.getCustomers({ search: query.trim(), activeOnly: true }).then(res => {
@@ -46,118 +52,121 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
     return () => { cancelled = true }
   }, [query])
 
-  function handleCreateConfirm() {
-    if (!newName.trim() || !newPhone.trim()) {
-      setCreateError('Completá el nombre y apellido, y el teléfono.')
-      return
-    }
-    onCreateNew({
-      name: newName.trim(),
-      phone: newPhone.trim(),
-    })
+  function handleConfirmName() {
+    if (!query.trim()) return
+    setMode('new-phone')
+    setPhoneRaw('')
+    setPhoneError('')
   }
 
-  if (mode === 'create') {
+  function handlePhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const formatted = formatPhoneInput(e.target.value)
+    setPhoneRaw(formatted)
+    setPhoneError('')
+  }
+
+  function handlePhoneConfirm() {
+    const clean = parsePhoneNumber(phoneRaw)
+    if (!clean) {
+      setPhoneError('Ingresá un número válido de 10 dígitos (ej. 11 4567-8901).')
+      return
+    }
+    onCreateNew({ name: query.trim(), phone: clean })
+  }
+
+  // ── Modo búsqueda ────────────────────────────────────────────────────
+  if (mode === 'search') {
     return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <button
-            onClick={() => { setMode('search'); setCreateError('') }}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            ← Volver a búsqueda
-          </button>
-          <span className="text-xs text-gray-400 font-semibold">Nuevo cliente</span>
-        </div>
+      <div className="space-y-2">
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && query.trim() && results.length === 0 && !loading) {
+              e.preventDefault()
+              handleConfirmName()
+            }
+          }}
+          placeholder="Buscar por nombre o teléfono..."
+          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+        />
 
-        <div className="space-y-2">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Nombre y apellido *</label>
-            <input
-              autoFocus
-              type="text"
-              value={newName}
-              onChange={e => { setNewName(e.target.value); setCreateError('') }}
-              placeholder="Ej. Juan Pérez"
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Teléfono *</label>
-            <input
-              type="text"
-              value={newPhone}
-              onChange={e => setNewPhone(e.target.value)}
-              placeholder="Ej. 11 4567-8901"
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-              maxLength={20}
-            />
-          </div>
-        </div>
+        {loading && <p className="text-xs text-gray-500 py-1">Buscando...</p>}
 
-        {createError && (
-          <p className="text-xs text-red-400">{createError}</p>
+        {results.length > 0 && (
+          <ul className="divide-y divide-gray-800 rounded-lg border border-gray-700 overflow-hidden max-h-48 overflow-y-auto">
+            {results.map(c => (
+              <li key={c.id}>
+                <button
+                  onClick={() => onSelect(c)}
+                  className="w-full text-left px-3 py-2.5 hover:bg-gray-800 transition-colors"
+                >
+                  <span className="text-sm font-medium text-white">{c.name}</span>
+                  {c.phone && (
+                    <span className="ml-2 text-xs text-gray-500">{c.phone}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
 
-        <button
-          onClick={handleCreateConfirm}
-          className="w-full rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-400 transition-colors"
-        >
-          Crear cliente y continuar
-        </button>
+        {query.trim().length >= 2 && !loading && results.length === 0 && (
+          <div className="rounded-lg border border-dashed border-gray-700 px-3 py-2.5 flex items-center justify-between gap-2">
+            <p className="text-xs text-gray-400">
+              No se encontró <span className="text-white font-medium">"{query.trim()}"</span>
+            </p>
+            <button
+              onClick={handleConfirmName}
+              className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-2 py-1 text-xs text-amber-400 hover:bg-amber-500/30 transition-colors"
+            >
+              Registrar como nuevo
+            </button>
+          </div>
+        )}
       </div>
     )
   }
 
+  // ── Modo nuevo cliente: pedir teléfono ────────────────────────────────
   return (
-    <div className="space-y-2">
-      <input
-        ref={inputRef}
-        type="text"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        placeholder="Buscar por nombre o teléfono..."
-        className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-      />
-
-      {loading && (
-        <p className="text-xs text-gray-500 py-1">Buscando...</p>
-      )}
-
-      {results.length > 0 && (
-        <ul className="divide-y divide-gray-800 rounded-lg border border-gray-700 bg-gray-850 overflow-hidden max-h-48 overflow-y-auto">
-          {results.map(c => (
-            <li key={c.id}>
-              <button
-                onClick={() => onSelect(c)}
-                className="w-full text-left px-3 py-2.5 hover:bg-gray-800 transition-colors"
-              >
-                <span className="text-sm font-medium text-white">{c.name}</span>
-                {c.phone && (
-                  <span className="ml-2 text-xs text-gray-500">
-                    {c.phone}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {query.trim().length >= 2 && !loading && results.length === 0 && (
-        <p className="text-xs text-gray-500 py-1">
-          No se encontró "{query.trim()}"
-        </p>
-      )}
-
-      <div className="pt-1">
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
         <button
-          onClick={() => { setMode('create'); setNewName(query.trim()) }}
-          className="text-xs text-amber-500 hover:text-amber-300 transition-colors underline underline-offset-2"
+          onClick={() => { setMode('search'); setPhoneError('') }}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
         >
-          + Crear nuevo cliente
+          ←
         </button>
+        <p className="text-xs text-gray-400">
+          Nuevo cliente: <span className="text-white font-medium">{query.trim()}</span>
+        </p>
       </div>
+
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Teléfono *</label>
+        <input
+          ref={phoneRef}
+          type="text"
+          inputMode="tel"
+          value={phoneRaw}
+          onChange={handlePhoneChange}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handlePhoneConfirm() } }}
+          placeholder="Ej. 11 4567-8901"
+          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          maxLength={15}
+        />
+        {phoneError && <p className="text-xs text-red-400 mt-1">{phoneError}</p>}
+      </div>
+
+      <button
+        onClick={handlePhoneConfirm}
+        className="w-full rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-400 transition-colors"
+      >
+        Continuar
+      </button>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import AdminScreen from './routes/AdminScreen'
 import AdminHubScreen from './routes/AdminHubScreen'
 import CashierManagementScreen from './routes/CashierManagementScreen'
 import DebtsScreen from './routes/DebtsScreen'
+import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
@@ -26,6 +27,7 @@ type AppState =
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
+  | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -230,6 +232,7 @@ export default function App() {
           onCloseShift={handleGoToCloseShift}
           onReturnToHub={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
           onViewDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus, fromCashier: state.shift })}
+          onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
         />
       )}
 
@@ -259,6 +262,7 @@ export default function App() {
           onGoToCashier={() => void handleAdminGoToCashier()}
           onGoToCashierManagement={handleGoToCashierManagement}
           onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
+          onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
           onLogout={handleLogout}
         />
       )}
@@ -279,8 +283,6 @@ export default function App() {
 
       {state.screen === 'debts' && (
         <DebtsScreen
-          isAdmin={state.session.role === 'admin'}
-          storeId={state.session.storeId ?? state.initStatus.defaultStoreId}
           onBack={() => {
             if (state.fromCashier) {
               setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
@@ -288,6 +290,13 @@ export default function App() {
               handleReturnToAdminHub()
             }
           }}
+        />
+      )}
+
+      {state.screen === 'special-customers' && (
+        <SpecialCustomersScreen
+          isAdmin={state.session.role === 'admin'}
+          onBack={handleReturnToAdminHub}
         />
       )}
 

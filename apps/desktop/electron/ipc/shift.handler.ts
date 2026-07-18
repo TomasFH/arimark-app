@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { eq, and, isNull, desc, count, sum } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { shifts, sales, salePayments, expenses, billDenominations } from '../db/schema'
+import { shifts, sales, salePayments, expenses, billDenominations, debtEvents } from '../db/schema'
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
@@ -232,6 +232,20 @@ export function registerShiftHandlers(): void {
       const totalExpenses = Number(expenseStats?.totalExpenses ?? 0)
       const cashInHand = shift.openingCash + totalCashSales - totalExpenses
 
+      // Fiados del turno: eventos 'created' cuya venta pertenece a este turno
+      const [debtStats] = db
+        .select({
+          debtsCount: count(debtEvents.id),
+          totalDebts: sum(debtEvents.amount),
+        })
+        .from(debtEvents)
+        .innerJoin(sales, eq(debtEvents.saleId, sales.id))
+        .where(and(
+          eq(sales.shiftId, session.shiftId),
+          eq(debtEvents.eventType, 'created'),
+        ))
+        .all()
+
       return {
         ok: true,
         data: {
@@ -247,6 +261,8 @@ export function registerShiftHandlers(): void {
           totalCreditSales,
           totalExpenses,
           cashInHand,
+          debtsCount: debtStats?.debtsCount ?? 0,
+          totalDebts: Number(debtStats?.totalDebts ?? 0),
         },
       }
     } catch (err) {

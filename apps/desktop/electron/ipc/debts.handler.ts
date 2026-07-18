@@ -25,6 +25,12 @@ const createDebtSchema = z.object({
       phone: z.string().max(30).optional(),
     })
     .optional(),
+  /**
+   * Monto que el cliente pagó en el momento del fiado.
+   * La deuda registrada en el ledger será: total_venta - initialPayment.
+   * 0 (o ausente) significa que no pagó nada ahora.
+   */
+  initialPayment: z.number().min(0).optional(),
   dueDate: z.string().datetime({ offset: true }).optional(),
   notes: z.string().max(500).optional(),
 })
@@ -109,7 +115,7 @@ export function registerDebtHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { saleId, customerId: existingCustomerId, newCustomer, dueDate, notes } = parsed.data
+    const { saleId, customerId: existingCustomerId, newCustomer, dueDate, notes, initialPayment = 0 } = parsed.data
 
     try {
       const db = getDb()
@@ -168,6 +174,9 @@ export function registerDebtHandlers(): void {
           .where(eq(sales.id, saleId))
           .run()
 
+        // Monto a deber = total venta menos lo que pagó ahora
+        const debtAmount = Math.round((sale.total - initialPayment) * 100) / 100
+
         // Crear evento de deuda
         const eventId = uuidv4()
         const now = nowUtc()
@@ -178,7 +187,7 @@ export function registerDebtHandlers(): void {
             saleId,
             storeId: session.storeId,
             eventType: 'created',
-            amount: sale.total,
+            amount: debtAmount,
             dueDate: dueDate ?? null,
             notes: notes?.trim() ?? null,
             createdAt: now,
@@ -186,7 +195,7 @@ export function registerDebtHandlers(): void {
           })
           .run()
 
-        return { eventId, customerId: customerId!, customerName: customer.name, now }
+        return { eventId, customerId: customerId!, customerName: customer.name, now, debtAmount }
       })
 
       log.info('[ipc:create-debt] Deuda creada', { eventId: result.eventId, saleId, customerId: result.customerId })
@@ -200,7 +209,7 @@ export function registerDebtHandlers(): void {
           saleId,
           storeId: session.storeId,
           eventType: 'created',
-          amount: sale.total,
+          amount: result.debtAmount,
           dueDate: dueDate ?? null,
           notes: notes?.trim() ?? null,
           createdAt: result.now,

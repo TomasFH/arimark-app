@@ -10,7 +10,6 @@ import { formatARS, formatRelativeDate } from '../lib/datetime'
 import type { CustomerDebtSummary, DebtEventRow } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
-import CustomerPricesModal from '../components/CustomerPricesModal'
 
 // ---------------------------------------------------------------------------
 // Sub-componente: ledger de eventos de un cliente
@@ -69,10 +68,9 @@ interface DebtCardProps {
   summary: CustomerDebtSummary
   onPayment: () => void
   onCancel: () => void
-  onEditPrices?: () => void
 }
 
-function DebtCard({ summary, onPayment, onCancel, onEditPrices }: DebtCardProps) {
+function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
   const [expanded, setExpanded] = useState(false)
 
   // Due date más próxima sin saldar
@@ -126,15 +124,6 @@ function DebtCard({ summary, onPayment, onCancel, onEditPrices }: DebtCardProps)
         >
           Cancelar deuda
         </button>
-        {onEditPrices && (
-          <button
-            onClick={onEditPrices}
-            className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:text-amber-400 hover:border-amber-700/60 transition-colors"
-            title="Precios especiales"
-          >
-            🏷️
-          </button>
-        )}
         <button
           onClick={() => setExpanded(p => !p)}
           className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
@@ -241,12 +230,9 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
 
 interface Props {
   onBack?: () => void
-  /** Si se pasa, muestra el botón de precios especiales y solo es accesible para admins */
-  isAdmin?: boolean
-  storeId?: string
 }
 
-export default function DebtsScreen({ onBack, isAdmin = false, storeId }: Props) {
+export default function DebtsScreen({ onBack }: Props) {
   const [debts, setDebts] = useState<CustomerDebtSummary[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
@@ -261,9 +247,6 @@ export default function DebtsScreen({ onBack, isAdmin = false, storeId }: Props)
   const [cancelConfirm, setCancelConfirm] = useState(false)
   const [cancelLoading, setCancelLoading] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
-
-  // Estado para precios especiales (solo admins)
-  const [pricesTarget, setPricesTarget] = useState<CustomerDebtSummary | null>(null)
 
   const loadDebts = useCallback(async () => {
     setLoadingList(true)
@@ -367,7 +350,6 @@ export default function DebtsScreen({ onBack, isAdmin = false, storeId }: Props)
             summary={d}
             onPayment={() => { setPayTarget(d); setPayError(null) }}
             onCancel={() => { setCancelTarget(d); setCancelConfirm(false); setCancelError(null) }}
-            onEditPrices={isAdmin ? () => setPricesTarget(d) : undefined}
           />
         ))}
       </div>
@@ -380,16 +362,6 @@ export default function DebtsScreen({ onBack, isAdmin = false, storeId }: Props)
           onClose={() => setPayTarget(null)}
           loading={payLoading}
           error={payError}
-        />
-      )}
-
-      {/* Modal de precios especiales (solo admins) */}
-      {pricesTarget && storeId && (
-        <CustomerPricesModal
-          customerId={pricesTarget.customerId}
-          customerName={pricesTarget.customerName}
-          storeId={storeId}
-          onClose={() => setPricesTarget(null)}
         />
       )}
 

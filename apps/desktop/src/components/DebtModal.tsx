@@ -3,13 +3,16 @@
  *
  * Flujo:
  * 1. Cajera selecciona o crea un cliente.
- * 2. Opcionalmente indica la fecha acordada de pago.
- * 3. Al confirmar se llama a onConfirm con los datos.
+ * 2. Indica cuánto pagó ahora (puede ser $0 = nada, o una parte).
+ * 3. Opcionalmente indica la fecha acordada de pago.
+ * 4. Al confirmar se llama a onConfirm con los datos.
  *    El llamador es responsable de llamar a createSale + createDebt en secuencia.
  */
 import { useState, useEffect } from 'react'
 import CustomerSearchCreate from './CustomerSearchCreate'
 import { formatARS } from '../lib/datetime'
+import NumericInput from './NumericInput'
+import { parseNumericInput } from '../lib/numericInput'
 import type { CustomerRow } from '../types/hw-api'
 
 interface Props {
@@ -17,6 +20,7 @@ interface Props {
   onConfirm: (payload: {
     customerId?: string
     newCustomer?: { name: string; phone: string }
+    initialPayment: number
     dueDate?: string
     notes?: string
   }) => void
@@ -28,9 +32,13 @@ interface Props {
 export default function DebtModal({ total, onConfirm, onClose, loading = false, error }: Props) {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
   const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; phone: string } | null>(null)
+  const [initialPaymentRaw, setInitialPaymentRaw] = useState('0')
   const [dueDate, setDueDate] = useState('')
+  const [dueDateError, setDueDateError] = useState('')
   const [notes, setNotes] = useState('')
   const [step, setStep] = useState<'pick-customer' | 'confirm'>('pick-customer')
+
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -53,22 +61,29 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
   }
 
   function handleConfirm() {
+    // Validar fecha
+    if (dueDate && dueDate < todayIso) {
+      setDueDateError('La fecha no puede ser anterior a hoy.')
+      return
+    }
+    const initialPayment = parseNumericInput(initialPaymentRaw) ?? 0
     onConfirm({
       customerId: selectedCustomer?.id,
       newCustomer: pendingNewCustomer ?? undefined,
+      initialPayment,
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
     })
   }
 
+  const initialPayment = parseNumericInput(initialPaymentRaw) ?? 0
+  const debtAmount = Math.max(0, total - initialPayment)
   const customerLabel = selectedCustomer?.name ?? pendingNewCustomer?.name ?? ''
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={e => {
-        if (e.target === e.currentTarget && !loading) onClose()
-      }}
+      onClick={e => { if (e.target === e.currentTarget && !loading) onClose() }}
     >
       <div className="relative w-full max-w-md rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl">
         {/* Header */}
@@ -100,7 +115,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
           {step === 'pick-customer' && (
             <div className="space-y-4">
               <p className="text-xs text-gray-400">
-                Buscá al cliente que se lleva la mercadería sin pagar ahora, o creá uno nuevo.
+                Buscá al cliente o escribí su nombre si no está registrado.
               </p>
               <CustomerSearchCreate
                 onSelect={handleSelectCustomer}
@@ -110,42 +125,71 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
             </div>
           )}
 
-          {/* ── PASO 2: confirmar detalles ── */}
+          {/* ── PASO 2: detalles del fiado ── */}
           {step === 'confirm' && (
             <div className="space-y-4">
-              {/* Resumen del cliente seleccionado */}
+              {/* Resumen del cliente */}
               <div className="rounded-xl border border-amber-700/50 bg-amber-900/20 px-4 py-3">
                 <p className="text-xs text-amber-400/70 mb-0.5">
                   {selectedCustomer ? 'Cliente registrado' : 'Cliente nuevo (se creará al confirmar)'}
                 </p>
                 <p className="text-base font-semibold text-amber-300">{customerLabel}</p>
-                {selectedCustomer && (selectedCustomer.dni || selectedCustomer.phone) && (
-                  <p className="text-xs text-amber-400/60 mt-0.5">
-                    {[selectedCustomer.dni, selectedCustomer.phone].filter(Boolean).join(' · ')}
-                  </p>
+                {selectedCustomer?.phone && (
+                  <p className="text-xs text-amber-400/60 mt-0.5">{selectedCustomer.phone}</p>
                 )}
-                {pendingNewCustomer && (
-                  <p className="text-xs text-amber-400/60 mt-0.5">
-                    {pendingNewCustomer.phone}
+                {pendingNewCustomer?.phone && (
+                  <p className="text-xs text-amber-400/60 mt-0.5">{pendingNewCustomer.phone}</p>
+                )}
+              </div>
+
+              {/* Pago parcial ahora */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  ¿Cuánto paga ahora? <span className="text-gray-600">(0 = no paga nada)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                    <NumericInput
+                      value={initialPaymentRaw}
+                      onChange={v => {
+                        const n = parseNumericInput(v) ?? 0
+                        setInitialPaymentRaw(n >= total ? String(total) : v)
+                      }}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-7 pr-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setInitialPaymentRaw('0')}
+                    className="rounded-lg border border-gray-700 px-3 py-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Nada
+                  </button>
+                </div>
+                {initialPayment > 0 && initialPayment < total && (
+                  <p className="text-xs text-amber-400/80 mt-1">
+                    Queda pendiente: <span className="font-semibold">{formatARS(debtAmount)}</span>
                   </p>
                 )}
               </div>
 
-              {/* Fecha de pago acordada (opcional) */}
+              {/* Fecha de pago acordada */}
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
-                  Fecha acordada de pago <span className="text-gray-600">(opcional — activa un recordatorio)</span>
+                  Fecha acordada de pago <span className="text-gray-600">(opcional)</span>
                 </label>
                 <input
                   type="date"
                   value={dueDate}
-                  onChange={e => setDueDate(e.target.value)}
-                  min={new Date().toISOString().slice(0, 10)}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none [color-scheme:dark]"
+                  min={todayIso}
+                  onChange={e => { setDueDate(e.target.value); setDueDateError('') }}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none [color-scheme:dark]"
                 />
+                {dueDateError && <p className="text-xs text-red-400 mt-1">{dueDateError}</p>}
               </div>
 
-              {/* Notas opcionales */}
+              {/* Notas */}
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
                   Notas <span className="text-gray-600">(opcional)</span>
@@ -153,7 +197,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                 <textarea
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  placeholder="ej. a pagar el viernes, solo mitad de lo que llevó…"
+                  placeholder="ej. paga el viernes, lleva solo la mitad…"
                   rows={2}
                   maxLength={500}
                   className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
@@ -168,7 +212,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
 
               <button
                 onClick={handleConfirm}
-                disabled={loading}
+                disabled={loading || debtAmount <= 0}
                 className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 {loading && (
@@ -177,7 +221,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                 )}
-                {loading ? 'Registrando...' : `Registrar fiado · ${formatARS(total)}`}
+                {loading ? 'Registrando...' : `Registrar fiado · ${formatARS(debtAmount)}`}
               </button>
             </div>
           )}

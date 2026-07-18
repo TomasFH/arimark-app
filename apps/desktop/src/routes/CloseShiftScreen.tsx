@@ -225,6 +225,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
             {summary.totalExpenses > 0 && (
               <Row label="Gastos" value={fmt(summary.totalExpenses)} />
             )}
+            {summary.debtsCount > 0 && (
+              <Row label={`Fiados (${summary.debtsCount})`} value={fmt(summary.totalDebts)} />
+            )}
             <div className="border-t border-gray-800 pt-2">
               <Row label="Efectivo esperado" value={fmt(summary.cashInHand)} bold />
             </div>
@@ -306,6 +309,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 )}
                 {summary.totalExpenses > 0 && (
                   <Stat label="Gastos" value={fmt(summary.totalExpenses)} />
+                )}
+                {summary.debtsCount > 0 && (
+                  <Stat label={`Fiados (${summary.debtsCount})`} value={fmt(summary.totalDebts)} />
                 )}
                 <Stat label="Efectivo esperado" value={fmt(summary.cashInHand)} highlight />
               </div>

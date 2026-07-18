@@ -119,6 +119,10 @@ export interface ShiftSummary {
    * No incluye el efectivo declarado al cerrar.
    */
   cashInHand: number
+  /** Cantidad de fiados registrados en este turno */
+  debtsCount: number
+  /** Monto total de fiados del turno */
+  totalDebts: number
 }
 
 export interface CloseShiftPayload {
@@ -460,7 +464,9 @@ export interface CustomerDebtSummary {
 export interface CreateDebtPayload {
   saleId: string
   customerId?: string
-  newCustomer?: { name: string; dni?: string; phone?: string }
+  newCustomer?: { name: string; phone?: string }
+  /** Monto que el cliente pagó al momento del fiado. La deuda = total − initialPayment. */
+  initialPayment?: number
   dueDate?: string
   notes?: string
 }

@@ -21,6 +21,7 @@ interface Props {
   onCloseShift: () => void
   onReturnToHub?: () => void
   onViewDebts?: () => void
+  onViewSpecialCustomers?: () => void
 }
 
 /** Producto genérico usado cuando el PLU no está mapeado a un producto real. */
@@ -31,7 +32,7 @@ interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts }: Props) {
+export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -182,6 +183,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   async function handleConfirmFiado(payload: {
     customerId?: string
     newCustomer?: { name: string; phone: string }
+    initialPayment: number
     dueDate?: string
     notes?: string
   }) {
@@ -215,6 +217,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         saleId: saleResult.data.saleId,
         customerId: payload.customerId,
         newCustomer: payload.newCustomer,
+        initialPayment: payload.initialPayment,
         dueDate: payload.dueDate ? new Date(payload.dueDate).toISOString() : undefined,
         notes: payload.notes,
       })
@@ -288,6 +291,14 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
               className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-amber-600 hover:text-amber-300 transition-colors"
             >
               📒 Fiados
+            </button>
+          )}
+          {onViewSpecialCustomers && (
+            <button
+              onClick={onViewSpecialCustomers}
+              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-purple-600 hover:text-purple-300 transition-colors"
+            >
+              👤 Clientes
             </button>
           )}
           <span className="text-sm text-gray-400">
