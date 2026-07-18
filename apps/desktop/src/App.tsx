@@ -27,7 +27,7 @@ type AppState =
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
-  | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -232,7 +232,7 @@ export default function App() {
           onCloseShift={handleGoToCloseShift}
           onReturnToHub={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
           onViewDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus, fromCashier: state.shift })}
-          onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
+          onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus, fromCashier: state.shift })}
         />
       )}
 
@@ -296,7 +296,13 @@ export default function App() {
       {state.screen === 'special-customers' && (
         <SpecialCustomersScreen
           isAdmin={state.session.role === 'admin'}
-          onBack={handleReturnToAdminHub}
+          onBack={() => {
+            if (state.fromCashier) {
+              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+            } else {
+              handleReturnToAdminHub()
+            }
+          }}
         />
       )}
 
