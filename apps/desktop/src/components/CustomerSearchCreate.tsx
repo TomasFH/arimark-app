@@ -1,6 +1,6 @@
 /**
  * Componente de búsqueda/creación de clientes.
- * Permite buscar un cliente existente por nombre, DNI o teléfono,
+ * Permite buscar un cliente existente por nombre o teléfono,
  * o iniciar la creación de uno nuevo inline.
  */
 import { useState, useEffect, useRef } from 'react'
@@ -8,7 +8,7 @@ import type { CustomerRow } from '../types/hw-api'
 
 interface Props {
   onSelect: (customer: CustomerRow) => void
-  onCreateNew: (data: { name: string; dni?: string; phone?: string }) => void
+  onCreateNew: (data: { name: string; phone: string }) => void
   autoFocus?: boolean
 }
 
@@ -20,7 +20,6 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
 
   // Formulario de creación
   const [newName, setNewName] = useState('')
-  const [newDni, setNewDni] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [createError, setCreateError] = useState('')
 
@@ -48,14 +47,13 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   }, [query])
 
   function handleCreateConfirm() {
-    if (!newName.trim()) {
-      setCreateError('El nombre es obligatorio.')
+    if (!newName.trim() || !newPhone.trim()) {
+      setCreateError('Completá el nombre y apellido, y el teléfono.')
       return
     }
     onCreateNew({
       name: newName.trim(),
-      dni: newDni.trim() || undefined,
-      phone: newPhone.trim() || undefined,
+      phone: newPhone.trim(),
     })
   }
 
@@ -74,39 +72,26 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
 
         <div className="space-y-2">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Nombre *</label>
+            <label className="block text-xs text-gray-400 mb-1">Nombre y apellido *</label>
             <input
               autoFocus
               type="text"
               value={newName}
               onChange={e => { setNewName(e.target.value); setCreateError('') }}
-              placeholder="Nombre del cliente o negocio"
+              placeholder="Ej. Juan Pérez"
               className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">DNI</label>
-              <input
-                type="text"
-                value={newDni}
-                onChange={e => setNewDni(e.target.value.replace(/\D/g, ''))}
-                placeholder="sin puntos"
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-                maxLength={12}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
-              <input
-                type="text"
-                value={newPhone}
-                onChange={e => setNewPhone(e.target.value)}
-                placeholder="ej. 11-4567-8901"
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-                maxLength={20}
-              />
-            </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Teléfono *</label>
+            <input
+              type="text"
+              value={newPhone}
+              onChange={e => setNewPhone(e.target.value)}
+              placeholder="Ej. 11 4567-8901"
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+              maxLength={20}
+            />
           </div>
         </div>
 
@@ -131,7 +116,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
         type="text"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        placeholder="Buscar por nombre, DNI o teléfono..."
+        placeholder="Buscar por nombre o teléfono..."
         className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
       />
 
@@ -148,9 +133,9 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
                 className="w-full text-left px-3 py-2.5 hover:bg-gray-800 transition-colors"
               >
                 <span className="text-sm font-medium text-white">{c.name}</span>
-                {(c.dni || c.phone) && (
+                {c.phone && (
                   <span className="ml-2 text-xs text-gray-500">
-                    {[c.dni, c.phone].filter(Boolean).join(' · ')}
+                    {c.phone}
                   </span>
                 )}
               </button>

@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import { eq, and, asc, inArray } from 'drizzle-orm'
+import { eq, and, asc, inArray, isNull } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { IPC } from './channels'
@@ -9,14 +9,6 @@ import { customers, debtEvents, sales, customerPrices, products } from '../db/sc
 import { getActiveSession } from '../activeSession'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
-import {
-  decryptCustomerIdentifier,
-  encryptCustomerIdentifier,
-  maskDni,
-  maskPhone,
-} from '../privacy/customerDataEncryption'
-
-const DATA_NOTICE_VERSION = 'fiados-fisico-v1'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -35,8 +27,6 @@ const createDebtSchema = z.object({
     .optional(),
   dueDate: z.string().datetime({ offset: true }).optional(),
   notes: z.string().max(500).optional(),
-  /** Constancia de la cajera: el comercio entregó su aviso físico. */
-  dataNoticeConfirmed: z.literal(true).optional(),
 })
 
 const addPaymentSchema = z.object({
@@ -119,14 +109,7 @@ export function registerDebtHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const {
-      saleId,
-      customerId: existingCustomerId,
-      newCustomer,
-      dueDate,
-      notes,
-      dataNoticeConfirmed,
-    } = parsed.data
+    const { saleId, customerId: existingCustomerId, newCustomer, dueDate, notes } = parsed.data
 
     try {
       const db = getDb()
@@ -140,6 +123,8 @@ export function registerDebtHandlers(): void {
       if (sale.status !== 'confirmed') {
         return { ok: false, error: 'Solo se puede registrar deuda sobre una venta confirmada.', code: 'INVALID_STATUS' }
       }
+      // Una venta de fiado se crea con isDebt=true antes de llegar aquí. La
+      // condición idempotente correcta es que ya exista su evento de ledger.
       const registeredDebt = db.select({ id: debtEvents.id })
         .from(debtEvents)
         .where(eq(debtEvents.saleId, saleId))
@@ -156,23 +141,16 @@ export function registerDebtHandlers(): void {
           if (!newCustomer) {
             throw new Error('Se requiere un cliente existente o datos del nuevo cliente.')
           }
-          if (!dataNoticeConfirmed) {
-            throw new Error('Confirmá que se entregó el aviso físico de privacidad al cliente.')
-          }
           const newId = uuidv4()
-          const now = nowUtc()
           db.insert(customers)
             .values({
               id: newId,
               storeId: session.storeId,
               name: newCustomer.name.trim(),
-              dni: encryptCustomerIdentifier(newCustomer.dni?.trim()),
-              phone: encryptCustomerIdentifier(newCustomer.phone?.trim()),
+              dni: newCustomer.dni?.trim() ?? null,
+              phone: newCustomer.phone?.trim() ?? null,
               active: true,
-              dataNoticeConfirmedAt: now,
-              dataNoticeConfirmedBy: session.userId,
-              dataNoticeVersion: DATA_NOTICE_VERSION,
-              createdAt: now,
+              createdAt: nowUtc(),
               createdBy: session.userId,
             })
             .run()
@@ -183,19 +161,6 @@ export function registerDebtHandlers(): void {
         // Verificar cliente existe
         const customer = db.select().from(customers).where(eq(customers.id, customerId!)).get()
         if (!customer) throw new Error('Cliente no encontrado.')
-        if (!customer.dataNoticeConfirmedAt) {
-          if (!dataNoticeConfirmed) {
-            throw new Error('Confirmá que se entregó el aviso físico de privacidad al cliente.')
-          }
-          db.update(customers)
-            .set({
-              dataNoticeConfirmedAt: nowUtc(),
-              dataNoticeConfirmedBy: session.userId,
-              dataNoticeVersion: DATA_NOTICE_VERSION,
-            })
-            .where(eq(customers.id, customer.id))
-            .run()
-        }
 
         // Marcar la venta como deuda
         db.update(sales)
@@ -298,8 +263,8 @@ export function registerDebtHandlers(): void {
           summaries.set(event.customerId, {
             customerId: event.customerId,
             customerName: customer.name,
-            customerDni: maskDni(decryptCustomerIdentifier(customer.dni)),
-            customerPhone: maskPhone(decryptCustomerIdentifier(customer.phone)),
+            customerDni: customer.dni ?? null,
+            customerPhone: customer.phone ?? null,
             balance: 0,
             lastEventAt: event.createdAt,
             events: [],
@@ -367,8 +332,8 @@ export function registerDebtHandlers(): void {
         data: {
           customerId,
           customerName: customer.name,
-          customerDni: maskDni(decryptCustomerIdentifier(customer.dni)),
-          customerPhone: maskPhone(decryptCustomerIdentifier(customer.phone)),
+          customerDni: customer.dni ?? null,
+          customerPhone: customer.phone ?? null,
           balance,
           lastEventAt,
           events: events.map(e => ({
@@ -539,7 +504,11 @@ export function registerDebtHandlers(): void {
         })
         .from(customerPrices)
         .innerJoin(products, eq(products.id, customerPrices.productId))
-        .where(and(eq(customerPrices.customerId, customerId), eq(customerPrices.storeId, session.storeId)))
+        .where(and(
+          eq(customerPrices.customerId, customerId),
+          eq(customerPrices.storeId, session.storeId),
+          isNull(customerPrices.validTo),
+        ))
         .orderBy(asc(products.name))
         .all()
 
@@ -574,6 +543,7 @@ export function registerDebtHandlers(): void {
             eq(customerPrices.customerId, customerId),
             eq(customerPrices.productId, productId),
             eq(customerPrices.storeId, session.storeId),
+            isNull(customerPrices.validTo),
           )
         )
         .run()
@@ -631,6 +601,7 @@ export function registerDebtHandlers(): void {
             eq(customerPrices.customerId, customerId),
             eq(customerPrices.productId, productId),
             eq(customerPrices.storeId, session.storeId),
+            isNull(customerPrices.validTo),
           )
         )
         .run()

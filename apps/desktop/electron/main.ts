@@ -23,7 +23,6 @@ import { verifyLicense } from './licensing/license'
 import { signInAnon } from './licensing/installation'
 import { setInitStatus } from './ipc/initStatus.handler'
 import type { InitStatus } from '../src/types/hw-api'
-import { encryptLegacyCustomerIdentifiers } from './privacy/migrateCustomerIdentifiers'
 
 log.initialize({ preload: true })
 log.transports.file.level = 'info'
@@ -158,9 +157,6 @@ app.whenReady().then(async () => {
     const { initDb } = await import('./db/client')
     initDb(dbPath)
     log.warn('[main] DB re-inicializada desde backup — la migración fallida no fue aplicada')
-  } else {
-    // No se deja información previa de contacto en texto plano al actualizar.
-    encryptLegacyCustomerIdentifiers()
   }
 
   // 2. Calcular estado de inicialización (licencia, activación, config)

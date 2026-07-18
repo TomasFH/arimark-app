@@ -121,14 +121,6 @@ export const customers = sqliteTable('customers', {
   type: text('type', { enum: ['restaurant', 'wholesale', 'other'] }),
   notes: text('notes'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
-  /**
-   * Constancia operativa de que el comercio entregó el aviso físico y que los
-   * datos fueron provistos para gestionar la cuenta corriente.
-   */
-  dataNoticeConfirmedAt: text('data_notice_confirmed_at'),
-  dataNoticeConfirmedBy: text('data_notice_confirmed_by')
-    .references(() => users.id),
-  dataNoticeVersion: text('data_notice_version'),
   createdAt: text('created_at').notNull(),
   createdBy: text('created_by')
     .notNull()
