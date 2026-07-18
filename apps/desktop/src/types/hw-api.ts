@@ -406,6 +406,8 @@ export interface CustomerRow {
   type: 'restaurant' | 'wholesale' | 'other' | null
   notes: string | null
   active: boolean
+  /** Constancia interna de aviso físico entregado por el comercio. */
+  dataNoticeConfirmedAt: string | null
   createdAt: string
 }
 
@@ -463,6 +465,7 @@ export interface CreateDebtPayload {
   newCustomer?: { name: string; dni?: string; phone?: string }
   dueDate?: string
   notes?: string
+  dataNoticeConfirmed?: true
 }
 
 export interface AddDebtPaymentPayload {

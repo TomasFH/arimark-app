@@ -18,6 +18,12 @@ vi.mock('../../activeSession', () => ({
   getActiveSession: vi.fn(),
 }))
 
+vi.mock('../../secureStorage', () => ({
+  SECRET_KEYS: { CUSTOMER_DATA_ENCRYPTION_KEY: 'customer-data-encryption-key' },
+  getSecret: vi.fn(() => Buffer.alloc(32, 1).toString('base64')),
+  setSecret: vi.fn(),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
@@ -73,7 +79,7 @@ describe('customers.handler', () => {
         notes: 'Cliente frecuente',
       }) as { ok: boolean; data: { dni: string; type: string } }
       expect(result.ok).toBe(true)
-      expect(result.data.dni).toBe('12345678')
+      expect(result.data.dni).toBe('DNI •••••678')
       expect(result.data.type).toBe('wholesale')
     })
 

@@ -50,6 +50,8 @@ export const SECRET_KEYS = {
   LAST_LICENSE_VERIFIED_AT: 'last-license-verified-at',
   FIREBASE_ANON_UID: 'firebase-anon-uid',
   ADMIN_SESSION_TOKEN: 'admin-session-token',
+  // Clave AES-256 para DNI y teléfono de clientes con cuenta corriente.
+  CUSTOMER_DATA_ENCRYPTION_KEY: 'customer-data-encryption-key',
   // Hardware
   KRETZ_PORT: 'kretz-port',
 } as const

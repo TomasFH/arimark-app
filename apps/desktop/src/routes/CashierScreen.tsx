@@ -184,6 +184,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     newCustomer?: { name: string; dni?: string; phone?: string }
     dueDate?: string
     notes?: string
+    dataNoticeConfirmed?: true
   }) {
     if (cart.length === 0) return
     setDebtLoading(true)
@@ -217,6 +218,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         newCustomer: payload.newCustomer,
         dueDate: payload.dueDate ? new Date(payload.dueDate).toISOString() : undefined,
         notes: payload.notes,
+        dataNoticeConfirmed: payload.dataNoticeConfirmed,
       })
 
       if (!debtResult.ok) {

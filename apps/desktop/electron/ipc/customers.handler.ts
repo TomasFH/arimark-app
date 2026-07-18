@@ -9,6 +9,12 @@ import { customers } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
+import {
+  decryptCustomerIdentifier,
+  encryptCustomerIdentifier,
+  maskDni,
+  maskPhone,
+} from '../privacy/customerDataEncryption'
 
 // ---------------------------------------------------------------------------
 // Schemas Zod
@@ -50,6 +56,8 @@ export type CustomerRow = {
   type: 'restaurant' | 'wholesale' | 'other' | null
   notes: string | null
   active: boolean
+  /** Solo presencia de la constancia; los datos personales nunca salen sin máscara. */
+  dataNoticeConfirmedAt: string | null
   createdAt: string
 }
 
@@ -79,8 +87,8 @@ export function registerCustomerHandlers(): void {
           id,
           storeId: session.storeId,
           name: name.trim(),
-          dni: dni?.trim() ?? null,
-          phone: phone?.trim() ?? null,
+          dni: encryptCustomerIdentifier(dni?.trim()),
+          phone: encryptCustomerIdentifier(phone?.trim()),
           type: type ?? null,
           notes: notes?.trim() ?? null,
           active: true,
@@ -127,11 +135,13 @@ export function registerCustomerHandlers(): void {
             const normalize = (s: string) =>
               s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             const q = normalize(search)
-            return rows.filter(r =>
-              normalize(r.name).includes(q) ||
-              (r.dni ? normalize(r.dni).includes(q) : false) ||
-              (r.phone ? normalize(r.phone).includes(q) : false)
-            )
+            return rows.filter(r => {
+              const dni = decryptCustomerIdentifier(r.dni)
+              const phone = decryptCustomerIdentifier(r.phone)
+              return normalize(r.name).includes(q) ||
+                (dni ? normalize(dni).includes(q) : false) ||
+                (phone ? normalize(phone).includes(q) : false)
+            })
           })()
         : rows
 
@@ -162,8 +172,8 @@ export function registerCustomerHandlers(): void {
 
       const updates: Partial<typeof existing> = {}
       if (fields.name !== undefined) updates.name = fields.name.trim()
-      if (fields.dni !== undefined) updates.dni = fields.dni.trim() || null
-      if (fields.phone !== undefined) updates.phone = fields.phone.trim() || null
+      if (fields.dni !== undefined) updates.dni = encryptCustomerIdentifier(fields.dni.trim())
+      if (fields.phone !== undefined) updates.phone = encryptCustomerIdentifier(fields.phone.trim())
       if (fields.type !== undefined) updates.type = fields.type
       if (fields.notes !== undefined) updates.notes = fields.notes.trim() || null
       if (fields.active !== undefined) updates.active = fields.active
@@ -190,11 +200,12 @@ function toCustomerRow(row: typeof customers.$inferSelect): CustomerRow {
     id: row.id,
     storeId: row.storeId,
     name: row.name,
-    dni: row.dni ?? null,
-    phone: row.phone ?? null,
+    dni: maskDni(decryptCustomerIdentifier(row.dni)),
+    phone: maskPhone(decryptCustomerIdentifier(row.phone)),
     type: (row.type as CustomerRow['type']) ?? null,
     notes: row.notes ?? null,
     active: row.active,
+    dataNoticeConfirmedAt: row.dataNoticeConfirmedAt ?? null,
     createdAt: row.createdAt,
   }
 }

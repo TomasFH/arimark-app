@@ -19,6 +19,7 @@ interface Props {
     newCustomer?: { name: string; dni?: string; phone?: string }
     dueDate?: string
     notes?: string
+    dataNoticeConfirmed?: true
   }) => void
   onClose: () => void
   loading?: boolean
@@ -30,6 +31,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
   const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; dni?: string; phone?: string } | null>(null)
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [dataNoticeConfirmed, setDataNoticeConfirmed] = useState(false)
   const [step, setStep] = useState<'pick-customer' | 'confirm'>('pick-customer')
 
   useEffect(() => {
@@ -43,12 +45,14 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
   function handleSelectCustomer(c: CustomerRow) {
     setSelectedCustomer(c)
     setPendingNewCustomer(null)
+    setDataNoticeConfirmed(Boolean(c.dataNoticeConfirmedAt))
     setStep('confirm')
   }
 
   function handleCreateNew(data: { name: string; dni?: string; phone?: string }) {
     setPendingNewCustomer(data)
     setSelectedCustomer(null)
+    setDataNoticeConfirmed(false)
     setStep('confirm')
   }
 
@@ -58,6 +62,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
       newCustomer: pendingNewCustomer ?? undefined,
       dueDate: dueDate || undefined,
       notes: notes.trim() || undefined,
+      dataNoticeConfirmed: dataNoticeConfirmed ? true : undefined,
     })
   }
 
@@ -160,6 +165,20 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                 />
               </div>
 
+              {!selectedCustomer?.dataNoticeConfirmedAt && (
+                <label className="flex items-start gap-2 rounded-lg border border-gray-700 bg-gray-800/60 px-3 py-2.5 text-xs text-gray-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dataNoticeConfirmed}
+                    onChange={e => setDataNoticeConfirmed(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 accent-amber-500"
+                  />
+                  <span>
+                    Confirmo que se entregó al cliente el aviso físico de privacidad del comercio y que brindó voluntariamente estos datos para gestionar el fiado.
+                  </span>
+                </label>
+              )}
+
               {error && (
                 <p className="text-xs text-red-400 rounded-lg bg-red-900/20 border border-red-800/50 px-3 py-2">
                   {error}
@@ -168,7 +187,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
 
               <button
                 onClick={handleConfirm}
-                disabled={loading}
+                disabled={loading || !dataNoticeConfirmed}
                 className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 {loading && (

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, sales, salePayments, customers, debtEvents } from '../../db/schema'
+import { stores, users, shifts, sales, salePayments, customers, debtEvents, customerPrices, products } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -16,6 +16,12 @@ vi.mock('../../db/client', () => ({
 
 vi.mock('../../activeSession', () => ({
   getActiveSession: vi.fn(),
+}))
+
+vi.mock('../../secureStorage', () => ({
+  SECRET_KEYS: { CUSTOMER_DATA_ENCRYPTION_KEY: 'customer-data-encryption-key' },
+  getSecret: vi.fn(() => Buffer.alloc(32, 1).toString('base64')),
+  setSecret: vi.fn(),
 }))
 
 import { ipcMain } from 'electron'
@@ -42,6 +48,7 @@ const CUST_PAY_ID = 'eeeeeeee-0000-0000-0000-000000000004'
 const CUST_NO_DEBT_ID = 'ffffffff-0000-0000-0000-000000000005'
 const CUST_LEDGER_ID = '11111111-1111-0000-0000-000000000006'
 const SALE_DEBT_ID = '22222222-2222-0000-0000-000000000007'
+const PRODUCT_ID = '33333333-3333-0000-0000-000000000008'
 
 describe('debts.handler', () => {
   let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']
@@ -87,7 +94,7 @@ describe('debts.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:create-debt')
-      const result = handler(null, { saleId: SALE_ID, customerId: CUST_ID }) as {
+      const result = handler(null, { saleId: SALE_ID, customerId: CUST_ID, dataNoticeConfirmed: true }) as {
         ok: boolean; data: { eventType: string; amount: number; customerId: string }
       }
       expect(result.ok).toBe(true)
@@ -101,9 +108,39 @@ describe('debts.handler', () => {
       const result = handler(null, {
         saleId: SALE_ID,
         newCustomer: { name: 'Cliente Nuevo', dni: '99887766', phone: '11-9999-8888' },
+        dataNoticeConfirmed: true,
       }) as { ok: boolean; data: { customerName: string } }
       expect(result.ok).toBe(true)
       expect(result.data.customerName).toBe('Cliente Nuevo')
+    })
+
+    it('acepta la venta marcada como deuda si todavía no tiene evento de ledger', () => {
+      const now = new Date().toISOString()
+      db.insert(customers).values({
+        id: CUST_DUP_ID, storeId: 'store-001', name: 'Cliente Pendiente',
+        active: true, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(sales).values({
+        id: SALE_DEBT_ID, storeId: 'store-001', shiftId: 'shift-001',
+        total: 5000, status: 'confirmed', isDebt: true, customerId: CUST_DUP_ID,
+        manualEntry: false, createdAt: now, createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:create-debt')
+      const result = handler(null, {
+        saleId: SALE_DEBT_ID, customerId: CUST_DUP_ID, dataNoticeConfirmed: true,
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+    })
+
+    it('exige constancia del aviso físico para un cliente nuevo', () => {
+      const handler = getHandler('ipc:create-debt')
+      const result = handler(null, {
+        saleId: SALE_ID,
+        newCustomer: { name: 'Cliente Sin Aviso' },
+      }) as { ok: boolean; error: string }
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/aviso físico/i)
     })
 
     it('rechaza si ya tiene deuda registrada', () => {
@@ -117,6 +154,11 @@ describe('debts.handler', () => {
         id: SALE_DEBT_ID, storeId: 'store-001', shiftId: 'shift-001',
         total: 5000, status: 'confirmed', isDebt: true, customerId: CUST_DUP_ID,
         manualEntry: false, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values({
+        id: 'de-dup-001', customerId: CUST_DUP_ID, saleId: SALE_DEBT_ID,
+        storeId: 'store-001', eventType: 'created', amount: 5000,
+        createdAt: now, createdBy: 'user-001',
       }).run()
 
       const handler = getHandler('ipc:create-debt')
@@ -278,6 +320,84 @@ describe('debts.handler', () => {
       const result = handler(null, { customerId: '00000000-0000-0000-0000-000000000099' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NOT_FOUND')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // CANCEL_DEBT
+  // ---------------------------------------------------------------------------
+
+  describe('CANCEL_DEBT (ipc:cancel-debt)', () => {
+    it('cancela el saldo pendiente sin borrar el ledger', () => {
+      const now = new Date().toISOString()
+      db.insert(customers).values({
+        id: CUST_PAY_ID, storeId: 'store-001', name: 'Cliente Cancelar',
+        active: true, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values({
+        id: 'de-cancel-001', customerId: CUST_PAY_ID, saleId: SALE_ID,
+        storeId: 'store-001', eventType: 'created', amount: 12000,
+        createdAt: now, createdBy: 'user-001',
+      }).run()
+
+      const result = getHandler('ipc:cancel-debt')(null, { customerId: CUST_PAY_ID }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const total = db.select().from(debtEvents).all()
+        .filter(event => event.customerId === CUST_PAY_ID)
+        .reduce((sum, event) => sum + event.amount, 0)
+      expect(total).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Precios especiales
+  // ---------------------------------------------------------------------------
+
+  describe('precios especiales por cliente', () => {
+    beforeEach(() => {
+      const now = new Date().toISOString()
+      db.insert(customers).values({
+        id: CUST_ID, storeId: 'store-001', name: 'Cliente Precio',
+        active: true, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(products).values({
+        id: PRODUCT_ID, name: 'Asado', category: 'beef_cut', unit: 'kg',
+        pluNumber: 1, active: true, createdAt: now,
+      }).run()
+    })
+
+    it('crea, lista y cierra un precio especial sin eliminar el historial', () => {
+      const setPrice = getHandler('ipc:set-customer-price')
+      const first = setPrice(null, { customerId: CUST_ID, productId: PRODUCT_ID, price: 12000 }) as {
+        ok: boolean; data: { productName: string }
+      }
+      expect(first.ok).toBe(true)
+      expect(first.data.productName).toBe('Asado')
+
+      const list = getHandler('ipc:get-customer-prices')(null, { customerId: CUST_ID }) as {
+        ok: boolean; data: Array<{ price: number }>
+      }
+      expect(list.ok).toBe(true)
+      expect(list.data).toHaveLength(1)
+      expect(list.data[0].price).toBe(12000)
+
+      const remove = getHandler('ipc:delete-customer-price')(null, {
+        customerId: CUST_ID, productId: PRODUCT_ID,
+      }) as { ok: boolean }
+      expect(remove.ok).toBe(true)
+
+      const stored = db.select().from(customerPrices).all()
+      expect(stored).toHaveLength(1)
+      expect(stored[0].validTo).not.toBeNull()
+    })
+
+    it('rechaza payload inválido de precio especial', () => {
+      const result = getHandler('ipc:set-customer-price')(null, {
+        customerId: 'invalid', productId: PRODUCT_ID, price: 0,
+      }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('VALIDATION_ERROR')
     })
   })
 })
