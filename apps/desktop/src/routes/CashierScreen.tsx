@@ -174,11 +174,16 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     setShowPaymentModal(true)
   }
 
-  function handleOpenFiado() {
+  const handleOpenFiado = useCallback(() => {
     setShowPaymentModal(false)
     setDebtError(null)
     setShowDebtModal(true)
-  }
+  }, [])
+
+  const handleCloseDebtModal = useCallback(() => {
+    setShowDebtModal(false)
+    setDebtError(null)
+  }, [])
 
   async function handleConfirmFiado(payload: {
     customerId?: string
@@ -517,7 +522,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         <DebtModal
           total={cartTotal}
           onConfirm={handleConfirmFiado}
-          onClose={() => { setShowDebtModal(false); setDebtError(null) }}
+          onClose={handleCloseDebtModal}
           loading={debtLoading}
           error={debtError}
         />

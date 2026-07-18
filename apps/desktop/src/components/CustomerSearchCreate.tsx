@@ -43,13 +43,15 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   useEffect(() => {
     if (query.trim().length < 2) { setResults([]); return }
     let cancelled = false
-    setLoading(true)
-    window.hw.getCustomers({ search: query.trim(), activeOnly: true }).then(res => {
-      if (cancelled) return
-      setLoading(false)
-      if (res.ok) setResults(res.data)
-    })
-    return () => { cancelled = true }
+    const timer = setTimeout(() => {
+      setLoading(true)
+      window.hw.getCustomers({ search: query.trim(), activeOnly: true }).then(res => {
+        if (cancelled) return
+        setLoading(false)
+        if (res.ok) setResults(res.data)
+      })
+    }, 200)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [query])
 
   function handleConfirmName() {
@@ -93,39 +95,42 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
         />
 
-        {loading && <p className="text-xs text-gray-500 py-1">Buscando...</p>}
+        {/* Área de resultados con altura mínima para evitar saltos visuales */}
+        <div className="min-h-[2.5rem]">
+          {loading && <p className="text-xs text-gray-500 py-1">Buscando...</p>}
 
-        {results.length > 0 && (
-          <ul className="divide-y divide-gray-800 rounded-lg border border-gray-700 overflow-hidden max-h-48 overflow-y-auto">
-            {results.map(c => (
-              <li key={c.id}>
-                <button
-                  onClick={() => onSelect(c)}
-                  className="w-full text-left px-3 py-2.5 hover:bg-gray-800 transition-colors"
-                >
-                  <span className="text-sm font-medium text-white">{c.name}</span>
-                  {c.phone && (
-                    <span className="ml-2 text-xs text-gray-500">{c.phone}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+          {!loading && results.length > 0 && (
+            <ul className="divide-y divide-gray-800 rounded-lg border border-gray-700 overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(c => (
+                <li key={c.id}>
+                  <button
+                    onClick={() => onSelect(c)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-gray-800 transition-colors"
+                  >
+                    <span className="text-sm font-medium text-white">{c.name}</span>
+                    {c.phone && (
+                      <span className="ml-2 text-xs text-gray-500">{c.phone}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
-        {query.trim().length >= 2 && !loading && results.length === 0 && (
-          <div className="rounded-lg border border-dashed border-gray-700 px-3 py-2.5 flex items-center justify-between gap-2">
-            <p className="text-xs text-gray-400">
-              No se encontró <span className="text-white font-medium">"{query.trim()}"</span>
-            </p>
-            <button
-              onClick={handleConfirmName}
-              className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-2 py-1 text-xs text-amber-400 hover:bg-amber-500/30 transition-colors"
-            >
-              Registrar como nuevo
-            </button>
-          </div>
-        )}
+          {!loading && query.trim().length >= 2 && results.length === 0 && (
+            <div className="rounded-lg border border-dashed border-gray-700 px-3 py-2.5 flex items-center justify-between gap-2">
+              <p className="text-xs text-gray-400">
+                No se encontró <span className="text-white font-medium">"{query.trim()}"</span>
+              </p>
+              <button
+                onClick={handleConfirmName}
+                className="shrink-0 rounded-md bg-amber-500/20 border border-amber-500/40 px-2 py-1 text-xs text-amber-400 hover:bg-amber-500/30 transition-colors"
+              >
+                Registrar como nuevo
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     )
   }
