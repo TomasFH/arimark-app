@@ -326,7 +326,7 @@ export default function DevToolsPanel({ onDataChanged }: { onDataChanged?: () =>
 
   const isSandbox = APP_ENV === 'dev'
   const [tab, setTab] = useState<TabId>('hardware')
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const logCounter = useRef(0)
 

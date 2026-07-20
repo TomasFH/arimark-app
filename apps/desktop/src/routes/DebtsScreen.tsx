@@ -303,7 +303,7 @@ export default function DebtsScreen({ onBack }: Props) {
     : debts
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 text-white">
+    <div className="flex flex-col flex-1 h-full bg-gray-950 text-white">
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-4">
         {onBack && (
