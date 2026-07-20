@@ -139,13 +139,16 @@ describe('sale.handler — CREATE_SALE', () => {
     expect(result.data.saleId).toBeTypeOf('string')
   })
 
-  it('rechaza venta manual si no hay sesión de admin en producción', async () => {
+  it('acepta venta manual y la registra con la cajera como responsable', async () => {
     process.env['APP_ENV'] = 'production'
     vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+    const { db } = makeMockDb()
+    vi.mocked(getDb).mockReturnValue(db)
 
     const handler = getHandler('ipc:create-sale')
-    const result = await handler({}, { ...VALID_SALE, manualEntry: true })
-    expect(result).toMatchObject({ ok: false, code: 'ADMIN_REQUIRED' })
+    const result = await handler({}, { ...VALID_SALE, manualEntry: true }) as { ok: boolean; data: { saleId: string } }
+    expect(result.ok).toBe(true)
+    expect(result.data.saleId).toBeTypeOf('string')
   })
 
   it('registra venta multipago de forma local', async () => {

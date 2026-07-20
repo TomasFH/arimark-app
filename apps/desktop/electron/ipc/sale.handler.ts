@@ -7,7 +7,6 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { sales, saleItems, salePayments, products } from '../db/schema'
 import { getActiveSession } from '../activeSession'
-import { getStoredAdminSession } from './auth.handler'
 import { notifySaleOccurred } from './inactivityDaemon'
 import type { IpcResult, SaleResult, ShiftSaleRow } from '../../src/types/hw-api'
 
@@ -74,40 +73,15 @@ export function registerSaleHandlers(): void {
       }
     }
 
-    // Ventas manuales: requieren sesión de admin activa en producción
-    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
-    if (parsed.data.manualEntry && APP_ENV !== 'dev') {
-      const adminSession = getStoredAdminSession()
-      if (!adminSession || new Date(adminSession.expiresAt) < new Date()) {
-        return {
-          ok: false,
-          error: 'Venta manual requiere autorización de administrador.',
-          code: 'ADMIN_REQUIRED',
-        }
-      }
-    }
-
     const { items, payments, customerId, isDebt, manualEntry, notes } = parsed.data
     const total = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
     const saleId = uuidv4()
     const now = new Date().toISOString()
     const db = getDb()
 
-    // Aprobación admin para entradas manuales
-    let manualApprovedBy: string | null = null
-    let manualApprovedAt: string | null = null
-    if (manualEntry) {
-      if (APP_ENV === 'dev') {
-        manualApprovedBy = session.userId
-        manualApprovedAt = now
-      } else {
-        const adminSession = getStoredAdminSession()
-        if (adminSession) {
-          manualApprovedBy = adminSession.uid
-          manualApprovedAt = now
-        }
-      }
-    }
+    // La cajera que registra la venta manual queda asentada como responsable.
+    const manualApprovedBy: string | null = manualEntry ? session.userId : null
+    const manualApprovedAt: string | null = manualEntry ? now : null
 
     // -------------------------------------------------------------------------
     // Fase 1: Transacción SQLite — crear venta + ítems
