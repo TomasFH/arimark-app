@@ -56,11 +56,11 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
       return
     }
 
-    // Si el query actual extiende un prefijo que ya dio vacío, no buscamos.
-    // Marcamos searched=true para que el mensaje siga visible con el texto actualizado.
+    // Si el query actual extiende un prefijo que ya dio vacío, no buscamos
+    // ni tocamos `searched`: el bloque "No se encontró" permanece montado
+    // y solo se actualiza el texto del nombre.
     const emptyPrefix = emptyPrefixRef.current
     if (emptyPrefix && q.toLowerCase().startsWith(emptyPrefix.toLowerCase())) {
-      setSearched(true)
       return
     }
 
@@ -124,13 +124,23 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           value={query}
           onChange={e => {
             const v = e.target.value
-            // Si el nuevo query es más corto que el prefijo vacío, lo reseteamos
-            // para que al borrar y reescribir se vuelva a buscar.
-            if (emptyPrefixRef.current && !v.trim().toLowerCase().startsWith(emptyPrefixRef.current.toLowerCase())) {
+            const trimmed = v.trim()
+            const emptyPrefix = emptyPrefixRef.current
+            const stillNoMatches = Boolean(
+              emptyPrefix && trimmed.toLowerCase().startsWith(emptyPrefix.toLowerCase())
+            )
+
+            // Si el nuevo query ya no extiende el prefijo vacío, hay que volver a buscar.
+            if (emptyPrefix && !stillNoMatches) {
               emptyPrefixRef.current = ''
             }
+
             setQuery(v)
-            setSearched(false)
+            // No poner searched=false si seguimos sin coincidencias: eso desmontaba
+            // el mensaje en cada tecla y producía el parpadeo.
+            if (!stillNoMatches) {
+              setSearched(false)
+            }
           }}
           onKeyDown={e => {
             if (e.key === 'Enter' && query.trim() && results.length === 0 && searched) {
