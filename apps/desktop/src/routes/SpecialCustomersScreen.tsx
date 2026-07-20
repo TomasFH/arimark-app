@@ -264,6 +264,7 @@ interface CustomerCardProps {
 
 function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDelete }: CustomerCardProps) {
   const [editing, setEditing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [editName, setEditName] = useState(customer.name)
   const [editNotes, setEditNotes] = useState(customer.notes ?? '')
   const [editEntries, setEditEntries] = useState<PriceEntry[]>([])
@@ -351,70 +352,91 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDe
   // Modo vista
   return (
     <div className="rounded-xl border border-gray-700 bg-gray-900 overflow-hidden">
-      <div className="flex items-start gap-3 px-4 py-3">
+      {/* Cabecera siempre visible — click para expandir/colapsar */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-gray-800/50 transition-colors"
+      >
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white">{customer.name}</p>
-          {customer.notes && <p className="text-xs text-gray-400 mt-0.5">{customer.notes}</p>}
+          {customer.notes && <p className="text-xs text-gray-400 mt-0.5 truncate" title={customer.notes}>{customer.notes}</p>}
           {updatedDate && (
             <p className="text-xs text-gray-600 mt-0.5">Modificado: {updatedDate}</p>
           )}
+          {!expanded && prices.length > 0 && (
+            <p className="text-xs text-gray-600 mt-0.5">
+              {prices.length} precio{prices.length > 1 ? 's' : ''} especial{prices.length > 1 ? 'es' : ''} · tocá para ver
+            </p>
+          )}
         </div>
-        {isAdmin && (
-          <div className="shrink-0 flex items-center gap-1.5">
-            <button onClick={startEdit}
-              className="text-gray-500 hover:text-amber-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-amber-600 transition-colors">
-              ✏️
-            </button>
-            {confirmDelete ? (
-              <div className="flex items-center gap-1">
-                <button onClick={() => onDelete(customer.id)}
-                  className="rounded-md bg-red-700 px-2 py-0.5 text-xs text-white hover:bg-red-600">
-                  Confirmar
-                </button>
-                <button onClick={() => setConfirmDelete(false)}
-                  className="text-xs text-gray-500 hover:text-gray-300 px-1">
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)}
-                className="text-gray-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-red-700 transition-colors">
-                🗑
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Precios siempre visibles */}
-      <div className="border-t border-gray-800 px-4 py-2">
-        {prices.length === 0 ? (
-          <p className="text-xs text-gray-600 italic py-1">Sin precios especiales registrados.</p>
-        ) : (
-          <div className="space-y-1.5 py-1">
-            {prices.map(p => {
-              const prod = products.find(pr => pr.id === p.productId)
-              const modDate = new Date(p.updatedAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-              return (
-                <div key={p.productId} className="flex items-center justify-between gap-2 text-xs">
-                  <div className="min-w-0">
-                    <span className="text-white">{p.productName}</span>
-                    <span className="ml-1.5 text-gray-600">PLU {prod?.pluNumber ?? '?'}</span>
-                    {prod?.price != null && (
-                      <span className="ml-1.5 text-gray-500">lista: {formatARS(prod.price)}</span>
-                    )}
-                    {p.notes && <span className="ml-1.5 text-gray-500">— {p.notes}</span>}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <span className="font-semibold text-amber-400">{formatARS(p.specialPrice)}</span>
-                    <span className="ml-2 text-gray-600">{modDate}</span>
-                  </div>
+        <div className="shrink-0 flex items-center gap-1.5 pt-0.5">
+          {isAdmin && (
+            <>
+              <span
+                role="button"
+                onClick={e => { e.stopPropagation(); startEdit() }}
+                className="text-gray-500 hover:text-amber-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-amber-600 transition-colors"
+              >
+                ✏️
+              </span>
+              {confirmDelete ? (
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => onDelete(customer.id)}
+                    className="rounded-md bg-red-700 px-2 py-0.5 text-xs text-white hover:bg-red-600">
+                    Confirmar
+                  </button>
+                  <button onClick={() => setConfirmDelete(false)}
+                    className="text-xs text-gray-500 hover:text-gray-300 px-1">
+                    ✕
+                  </button>
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+              ) : (
+                <span
+                  role="button"
+                  onClick={e => { e.stopPropagation(); setConfirmDelete(true) }}
+                  className="text-gray-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-red-700 transition-colors"
+                >
+                  🗑
+                </span>
+              )}
+            </>
+          )}
+          <span className="text-gray-600 text-xs">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {/* Detalle de precios — se muestra solo cuando expanded */}
+      {expanded && (
+        <div className="border-t border-gray-800 px-4 py-2">
+          {prices.length === 0 ? (
+            <p className="text-xs text-gray-600 italic py-1">Sin precios especiales registrados.</p>
+          ) : (
+            <div className="space-y-1.5 py-1">
+              {prices.map(p => {
+                const prod = products.find(pr => pr.id === p.productId)
+                const modDate = new Date(p.updatedAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                return (
+                  <div key={p.productId} className="flex items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <span className="text-white">{p.productName}</span>
+                      <span className="ml-1.5 text-gray-600">PLU {prod?.pluNumber ?? '?'}</span>
+                      {prod?.price != null && (
+                        <span className="ml-1.5 text-gray-500">lista: {formatARS(prod.price)}</span>
+                      )}
+                      {p.notes && <span className="ml-1.5 text-gray-500">— {p.notes}</span>}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className="font-semibold text-amber-400">{formatARS(p.specialPrice)}</span>
+                      <span className="ml-2 text-gray-600">{modDate}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

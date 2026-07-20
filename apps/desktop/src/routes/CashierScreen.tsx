@@ -22,6 +22,8 @@ interface Props {
   onReturnToHub?: () => void
   onViewDebts?: () => void
   onViewSpecialCustomers?: () => void
+  /** Cuando false, la pantalla está montada pero en segundo plano (scanner desactivado). */
+  isActive?: boolean
 }
 
 /** Producto genérico usado cuando el PLU no está mapeado a un producto real. */
@@ -32,7 +34,7 @@ interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers }: Props) {
+export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers, isActive = true }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -116,7 +118,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     scanFlashTimerRef.current = setTimeout(() => setScanFlash(null), 2000)
   }, [products, addItem])
 
-  useBarcodeScanner({ onScan: handleGlobalScan, disabled: anyModalOpen })
+  useBarcodeScanner({ onScan: handleGlobalScan, disabled: anyModalOpen || !isActive })
 
   function removeItem(localId: string) {
     setCart(prev => prev.filter(i => i.localId !== localId))
@@ -189,6 +191,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     customerId?: string
     newCustomer?: { name: string; phone: string }
     initialPayment: number
+    paymentMethods: SalePaymentPayload[]
     dueDate?: string
     notes?: string
   }) {
@@ -197,7 +200,8 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     setDebtError(null)
 
     try {
-      // 1. Crear la venta marcada como deuda (sin pagos — total = 0 de caja)
+      // 1. Crear la venta. Si el cliente pagó algo ahora, se registran esos pagos
+      //    para que el cierre de caja los cuente correctamente.
       const saleResult = await window.hw.createSale({
         items: cart.map(item => ({
           productId: item.productId ?? FALLBACK_PRODUCT_ID,
@@ -205,7 +209,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
           unitPrice: item.unitPrice,
           subtotal: item.subtotal,
         })),
-        payments: [], // fiado: sin cobro inmediato
+        payments: payload.paymentMethods,
         isDebt: true,
         customerId: payload.customerId,
         manualEntry: hasManualItems,
