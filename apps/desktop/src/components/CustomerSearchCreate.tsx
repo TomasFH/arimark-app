@@ -57,9 +57,10 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
     }
 
     // Si el query actual extiende un prefijo que ya dio vacío, no buscamos.
-    // El mensaje "no se encontró" permanece estable sin flash.
+    // Marcamos searched=true para que el mensaje siga visible con el texto actualizado.
     const emptyPrefix = emptyPrefixRef.current
     if (emptyPrefix && q.toLowerCase().startsWith(emptyPrefix.toLowerCase())) {
+      setSearched(true)
       return
     }
 
