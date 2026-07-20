@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react'
 import CustomerSearchCreate from './CustomerSearchCreate'
 import { formatARS } from '../lib/datetime'
+import { formatPhoneInput } from '../lib/phoneInput'
 import NumericInput from './NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
 import type { CustomerRow } from '../types/hw-api'
@@ -135,10 +136,10 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                 </p>
                 <p className="text-base font-semibold text-amber-300">{customerLabel}</p>
                 {selectedCustomer?.phone && (
-                  <p className="text-xs text-amber-400/60 mt-0.5">{selectedCustomer.phone}</p>
+                  <p className="text-xs text-amber-400/60 mt-0.5">{formatPhoneInput(selectedCustomer.phone)}</p>
                 )}
                 {pendingNewCustomer?.phone && (
-                  <p className="text-xs text-amber-400/60 mt-0.5">{pendingNewCustomer.phone}</p>
+                  <p className="text-xs text-amber-400/60 mt-0.5">{formatPhoneInput(pendingNewCustomer.phone)}</p>
                 )}
               </div>
 
@@ -147,25 +148,18 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                 <label className="block text-xs text-gray-400 mb-1">
                   ¿Cuánto paga ahora? <span className="text-gray-600">(0 = no paga nada)</span>
                 </label>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
-                    <NumericInput
-                      value={initialPaymentRaw}
-                      onChange={v => {
-                        const n = parseNumericInput(v) ?? 0
-                        setInitialPaymentRaw(n >= total ? String(total) : v)
-                      }}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-7 pr-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    onClick={() => setInitialPaymentRaw('0')}
-                    className="rounded-lg border border-gray-700 px-3 py-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                  >
-                    Nada
-                  </button>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                  <NumericInput
+                    value={initialPaymentRaw}
+                    onChange={v => {
+                      const n = parseNumericInput(v) ?? 0
+                      setInitialPaymentRaw(n >= total ? String(total) : v)
+                    }}
+                    onFocus={e => e.target.select()}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-7 pr-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                  />
                 </div>
                 {initialPayment > 0 && initialPayment < total && (
                   <p className="text-xs text-amber-400/80 mt-1">

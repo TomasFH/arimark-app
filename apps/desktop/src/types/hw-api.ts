@@ -500,6 +500,49 @@ export interface SetCustomerPricePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Clientes especiales (Fase 6 addendum)
+// ---------------------------------------------------------------------------
+
+export interface SpecialCustomerRow {
+  id: string
+  storeId: string
+  name: string
+  notes: string | null
+  createdAt: string
+  updatedAt: string | null
+}
+
+export interface SpecialCustomerPriceRow {
+  id: string
+  specialCustomerId: string
+  productId: string
+  productName: string
+  originalPrice: number | null
+  specialPrice: number
+  notes: string | null
+  updatedAt: string
+  updatedBy: string
+}
+
+export interface CreateSpecialCustomerPayload {
+  name: string
+  notes?: string
+}
+
+export interface UpdateSpecialCustomerPayload {
+  id: string
+  name?: string
+  notes?: string
+}
+
+export interface SetSpecialCustomerPricePayload {
+  specialCustomerId: string
+  productId: string
+  price: number
+  notes?: string
+}
+
+// ---------------------------------------------------------------------------
 // Carga masiva del catálogo a la balanza (KRETZ_SYNC_CATALOG)
 // ---------------------------------------------------------------------------
 
@@ -697,13 +740,14 @@ export interface HwApi {
   /** Cancela la deuda activa de un cliente (anulación, no borrado) */
   cancelDebt: (payload: CancelDebtPayload) => Promise<IpcResult>
 
-  // ---- Precios especiales por cliente (Fase 6, solo admins) ----
-  /** Precios especiales vigentes del cliente en el local activo */
-  getCustomerPrices: (payload: { customerId: string }) => Promise<IpcResult<CustomerPriceRow[]>>
-  /** Establece o actualiza el precio especial de un producto para un cliente */
-  setCustomerPrice: (payload: SetCustomerPricePayload) => Promise<IpcResult<CustomerPriceRow>>
-  /** Elimina el precio especial vigente (cierra validTo; no borra historial) */
-  deleteCustomerPrice: (payload: { customerId: string; productId: string }) => Promise<IpcResult>
+  // ---- Clientes especiales (Fase 6 addendum, solo admins crean/editan) ----
+  listSpecialCustomers: () => Promise<IpcResult<SpecialCustomerRow[]>>
+  createSpecialCustomer: (payload: CreateSpecialCustomerPayload) => Promise<IpcResult<SpecialCustomerRow>>
+  updateSpecialCustomer: (payload: UpdateSpecialCustomerPayload) => Promise<IpcResult>
+  deleteSpecialCustomer: (payload: { id: string }) => Promise<IpcResult>
+  getSpecialCustomerPrices: (payload: { specialCustomerId: string }) => Promise<IpcResult<SpecialCustomerPriceRow[]>>
+  setSpecialCustomerPrice: (payload: SetSpecialCustomerPricePayload) => Promise<IpcResult>
+  deleteSpecialCustomerPrice: (payload: { specialCustomerId: string; productId: string }) => Promise<IpcResult>
 
   // ---- Gestión de PLUs ----
   /** Prueba de enlace con la balanza (cmd 0002) */

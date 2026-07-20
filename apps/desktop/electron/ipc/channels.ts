@@ -55,7 +55,7 @@ export const IPC = {
   GET_SHIFT_EXPENSES: 'ipc:get-shift-expenses',
   GET_EXPENSE_CATEGORIES: 'ipc:get-expense-categories',
 
-  // Clientes especiales (Fase 6)
+  // Clientes de fiados (Fase 6 — creados durante el flujo de deuda)
   CREATE_CUSTOMER: 'ipc:create-customer',
   GET_CUSTOMERS: 'ipc:get-customers',
   UPDATE_CUSTOMER: 'ipc:update-customer',
@@ -67,10 +67,14 @@ export const IPC = {
   ADD_DEBT_PAYMENT: 'ipc:add-debt-payment',
   CANCEL_DEBT: 'ipc:cancel-debt',
 
-  // Precios especiales por cliente (Fase 6, solo admins)
-  GET_CUSTOMER_PRICES: 'ipc:get-customer-prices',
-  SET_CUSTOMER_PRICE: 'ipc:set-customer-price',
-  DELETE_CUSTOMER_PRICE: 'ipc:delete-customer-price',
+  // Clientes especiales (Fase 6 addendum — gestionados por admins, informativos)
+  LIST_SPECIAL_CUSTOMERS: 'ipc:list-special-customers',
+  CREATE_SPECIAL_CUSTOMER: 'ipc:create-special-customer',
+  UPDATE_SPECIAL_CUSTOMER: 'ipc:update-special-customer',
+  DELETE_SPECIAL_CUSTOMER: 'ipc:delete-special-customer',
+  GET_SPECIAL_CUSTOMER_PRICES: 'ipc:get-special-customer-prices',
+  SET_SPECIAL_CUSTOMER_PRICE: 'ipc:set-special-customer-price',
+  DELETE_SPECIAL_CUSTOMER_PRICE: 'ipc:delete-special-customer-price',
 
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',

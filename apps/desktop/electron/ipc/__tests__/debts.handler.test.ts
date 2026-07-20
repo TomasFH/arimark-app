@@ -312,49 +312,4 @@ describe('debts.handler', () => {
     })
   })
 
-  // ---------------------------------------------------------------------------
-  // Precios especiales
-  // ---------------------------------------------------------------------------
-
-  describe('precios especiales de cliente', () => {
-    it('reemplaza el precio vigente, conserva el historial y elimina solo el vigente', () => {
-      const now = new Date().toISOString()
-      db.insert(customers).values({
-        id: CUST_ID, storeId: 'store-001', name: 'Cliente precio',
-        active: true, createdAt: now, createdBy: 'user-001',
-      }).run()
-      db.insert(products).values({
-        id: PRODUCT_ID, name: 'Vacío', category: 'beef_cut', unit: 'kg',
-        active: true, createdAt: now,
-      }).run()
-
-      const setHandler = getHandler('ipc:set-customer-price')
-      const getHandlerByChannel = getHandler('ipc:get-customer-prices')
-      const deleteHandler = getHandler('ipc:delete-customer-price')
-
-      const first = setHandler(null, { customerId: CUST_ID, productId: PRODUCT_ID, price: 10000 }) as {
-        ok: boolean
-      }
-      expect(first.ok).toBe(true)
-
-      const replacement = setHandler(null, { customerId: CUST_ID, productId: PRODUCT_ID, price: 11000 }) as {
-        ok: boolean
-      }
-      expect(replacement.ok).toBe(true)
-
-      const activePrices = getHandlerByChannel(null, { customerId: CUST_ID }) as {
-        ok: boolean; data: Array<{ price: number }>
-      }
-      expect(activePrices.ok).toBe(true)
-      expect(activePrices.data).toEqual([expect.objectContaining({ price: 11000 })])
-
-      const deleted = deleteHandler(null, { customerId: CUST_ID, productId: PRODUCT_ID }) as { ok: boolean }
-      expect(deleted.ok).toBe(true)
-
-      const noActivePrices = getHandlerByChannel(null, { customerId: CUST_ID }) as {
-        ok: boolean; data: unknown[]
-      }
-      expect(noActivePrices).toEqual({ ok: true, data: [] })
-    })
-  })
 })

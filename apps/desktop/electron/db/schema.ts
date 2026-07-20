@@ -152,6 +152,44 @@ export const customerPrices = sqliteTable('customer_prices', {
 })
 
 // ---------------------------------------------------------------------------
+// Clientes especiales (entidad admin — separada de customers/fiados)
+// ---------------------------------------------------------------------------
+export const specialCustomers = sqliteTable('special_customers', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id')
+    .notNull()
+    .references(() => stores.id),
+  name: text('name').notNull(),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => users.id),
+  updatedAt: text('updated_at'),
+  updatedBy: text('updated_by').references(() => users.id),
+})
+
+export const specialCustomerPrices = sqliteTable(
+  'special_customer_prices',
+  {
+    id: text('id').primaryKey(),
+    specialCustomerId: text('special_customer_id')
+      .notNull()
+      .references(() => specialCustomers.id),
+    productId: text('product_id')
+      .notNull()
+      .references(() => products.id),
+    price: real('price').notNull(),
+    notes: text('notes'),
+    updatedAt: text('updated_at').notNull(),
+    updatedBy: text('updated_by')
+      .notNull()
+      .references(() => users.id),
+  },
+  table => [index('idx_sc_prices_customer').on(table.specialCustomerId)]
+)
+
+// ---------------------------------------------------------------------------
 // Jornadas / turnos
 // ---------------------------------------------------------------------------
 export const shifts = sqliteTable(

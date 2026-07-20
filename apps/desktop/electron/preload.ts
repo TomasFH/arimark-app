@@ -93,10 +93,14 @@ const hw: HwApi = {
   addDebtPayment: payload => ipcRenderer.invoke(IPC.ADD_DEBT_PAYMENT, payload),
   cancelDebt: payload => ipcRenderer.invoke(IPC.CANCEL_DEBT, payload),
 
-  // Precios especiales por cliente (Fase 6, solo admins)
-  getCustomerPrices: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_PRICES, payload),
-  setCustomerPrice: payload => ipcRenderer.invoke(IPC.SET_CUSTOMER_PRICE, payload),
-  deleteCustomerPrice: payload => ipcRenderer.invoke(IPC.DELETE_CUSTOMER_PRICE, payload),
+  // Clientes especiales (Fase 6 addendum — separados de fiados, solo admins editan)
+  listSpecialCustomers: () => ipcRenderer.invoke(IPC.LIST_SPECIAL_CUSTOMERS),
+  createSpecialCustomer: payload => ipcRenderer.invoke(IPC.CREATE_SPECIAL_CUSTOMER, payload),
+  updateSpecialCustomer: payload => ipcRenderer.invoke(IPC.UPDATE_SPECIAL_CUSTOMER, payload),
+  deleteSpecialCustomer: payload => ipcRenderer.invoke(IPC.DELETE_SPECIAL_CUSTOMER, payload),
+  getSpecialCustomerPrices: payload => ipcRenderer.invoke(IPC.GET_SPECIAL_CUSTOMER_PRICES, payload),
+  setSpecialCustomerPrice: payload => ipcRenderer.invoke(IPC.SET_SPECIAL_CUSTOMER_PRICE, payload),
+  deleteSpecialCustomerPrice: payload => ipcRenderer.invoke(IPC.DELETE_SPECIAL_CUSTOMER_PRICE, payload),
 
   // Gestión de PLUs (balanza KRETZ)
   kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),

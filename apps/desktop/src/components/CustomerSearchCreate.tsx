@@ -4,8 +4,11 @@
  * Flujo:
  * - Cajera escribe nombre o teléfono → se muestran sugerencias.
  * - Si elige una → onSelect con el cliente existente.
- * - Si escribe y confirma sin elegir (Enter o botón) → se pide el teléfono y
- *   se llama a onCreateNew.  No hay botón "+ Crear nuevo" separado.
+ * - Si escribe y confirma sin elegir → se pide el teléfono y
+ *   se llama a onCreateNew. No hay botón "+ Crear nuevo" separado.
+ *
+ * Anti-parpadeo: los resultados previos permanecen visibles mientras
+ * llegan los nuevos. Nunca se alterna entre spinner y lista.
  */
 import { useState, useEffect, useRef } from 'react'
 import type { CustomerRow } from '../types/hw-api'
@@ -22,12 +25,10 @@ type Mode = 'search' | 'new-phone'
 export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CustomerRow[]>([])
-  const [loading, setLoading] = useState(false)
+  const [searched, setSearched] = useState(false) // ¿ya hizo al menos una búsqueda?
   const [mode, setMode] = useState<Mode>('search')
 
   // Solo se usa en modo 'new-phone'
-  // phoneRaw: dígitos limpios que se guardan/validan
-  // phoneDisplay: lo que se muestra en el input (raw mientras edita, formateado al salir)
   const [phoneRaw, setPhoneRaw] = useState('')
   const [phoneDisplay, setPhoneDisplay] = useState('')
   const [phoneError, setPhoneError] = useState('')
@@ -44,14 +45,19 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   }, [mode])
 
   useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return }
+    if (query.trim().length < 2) {
+      setResults([])
+      setSearched(false)
+      return
+    }
     let cancelled = false
     const timer = setTimeout(() => {
-      setLoading(true)
+      // No ponemos ningún estado de "cargando" visible — los resultados
+      // previos se quedan hasta que los nuevos lleguen (evita parpadeo).
       window.hw.getCustomers({ search: query.trim(), activeOnly: true }).then(res => {
         if (cancelled) return
-        setLoading(false)
         if (res.ok) setResults(res.data)
+        setSearched(true)
       })
     }, 200)
     return () => { cancelled = true; clearTimeout(timer) }
@@ -66,20 +72,17 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   }
 
   function handlePhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
-    // Mientras escribe: solo dígitos, sin formato (evita salto de cursor)
-    const digits = digitsOnly(e.target.value)
-    setPhoneRaw(digits)
-    setPhoneDisplay(digits)
+    const d = digitsOnly(e.target.value)
+    setPhoneRaw(d)
+    setPhoneDisplay(d)
     setPhoneError('')
   }
 
   function handlePhoneBlur() {
-    // Al perder el foco: mostrar el valor formateado
     if (phoneRaw) setPhoneDisplay(formatPhoneInput(phoneRaw))
   }
 
   function handlePhoneFocus() {
-    // Al recuperar el foco: volver a dígitos para edición sin interferencia
     setPhoneDisplay(phoneRaw)
   }
 
@@ -91,7 +94,8 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
     }
     onCreateNew({ name: query.trim(), phone: clean })
   }
-  // ── Modo búsqueda ────────────────────────────────────────────────────
+
+  // ── Modo búsqueda ───────────────────────────────────────────────────
   if (mode === 'search') {
     return (
       <div className="space-y-2">
@@ -99,9 +103,9 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           ref={inputRef}
           type="text"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => { setQuery(e.target.value); setSearched(false) }}
           onKeyDown={e => {
-            if (e.key === 'Enter' && query.trim() && results.length === 0 && !loading) {
+            if (e.key === 'Enter' && query.trim() && results.length === 0 && searched) {
               e.preventDefault()
               handleConfirmName()
             }
@@ -110,11 +114,9 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
         />
 
-        {/* Área de resultados con altura mínima para evitar saltos visuales */}
+        {/* Área de resultados — altura mínima fija para evitar saltos de layout */}
         <div className="min-h-[2.5rem]">
-          {loading && <p className="text-xs text-gray-500 py-1">Buscando...</p>}
-
-          {!loading && results.length > 0 && (
+          {results.length > 0 && (
             <ul className="divide-y divide-gray-800 rounded-lg border border-gray-700 overflow-hidden max-h-48 overflow-y-auto">
               {results.map(c => (
                 <li key={c.id}>
@@ -124,7 +126,9 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
                   >
                     <span className="text-sm font-medium text-white">{c.name}</span>
                     {c.phone && (
-                      <span className="ml-2 text-xs text-gray-500">{c.phone}</span>
+                      <span className="ml-2 text-xs text-gray-500">
+                        {formatPhoneInput(c.phone)}
+                      </span>
                     )}
                   </button>
                 </li>
@@ -132,7 +136,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
             </ul>
           )}
 
-          {!loading && query.trim().length >= 2 && results.length === 0 && (
+          {searched && query.trim().length >= 2 && results.length === 0 && (
             <div className="rounded-lg border border-dashed border-gray-700 px-3 py-2.5 flex items-center justify-between gap-2">
               <p className="text-xs text-gray-400">
                 No se encontró <span className="text-white font-medium">"{query.trim()}"</span>
@@ -150,7 +154,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
     )
   }
 
-  // ── Modo nuevo cliente: pedir teléfono ────────────────────────────────
+  // ── Modo nuevo cliente: pedir teléfono ──────────────────────────────
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
