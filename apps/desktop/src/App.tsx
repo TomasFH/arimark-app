@@ -244,7 +244,7 @@ export default function App() {
       )}
 
       {bgCashierState && (
-        <div className={state.screen !== 'cashier' ? 'hidden' : undefined}>
+        <div className={state.screen !== 'cashier' ? 'hidden' : 'contents'}>
           <CashierScreen
             session={bgCashierState.session}
             shift={bgCashierState.shift}
