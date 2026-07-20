@@ -75,6 +75,7 @@ describe('products.handler — GET_PRODUCTS', () => {
     vi.mocked(getActiveSession).mockReturnValue({
       userId: 'user-001',
       storeId: 'store-001',
+      role: 'cashier' as const,
       shiftId: 'shift-001',
     })
     registerProductsHandlers()

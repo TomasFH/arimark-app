@@ -170,7 +170,7 @@ export function registerSpecialCustomersHandlers() {
         eq(specialCustomers.storeId, session.storeId),
       )).run()
 
-      return { ok: true }
+      return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:update-special-customer]', err)
       return { ok: false, error: 'Error al actualizar el cliente especial.' }
@@ -199,7 +199,7 @@ export function registerSpecialCustomersHandlers() {
           ))
           .run()
       })
-      return { ok: true }
+      return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:delete-special-customer]', err)
       return { ok: false, error: 'Error al eliminar el cliente especial.' }
@@ -294,7 +294,7 @@ export function registerSpecialCustomersHandlers() {
         }).run()
       }
 
-      return { ok: true }
+      return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:set-special-customer-price]', err)
       return { ok: false, error: 'Error al guardar el precio especial.' }
@@ -318,7 +318,7 @@ export function registerSpecialCustomersHandlers() {
           eq(specialCustomerPrices.productId, parsed.data.productId),
         ))
         .run()
-      return { ok: true }
+      return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:delete-special-customer-price]', err)
       return { ok: false, error: 'Error al eliminar el precio especial.' }

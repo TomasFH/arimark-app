@@ -1,11 +1,11 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import { eq, and, asc, inArray, isNull } from 'drizzle-orm'
+import { eq, asc, inArray } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { customers, debtEvents, sales, customerPrices, products } from '../db/schema'
+import { customers, debtEvents, sales } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
@@ -47,21 +47,6 @@ const cancelDebtSchema = z.object({
   notes: z.string().max(500).optional(),
 })
 
-const getCustomerPricesSchema = z.object({
-  customerId: z.string().uuid(),
-})
-
-const setCustomerPriceSchema = z.object({
-  customerId: z.string().uuid(),
-  productId: z.string().uuid(),
-  price: z.number().positive(),
-})
-
-const deleteCustomerPriceSchema = z.object({
-  customerId: z.string().uuid(),
-  productId: z.string().uuid(),
-})
-
 // ---------------------------------------------------------------------------
 // Tipos públicos
 // ---------------------------------------------------------------------------
@@ -88,16 +73,6 @@ export type CustomerDebtSummary = {
   balance: number
   lastEventAt: string
   events: DebtEventRow[]
-}
-
-export type CustomerPriceRow = {
-  id: string
-  customerId: string
-  productId: string
-  productName: string
-  price: number
-  validFrom: string
-  validTo: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -487,140 +462,6 @@ export function registerDebtHandlers(): void {
       const msg = err instanceof Error ? err.message : String(err)
       log.error('[ipc:cancel-debt] Error inesperado', msg)
       return { ok: false, error: 'Error al cancelar la deuda.' }
-    }
-  })
-
-  // GET_CUSTOMER_PRICES — precios especiales de un cliente (solo admins)
-  ipcMain.handle(IPC.GET_CUSTOMER_PRICES, (_event, payload: unknown): IpcResult<CustomerPriceRow[]> => {
-    const parsed = getCustomerPricesSchema.safeParse(payload)
-    if (!parsed.success) return { ok: false, error: 'ID de cliente inválido.', code: 'VALIDATION_ERROR' }
-    const session = getActiveSession()
-    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-
-    try {
-      const db = getDb()
-      const { customerId } = parsed.data
-
-      const rows = db
-        .select({
-          id: customerPrices.id,
-          customerId: customerPrices.customerId,
-          productId: customerPrices.productId,
-          productName: products.name,
-          price: customerPrices.price,
-          validFrom: customerPrices.validFrom,
-          validTo: customerPrices.validTo,
-        })
-        .from(customerPrices)
-        .innerJoin(products, eq(products.id, customerPrices.productId))
-        .where(and(
-          eq(customerPrices.customerId, customerId),
-          eq(customerPrices.storeId, session.storeId),
-          isNull(customerPrices.validTo),
-        ))
-        .orderBy(asc(products.name))
-        .all()
-
-      return { ok: true, data: rows.map(r => ({ ...r, validTo: r.validTo ?? null })) }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      log.error('[ipc:get-customer-prices] Error inesperado', msg)
-      return { ok: false, error: 'Error al obtener precios especiales.' }
-    }
-  })
-
-  // SET_CUSTOMER_PRICE — crea o reemplaza un precio especial (upsert por fecha vigente)
-  ipcMain.handle(IPC.SET_CUSTOMER_PRICE, (_event, payload: unknown): IpcResult<CustomerPriceRow> => {
-    const parsed = setCustomerPriceSchema.safeParse(payload)
-    if (!parsed.success) {
-      return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
-    }
-    const session = getActiveSession()
-    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-
-    const { customerId, productId, price } = parsed.data
-
-    try {
-      const db = getDb()
-
-      // Cerrar precio anterior si existe
-      const now = nowUtc()
-      db.update(customerPrices)
-        .set({ validTo: now })
-        .where(
-          and(
-            eq(customerPrices.customerId, customerId),
-            eq(customerPrices.productId, productId),
-            eq(customerPrices.storeId, session.storeId),
-            isNull(customerPrices.validTo),
-          )
-        )
-        .run()
-
-      const id = uuidv4()
-      db.insert(customerPrices)
-        .values({
-          id,
-          customerId,
-          productId,
-          storeId: session.storeId,
-          price,
-          validFrom: now,
-          createdBy: session.userId,
-        })
-        .run()
-
-      const product = db.select({ name: products.name }).from(products).where(eq(products.id, productId)).get()
-
-      log.info('[ipc:set-customer-price] Precio especial establecido', { customerId, productId, price })
-      return {
-        ok: true,
-        data: {
-          id,
-          customerId,
-          productId,
-          productName: product?.name ?? '',
-          price,
-          validFrom: now,
-          validTo: null,
-        },
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      log.error('[ipc:set-customer-price] Error inesperado', msg)
-      return { ok: false, error: 'Error al establecer el precio.' }
-    }
-  })
-
-  // DELETE_CUSTOMER_PRICE — cierra el precio especial vigente (no borra historial)
-  ipcMain.handle(IPC.DELETE_CUSTOMER_PRICE, (_event, payload: unknown): IpcResult => {
-    const parsed = deleteCustomerPriceSchema.safeParse(payload)
-    if (!parsed.success) return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
-    const session = getActiveSession()
-    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-
-    const { customerId, productId } = parsed.data
-
-    try {
-      const db = getDb()
-      db.update(customerPrices)
-        .set({ validTo: nowUtc() })
-        .where(
-          and(
-            eq(customerPrices.customerId, customerId),
-            eq(customerPrices.productId, productId),
-            eq(customerPrices.storeId, session.storeId),
-            isNull(customerPrices.validTo),
-          )
-        )
-        .run()
-
-      log.info('[ipc:delete-customer-price] Precio especial removido', { customerId, productId })
-      return { ok: true, data: undefined }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      log.error('[ipc:delete-customer-price] Error inesperado', msg)
-      return { ok: false, error: 'Error al eliminar el precio.' }
     }
   })
 }

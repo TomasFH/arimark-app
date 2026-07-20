@@ -37,7 +37,7 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const ACTIVE_SESSION = { userId: 'user-001', storeId: 'store-001', shiftId: 'shift-001' }
+const ACTIVE_SESSION = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: 'shift-001' }
 
 const VALID_SALE: CreateSalePayload = {
   items: [{ productId: 'prod-001', quantity: 1.5, unitPrice: 2000, subtotal: 3000 }],

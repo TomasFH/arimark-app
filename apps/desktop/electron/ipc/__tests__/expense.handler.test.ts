@@ -31,8 +31,8 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const SESSION = { userId: 'user-001', storeId: 'store-001', shiftId: 'shift-001' }
-const SESSION_NO_SHIFT = { userId: 'user-001', storeId: 'store-001', shiftId: null }
+const SESSION = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: 'shift-001' }
+const SESSION_NO_SHIFT = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: null }
 
 describe('expense.handler', () => {
   let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']

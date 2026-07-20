@@ -31,7 +31,7 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const SESSION = { userId: 'user-001', storeId: 'store-001', shiftId: 'shift-001' }
+const SESSION = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: 'shift-001' }
 
 describe('customers.handler', () => {
   let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']

@@ -42,8 +42,8 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const SESSION_NO_SHIFT = { userId: 'user-001', storeId: 'store-001', shiftId: null }
-const SESSION_WITH_SHIFT = { userId: 'user-001', storeId: 'store-001', shiftId: 'shift-001' }
+const SESSION_NO_SHIFT = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: null }
+const SESSION_WITH_SHIFT = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: 'shift-001' }
 
 describe('shift.handler', () => {
   beforeEach(() => {

@@ -7,20 +7,21 @@ describe('activeSession', () => {
   })
 
   it('guarda y devuelve la sesión activa', () => {
-    const session = { userId: 'user-001', storeId: 'store-001', shiftId: null }
+    const session = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: null }
     setActiveSession(session)
 
     expect(getActiveSession()).toEqual(session)
   })
 
   it('actualiza únicamente el turno de una sesión activa', () => {
-    setActiveSession({ userId: 'user-001', storeId: 'store-001', shiftId: null })
+    setActiveSession({ userId: 'user-001', storeId: 'store-001', role: 'cashier', shiftId: null })
 
     updateActiveShift('shift-001')
 
     expect(getActiveSession()).toEqual({
       userId: 'user-001',
       storeId: 'store-001',
+      role: 'cashier',
       shiftId: 'shift-001',
     })
   })

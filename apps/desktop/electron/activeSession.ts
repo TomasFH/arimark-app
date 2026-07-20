@@ -9,6 +9,8 @@
 export interface ActiveSession {
   userId: string
   storeId: string
+  /** Rol del usuario en sesión. */
+  role: 'cashier' | 'admin'
   /** ID del turno abierto, null si aún no se abrió turno en esta sesión. */
   shiftId: string | null
 }

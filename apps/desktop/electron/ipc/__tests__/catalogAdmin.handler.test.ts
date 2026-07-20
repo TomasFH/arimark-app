@@ -85,6 +85,7 @@ describe('catalogAdmin.handler', () => {
     vi.mocked(getActiveSession).mockReturnValue({
       userId: USER_ID,
       storeId: STORE_ID,
+      role: 'cashier' as const,
       shiftId: 'shift-001',
     })
     registerCatalogAdminHandlers()

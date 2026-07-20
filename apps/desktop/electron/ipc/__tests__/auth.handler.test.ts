@@ -131,7 +131,7 @@ describe('auth.handler', () => {
       expect(result.data.role).toBe('cashier')
       expect(result.data.userId).toBe('uid-1')
       expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({ id: 'uid-1', firebaseUid: 'uid-1', storeId: 'store-1' }))
-      expect(setActiveSession).toHaveBeenCalledWith({ userId: 'uid-1', storeId: 'store-1', shiftId: null })
+      expect(setActiveSession).toHaveBeenCalledWith({ userId: 'uid-1', storeId: 'store-1', role: 'cashier', shiftId: null })
     })
 
     it('login exitoso reutiliza el perfil local existente sin volver a insertar', async () => {

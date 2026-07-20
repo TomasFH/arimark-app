@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, sales, salePayments, customers, debtEvents, products } from '../../db/schema'
+import { stores, users, shifts, sales, salePayments, customers, debtEvents } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -32,7 +32,7 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const SESSION = { userId: 'user-001', storeId: 'store-001', shiftId: 'shift-001' }
+const SESSION = { userId: 'user-001', storeId: 'store-001', role: 'cashier' as const, shiftId: 'shift-001' }
 
 // UUIDs constantes para el seed base
 const SALE_ID = 'aaaaaaaa-0000-0000-0000-000000000001'
@@ -43,7 +43,6 @@ const CUST_PAY_ID = 'eeeeeeee-0000-0000-0000-000000000004'
 const CUST_NO_DEBT_ID = 'ffffffff-0000-0000-0000-000000000005'
 const CUST_LEDGER_ID = '11111111-1111-0000-0000-000000000006'
 const SALE_DEBT_ID = '22222222-2222-0000-0000-000000000007'
-const PRODUCT_ID = '33333333-3333-0000-0000-000000000008'
 
 describe('debts.handler', () => {
   let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']
