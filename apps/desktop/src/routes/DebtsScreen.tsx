@@ -236,6 +236,7 @@ export default function DebtsScreen({ onBack }: Props) {
   const [debts, setDebts] = useState<CustomerDebtSummary[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   // Estado para modal de pago
   const [payTarget, setPayTarget] = useState<CustomerDebtSummary | null>(null)
@@ -294,6 +295,13 @@ export default function DebtsScreen({ onBack }: Props) {
     d.events.some(e => e.eventType === 'created' && e.dueDate && e.dueDate.slice(0, 10) <= today)
   )
 
+  const normalizeStr = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+  const filteredDebts = search.trim()
+    ? debts.filter(d => normalizeStr(d.customerName).includes(normalizeStr(search.trim())))
+    : debts
+
   return (
     <div className="flex flex-col h-full bg-gray-950 text-white">
       {/* Header */}
@@ -330,6 +338,19 @@ export default function DebtsScreen({ onBack }: Props) {
         </div>
       )}
 
+      {/* Buscador */}
+      {!loadingList && debts.length > 0 && (
+        <div className="px-6 pt-4">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Filtrar por nombre de cliente..."
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+      )}
+
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto p-6 space-y-3">
         {loadingList && (
@@ -344,7 +365,12 @@ export default function DebtsScreen({ onBack }: Props) {
             <p className="text-sm text-gray-400">No hay deudas pendientes.</p>
           </div>
         )}
-        {debts.map(d => (
+        {!loadingList && !listError && debts.length > 0 && filteredDebts.length === 0 && (
+          <p className="text-sm text-gray-500 text-center mt-8">
+            Ningún cliente coincide con "<span className="text-white">{search}</span>".
+          </p>
+        )}
+        {filteredDebts.map(d => (
           <DebtCard
             key={d.customerId}
             summary={d}

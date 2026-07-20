@@ -25,16 +25,18 @@ type Mode = 'search' | 'new-phone'
 export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CustomerRow[]>([])
-  const [searched, setSearched] = useState(false) // ¿ya hizo al menos una búsqueda?
+  const [searched, setSearched] = useState(false)
   const [mode, setMode] = useState<Mode>('search')
 
-  // Solo se usa en modo 'new-phone'
   const [phoneRaw, setPhoneRaw] = useState('')
   const [phoneDisplay, setPhoneDisplay] = useState('')
   const [phoneError, setPhoneError] = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
   const phoneRef = useRef<HTMLInputElement>(null)
+  // Último prefijo que devolvió 0 resultados — si el query actual empieza
+  // con él, sabemos que tampoco habrá resultados y evitamos el IPC + flash.
+  const emptyPrefixRef = useRef<string>('')
 
   useEffect(() => {
     if (autoFocus && inputRef.current) inputRef.current.focus()
@@ -45,18 +47,34 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   }, [mode])
 
   useEffect(() => {
-    if (query.trim().length < 2) {
+    const q = query.trim()
+
+    if (q.length < 2) {
       setResults([])
       setSearched(false)
+      emptyPrefixRef.current = ''
       return
     }
+
+    // Si el query actual extiende un prefijo que ya dio vacío, no buscamos.
+    // El mensaje "no se encontró" permanece estable sin flash.
+    const emptyPrefix = emptyPrefixRef.current
+    if (emptyPrefix && q.toLowerCase().startsWith(emptyPrefix.toLowerCase())) {
+      return
+    }
+
     let cancelled = false
     const timer = setTimeout(() => {
-      // No ponemos ningún estado de "cargando" visible — los resultados
-      // previos se quedan hasta que los nuevos lleguen (evita parpadeo).
-      window.hw.getCustomers({ search: query.trim(), activeOnly: true }).then(res => {
+      window.hw.getCustomers({ search: q, activeOnly: true }).then(res => {
         if (cancelled) return
-        if (res.ok) setResults(res.data)
+        if (res.ok) {
+          setResults(res.data)
+          if (res.data.length === 0) {
+            emptyPrefixRef.current = q   // recordar este prefijo vacío
+          } else {
+            emptyPrefixRef.current = ''  // encontró resultados: resetear
+          }
+        }
         setSearched(true)
       })
     }, 200)
@@ -103,7 +121,16 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           ref={inputRef}
           type="text"
           value={query}
-          onChange={e => { setQuery(e.target.value); setSearched(false) }}
+          onChange={e => {
+            const v = e.target.value
+            // Si el nuevo query es más corto que el prefijo vacío, lo reseteamos
+            // para que al borrar y reescribir se vuelva a buscar.
+            if (emptyPrefixRef.current && !v.trim().toLowerCase().startsWith(emptyPrefixRef.current.toLowerCase())) {
+              emptyPrefixRef.current = ''
+            }
+            setQuery(v)
+            setSearched(false)
+          }}
           onKeyDown={e => {
             if (e.key === 'Enter' && query.trim() && results.length === 0 && searched) {
               e.preventDefault()

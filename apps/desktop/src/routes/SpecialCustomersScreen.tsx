@@ -1,13 +1,21 @@
 /**
  * Pantalla de Clientes Especiales.
  *
- * Entidad completamente separada de los clientes de fiados (`customers`).
+ * Entidad completamente separada de los clientes de fiados.
  * Los admins registran y gestionan estos clientes con precios por producto
  * a modo informativo. Las cajeras solo pueden consultar.
  *
- * Los precios aquí registrados no afectan automáticamente el carrito —
- * son una referencia para que la cajera aplique el precio correcto
- * de forma manual. Idea de automatización documentada para el futuro.
+ * Los precios son puramente informativos — no afectan el carrito.
+ * Idea de automatización por cliente documentada para el futuro.
+ *
+ * --- Idea futura: actualización masiva de precios ---
+ * Cuando la lista de clientes especiales sea grande, una opción eficiente
+ * sería una vista "tabla cruzada": filas = productos, columnas = clientes.
+ * El admin edita un precio en la celda correspondiente y guarda todo de
+ * una sola vez. Alternativamente, si un cliente tiene un descuento fijo
+ * (ej. siempre 10% menos), un campo "descuento %" podría calcular todos
+ * sus precios automáticamente a partir del catálogo. Ambas ideas requieren
+ * validar con los dueños antes de implementar.
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type {
@@ -25,117 +33,224 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-componente: fila de precio por producto
+// Typeahead de productos — busca por nombre o PLU, muestra precio original
 // ---------------------------------------------------------------------------
 
-interface PriceRowProps {
-  entry: SpecialCustomerPriceRow
-  isAdmin: boolean
+interface ProductTypeaheadProps {
   products: ProductRow[]
-  onSave: (productId: string, price: number, notes: string) => Promise<void>
-  onDelete: () => void
+  excludeIds: string[]
+  onSelect: (product: ProductRow) => void
 }
 
-function SpecialPriceRow({ entry, isAdmin, onSave, onDelete }: PriceRowProps) {
-  const [editing, setEditing] = useState(false)
-  const [priceRaw, setPriceRaw] = useState(String(entry.specialPrice))
-  const [notes, setNotes] = useState(entry.notes ?? '')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+function ProductTypeahead({ products, excludeIds, onSelect }: ProductTypeaheadProps) {
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  async function handleSave() {
-    const p = parseNumericInput(priceRaw)
-    if (!p || p <= 0) { setError('Ingresá un precio válido.'); return }
-    setSaving(true); setError(null)
-    try {
-      await onSave(entry.productId, p, notes)
-      setEditing(false)
-    } catch {
-      setError('Error al guardar.')
-    } finally { setSaving(false) }
-  }
-
-  const updatedDate = entry.updatedAt
-    ? new Date(entry.updatedAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-    : '—'
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const available = products.filter(p => !excludeIds.includes(p.id))
+    if (!q) return available
+    return available.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      String(p.pluNumber).includes(q)
+    )
+  }, [products, excludeIds, query])
 
   return (
-    <div className="py-2.5 border-b border-gray-800 last:border-0">
-      {editing ? (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-white">{entry.productName}</p>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span>
-              <NumericInput
-                value={priceRaw}
-                onChange={setPriceRaw}
-                placeholder="Precio especial"
-                className="w-full rounded-lg border border-amber-700 bg-gray-800 pl-6 pr-3 py-1.5 text-sm text-white focus:border-amber-500 focus:outline-none"
-              />
-            </div>
-            <input
-              type="text"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Nota (opcional)"
-              maxLength={150}
-              className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-            />
-          </div>
-          {error && <p className="text-xs text-red-400">{error}</p>}
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded-md bg-amber-600 px-3 py-1 text-xs font-bold text-white hover:bg-amber-500 disabled:opacity-50"
-            >
-              {saving ? '…' : 'Guardar'}
-            </button>
-            <button
-              onClick={() => setEditing(false)}
-              className="rounded-md border border-gray-700 px-3 py-1 text-xs text-gray-400 hover:text-white"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
+    <div className="space-y-1">
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Buscar por nombre o PLU..."
+        autoFocus
+        className="w-full rounded-lg border border-amber-700/60 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+      />
+      {matches.length === 0 ? (
+        <p className="text-xs text-gray-600 px-1 py-2 italic">
+          {query ? 'Sin coincidencias.' : 'Sin productos disponibles.'}
+        </p>
       ) : (
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-white">{entry.productName}</p>
-            {entry.notes && <p className="text-xs text-gray-400 mt-0.5">{entry.notes}</p>}
-            <p className="text-xs text-gray-600 mt-0.5">
-              Modificado: <span className="text-gray-500">{updatedDate}</span>
-            </p>
-          </div>
-          <div className="shrink-0 flex items-center gap-2">
-            <span className="text-base font-semibold text-amber-400">{formatARS(entry.specialPrice)}</span>
-            {isAdmin && (
-              <>
-                <button
-                  onClick={() => { setPriceRaw(formatNumericInputValue(String(entry.specialPrice))); setEditing(true) }}
-                  className="text-gray-500 hover:text-amber-400 transition-colors text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-amber-600"
-                >
-                  ✏️
-                </button>
-                <button
-                  onClick={onDelete}
-                  className="text-gray-600 hover:text-red-400 transition-colors text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-red-700"
-                >
-                  🗑
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <ul className="max-h-44 overflow-y-auto rounded-lg border border-gray-700 divide-y divide-gray-800">
+          {matches.map(p => (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => { onSelect(p); setQuery('') }}
+                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-800 transition-colors"
+              >
+                <span className="text-sm text-white">{p.name}</span>
+                <span className="text-xs text-gray-500 shrink-0 ml-2">
+                  PLU {p.pluNumber}
+                  {p.price != null && (
+                    <span className="ml-2 text-gray-400">{formatARS(p.price)}</span>
+                  )}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Sub-componente: tarjeta de cliente especial
+// Editor de precios inline (usado en creación y edición)
+// ---------------------------------------------------------------------------
+
+interface PriceEntry {
+  productId: string
+  productName: string
+  pluNumber: number
+  originalPrice: number | null
+  specialPriceRaw: string
+  notes: string
+  existingId?: string  // si ya estaba guardado
+}
+
+interface PriceEditorProps {
+  products: ProductRow[]
+  initial: PriceEntry[]
+  isAdmin: boolean
+  onChange: (entries: PriceEntry[]) => void
+}
+
+function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps) {
+  const [entries, setEntries] = useState<PriceEntry[]>(initial)
+  const [showSearch, setShowSearch] = useState(false)
+
+  function update(newEntries: PriceEntry[]) {
+    setEntries(newEntries)
+    onChange(newEntries)
+  }
+
+  function handleAddProduct(product: ProductRow) {
+    const entry: PriceEntry = {
+      productId: product.id,
+      productName: product.name,
+      pluNumber: product.pluNumber,
+      originalPrice: product.price,
+      specialPriceRaw: product.price != null ? formatNumericInputValue(String(product.price)) : '',
+      notes: '',
+    }
+    update([...entries, entry])
+    setShowSearch(false)
+  }
+
+  function handleRemove(productId: string) {
+    update(entries.filter(e => e.productId !== productId))
+  }
+
+  function handlePriceChange(productId: string, raw: string) {
+    update(entries.map(e => e.productId === productId ? { ...e, specialPriceRaw: raw } : e))
+  }
+
+  function handleNotesChange(productId: string, notes: string) {
+    update(entries.map(e => e.productId === productId ? { ...e, notes } : e))
+  }
+
+  const excludedIds = entries.map(e => e.productId)
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+        Precios especiales
+      </p>
+
+      {entries.length === 0 && (
+        <p className="text-xs text-gray-600 italic">Sin precios especiales agregados.</p>
+      )}
+
+      {entries.map(entry => (
+        <div key={entry.productId} className="rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-white">{entry.productName}</span>
+              <span className="ml-2 text-xs text-gray-500">PLU {entry.pluNumber}</span>
+              {entry.originalPrice != null && (
+                <span className="ml-2 text-xs text-gray-500">
+                  Precio lista: <span className="text-gray-400">{formatARS(entry.originalPrice)}</span>
+                </span>
+              )}
+            </div>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => handleRemove(entry.productId)}
+                className="shrink-0 text-gray-600 hover:text-red-400 text-xs transition-colors"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <div className="relative w-36 shrink-0">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span>
+              {isAdmin ? (
+                <NumericInput
+                  value={entry.specialPriceRaw}
+                  onChange={raw => handlePriceChange(entry.productId, raw)}
+                  placeholder="Precio especial"
+                  className="w-full rounded-lg border border-amber-700/60 bg-gray-800 pl-6 pr-2 py-1.5 text-sm text-white focus:border-amber-500 focus:outline-none"
+                />
+              ) : (
+                <span className="pl-6 py-1.5 text-sm text-amber-400 font-semibold">
+                  {formatARS(parseNumericInput(entry.specialPriceRaw) ?? 0)}
+                </span>
+              )}
+            </div>
+            {isAdmin ? (
+              <input
+                type="text"
+                value={entry.notes}
+                onChange={e => handleNotesChange(entry.productId, e.target.value)}
+                placeholder="Nota (opcional)"
+                maxLength={120}
+                className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+              />
+            ) : (
+              entry.notes && (
+                <span className="flex-1 text-xs text-gray-400 py-1.5">{entry.notes}</span>
+              )
+            )}
+          </div>
+        </div>
+      ))}
+
+      {isAdmin && (
+        showSearch ? (
+          <div className="rounded-lg border border-dashed border-amber-700/40 p-3 space-y-2">
+            <ProductTypeahead
+              products={products}
+              excludeIds={excludedIds}
+              onSelect={handleAddProduct}
+            />
+            <button
+              type="button"
+              onClick={() => setShowSearch(false)}
+              className="text-xs text-gray-500 hover:text-gray-300"
+            >
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowSearch(true)}
+            className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+          >
+            + Agregar producto
+          </button>
+        )
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tarjeta de cliente especial
 // ---------------------------------------------------------------------------
 
 interface CustomerCardProps {
@@ -143,207 +258,162 @@ interface CustomerCardProps {
   prices: SpecialCustomerPriceRow[]
   products: ProductRow[]
   isAdmin: boolean
-  onUpdateCustomer: (id: string, name: string, notes: string) => Promise<void>
-  onDeleteCustomer: (id: string) => void
-  onSavePrice: (customerId: string, productId: string, price: number, notes: string) => Promise<void>
-  onDeletePrice: (customerId: string, productId: string) => void
-  onAddPrice: (customerId: string) => void
+  onSave: (id: string, name: string, notes: string, priceEntries: PriceEntry[]) => Promise<void>
+  onDelete: (id: string) => void
 }
 
-function SpecialCustomerCard({
-  customer, prices, products, isAdmin,
-  onUpdateCustomer, onDeleteCustomer, onSavePrice, onDeletePrice, onAddPrice,
-}: CustomerCardProps) {
-  const [expanded, setExpanded] = useState(false)
-  const [editingMeta, setEditingMeta] = useState(false)
+function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDelete }: CustomerCardProps) {
+  const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(customer.name)
   const [editNotes, setEditNotes] = useState(customer.notes ?? '')
-  const [savingMeta, setSavingMeta] = useState(false)
-  const [metaError, setMetaError] = useState<string | null>(null)
-
-  async function handleSaveMeta() {
-    if (!editName.trim()) { setMetaError('El nombre no puede estar vacío.'); return }
-    setSavingMeta(true); setMetaError(null)
-    try {
-      await onUpdateCustomer(customer.id, editName.trim(), editNotes.trim())
-      setEditingMeta(false)
-    } catch {
-      setMetaError('Error al guardar.')
-    } finally { setSavingMeta(false) }
-  }
-
-  return (
-    <div className="rounded-xl border border-gray-700 bg-gray-900 overflow-hidden">
-      {/* Encabezado */}
-      <div className="flex items-start gap-3 px-4 py-3">
-        <button
-          onClick={() => setExpanded(v => !v)}
-          className="mt-0.5 text-gray-500 hover:text-white transition-colors text-sm"
-        >
-          {expanded ? '▼' : '▶'}
-        </button>
-        <div className="flex-1 min-w-0">
-          {editingMeta ? (
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
-                className="w-full rounded-lg border border-amber-700 bg-gray-800 px-3 py-1.5 text-sm text-white focus:border-amber-500 focus:outline-none"
-              />
-              <textarea
-                value={editNotes}
-                onChange={e => setEditNotes(e.target.value)}
-                rows={2}
-                placeholder="Notas generales (opcional)"
-                maxLength={300}
-                className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-              />
-              {metaError && <p className="text-xs text-red-400">{metaError}</p>}
-              <div className="flex gap-2">
-                <button onClick={handleSaveMeta} disabled={savingMeta}
-                  className="rounded-md bg-amber-600 px-3 py-1 text-xs font-bold text-white hover:bg-amber-500 disabled:opacity-50">
-                  {savingMeta ? '…' : 'Guardar'}
-                </button>
-                <button onClick={() => setEditingMeta(false)}
-                  className="rounded-md border border-gray-700 px-3 py-1 text-xs text-gray-400 hover:text-white">
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm font-semibold text-white">{customer.name}</p>
-              {customer.notes && <p className="text-xs text-gray-400 mt-0.5">{customer.notes}</p>}
-            </>
-          )}
-        </div>
-        <div className="shrink-0 flex items-center gap-1.5">
-          <span className="text-xs text-gray-600">{prices.length} precio{prices.length !== 1 ? 's' : ''}</span>
-          {isAdmin && !editingMeta && (
-            <>
-              <button onClick={() => setEditingMeta(true)}
-                className="text-gray-500 hover:text-amber-400 transition-colors text-xs px-1.5 py-0.5 rounded border border-gray-700">
-                ✏️
-              </button>
-              <button onClick={() => onDeleteCustomer(customer.id)}
-                className="text-gray-600 hover:text-red-400 transition-colors text-xs px-1.5 py-0.5 rounded border border-gray-700">
-                🗑
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Precios expandidos */}
-      {expanded && (
-        <div className="border-t border-gray-800 px-4 py-2">
-          {prices.length === 0 && (
-            <p className="text-xs text-gray-600 italic py-2">Sin precios especiales registrados.</p>
-          )}
-          {prices.map(p => (
-            <SpecialPriceRow
-              key={p.productId}
-              entry={p}
-              isAdmin={isAdmin}
-              products={products}
-              onSave={(productId, price, notes) => onSavePrice(customer.id, productId, price, notes)}
-              onDelete={() => onDeletePrice(customer.id, p.productId)}
-            />
-          ))}
-          {isAdmin && (
-            <button
-              onClick={() => onAddPrice(customer.id)}
-              className="mt-2 text-xs text-amber-500 hover:text-amber-400 transition-colors"
-            >
-              + Agregar producto
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Sub-componente: formulario para agregar precio
-// ---------------------------------------------------------------------------
-
-interface AddPriceFormProps {
-  customerId: string
-  products: ProductRow[]
-  existingProductIds: string[]
-  onSave: (productId: string, price: number, notes: string) => Promise<void>
-  onCancel: () => void
-}
-
-function AddPriceForm({ products, existingProductIds, onSave, onCancel }: AddPriceFormProps) {
-  const available = products.filter(p => !existingProductIds.includes(p.id))
-  const [productId, setProductId] = useState(available[0]?.id ?? '')
-  const [priceRaw, setPriceRaw] = useState('')
-  const [notes, setNotes] = useState('')
+  const [editEntries, setEditEntries] = useState<PriceEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Cuando se abre el modo edición, inicializar con los precios actuales
+  function startEdit() {
+    setEditName(customer.name)
+    setEditNotes(customer.notes ?? '')
+    setEditEntries(prices.map(p => {
+      const prod = products.find(pr => pr.id === p.productId)
+      return {
+        productId: p.productId,
+        productName: p.productName,
+        pluNumber: prod?.pluNumber ?? 0,
+        originalPrice: prod?.price ?? null,
+        specialPriceRaw: formatNumericInputValue(String(p.specialPrice)),
+        notes: p.notes ?? '',
+        existingId: p.id,
+      }
+    }))
+    setEditing(true)
+    setError(null)
+  }
 
   async function handleSave() {
-    if (!productId) { setError('Elegí un producto.'); return }
-    const p = parseNumericInput(priceRaw)
-    if (!p || p <= 0) { setError('Ingresá un precio válido.'); return }
+    if (!editName.trim()) { setError('El nombre no puede estar vacío.'); return }
     setSaving(true); setError(null)
     try {
-      await onSave(productId, p, notes)
-    } catch {
-      setError('Error al guardar.')
+      await onSave(customer.id, editName.trim(), editNotes.trim(), editEntries)
+      setEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al guardar.')
     } finally { setSaving(false) }
   }
 
-  if (available.length === 0) {
+  const updatedDate = customer.updatedAt
+    ? new Date(customer.updatedAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    : null
+
+  if (editing) {
     return (
-      <div className="mt-2 text-xs text-gray-500 italic">
-        Todos los productos activos ya tienen precio especial.
-        <button onClick={onCancel} className="ml-2 text-gray-400 hover:text-white">Cancelar</button>
+      <div className="rounded-xl border border-amber-700/50 bg-gray-900 p-4 space-y-4">
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            placeholder="Nombre *"
+            autoFocus
+            className="w-full rounded-lg border border-amber-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+          />
+          <textarea
+            value={editNotes}
+            onChange={e => setEditNotes(e.target.value)}
+            rows={2}
+            placeholder="Notas generales (opcional)"
+            maxLength={300}
+            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+        <PriceEditor
+          products={products}
+          initial={editEntries}
+          isAdmin={true}
+          onChange={setEditEntries}
+        />
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        <div className="flex gap-2">
+          <button onClick={handleSave} disabled={saving}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-50">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+          <button onClick={() => setEditing(false)}
+            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:text-white">
+            Cancelar
+          </button>
+        </div>
       </div>
     )
   }
 
+  // Modo vista
   return (
-    <div className="mt-2 p-3 rounded-lg border border-dashed border-amber-700/50 bg-amber-900/10 space-y-2">
-      <select
-        value={productId}
-        onChange={e => setProductId(e.target.value)}
-        className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white focus:border-amber-500 focus:outline-none"
-      >
-        {available.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span>
-          <NumericInput
-            value={priceRaw}
-            onChange={setPriceRaw}
-            placeholder="Precio especial"
-            className="w-full rounded-lg border border-amber-700 bg-gray-800 pl-6 pr-3 py-1.5 text-sm text-white focus:border-amber-500 focus:outline-none"
-          />
+    <div className="rounded-xl border border-gray-700 bg-gray-900 overflow-hidden">
+      <div className="flex items-start gap-3 px-4 py-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-white">{customer.name}</p>
+          {customer.notes && <p className="text-xs text-gray-400 mt-0.5">{customer.notes}</p>}
+          {updatedDate && (
+            <p className="text-xs text-gray-600 mt-0.5">Modificado: {updatedDate}</p>
+          )}
         </div>
-        <input
-          type="text"
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Nota (opcional)"
-          maxLength={150}
-          className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-        />
+        {isAdmin && (
+          <div className="shrink-0 flex items-center gap-1.5">
+            <button onClick={startEdit}
+              className="text-gray-500 hover:text-amber-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-amber-600 transition-colors">
+              ✏️
+            </button>
+            {confirmDelete ? (
+              <div className="flex items-center gap-1">
+                <button onClick={() => onDelete(customer.id)}
+                  className="rounded-md bg-red-700 px-2 py-0.5 text-xs text-white hover:bg-red-600">
+                  Confirmar
+                </button>
+                <button onClick={() => setConfirmDelete(false)}
+                  className="text-xs text-gray-500 hover:text-gray-300 px-1">
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmDelete(true)}
+                className="text-gray-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-red-700 transition-colors">
+                🗑
+              </button>
+            )}
+          </div>
+        )}
       </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
-      <div className="flex gap-2">
-        <button onClick={handleSave} disabled={saving}
-          className="rounded-md bg-amber-600 px-3 py-1 text-xs font-bold text-white hover:bg-amber-500 disabled:opacity-50">
-          {saving ? '…' : 'Agregar'}
-        </button>
-        <button onClick={onCancel}
-          className="rounded-md border border-gray-700 px-3 py-1 text-xs text-gray-400 hover:text-white">
-          Cancelar
-        </button>
+
+      {/* Precios siempre visibles */}
+      <div className="border-t border-gray-800 px-4 py-2">
+        {prices.length === 0 ? (
+          <p className="text-xs text-gray-600 italic py-1">Sin precios especiales registrados.</p>
+        ) : (
+          <div className="space-y-1.5 py-1">
+            {prices.map(p => {
+              const prod = products.find(pr => pr.id === p.productId)
+              const modDate = new Date(p.updatedAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+              return (
+                <div key={p.productId} className="flex items-center justify-between gap-2 text-xs">
+                  <div className="min-w-0">
+                    <span className="text-white">{p.productName}</span>
+                    <span className="ml-1.5 text-gray-600">PLU {prod?.pluNumber ?? '?'}</span>
+                    {prod?.price != null && (
+                      <span className="ml-1.5 text-gray-500">lista: {formatARS(prod.price)}</span>
+                    )}
+                    {p.notes && <span className="ml-1.5 text-gray-500">— {p.notes}</span>}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="font-semibold text-amber-400">{formatARS(p.specialPrice)}</span>
+                    <span className="ml-2 text-gray-600">{modDate}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -361,18 +431,13 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
-  // Para el formulario de creación de nuevo cliente especial
+  // Creación inline
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newNotes, setNewNotes] = useState('')
+  const [newEntries, setNewEntries] = useState<PriceEntry[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-
-  // Para el formulario de agregar precio (key = customerId)
-  const [addingPriceFor, setAddingPriceFor] = useState<string | null>(null)
-
-  // Para confirmación de borrado
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -389,7 +454,6 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
     setLoading(false)
     if (!res.ok) { setError(res.error ?? 'Error al cargar.'); return }
     setCustomers(res.data)
-    // Cargar precios de todos los clientes en paralelo
     const entries = await Promise.all(
       res.data.map(c =>
         window.hw.getSpecialCustomerPrices({ specialCustomerId: c.id })
@@ -398,6 +462,63 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
     )
     setAllPrices(Object.fromEntries(entries))
   }
+
+  async function syncPrices(customerId: string, entries: PriceEntry[], currentPrices: SpecialCustomerPriceRow[]) {
+    // Borrar precios que ya no están en la lista
+    const removedIds = currentPrices
+      .filter(cp => !entries.find(e => e.productId === cp.productId))
+      .map(cp => cp.productId)
+
+    for (const productId of removedIds) {
+      await window.hw.deleteSpecialCustomerPrice({ specialCustomerId: customerId, productId })
+    }
+
+    // Crear o actualizar los que están en la lista
+    for (const entry of entries) {
+      const price = parseNumericInput(entry.specialPriceRaw)
+      if (!price || price <= 0) continue
+      await window.hw.setSpecialCustomerPrice({
+        specialCustomerId: customerId,
+        productId: entry.productId,
+        price,
+        notes: entry.notes || undefined,
+      })
+    }
+  }
+
+  async function handleCreate() {
+    if (!newName.trim()) { setCreateError('El nombre no puede estar vacío.'); return }
+    setCreating(true); setCreateError(null)
+    const res = await window.hw.createSpecialCustomer({ name: newName.trim(), notes: newNotes.trim() || undefined })
+    if (!res.ok) { setCreateError(res.error ?? 'Error al crear.'); setCreating(false); return }
+
+    await syncPrices(res.data.id, newEntries, [])
+
+    // Recargar precios del nuevo cliente
+    const pricesRes = await window.hw.getSpecialCustomerPrices({ specialCustomerId: res.data.id })
+    setCreating(false)
+    setCustomers(prev => [...prev, res.data])
+    setAllPrices(prev => ({ ...prev, [res.data.id]: pricesRes.ok ? pricesRes.data : [] }))
+    setNewName(''); setNewNotes(''); setNewEntries([]); setShowCreate(false)
+  }
+
+  const handleSaveCustomer = useCallback(async (id: string, name: string, notes: string, entries: PriceEntry[]) => {
+    const res = await window.hw.updateSpecialCustomer({ id, name, notes: notes || undefined })
+    if (!res.ok) throw new Error(res.error ?? 'Error al actualizar.')
+
+    await syncPrices(id, entries, allPrices[id] ?? [])
+
+    const pricesRes = await window.hw.getSpecialCustomerPrices({ specialCustomerId: id })
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, name, notes: notes || null, updatedAt: new Date().toISOString() } : c))
+    setAllPrices(prev => ({ ...prev, [id]: pricesRes.ok ? pricesRes.data : [] }))
+  }, [allPrices])
+
+  const handleDeleteCustomer = useCallback(async (id: string) => {
+    const res = await window.hw.deleteSpecialCustomer({ id })
+    if (!res.ok) return
+    setCustomers(prev => prev.filter(c => c.id !== id))
+    setAllPrices(prev => { const n = { ...prev }; delete n[id]; return n })
+  }, [])
 
   const filtered = useMemo(() =>
     search.trim()
@@ -410,52 +531,9 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   )
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value   // captura antes de que el timeout dispare
+    const value = e.target.value
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => setSearch(value), 150)
-  }, [])
-
-  async function handleCreate() {
-    if (!newName.trim()) { setCreateError('El nombre no puede estar vacío.'); return }
-    setCreating(true); setCreateError(null)
-    const res = await window.hw.createSpecialCustomer({ name: newName.trim(), notes: newNotes.trim() || undefined })
-    setCreating(false)
-    if (!res.ok) { setCreateError(res.error ?? 'Error al crear.'); return }
-    setCustomers(prev => [...prev, res.data])
-    setAllPrices(prev => ({ ...prev, [res.data.id]: [] }))
-    setNewName(''); setNewNotes(''); setShowCreate(false)
-  }
-
-  const handleUpdateCustomer = useCallback(async (id: string, name: string, notes: string) => {
-    const res = await window.hw.updateSpecialCustomer({ id, name, notes: notes || undefined })
-    if (!res.ok) throw new Error(res.error ?? 'Error al actualizar.')
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, name, notes: notes || null, updatedAt: new Date().toISOString() } : c))
-  }, [])
-
-  const handleDeleteCustomer = useCallback(async (id: string) => {
-    if (confirmDelete !== id) { setConfirmDelete(id); return }
-    const res = await window.hw.deleteSpecialCustomer({ id })
-    if (!res.ok) return
-    setCustomers(prev => prev.filter(c => c.id !== id))
-    setAllPrices(prev => { const n = { ...prev }; delete n[id]; return n })
-    setConfirmDelete(null)
-  }, [confirmDelete])
-
-  const handleSavePrice = useCallback(async (customerId: string, productId: string, price: number, notes: string) => {
-    const res = await window.hw.setSpecialCustomerPrice({ specialCustomerId: customerId, productId, price, notes: notes || undefined })
-    if (!res.ok) throw new Error(res.error ?? 'Error.')
-    const r = await window.hw.getSpecialCustomerPrices({ specialCustomerId: customerId })
-    if (r.ok) setAllPrices(prev => ({ ...prev, [customerId]: r.data }))
-    setAddingPriceFor(null)
-  }, [])
-
-  const handleDeletePrice = useCallback(async (customerId: string, productId: string) => {
-    const res = await window.hw.deleteSpecialCustomerPrice({ specialCustomerId: customerId, productId })
-    if (!res.ok) return
-    setAllPrices(prev => ({
-      ...prev,
-      [customerId]: (prev[customerId] ?? []).filter(p => p.productId !== productId),
-    }))
   }, [])
 
   return (
@@ -475,10 +553,10 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
         </div>
         {isAdmin && (
           <button
-            onClick={() => { setShowCreate(v => !v); setCreateError(null) }}
+            onClick={() => { setShowCreate(v => !v); setCreateError(null); setNewEntries([]) }}
             className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 transition-colors"
           >
-            + Nuevo cliente
+            {showCreate ? 'Cancelar' : '+ Nuevo cliente'}
           </button>
         )}
       </header>
@@ -491,26 +569,34 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
         </p>
       </div>
 
-      {/* Formulario de creación inline */}
+      {/* Formulario de creación */}
       {showCreate && isAdmin && (
-        <div className="mx-6 mt-4 rounded-xl border border-amber-700/50 bg-amber-900/10 p-4 space-y-3">
+        <div className="mx-6 mt-4 rounded-xl border border-amber-700/50 bg-amber-900/10 p-4 space-y-4">
           <p className="text-sm font-semibold text-amber-300">Nuevo cliente especial</p>
-          <input
-            type="text"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            placeholder="Nombre *"
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
-            autoFocus
-            onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
-          />
-          <textarea
-            value={newNotes}
-            onChange={e => setNewNotes(e.target.value)}
-            rows={2}
-            placeholder="Notas generales (opcional)"
-            maxLength={300}
-            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="Nombre *"
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            />
+            <textarea
+              value={newNotes}
+              onChange={e => setNewNotes(e.target.value)}
+              rows={2}
+              placeholder="Notas generales (opcional)"
+              maxLength={300}
+              className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            />
+          </div>
+          <PriceEditor
+            products={products}
+            initial={[]}
+            isAdmin={true}
+            onChange={setNewEntries}
           />
           {createError && <p className="text-xs text-red-400">{createError}</p>}
           <div className="flex gap-2">
@@ -522,7 +608,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               {creating ? 'Guardando…' : 'Crear'}
             </button>
             <button
-              onClick={() => { setShowCreate(false); setNewName(''); setNewNotes(''); setCreateError(null) }}
+              onClick={() => { setShowCreate(false); setNewName(''); setNewNotes(''); setNewEntries([]); setCreateError(null) }}
               className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:text-white"
             >
               Cancelar
@@ -549,49 +635,19 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
           <p className="text-center text-gray-600 py-8 italic">
             {customers.length === 0
               ? 'No hay clientes especiales registrados.'
-              : 'No coincide ningún cliente con la búsqueda.'}
+              : 'Ningún cliente coincide con la búsqueda.'}
           </p>
         )}
         {filtered.map(customer => (
-          <div key={customer.id}>
-            {confirmDelete === customer.id && (
-              <div className="mb-2 rounded-lg border border-red-800 bg-red-900/20 px-3 py-2 flex items-center justify-between gap-2">
-                <p className="text-xs text-red-300">¿Eliminar "{customer.name}" y todos sus precios especiales?</p>
-                <div className="flex gap-2 shrink-0">
-                  <button onClick={() => handleDeleteCustomer(customer.id)}
-                    className="rounded-md bg-red-700 px-3 py-1 text-xs text-white hover:bg-red-600">
-                    Confirmar
-                  </button>
-                  <button onClick={() => setConfirmDelete(null)}
-                    className="rounded-md border border-gray-700 px-3 py-1 text-xs text-gray-400 hover:text-white">
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-            <SpecialCustomerCard
-              customer={customer}
-              prices={allPrices[customer.id] ?? []}
-              products={products}
-              isAdmin={isAdmin}
-              onUpdateCustomer={handleUpdateCustomer}
-              onDeleteCustomer={handleDeleteCustomer}
-              onSavePrice={handleSavePrice}
-              onDeletePrice={handleDeletePrice}
-              onAddPrice={id => setAddingPriceFor(id)}
-            />
-            {addingPriceFor === customer.id && (
-              <div className="mt-1 px-2">
-                <AddPriceForm
-                  customerId={customer.id}
-                  products={products}
-                  existingProductIds={(allPrices[customer.id] ?? []).map(p => p.productId)}
-                  onSave={(productId, price, notes) => handleSavePrice(customer.id, productId, price, notes)}
-                  onCancel={() => setAddingPriceFor(null)}
-                />
-              </div>
-            )}
-          </div>
+          <SpecialCustomerCard
+            key={customer.id}
+            customer={customer}
+            prices={allPrices[customer.id] ?? []}
+            products={products}
+            isAdmin={isAdmin}
+            onSave={handleSaveCustomer}
+            onDelete={handleDeleteCustomer}
+          />
         ))}
       </div>
     </div>
