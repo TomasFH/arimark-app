@@ -489,22 +489,6 @@ export interface CancelDebtPayload {
   notes?: string
 }
 
-export interface CustomerPriceRow {
-  id: string
-  customerId: string
-  productId: string
-  productName: string
-  price: number
-  validFrom: string
-  validTo: string | null
-}
-
-export interface SetCustomerPricePayload {
-  customerId: string
-  productId: string
-  price: number
-}
-
 // ---------------------------------------------------------------------------
 // Clientes especiales (Fase 6 addendum)
 // ---------------------------------------------------------------------------

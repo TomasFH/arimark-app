@@ -13,7 +13,6 @@ import type {
   IpcResult,
   HistoryShiftRow,
   HistoryShiftDetail,
-  GetHistoryShiftsPayload,
 } from '../../src/types/hw-api'
 
 const getHistoryShiftsSchema = z.object({
