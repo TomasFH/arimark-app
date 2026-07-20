@@ -9,7 +9,7 @@
  * son una referencia para que la cajera aplique el precio correcto
  * de forma manual. Idea de automatización documentada para el futuro.
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type {
   SpecialCustomerRow,
   SpecialCustomerPriceRow,
@@ -399,17 +399,21 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
     setAllPrices(Object.fromEntries(entries))
   }
 
-  const filtered = search.trim()
-    ? customers.filter(c =>
-        c.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-          .includes(search.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
-      )
-    : customers
+  const filtered = useMemo(() =>
+    search.trim()
+      ? customers.filter(c =>
+          c.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+            .includes(search.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase())
+        )
+      : customers,
+    [customers, search]
+  )
 
-  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value   // captura antes de que el timeout dispare
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
-    searchTimeoutRef.current = setTimeout(() => setSearch(e.target.value), 150)
-  }
+    searchTimeoutRef.current = setTimeout(() => setSearch(value), 150)
+  }, [])
 
   async function handleCreate() {
     if (!newName.trim()) { setCreateError('El nombre no puede estar vacío.'); return }
@@ -422,38 +426,37 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
     setNewName(''); setNewNotes(''); setShowCreate(false)
   }
 
-  async function handleUpdateCustomer(id: string, name: string, notes: string) {
+  const handleUpdateCustomer = useCallback(async (id: string, name: string, notes: string) => {
     const res = await window.hw.updateSpecialCustomer({ id, name, notes: notes || undefined })
     if (!res.ok) throw new Error(res.error ?? 'Error al actualizar.')
     setCustomers(prev => prev.map(c => c.id === id ? { ...c, name, notes: notes || null, updatedAt: new Date().toISOString() } : c))
-  }
+  }, [])
 
-  async function handleDeleteCustomer(id: string) {
+  const handleDeleteCustomer = useCallback(async (id: string) => {
     if (confirmDelete !== id) { setConfirmDelete(id); return }
     const res = await window.hw.deleteSpecialCustomer({ id })
     if (!res.ok) return
     setCustomers(prev => prev.filter(c => c.id !== id))
     setAllPrices(prev => { const n = { ...prev }; delete n[id]; return n })
     setConfirmDelete(null)
-  }
+  }, [confirmDelete])
 
-  async function handleSavePrice(customerId: string, productId: string, price: number, notes: string) {
+  const handleSavePrice = useCallback(async (customerId: string, productId: string, price: number, notes: string) => {
     const res = await window.hw.setSpecialCustomerPrice({ specialCustomerId: customerId, productId, price, notes: notes || undefined })
     if (!res.ok) throw new Error(res.error ?? 'Error.')
-    // Recargar precios de ese cliente
     const r = await window.hw.getSpecialCustomerPrices({ specialCustomerId: customerId })
     if (r.ok) setAllPrices(prev => ({ ...prev, [customerId]: r.data }))
     setAddingPriceFor(null)
-  }
+  }, [])
 
-  async function handleDeletePrice(customerId: string, productId: string) {
+  const handleDeletePrice = useCallback(async (customerId: string, productId: string) => {
     const res = await window.hw.deleteSpecialCustomerPrice({ specialCustomerId: customerId, productId })
     if (!res.ok) return
     setAllPrices(prev => ({
       ...prev,
       [customerId]: (prev[customerId] ?? []).filter(p => p.productId !== productId),
     }))
-  }
+  }, [])
 
   return (
     <div className="flex flex-col h-full bg-gray-950 text-white">
