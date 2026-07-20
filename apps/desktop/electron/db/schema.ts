@@ -400,23 +400,35 @@ export const stockEntries = sqliteTable('stock_entries', {
 // ---------------------------------------------------------------------------
 // Pedidos
 // ---------------------------------------------------------------------------
-export const orders = sqliteTable('orders', {
-  id: text('id').primaryKey(),
-  storeId: text('store_id')
-    .notNull()
-    .references(() => stores.id),
-  customerName: text('customer_name').notNull(),
-  phone: text('phone'),
-  items: text('items').notNull(),
-  pickupDate: text('pickup_date').notNull(),
-  status: text('status', { enum: ['pending', 'ready', 'delivered', 'cancelled'] }).notNull(),
-  notes: text('notes'),
-  createdAt: text('created_at').notNull(),
-  createdBy: text('created_by')
-    .notNull()
-    .references(() => users.id),
-  syncedAt: text('synced_at'),
-})
+export const orders = sqliteTable(
+  'orders',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    customerName: text('customer_name').notNull(),
+    phone: text('phone'),
+    items: text('items').notNull(),
+    pickupDate: text('pickup_date').notNull(),
+    status: text('status', { enum: ['pending', 'ready', 'delivered', 'cancelled'] }).notNull(),
+    notes: text('notes'),
+    depositAmount: real('deposit_amount').notNull().default(0),
+    depositMethod: text('deposit_method', { enum: ['cash', 'debit', 'wallet', 'credit'] }),
+    depositShiftId: text('deposit_shift_id').references(() => shifts.id),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    updatedAt: text('updated_at'),
+    updatedBy: text('updated_by').references(() => users.id),
+    syncedAt: text('synced_at'),
+  },
+  table => [
+    index('idx_orders_store_pickup').on(table.storeId, table.pickupDate),
+    index('idx_orders_shift').on(table.depositShiftId),
+  ]
+)
 
 // ---------------------------------------------------------------------------
 // Empleados

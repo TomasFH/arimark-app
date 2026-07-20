@@ -22,6 +22,7 @@ interface Props {
   onReturnToHub?: () => void
   onViewDebts?: () => void
   onViewSpecialCustomers?: () => void
+  onViewOrders?: () => void
   /** Cuando false, la pantalla está montada pero en segundo plano (scanner desactivado). */
   isActive?: boolean
 }
@@ -34,7 +35,7 @@ interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers, isActive = true }: Props) {
+export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers, onViewOrders, isActive = true }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -308,6 +309,14 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
               className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-purple-600 hover:text-purple-300 transition-colors"
             >
               👤 Clientes
+            </button>
+          )}
+          {onViewOrders && (
+            <button
+              onClick={onViewOrders}
+              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-emerald-600 hover:text-emerald-300 transition-colors"
+            >
+              📦 Pedidos
             </button>
           )}
           <span className="text-sm text-gray-400">

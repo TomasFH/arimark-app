@@ -64,6 +64,13 @@
       "when": 1784000000000,
       "tag": "0008_special_customers",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784100000000,
+      "tag": "0009_orders_deposit",
+      "breakpoints": true
     }
   ]
 }

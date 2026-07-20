@@ -22,6 +22,9 @@ interface Props {
 
 type Mode = 'search' | 'new-phone'
 
+/** Mismo límite que valida el IPC al crear/actualizar clientes. */
+const CUSTOMER_NAME_MAX_LENGTH = 100
+
 export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CustomerRow[]>([])
@@ -149,6 +152,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
             }
           }}
           placeholder="Buscar por nombre o teléfono..."
+          maxLength={CUSTOMER_NAME_MAX_LENGTH}
           className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
         />
 
@@ -175,8 +179,11 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           )}
 
           {searched && query.trim().length >= 2 && results.length === 0 && (
-            <div className="rounded-lg border border-dashed border-gray-700 px-3 py-2.5 flex items-center justify-between gap-2">
-              <p className="text-xs text-gray-400">
+            <div className="rounded-lg border border-dashed border-gray-700 px-3 py-2.5 flex items-center gap-2 min-w-0">
+              <p
+                className="text-xs text-gray-400 min-w-0 flex-1 truncate"
+                title={`No se encontró "${query.trim()}"`}
+              >
                 No se encontró <span className="text-white font-medium">"{query.trim()}"</span>
               </p>
               <button
@@ -195,14 +202,17 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   // ── Modo nuevo cliente: pedir teléfono ──────────────────────────────
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <button
           onClick={() => { setMode('search'); setPhoneError('') }}
           className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
         >
           ←
         </button>
-        <p className="text-xs text-gray-400">
+        <p
+          className="text-xs text-gray-400 min-w-0 flex-1 truncate"
+          title={query.trim()}
+        >
           Nuevo cliente: <span className="text-white font-medium">{query.trim()}</span>
         </p>
       </div>

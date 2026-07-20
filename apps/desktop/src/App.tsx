@@ -11,6 +11,8 @@ import AdminHubScreen from './routes/AdminHubScreen'
 import CashierManagementScreen from './routes/CashierManagementScreen'
 import DebtsScreen from './routes/DebtsScreen'
 import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
+import OrdersScreen from './routes/OrdersScreen'
+import HistoryScreen from './routes/HistoryScreen'
 import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
@@ -28,6 +30,8 @@ type AppState =
   | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
+  | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
+  | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -40,7 +44,7 @@ export default function App() {
   const bgCashierState: Extract<AppState, { screen: 'cashier' }> | null = (() => {
     if (state.screen === 'cashier') return state
     if (
-      (state.screen === 'debts' || state.screen === 'special-customers') &&
+      (state.screen === 'debts' || state.screen === 'special-customers' || state.screen === 'orders') &&
       state.fromCashier
     ) {
       return {
@@ -254,6 +258,7 @@ export default function App() {
             onReturnToHub={bgCashierState.session.role === 'admin' ? handleReturnToAdminHub : undefined}
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
+            onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
           />
         </div>
       )}
@@ -285,6 +290,8 @@ export default function App() {
           onGoToCashierManagement={handleGoToCashierManagement}
           onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
           onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
+          onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
+          onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
           onLogout={handleLogout}
         />
       )}
@@ -325,6 +332,25 @@ export default function App() {
               handleReturnToAdminHub()
             }
           }}
+        />
+      )}
+
+      {state.screen === 'orders' && (
+        <OrdersScreen
+          isAdmin={state.session.role === 'admin'}
+          onBack={() => {
+            if (state.fromCashier) {
+              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+            } else {
+              handleReturnToAdminHub()
+            }
+          }}
+        />
+      )}
+
+      {state.screen === 'history' && (
+        <HistoryScreen
+          onBack={handleReturnToAdminHub}
         />
       )}
 

@@ -123,6 +123,12 @@ export interface ShiftSummary {
   debtsCount: number
   /** Monto total de fiados del turno */
   totalDebts: number
+  /** Señas cobradas en efectivo en este turno */
+  totalCashDeposits: number
+  /** Señas cobradas con medios digitales en este turno */
+  totalDigitalDeposits: number
+  /** Cantidad de pedidos con seña en este turno */
+  depositsCount: number
 }
 
 export interface CloseShiftPayload {
@@ -543,6 +549,169 @@ export interface SetSpecialCustomerPricePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Pedidos (Fase 7)
+// ---------------------------------------------------------------------------
+
+export type OrderStatus = 'pending' | 'ready' | 'delivered' | 'cancelled'
+export type DepositMethod = 'cash' | 'debit' | 'wallet' | 'credit'
+
+export interface OrderRow {
+  id: string
+  storeId: string
+  customerName: string
+  phone: string | null
+  items: string
+  pickupDate: string
+  status: OrderStatus
+  notes: string | null
+  depositAmount: number
+  depositMethod: DepositMethod | null
+  createdAt: string
+  createdBy: string
+  updatedAt: string | null
+}
+
+export interface CreateOrderPayload {
+  customerName: string
+  phone?: string
+  items: string
+  pickupDate: string
+  notes?: string
+  depositAmount?: number
+  depositMethod?: DepositMethod
+}
+
+export interface UpdateOrderStatusPayload {
+  id: string
+  status: OrderStatus
+}
+
+export interface UpdateOrderPayload {
+  id: string
+  customerName?: string
+  phone?: string
+  items?: string
+  pickupDate?: string
+  notes?: string
+  depositAmount?: number
+  depositMethod?: DepositMethod | null
+}
+
+export interface ListOrdersPayload {
+  status?: OrderStatus
+  fromDate?: string
+  toDate?: string
+}
+
+// ---------------------------------------------------------------------------
+// Historial completo (Fase 7 — solo admin)
+// ---------------------------------------------------------------------------
+
+export interface HistoryShiftRow {
+  id: string
+  shiftType: ShiftType
+  startedAt: string
+  closedAt: string
+  cashierName: string
+  salesCount: number
+  totalRevenue: number
+  totalCashSales: number
+  totalExpenses: number
+  cashInHand: number
+  totalDeposits: number
+}
+
+export interface HistorySaleItem {
+  productName: string
+  quantity: number
+  unit: 'kg' | 'unit'
+  unitPrice: number
+  subtotal: number
+}
+
+export interface HistorySaleRow {
+  id: string
+  createdAt: string
+  total: number
+  status: 'confirmed' | 'cancelled'
+  cashAmount: number
+  digitalAmount: number
+  paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+  manualEntry: boolean
+  isDebt: boolean
+  customerName: string | null
+  items: HistorySaleItem[]
+}
+
+export interface HistoryExpenseRow {
+  id: string
+  createdAt: string
+  category: string
+  amount: number
+  notes: string | null
+  createdBy: string
+}
+
+export interface HistoryDebtRow {
+  id: string
+  createdAt: string
+  customerName: string
+  amount: number
+  eventType: 'created' | 'partial_payment' | 'paid' | 'cancelled' | 'reopened'
+  notes: string | null
+}
+
+export interface HistoryOrderRow {
+  id: string
+  customerName: string
+  phone: string | null
+  items: string
+  depositAmount: number
+  depositMethod: DepositMethod | null
+  createdAt: string
+}
+
+export interface HistoryShiftDetail {
+  shift: {
+    id: string
+    shiftType: ShiftType
+    startedAt: string
+    closedAt: string
+    cashierName: string
+    openingCash: number
+    closingCash: number | null
+    deliveredAmount: number | null
+    deliveredTo: string | null
+    notes: string | null
+  }
+  sales: HistorySaleRow[]
+  expenses: HistoryExpenseRow[]
+  debts: HistoryDebtRow[]
+  deposits: HistoryOrderRow[]
+  summary: {
+    salesCount: number
+    totalRevenue: number
+    totalCashSales: number
+    totalDebitSales: number
+    totalWalletSales: number
+    totalCreditSales: number
+    totalExpenses: number
+    cashDeposits: number
+    digitalDeposits: number
+    cashInHand: number
+    debtsCount: number
+    totalDebts: number
+  }
+}
+
+export interface GetHistoryShiftsPayload {
+  fromDate?: string
+  toDate?: string
+  limit?: number
+  offset?: number
+}
+
+// ---------------------------------------------------------------------------
 // Carga masiva del catálogo a la balanza (KRETZ_SYNC_CATALOG)
 // ---------------------------------------------------------------------------
 
@@ -748,6 +917,17 @@ export interface HwApi {
   getSpecialCustomerPrices: (payload: { specialCustomerId: string }) => Promise<IpcResult<SpecialCustomerPriceRow[]>>
   setSpecialCustomerPrice: (payload: SetSpecialCustomerPricePayload) => Promise<IpcResult>
   deleteSpecialCustomerPrice: (payload: { specialCustomerId: string; productId: string }) => Promise<IpcResult>
+
+  // ---- Pedidos (Fase 7) ----
+  createOrder: (payload: CreateOrderPayload) => Promise<IpcResult<OrderRow>>
+  listOrders: (payload?: ListOrdersPayload) => Promise<IpcResult<OrderRow[]>>
+  updateOrderStatus: (payload: UpdateOrderStatusPayload) => Promise<IpcResult<OrderRow>>
+  updateOrder: (payload: UpdateOrderPayload) => Promise<IpcResult<OrderRow>>
+  deleteOrder: (payload: { id: string }) => Promise<IpcResult>
+
+  // ---- Historial completo (Fase 7 — solo admin) ----
+  getHistoryShifts: (payload?: GetHistoryShiftsPayload) => Promise<IpcResult<HistoryShiftRow[]>>
+  getHistoryShiftDetail: (payload: { shiftId: string }) => Promise<IpcResult<HistoryShiftDetail>>
 
   // ---- Gestión de PLUs ----
   /** Prueba de enlace con la balanza (cmd 0002) */

@@ -12,10 +12,12 @@ interface Props {
   onGoToCashierManagement: () => void
   onGoToDebts: () => void
   onGoToSpecialCustomers: () => void
+  onGoToOrders: () => void
+  onGoToHistory: () => void
   onLogout: () => void
 }
 
-export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToDebts, onGoToSpecialCustomers, onLogout }: Props) {
+export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToDebts, onGoToSpecialCustomers, onGoToOrders, onGoToHistory, onLogout }: Props) {
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       {/* Header */}
@@ -117,6 +119,40 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
               <p className="text-base font-semibold text-white">Clientes especiales</p>
               <p className="text-sm text-gray-400 mt-0.5">
                 Ver y anotar precios acordados por cliente
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
+          </button>
+
+          {/* Pedidos */}
+          <button
+            onClick={onGoToOrders}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-emerald-600/20 flex items-center justify-center text-3xl">
+              📦
+            </div>
+            <div>
+              <p className="text-base font-semibold text-white">Pedidos</p>
+              <p className="text-sm text-gray-400 mt-0.5">
+                Ver y gestionar todos los pedidos del local
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
+          </button>
+
+          {/* Historial */}
+          <button
+            onClick={onGoToHistory}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-sky-600/20 flex items-center justify-center text-3xl">
+              📊
+            </div>
+            <div>
+              <p className="text-base font-semibold text-white">Historial completo</p>
+              <p className="text-sm text-gray-400 mt-0.5">
+                Ventas, gastos, fiados y señas de todos los turnos
               </p>
             </div>
             <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>

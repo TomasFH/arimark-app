@@ -76,6 +76,17 @@ export const IPC = {
   SET_SPECIAL_CUSTOMER_PRICE: 'ipc:set-special-customer-price',
   DELETE_SPECIAL_CUSTOMER_PRICE: 'ipc:delete-special-customer-price',
 
+  // Pedidos (Fase 7)
+  CREATE_ORDER: 'ipc:create-order',
+  LIST_ORDERS: 'ipc:list-orders',
+  UPDATE_ORDER_STATUS: 'ipc:update-order-status',
+  UPDATE_ORDER: 'ipc:update-order',
+  DELETE_ORDER: 'ipc:delete-order',
+
+  // Historial completo (Fase 7 — solo admin)
+  GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
+  GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',
+
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
   LOGIN: 'ipc:login',

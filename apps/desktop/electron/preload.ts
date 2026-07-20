@@ -102,6 +102,17 @@ const hw: HwApi = {
   setSpecialCustomerPrice: payload => ipcRenderer.invoke(IPC.SET_SPECIAL_CUSTOMER_PRICE, payload),
   deleteSpecialCustomerPrice: payload => ipcRenderer.invoke(IPC.DELETE_SPECIAL_CUSTOMER_PRICE, payload),
 
+  // Pedidos (Fase 7)
+  createOrder: payload => ipcRenderer.invoke(IPC.CREATE_ORDER, payload),
+  listOrders: payload => ipcRenderer.invoke(IPC.LIST_ORDERS, payload),
+  updateOrderStatus: payload => ipcRenderer.invoke(IPC.UPDATE_ORDER_STATUS, payload),
+  updateOrder: payload => ipcRenderer.invoke(IPC.UPDATE_ORDER, payload),
+  deleteOrder: payload => ipcRenderer.invoke(IPC.DELETE_ORDER, payload),
+
+  // Historial completo (Fase 7 — solo admin)
+  getHistoryShifts: payload => ipcRenderer.invoke(IPC.GET_HISTORY_SHIFTS, payload),
+  getHistoryShiftDetail: payload => ipcRenderer.invoke(IPC.GET_HISTORY_SHIFT_DETAIL, payload),
+
   // Gestión de PLUs (balanza KRETZ)
   kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),
 
