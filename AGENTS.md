@@ -50,6 +50,22 @@ Todo campo de entrada que espere un número entero (montos en pesos, cantidades 
 - **Validación en código, no en HTML:** la restricción a dígitos ocurre al escribir/pegar (`formatNumericInputValue`). Al enviar formulario o llamar IPC, usar `parseNumericInput()` para obtener el número entero. Mensajes de error (campo vacío, monto inválido, etc.) se muestran con lógica React/JS, no con validación nativa del browser salvo `required` si aplica.
 - **Parseo al enviar:** siempre `parseNumericInput()` de `src/lib/numericInput.ts` antes de IPC o reglas de negocio. Nunca `parseFloat()` sobre el string formateado (los puntos rompen el parseo).
 
+## UI — texto largo y truncate
+
+Todo texto **variable de usuario** (nombres, notas, categorías, etiquetas dinámicas) que se muestre en filas flex, tarjetas, modales o listas debe contemplar overflow desde el diseño. **No confiar en que el contenido será corto.**
+
+- **Truncate (elipsis `…`):** cuando el texto no entra en el espacio disponible, se corta con puntos suspensivos al final. En Tailwind: clase `truncate` (`overflow-hidden text-ellipsis whitespace-nowrap`). Es el comportamiento estándar del proyecto para texto en línea.
+- **Tooltip con texto completo:** si el texto puede truncarse, agregar `title={textoCompleto}` en el elemento truncado para que el usuario vea el valor entero al pasar el mouse.
+- **Filas flex con texto + botón/acción:** patrón obligatorio:
+  - Contenedor: `flex items-center gap-2 min-w-0`
+  - Texto: `min-w-0 flex-1 truncate` (+ `title` si aplica)
+  - Botón/acción: `shrink-0` para que nunca se empuje fuera del layout
+- **Contenedores flex anidados:** cualquier hijo que deba encogerse necesita `min-w-0` en la cadena de padres flex; sin eso, `truncate` no surte efecto.
+- **Inputs de texto libre:** limitar con `maxLength` alineado al schema zod/IPC del backend (ej. nombres de cliente: 100). No depender solo del truncate visual — el input no debe aceptar más de lo que el backend guarda.
+- **Utilidad programática:** `truncate()` en `src/lib/format.ts` solo cuando haga falta acortar texto antes de renderizar (ej. logs, previews fijos). Para UI en pantalla, preferir siempre `truncate` CSS + `title`.
+
+Casos típicos donde aplica sin excepción: nombres de clientes en modales de fiado, resultados de búsqueda, filas de listas con acciones a la derecha, subtítulos en headers de tarjetas, labels en tablas estrechas.
+
 ---
 
 ## Arquitectura — estructura del monorepo (desde jul 2026)

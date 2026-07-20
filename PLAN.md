@@ -343,17 +343,27 @@ Cierre de sub-etapa 3d:
 - [ ] Tag: `fase3-completa` (pendiente testeo manual + aprobación del desarrollador)
 - [ ] Push a GitHub (pendiente aprobación del desarrollador)
 
-### 🔜 Fase 4 — Sección de administración de PLUs (solo admins)
+### ✅ Fase 4 — Sección de administración de PLUs (solo admins) (COMPLETA)
 
 Objetivo: que los administradores gestionen precios/PLUs y los carguen en la balanza, aprovechando los comandos KRETZ ya validados en Fase 1.
 
-- Vista **exclusiva para admins** (rol verificado), no visible para cajeras.
-- CRUD de PLUs: crear, modificar (nombre/precio), **cambiar número**, eliminar.
-- **Edición masiva**: preparar varios cambios como borrador y aplicarlos como lote.
-- Botón **"Cargar en balanza"** habilitado **si y solo si la balanza está físicamente conectada a esa PC** (nunca desde el móvil). Usa los comandos KRETZ de Fase 1. **[✅ Implementado — carga masiva]** `KRETZ_SYNC_CATALOG` verifica el enlace R30 (`0002`) antes de enviar; si la balanza no responde aborta sin escribir nada. Vuelca todos los productos activos con PLU y precio vigente del local vía comando `2005` (upsert: crea o sobreescribe, nunca borra PLUs existentes). Envío secuencial (cola serial) con barra de progreso en tiempo real (`KRETZ_SYNC_PROGRESS`, push main→renderer) para que el operador no desenchufe la balanza. Conversión de precio: pesos × 10, 6 dígitos, 1 decimal implícito (compatible iTegra, confirmado en sesión 15/06). Omite productos sin precio o con precio > $99.999 y los reporta. UI en `KretzSyncModal.tsx` + botón en `AdminScreen`.
-- **Listas de precios por local**: al editar precios/PLUs, el admin elige el local primero. Cada local puede tener precios distintos para el mismo producto. El catálogo publicado a Firestore (`licenses/{key}/catalog/{storeId}`) refleja los precios de ese local específico. La PWA móvil descarga el catálogo del local en el que la cajera está trabajando. (Nota: la infraestructura de Firestore para esto ya existe desde Fase 3; lo que falta es la UI de administración.)
-- Sincronización catálogo local ↔ PLUs de la balanza; auditoría de cambios. **[Envío ✅; auditoría de cambios pendiente]**
-- Tests: gating por conexión física, lote aplicado correctamente, rollback si un comando falla. **[✅ gating + lote + fallo aislado cubiertos en `kretzSync.handler.test.ts`; nota: un fallo a mitad no hace rollback físico de los PLUs ya escritos —el hardware no lo permite— pero se reporta exactamente cuáles quedaron cargados y cuáles fallaron]**
+Entregado:
+- [x] Vista **exclusiva para admins** (rol verificado), no visible para cajeras.
+- [x] CRUD de PLUs: crear, modificar (nombre/precio), **cambiar número**, eliminar.
+- [x] **Edición masiva**: preparar varios cambios como borrador y aplicarlos como lote.
+- [x] Botón **"Cargar en balanza"**: `KRETZ_SYNC_CATALOG` verifica el enlace R30 (`0002`) antes de enviar; aborta si la balanza no responde. Vuelca todos los productos activos con PLU y precio vigente del local vía comando `2005` (upsert). Envío secuencial con barra de progreso en tiempo real (`KRETZ_SYNC_PROGRESS`). Conversión de precio: pesos × 10, 6 dígitos, 1 decimal implícito (compatible iTegra). Omite productos sin precio o con precio > $99.999 y los reporta. UI en `KretzSyncModal.tsx`.
+- [x] **Detección automática de puerto KRETZ** desde DevTools → Hardware.
+- [x] Tests: gating por conexión física, lote aplicado correctamente, fallo aislado reportado (sin rollback físico posible — hardware no lo permite).
+- [x] Gestión de cajeras (alta, edición, soft-delete) desde panel admin.
+- [x] Contraseña de cajera enmascarada en panel admin.
+- [x] Eliminación de usuario con doble confirmación; orphaned Firebase Auth users documentados como deuda técnica.
+
+Pendiente de largo plazo:
+- Auditoría de cambios de PLU (quién cambió qué y cuándo).
+
+**Cierre formal:**
+- [x] `pnpm run test` — suite en verde
+- [x] Testeo manual aprobado por el desarrollador (jul 2026)
 
 ### ✅ Fase 5 — Cierre de jornada y gastos (COMPLETA)
 Tag: `fase5-completa` | Tests: 351 en verde
@@ -376,18 +386,35 @@ Entregado:
 - Cajera A cierra su turno con arqueo; luego Cajera B abre el suyo.
 
 ### ✅ Fase 6 — Clientes especiales y deudas (COMPLETA)
-Tag: `fase6-completa` | Tests: 378 en verde
+Tag inicial: `fase6-completa` | Refinamientos: jul 2026 | Tests finales: 411 en verde
 
-Entregado:
+Entregado (implementación base):
 - [x] ABM de clientes: DNI, teléfono, tipo (restaurant/mayorista/otro), notas.
 - [x] Búsqueda accent-insensitive de clientes por nombre, DNI o teléfono.
-- [x] Precios especiales por cliente (solo admins): `CustomerPricesModal` con agregar/eliminar precios por producto.
 - [x] Modelo de ledger en `debt_events` — nunca sobreescritura, saldo algebraico.
-- [x] Flujo de fiado desde cajera: botón en `PaymentModal` → `DebtModal` con búsqueda/creación inline de cliente + fecha de vencimiento opcional.
+- [x] Flujo de fiado desde cajera: `DebtModal` con búsqueda/creación inline de cliente + fecha de vencimiento opcional.
 - [x] `DebtsScreen`: lista de deudas activas con saldo, historial de eventos por cliente, pago parcial/total, cancelación con doble confirmación.
 - [x] Botón "Fiados" en header cajera y acceso desde AdminHub.
 - [x] Migración 0007: `dni` en `customers`, `due_date` en `debt_events`.
-- [x] 378 tests en verde — cobertura ≥ 80% en IPC, DB y reglas de negocio.
+
+Refinamientos y mejoras adicionales (jul 2026):
+- [x] **Clientes especiales** como entidad separada de fiados: tabla propia (`special_customers` + `special_customer_prices`, migración 0008), admins crean/editan/eliminan, cajeras solo consultan. Los precios son informativos — no afectan el carrito automáticamente.
+- [x] **Gestión de precios especiales inline**: disponible desde la creación y edición del cliente (no solo post-creación). Typeahead de productos por nombre o PLU con precio de lista visible para referencia.
+- [x] **Acordeón por tarjeta** en `SpecialCustomersScreen`: contraída por defecto, se expande al tocar la cabecera; muestra resumen del conteo de precios cuando está contraída.
+- [x] **Medio de pago en fiado**: el `DebtModal` solicita el medio de pago (efectivo, débito, billetera, crédito o combinación) para el monto inicial. Los pagos se registran en `sale_payments` para que el cierre de caja los contabilice correctamente.
+- [x] **Buscador de clientes en Fiados**: input de filtro por nombre en `DebtsScreen`.
+- [x] **Carrito persistente**: `CashierScreen` permanece montado (oculto) al navegar a Fiados o Clientes especiales; el carrito no se pierde. El lector USB se desactiva automáticamente en segundo plano.
+- [x] `CustomerSearchCreate`: short-circuit cuando el query extiende un prefijo sin resultados (evita flash y IPC innecesario); `maxLength=100` alineado al backend; truncate con `title` en el mensaje de no-encontrado.
+- [x] Teléfono formateado en paso 2 del `DebtModal`.
+- [x] Campo inicial de pago con auto-select al hacer foco.
+
+Pendiente de largo plazo (no bloqueante):
+- **Actualización masiva de precios especiales**: cuando la lista de clientes crezca, opciones posibles son (a) vista tabla cruzada producto×cliente o (b) campo "% de descuento fijo" por cliente que recalcule automáticamente al actualizar el catálogo. Documentado también en comentario de `SpecialCustomersScreen.tsx`. Requiere validar con los dueños antes de implementar.
+
+**Cierre formal:**
+- [x] `pnpm run test` — 411 tests en verde
+- [x] Cobertura ≥ 80% en IPC, DB y reglas de negocio
+- [x] Testeo manual aprobado por el desarrollador (jul 2026)
 
 ### Fase 7 — Pedidos, historial y reportes admin
 
