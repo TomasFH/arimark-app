@@ -9,7 +9,7 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import type { CustomerRow } from '../types/hw-api'
-import { formatPhoneInput, parsePhoneNumber } from '../lib/phoneInput'
+import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
 
 interface Props {
   onSelect: (customer: CustomerRow) => void
@@ -26,7 +26,10 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   const [mode, setMode] = useState<Mode>('search')
 
   // Solo se usa en modo 'new-phone'
+  // phoneRaw: dígitos limpios que se guardan/validan
+  // phoneDisplay: lo que se muestra en el input (raw mientras edita, formateado al salir)
   const [phoneRaw, setPhoneRaw] = useState('')
+  const [phoneDisplay, setPhoneDisplay] = useState('')
   const [phoneError, setPhoneError] = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
@@ -58,13 +61,26 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
     if (!query.trim()) return
     setMode('new-phone')
     setPhoneRaw('')
+    setPhoneDisplay('')
     setPhoneError('')
   }
 
   function handlePhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const formatted = formatPhoneInput(e.target.value)
-    setPhoneRaw(formatted)
+    // Mientras escribe: solo dígitos, sin formato (evita salto de cursor)
+    const digits = digitsOnly(e.target.value)
+    setPhoneRaw(digits)
+    setPhoneDisplay(digits)
     setPhoneError('')
+  }
+
+  function handlePhoneBlur() {
+    // Al perder el foco: mostrar el valor formateado
+    if (phoneRaw) setPhoneDisplay(formatPhoneInput(phoneRaw))
+  }
+
+  function handlePhoneFocus() {
+    // Al recuperar el foco: volver a dígitos para edición sin interferencia
+    setPhoneDisplay(phoneRaw)
   }
 
   function handlePhoneConfirm() {
@@ -75,7 +91,6 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
     }
     onCreateNew({ name: query.trim(), phone: clean })
   }
-
   // ── Modo búsqueda ────────────────────────────────────────────────────
   if (mode === 'search') {
     return (
@@ -156,8 +171,10 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           ref={phoneRef}
           type="text"
           inputMode="tel"
-          value={phoneRaw}
+          value={phoneDisplay}
           onChange={handlePhoneChange}
+          onBlur={handlePhoneBlur}
+          onFocus={handlePhoneFocus}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handlePhoneConfirm() } }}
           placeholder="Ej. 11 4567-8901"
           className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"

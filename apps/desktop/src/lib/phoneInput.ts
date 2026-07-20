@@ -28,18 +28,6 @@ export function digitsOnly(value: string): string {
  * Todo lo demás se deja intacto para evitar borrar números que
  * genuinamente comiencen con esas cifras.
  */
-function stripSafePrefixes(digits: string): string {
-  // Prefijo internacional +54 (el '+' queda como no-dígito y ya fue removido por digitsOnly,
-  // pero el '54' solo puede haber quedado si el string original era '+54...')
-  // Detectamos esto mirando la longitud: si tiene 12 dígitos y empieza en 54, es ambiguo
-  // → NO lo tocamos (podría ser un número genuino de 12 dígitos o +54 + 10 dígitos).
-  // Solo quitamos el 0 inicial de discado, que sí es inequívoco.
-  if (digits.startsWith('0')) {
-    return digits.slice(1)
-  }
-  return digits
-}
-
 /**
  * Quita prefijos y devuelve dígitos limpios.
  * Para el caso especial de +54 pegado desde contacto (llega como "54XXXXXXXXXX",
