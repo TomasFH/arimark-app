@@ -348,10 +348,10 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 <Stat label="Efectivo esperado" value={fmt(summary.cashInHand)} highlight />
               </div>
 
-              {/* Desglose digital por tipo */}
+              {/* Desglose digital de ventas por tipo */}
               {totalDigital > 0 && (
                 <div className="mt-2 pt-3 border-t border-gray-800">
-                  <p className="text-xs text-gray-500 mb-2 font-semibold uppercase tracking-wider">Desglose digital</p>
+                  <p className="text-xs text-gray-500 mb-2 font-semibold uppercase tracking-wider">Ventas — desglose digital</p>
                   <div className="grid grid-cols-3 gap-2">
                     {summary.totalDebitSales > 0 && (
                       <div className="bg-gray-800 rounded-lg px-3 py-2">
@@ -372,6 +372,42 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* Desglose de señas por medio de pago */}
+              {summary.depositsCount > 0 && (
+                <div className="mt-2 pt-3 border-t border-gray-800">
+                  <p className="text-xs text-gray-500 mb-2 font-semibold uppercase tracking-wider">Señas — desglose por medio</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {summary.totalCashDeposits > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Efectivo</p>
+                        <p className="text-sm font-semibold text-emerald-300">{fmt(summary.totalCashDeposits)}</p>
+                      </div>
+                    )}
+                    {summary.totalDebitDeposits > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Débito</p>
+                        <p className="text-sm font-semibold text-sky-300">{fmt(summary.totalDebitDeposits)}</p>
+                      </div>
+                    )}
+                    {summary.totalWalletDeposits > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Billetera Virtual</p>
+                        <p className="text-sm font-semibold text-violet-300">{fmt(summary.totalWalletDeposits)}</p>
+                      </div>
+                    )}
+                    {summary.totalCreditDeposits > 0 && (
+                      <div className="bg-gray-800 rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-gray-500">Crédito</p>
+                        <p className="text-sm font-semibold text-amber-300">{fmt(summary.totalCreditDeposits)}</p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-2">
+                    Solo el efectivo de señas se suma al efectivo esperado en caja. Los cobros digitales de señas no impactan el conteo físico.
+                  </p>
                 </div>
               )}
             </>

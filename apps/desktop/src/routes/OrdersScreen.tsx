@@ -92,7 +92,6 @@ function depositTotal(payments: DepositPayment[]): number {
 interface Props {
   isAdmin: boolean
   onBack: () => void
-  onDepositCreated?: () => void
 }
 
 // Modal de confirmación reutilizable
@@ -124,12 +123,15 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-blu
   )
 }
 
-export default function OrdersScreen({ isAdmin, onBack, onDepositCreated }: Props) {
+export default function OrdersScreen({ isAdmin, onBack }: Props) {
   const [ordersList, setOrdersList] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('active')
   const [search, setSearch] = useState('')
+
+  // ID del pedido recién creado — para scroll y highlight
+  const [newOrderId, setNewOrderId] = useState<string | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [editingOrder, setEditingOrder] = useState<OrderRow | null>(null)
@@ -191,6 +193,19 @@ export default function OrdersScreen({ isAdmin, onBack, onDepositCreated }: Prop
     () => ordersList.filter(o => (o.status === 'pending' || o.status === 'ready') && isTomorrow(o.pickupDate)).length,
     [ordersList]
   )
+
+  // Cuando se crea un pedido: limpia filtros para que sea visible, scroll y highlight temporal
+  useEffect(() => {
+    if (!newOrderId) return
+    const el = document.getElementById(`order-${newOrderId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    const timer = setTimeout(() => setNewOrderId(null), 2500)
+    return () => clearTimeout(timer)
+  // filteredOrders en deps para reintentar el scroll una vez que la lista se re-renderiza
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newOrderId, filteredOrders])
 
   function openCreate() {
     setForm({ ...EMPTY_FORM, pickupDate: todayDateStr() })
@@ -281,7 +296,10 @@ export default function OrdersScreen({ isAdmin, onBack, onDepositCreated }: Prop
         const r = await window.hw.createOrder(payload)
         if (!r.ok) { setFormError(r.error); setSaving(false); return }
         setOrdersList(prev => [r.data, ...prev])
-        if (total > 0) onDepositCreated?.()
+        // Limpiar búsqueda y activar filtro que muestre el nuevo pedido (pending → active)
+        setSearch('')
+        setFilterStatus('active')
+        setNewOrderId(r.data.id)
       }
       closeForm()
     } finally {
@@ -401,6 +419,7 @@ export default function OrdersScreen({ isAdmin, onBack, onDepositCreated }: Prop
             key={order.id}
             order={order}
             isAdmin={isAdmin}
+            isNew={order.id === newOrderId}
             onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
             onEdit={() => openEdit(order)}
             onCancel={() => setConfirmCancel(order)}
@@ -624,13 +643,14 @@ export default function OrdersScreen({ isAdmin, onBack, onDepositCreated }: Prop
 interface OrderCardProps {
   order: OrderRow
   isAdmin: boolean
+  isNew?: boolean
   onRequestStatusChange: (order: OrderRow, status: OrderStatus) => void
   onEdit: () => void
   onCancel: () => void
   onHardDelete?: () => void
 }
 
-function OrderCard({ order, isAdmin, onRequestStatusChange, onEdit, onCancel, onHardDelete }: OrderCardProps) {
+function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdit, onCancel, onHardDelete }: OrderCardProps) {
   const [expanded, setExpanded] = useState(false)
 
   const today = isToday(order.pickupDate)
@@ -655,7 +675,8 @@ function OrderCard({ order, isAdmin, onRequestStatusChange, onEdit, onCancel, on
 
   return (
     <div
-      className={`rounded-xl border transition-colors ${
+      id={`order-${order.id}`}
+      className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-900/40' : ''} ${
         order.status === 'cancelled'
           ? 'border-gray-800 bg-gray-900/30 opacity-60'
           : overdue

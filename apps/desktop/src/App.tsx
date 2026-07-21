@@ -338,9 +338,6 @@ export default function App() {
       {state.screen === 'orders' && (
         <OrdersScreen
           isAdmin={state.session.role === 'admin'}
-          onDepositCreated={state.fromCashier ? () => {
-            setState({ screen: 'cashier', session: state.session, shift: state.fromCashier!, initStatus: state.initStatus })
-          } : undefined}
           onBack={() => {
             if (state.fromCashier) {
               setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })

@@ -264,6 +264,15 @@ export function registerOrderHandlers(): void {
       const existing = db.select().from(orders).where(and(eq(orders.id, id), eq(orders.storeId, session.storeId))).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
+      // Bloquear modificación de seña si no hay turno activo
+      const newDepositAmount = 'depositPayments' in updates && updates.depositPayments
+        ? updates.depositPayments.reduce((s, p) => s + p.amount, 0)
+        : (updates.depositAmount ?? existing.depositAmount)
+      const depositIsBeingAdded = newDepositAmount > 0 && ('depositPayments' in updates || updates.depositAmount !== undefined)
+      if (depositIsBeingAdded && !session.shiftId) {
+        return { ok: false, error: 'Se necesita un turno activo para modificar la seña.', code: 'NO_SHIFT' }
+      }
+
       const setData: Partial<typeof orders.$inferInsert> = { updatedAt: now, updatedBy: session.userId }
       if (updates.customerName !== undefined) setData.customerName = updates.customerName
       if (updates.phone !== undefined) setData.phone = updates.phone

@@ -214,6 +214,19 @@ describe('orders.handler', () => {
       expect(res.data.customerName).toBe('Actualizado')
     })
 
+    it('rechaza agregar seña sin turno activo', () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const createHandler = getHandler('ipc:create-order')
+      const created = createHandler(null, { customerName: 'Sin seña', items: 'Algo', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:update-order')
+      const res = handler(null, { id: created.data.id, depositAmount: 5000, depositPayments: [{ method: 'cash', amount: 5000 }] }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('NO_SHIFT')
+    })
+
     it('edita el pedido como admin', () => {
       vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const createHandler = getHandler('ipc:create-order')
