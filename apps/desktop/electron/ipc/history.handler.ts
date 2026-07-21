@@ -375,6 +375,7 @@ export function registerHistoryHandlers(): void {
           items: orders.items,
           depositAmount: orders.depositAmount,
           depositMethod: orders.depositMethod,
+          depositPayments: orders.depositPayments,
           createdAt: orders.createdAt,
         })
         .from(orders)
@@ -386,15 +387,22 @@ export function registerHistoryHandlers(): void {
 
       const historyDeposits = depositRows
         .filter(r => r.depositAmount > 0)
-        .map(r => ({
-          id: r.id,
-          customerName: r.customerName,
-          phone: r.phone,
-          items: r.items,
-          depositAmount: r.depositAmount,
-          depositMethod: r.depositMethod as HistoryShiftDetail['deposits'][number]['depositMethod'],
-          createdAt: r.createdAt,
-        }))
+        .map(r => {
+          let parsedPayments: import('../../src/types/hw-api').DepositPayment[] | null = null
+          if (r.depositPayments) {
+            try { parsedPayments = JSON.parse(r.depositPayments) } catch { /* ignore */ }
+          }
+          return {
+            id: r.id,
+            customerName: r.customerName,
+            phone: r.phone,
+            items: r.items,
+            depositAmount: r.depositAmount,
+            depositPayments: parsedPayments,
+            depositMethod: r.depositMethod as HistoryShiftDetail['deposits'][number]['depositMethod'],
+            createdAt: r.createdAt,
+          }
+        })
 
       // ---- Resumen ----
       const confirmedSales = historySales.filter(s => s.status === 'confirmed')
