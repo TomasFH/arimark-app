@@ -192,4 +192,65 @@ describe('expense.handler', () => {
       expect(result.code).toBe('NO_SESSION')
     })
   })
+
+  describe('GET_PROVIDER_DEBT (ipc:get-provider-debt)', () => {
+    it('devuelve null si no hay deuda registrada para el proveedor', () => {
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = handler(null, { provider: 'Proveedor Inexistente' }) as { ok: boolean; data: null }
+      expect(result.ok).toBe(true)
+      expect(result.data).toBeNull()
+    })
+
+    it('devuelve saldo correcto tras registrar deuda', () => {
+      const expenseHandler = getHandler('ipc:register-expense')
+      expenseHandler(null, {
+        category: 'Insumos',
+        amount: 80000,
+        provider: 'Proveedor X',
+        newDebtAmount: 20000,
+      })
+
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = handler(null, { provider: 'Proveedor X' }) as { ok: boolean; data: { provider: string; balance: number } }
+      expect(result.ok).toBe(true)
+      expect(result.data?.balance).toBe(20000)
+    })
+
+    it('reduce el saldo al registrar pago de deuda', () => {
+      const expenseHandler = getHandler('ipc:register-expense')
+      expenseHandler(null, { category: 'Insumos', amount: 80000, provider: 'Prov Y', newDebtAmount: 20000 })
+      expenseHandler(null, { category: 'Insumos', amount: 140000, provider: 'Prov Y', paysOldDebt: 20000 })
+
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = handler(null, { provider: 'Prov Y' }) as { ok: boolean; data: { balance: number } }
+      expect(result.ok).toBe(true)
+      expect(result.data?.balance).toBe(0)
+    })
+
+    it('rechaza payload inválido', () => {
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = handler(null, { provider: '' }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+  })
+
+  describe('GET_PROVIDER_NAMES (ipc:get-provider-names)', () => {
+    it('devuelve lista vacía si no hay proveedores registrados', () => {
+      const handler = getHandler('ipc:get-provider-names')
+      const result = handler(null) as { ok: boolean; data: string[] }
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(0)
+    })
+
+    it('devuelve los proveedores usados en el local', () => {
+      const expenseHandler = getHandler('ipc:register-expense')
+      expenseHandler(null, { category: 'Insumos', amount: 5000, provider: 'Carnicero Pedro' })
+
+      const handler = getHandler('ipc:get-provider-names')
+      const result = handler(null) as { ok: boolean; data: string[] }
+      expect(result.ok).toBe(true)
+      expect(result.data).toContain('Carnicero Pedro')
+    })
+  })
 })

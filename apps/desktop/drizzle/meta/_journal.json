@@ -71,6 +71,27 @@
       "when": 1784100000000,
       "tag": "0009_orders_deposit",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1753056000000,
+      "tag": "0010_orders_timeslot_priority",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1753056001000,
+      "tag": "0011_orders_deposit_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1753056002000,
+      "tag": "0012_expenses_provider_debts",
+      "breakpoints": true
     }
   ]
 }

@@ -219,8 +219,14 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
             <Row label="Ventas" value={String(summary.salesCount)} />
             <Row label="Total vendido" value={fmt(summary.totalRevenue)} />
             <Row label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
-            {(summary.totalDebitSales + summary.totalWalletSales + summary.totalCreditSales) > 0 && (
-              <Row label="Total digital" value={fmt(summary.totalDebitSales + summary.totalWalletSales + summary.totalCreditSales)} />
+            {summary.totalDebitSales > 0 && (
+              <Row label="Cobrado con Débito" value={fmt(summary.totalDebitSales)} />
+            )}
+            {summary.totalWalletSales > 0 && (
+              <Row label="Cobrado Billetera Virtual" value={fmt(summary.totalWalletSales)} />
+            )}
+            {summary.totalCreditSales > 0 && (
+              <Row label="Cobrado con Crédito" value={fmt(summary.totalCreditSales)} />
             )}
             {summary.totalExpenses > 0 && (
               <Row label="Gastos" value={fmt(summary.totalExpenses)} />
@@ -229,7 +235,21 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
               <Row label={`Fiados (${summary.debtsCount})`} value={fmt(summary.totalDebts)} />
             )}
             {summary.depositsCount > 0 && (
-              <Row label={`Señas (${summary.depositsCount} pedidos)`} value={fmt(summary.totalCashDeposits + summary.totalDigitalDeposits)} />
+              <>
+                <Row label={`Señas (${summary.depositsCount} pedidos)`} value={fmt(summary.totalCashDeposits + summary.totalDigitalDeposits)} />
+                {summary.totalCashDeposits > 0 && (
+                  <Row label="  · Señas en efectivo" value={fmt(summary.totalCashDeposits)} />
+                )}
+                {summary.totalDebitDeposits > 0 && (
+                  <Row label="  · Señas Débito" value={fmt(summary.totalDebitDeposits)} />
+                )}
+                {summary.totalWalletDeposits > 0 && (
+                  <Row label="  · Señas Billetera Virtual" value={fmt(summary.totalWalletDeposits)} />
+                )}
+                {summary.totalCreditDeposits > 0 && (
+                  <Row label="  · Señas Crédito" value={fmt(summary.totalCreditDeposits)} />
+                )}
+              </>
             )}
             <div className="border-t border-gray-800 pt-2">
               <Row label="Efectivo esperado" value={fmt(summary.cashInHand)} bold />
@@ -307,8 +327,14 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 <Stat label="Ventas" value={String(summary.salesCount)} />
                 <Stat label="Total vendido" value={fmt(summary.totalRevenue)} />
                 <Stat label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
-                {totalDigital > 0 && (
-                  <Stat label="Total digital" value={fmt(totalDigital)} />
+                {summary.totalDebitSales > 0 && (
+                  <Stat label="Débito" value={fmt(summary.totalDebitSales)} />
+                )}
+                {summary.totalWalletSales > 0 && (
+                  <Stat label="Billetera Virtual" value={fmt(summary.totalWalletSales)} />
+                )}
+                {summary.totalCreditSales > 0 && (
+                  <Stat label="Crédito" value={fmt(summary.totalCreditSales)} />
                 )}
                 {summary.totalExpenses > 0 && (
                   <Stat label="Gastos" value={fmt(summary.totalExpenses)} />
@@ -335,7 +361,7 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                     )}
                     {summary.totalWalletSales > 0 && (
                       <div className="bg-gray-800 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-gray-500">Billetera</p>
+                        <p className="text-[10px] text-gray-500">Billetera Virtual</p>
                         <p className="text-sm font-semibold text-violet-300">{fmt(summary.totalWalletSales)}</p>
                       </div>
                     )}

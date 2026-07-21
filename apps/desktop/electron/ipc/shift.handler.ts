@@ -231,23 +231,40 @@ export function registerShiftHandlers(): void {
       const totalCreditSales = digitalByMethod['credit'] ?? 0
       const totalExpenses = Number(expenseStats?.totalExpenses ?? 0)
 
-      // Señas recibidas en este turno
-      const depositStats = db
-        .select({ method: orders.depositMethod, total: sum(orders.depositAmount) })
+      // Señas recibidas en este turno — desglosa por medio de pago parseando depositPayments JSON
+      const depositOrders = db
+        .select({ depositAmount: orders.depositAmount, depositMethod: orders.depositMethod, depositPayments: orders.depositPayments })
         .from(orders)
         .where(eq(orders.depositShiftId, session.shiftId))
-        .groupBy(orders.depositMethod)
         .all()
 
       let totalCashDeposits = 0
-      let totalDigitalDeposits = 0
+      let totalDebitDeposits = 0
+      let totalWalletDeposits = 0
+      let totalCreditDeposits = 0
       let depositsCount = 0
-      for (const d of depositStats) {
-        const amount = Number(d.total ?? 0)
-        if (d.method === 'cash') totalCashDeposits += amount
-        else totalDigitalDeposits += amount
+      for (const d of depositOrders) {
+        if (d.depositAmount <= 0) continue
         depositsCount++
+        if (d.depositPayments) {
+          try {
+            const payments = JSON.parse(d.depositPayments) as Array<{ method: string; amount: number }>
+            for (const p of payments) {
+              if (p.method === 'cash') totalCashDeposits += p.amount
+              else if (p.method === 'debit') totalDebitDeposits += p.amount
+              else if (p.method === 'wallet') totalWalletDeposits += p.amount
+              else if (p.method === 'credit') totalCreditDeposits += p.amount
+            }
+          } catch { /* legado sin JSON → caer a depositMethod */ }
+        } else if (d.depositMethod) {
+          // Compatibilidad con pedidos anteriores a la migración multi-método
+          if (d.depositMethod === 'cash') totalCashDeposits += d.depositAmount
+          else if (d.depositMethod === 'debit') totalDebitDeposits += d.depositAmount
+          else if (d.depositMethod === 'wallet') totalWalletDeposits += d.depositAmount
+          else if (d.depositMethod === 'credit') totalCreditDeposits += d.depositAmount
+        }
       }
+      const totalDigitalDeposits = totalDebitDeposits + totalWalletDeposits + totalCreditDeposits
 
       const cashInHand = shift.openingCash + totalCashSales + totalCashDeposits - totalExpenses
 
@@ -283,6 +300,9 @@ export function registerShiftHandlers(): void {
           debtsCount: debtStats?.debtsCount ?? 0,
           totalDebts: Number(debtStats?.totalDebts ?? 0),
           totalCashDeposits,
+          totalDebitDeposits,
+          totalWalletDeposits,
+          totalCreditDeposits,
           totalDigitalDeposits,
           depositsCount,
         },

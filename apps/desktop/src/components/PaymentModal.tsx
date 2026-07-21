@@ -329,7 +329,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                       className="rounded-lg bg-gray-800 border border-gray-700 px-2 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0 flex-[1.4]"
                     >
                       <option value="debit">💳 Débito</option>
-                      <option value="wallet">📱 Billetera</option>
+                      <option value="wallet">📱 Billetera Virtual</option>
                       <option value="credit">💳 Crédito</option>
                       <option
                         value="cash"

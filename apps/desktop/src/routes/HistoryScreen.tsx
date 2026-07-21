@@ -13,7 +13,7 @@ const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Efectivo',
   debit: 'Débito',
-  wallet: 'Billetera',
+  wallet: 'Billetera Virtual',
   credit: 'Crédito',
 }
 
@@ -232,7 +232,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
           <SummaryStat label="Total vendido" value={formatARS(summary.totalRevenue)} />
           <SummaryStat label="Efectivo ventas" value={formatARS(summary.totalCashSales)} />
           {summary.totalDebitSales > 0 && <SummaryStat label="Débito" value={formatARS(summary.totalDebitSales)} />}
-          {summary.totalWalletSales > 0 && <SummaryStat label="Billetera" value={formatARS(summary.totalWalletSales)} />}
+          {summary.totalWalletSales > 0 && <SummaryStat label="Billetera Virtual" value={formatARS(summary.totalWalletSales)} />}
           {summary.totalCreditSales > 0 && <SummaryStat label="Crédito" value={formatARS(summary.totalCreditSales)} />}
           {summary.totalExpenses > 0 && <SummaryStat label="Gastos" value={`- ${formatARS(summary.totalExpenses)}`} negative />}
           {summary.cashDeposits > 0 && <SummaryStat label="Señas efectivo" value={formatARS(summary.cashDeposits)} />}

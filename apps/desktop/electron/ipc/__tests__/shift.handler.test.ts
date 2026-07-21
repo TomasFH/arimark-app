@@ -236,11 +236,9 @@ describe('shift.handler', () => {
             }),
           })
           .mockReturnValueOnce({
-            // señas del turno (orders groupBy depositMethod)
+            // señas del turno (orders donde depositShiftId = shiftId)
             from: vi.fn().mockReturnValue({
-              where: vi.fn().mockReturnValue({
-                groupBy: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
-              }),
+              where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
             }),
           })
           .mockReturnValueOnce({
@@ -311,11 +309,9 @@ describe('shift.handler', () => {
             }),
           })
           .mockReturnValueOnce({
-            // señas del turno (orders groupBy depositMethod)
+            // señas del turno (orders donde depositShiftId = shiftId)
             from: vi.fn().mockReturnValue({
-              where: vi.fn().mockReturnValue({
-                groupBy: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
-              }),
+              where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
             }),
           })
           .mockReturnValueOnce({

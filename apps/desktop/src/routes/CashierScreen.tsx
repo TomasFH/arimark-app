@@ -88,6 +88,15 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Refrescar balance cuando la pantalla vuelve a ser visible (ej: regreso desde pedidos con seña)
+  useEffect(() => {
+    if (isActive) {
+      refreshBalance()
+      refreshSales()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive])
+
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0)
   const hasManualItems = cart.some(item => item.manualEntry)
 
@@ -507,7 +516,22 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
                         <p className="text-[10px] text-gray-600">
                           <span className="text-emerald-500">{formatARS(sale.cashAmount)} efvo</span>
                           {' + '}
-                          <span className="text-sky-500">{formatARS(sale.digitalAmount)} dig</span>
+                          <span className="text-sky-500">
+                            {formatARS(sale.digitalAmount)} {
+                              sale.paymentMethods.filter(m => m !== 'cash').length === 1
+                                ? sale.paymentMethods.filter(m => m !== 'cash').map(m =>
+                                    m === 'debit' ? 'déb' : m === 'wallet' ? 'bill.' : 'cred.'
+                                  ).join('')
+                                : 'dig'
+                            }
+                          </span>
+                        </p>
+                      )}
+                      {sale.cashAmount === 0 && sale.digitalAmount > 0 && (
+                        <p className="text-[10px] text-sky-600">
+                          {sale.paymentMethods.filter(m => m !== 'cash').map(m =>
+                            m === 'debit' ? 'Débito' : m === 'wallet' ? 'Bill. Virtual' : 'Crédito'
+                          ).join(' + ')}
                         </p>
                       )}
                     </div>

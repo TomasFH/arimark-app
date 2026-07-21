@@ -4,7 +4,7 @@ export type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   cash: 'Efectivo',
   debit: 'Débito',
-  wallet: 'Billetera',
+  wallet: 'Billetera Virtual',
   credit: 'Crédito',
 }
 

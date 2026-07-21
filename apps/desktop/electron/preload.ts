@@ -81,6 +81,10 @@ const hw: HwApi = {
 
   getExpenseCategories: () => ipcRenderer.invoke(IPC.GET_EXPENSE_CATEGORIES),
 
+  getProviderDebt: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_DEBT, payload),
+
+  getProviderNames: () => ipcRenderer.invoke(IPC.GET_PROVIDER_NAMES),
+
   // Clientes especiales (Fase 6)
   createCustomer: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER, payload),
   getCustomers: payload => ipcRenderer.invoke(IPC.GET_CUSTOMERS, payload),
@@ -108,6 +112,7 @@ const hw: HwApi = {
   updateOrderStatus: payload => ipcRenderer.invoke(IPC.UPDATE_ORDER_STATUS, payload),
   updateOrder: payload => ipcRenderer.invoke(IPC.UPDATE_ORDER, payload),
   deleteOrder: payload => ipcRenderer.invoke(IPC.DELETE_ORDER, payload),
+  hardDeleteOrder: payload => ipcRenderer.invoke(IPC.HARD_DELETE_ORDER, payload),
 
   // Historial completo (Fase 7 — solo admin)
   getHistoryShifts: payload => ipcRenderer.invoke(IPC.GET_HISTORY_SHIFTS, payload),

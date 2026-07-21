@@ -350,6 +350,8 @@ export const expenses = sqliteTable(
       .references(() => shifts.id),
     /** Categoría del gasto — texto libre, sin enum para permitir categorías personalizadas. */
     category: text('category').notNull(),
+    /** Proveedor relacionado con el gasto (texto libre, opcional). Usado para seguimiento de deudas. */
+    provider: text('provider'),
     amount: real('amount').notNull(),
     notes: text('notes'),
     createdAt: text('created_at').notNull(),
@@ -411,10 +413,19 @@ export const orders = sqliteTable(
     phone: text('phone'),
     items: text('items').notNull(),
     pickupDate: text('pickup_date').notNull(),
+    /** Slot horario opcional: 'morning' | 'afternoon' | 'specific' */
+    timeSlot: text('time_slot', { enum: ['morning', 'afternoon', 'specific'] }),
+    /** Hora específica (HH:MM) solo cuando timeSlot='specific' */
+    pickupTime: text('pickup_time'),
+    /** Pedido marcado como prioritario/importante */
+    priority: integer('priority', { mode: 'boolean' }).notNull().default(false),
     status: text('status', { enum: ['pending', 'ready', 'delivered', 'cancelled'] }).notNull(),
     notes: text('notes'),
     depositAmount: real('deposit_amount').notNull().default(0),
+    /** Legado: medio de pago único. Usar depositPayments para multi-método. */
     depositMethod: text('deposit_method', { enum: ['cash', 'debit', 'wallet', 'credit'] }),
+    /** JSON: Array<{method: 'cash'|'debit'|'wallet'|'credit', amount: number}> */
+    depositPayments: text('deposit_payments'),
     depositShiftId: text('deposit_shift_id').references(() => shifts.id),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
@@ -427,6 +438,36 @@ export const orders = sqliteTable(
   table => [
     index('idx_orders_store_pickup').on(table.storeId, table.pickupDate),
     index('idx_orders_shift').on(table.depositShiftId),
+  ]
+)
+
+// ---------------------------------------------------------------------------
+// Deuda a proveedores (ledger de eventos)
+// ---------------------------------------------------------------------------
+export const providerDebtEvents = sqliteTable(
+  'provider_debt_events',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    /** Nombre del proveedor normalizado (trim, sin cambiar mayúsculas en almacenamiento) */
+    provider: text('provider').notNull(),
+    /** 'debt' = nueva deuda generada al pagar menos de lo facturado; 'payment' = pago de deuda anterior */
+    type: text('type', { enum: ['debt', 'payment'] }).notNull(),
+    amount: real('amount').notNull(),
+    /** Gasto origen de este evento (puede ser null para pagos de deuda previos) */
+    expenseId: text('expense_id').references(() => expenses.id),
+    shiftId: text('shift_id')
+      .notNull()
+      .references(() => shifts.id),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+  },
+  table => [
+    index('idx_provider_debt_store_provider').on(table.storeId, table.provider),
   ]
 )
 

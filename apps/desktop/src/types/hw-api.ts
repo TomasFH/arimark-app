@@ -125,7 +125,13 @@ export interface ShiftSummary {
   totalDebts: number
   /** Señas cobradas en efectivo en este turno */
   totalCashDeposits: number
-  /** Señas cobradas con medios digitales en este turno */
+  /** Señas cobradas con débito en este turno */
+  totalDebitDeposits: number
+  /** Señas cobradas con billetera virtual en este turno */
+  totalWalletDeposits: number
+  /** Señas cobradas con crédito en este turno */
+  totalCreditDeposits: number
+  /** Total de señas digitales (debit + wallet + credit) */
   totalDigitalDeposits: number
   /** Cantidad de pedidos con seña en este turno */
   depositsCount: number
@@ -148,16 +154,11 @@ export interface CloseShiftPayload {
 export interface ExpenseRow {
   id: string
   category: string
+  provider: string | null
   amount: number
   notes: string | null
   createdAt: string
   createdBy: string
-}
-
-export interface RegisterExpensePayload {
-  category: string
-  amount: number
-  notes?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +539,12 @@ export interface SetSpecialCustomerPricePayload {
 
 export type OrderStatus = 'pending' | 'ready' | 'delivered' | 'cancelled'
 export type DepositMethod = 'cash' | 'debit' | 'wallet' | 'credit'
+export type OrderTimeSlot = 'morning' | 'afternoon' | 'specific'
+
+export interface DepositPayment {
+  method: DepositMethod
+  amount: number
+}
 
 export interface OrderRow {
   id: string
@@ -546,13 +553,20 @@ export interface OrderRow {
   phone: string | null
   items: string
   pickupDate: string
+  timeSlot: OrderTimeSlot | null
+  pickupTime: string | null
+  priority: boolean
   status: OrderStatus
   notes: string | null
   depositAmount: number
+  /** Desglose de medios de pago de la seña. Reemplaza depositMethod para nuevos pedidos. */
+  depositPayments: DepositPayment[] | null
+  /** Legado: medio único (puede existir en pedidos pre-migración) */
   depositMethod: DepositMethod | null
   createdAt: string
   createdBy: string
   updatedAt: string | null
+  updatedBy: string | null
 }
 
 export interface CreateOrderPayload {
@@ -560,9 +574,12 @@ export interface CreateOrderPayload {
   phone?: string
   items: string
   pickupDate: string
+  timeSlot?: OrderTimeSlot
+  pickupTime?: string
+  priority?: boolean
   notes?: string
   depositAmount?: number
-  depositMethod?: DepositMethod
+  depositPayments?: DepositPayment[]
 }
 
 export interface UpdateOrderStatusPayload {
@@ -576,15 +593,40 @@ export interface UpdateOrderPayload {
   phone?: string
   items?: string
   pickupDate?: string
-  notes?: string
+  timeSlot?: OrderTimeSlot | null
+  pickupTime?: string | null
+  priority?: boolean
+  notes?: string | null
   depositAmount?: number
-  depositMethod?: DepositMethod | null
+  depositPayments?: DepositPayment[] | null
 }
 
 export interface ListOrdersPayload {
   status?: OrderStatus
   fromDate?: string
   toDate?: string
+}
+
+// ---------------------------------------------------------------------------
+// Deuda a proveedores
+// ---------------------------------------------------------------------------
+
+export interface ProviderDebtRow {
+  provider: string
+  /** Saldo pendiente (positivo = deben pagarle; 0 = sin deuda) */
+  balance: number
+  lastEventAt: string
+}
+
+export interface RegisterExpensePayload {
+  category: string
+  amount: number
+  notes?: string
+  provider?: string
+  /** Monto que NO se pagó ahora y queda como deuda para la próxima visita */
+  newDebtAmount?: number
+  /** Monto de deuda anterior que se paga en este gasto */
+  paysOldDebt?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +693,7 @@ export interface HistoryOrderRow {
   phone: string | null
   items: string
   depositAmount: number
+  depositPayments: DepositPayment[] | null
   depositMethod: DepositMethod | null
   createdAt: string
 }
@@ -867,6 +910,12 @@ export interface HwApi {
   /** Lista los gastos del turno activo */
   getShiftExpenses: () => Promise<IpcResult<ExpenseRow[]>>
 
+  /** Devuelve el saldo de deuda actual hacia un proveedor */
+  getProviderDebt: (payload: { provider: string }) => Promise<IpcResult<ProviderDebtRow | null>>
+
+  /** Devuelve los nombres de proveedores con historial en el local (para autocomplete) */
+  getProviderNames: () => Promise<IpcResult<string[]>>
+
   /**
    * Retorna las categorías de gasto usadas previamente (para autocomplete).
    * Incluye sugerencias predefinidas si aún no hay historial.
@@ -908,6 +957,7 @@ export interface HwApi {
   updateOrderStatus: (payload: UpdateOrderStatusPayload) => Promise<IpcResult<OrderRow>>
   updateOrder: (payload: UpdateOrderPayload) => Promise<IpcResult<OrderRow>>
   deleteOrder: (payload: { id: string }) => Promise<IpcResult>
+  hardDeleteOrder: (payload: { id: string }) => Promise<IpcResult>
 
   // ---- Historial completo (Fase 7 — solo admin) ----
   getHistoryShifts: (payload?: GetHistoryShiftsPayload) => Promise<IpcResult<HistoryShiftRow[]>>

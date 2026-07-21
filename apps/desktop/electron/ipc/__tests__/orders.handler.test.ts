@@ -31,10 +31,10 @@ function getHandler(channel: string): HandlerFn {
   return call[1] as HandlerFn
 }
 
-const STORE_ID = 'store-001'
-const USER_ID  = 'user-001'
-const SHIFT_ID = 'shift-001'
-const ADMIN_SESSION   = { userId: USER_ID, storeId: STORE_ID, role: 'admin', shiftId: SHIFT_ID }
+const STORE_ID  = '00000000-0000-0000-0000-000000000010'
+const USER_ID   = '00000000-0000-0000-0000-000000000020'
+const SHIFT_ID  = '00000000-0000-0000-0000-000000000030'
+const ADMIN_SESSION   = { userId: USER_ID, storeId: STORE_ID, role: 'admin',   shiftId: SHIFT_ID }
 const CASHIER_SESSION = { userId: USER_ID, storeId: STORE_ID, role: 'cashier', shiftId: SHIFT_ID }
 const SESSION_NO_SHIFT = { userId: USER_ID, storeId: STORE_ID, role: 'cashier', shiftId: undefined }
 
@@ -79,18 +79,32 @@ describe('orders.handler', () => {
       expect(res.data.depositAmount).toBe(0)
     })
 
-    it('crea un pedido con seña en efectivo', () => {
+    it('crea un pedido con seña multimedios', () => {
       const handler = getHandler('ipc:create-order')
       const res = handler(null, {
         customerName: 'María',
         items: '1 pollo',
         pickupDate: '2026-07-25',
         depositAmount: 5000,
-        depositMethod: 'cash',
-      }) as { ok: boolean; data: { depositAmount: number; depositMethod: string } }
+        depositPayments: [{ method: 'cash', amount: 3000 }, { method: 'debit', amount: 2000 }],
+      }) as { ok: boolean; data: { depositAmount: number; depositPayments: { method: string; amount: number }[] } }
       expect(res.ok).toBe(true)
       expect(res.data.depositAmount).toBe(5000)
-      expect(res.data.depositMethod).toBe('cash')
+      expect(res.data.depositPayments).toHaveLength(2)
+    })
+
+    it('crea un pedido prioritario con turno mañana', () => {
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'VIP Cliente',
+        items: 'Media res',
+        pickupDate: '2026-07-25',
+        timeSlot: 'morning',
+        priority: true,
+      }) as { ok: boolean; data: { priority: boolean; timeSlot: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.priority).toBe(true)
+      expect(res.data.timeSlot).toBe('morning')
     })
 
     it('rechaza payload inválido', () => {
@@ -99,14 +113,14 @@ describe('orders.handler', () => {
       expect(res.ok).toBe(false)
     })
 
-    it('rechaza seña sin método de pago', () => {
+    it('rechaza seña sin depositPayments', () => {
       const handler = getHandler('ipc:create-order')
       const res = handler(null, {
         customerName: 'Ana',
         items: 'Chorizos',
         pickupDate: '2026-07-25',
         depositAmount: 1000,
-        // sin depositMethod
+        // sin depositPayments
       }) as { ok: boolean }
       expect(res.ok).toBe(false)
     })
@@ -119,7 +133,7 @@ describe('orders.handler', () => {
         items: 'Asado',
         pickupDate: '2026-07-25',
         depositAmount: 1000,
-        depositMethod: 'cash',
+        depositPayments: [{ method: 'cash', amount: 1000 }],
       }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('NO_SHIFT')
@@ -185,19 +199,11 @@ describe('orders.handler', () => {
   })
 
   // --------------------------------------------------------------------------
-  // UPDATE_ORDER
+  // UPDATE_ORDER — cajera y admin pueden editar
   // --------------------------------------------------------------------------
   describe('UPDATE_ORDER', () => {
-    it('rechaza si el rol es cajera', () => {
+    it('cajera puede editar el pedido', () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
-      const handler = getHandler('ipc:update-order')
-      const res = handler(null, { id: '00000000-0000-0000-0000-000000000001', customerName: 'Nuevo' }) as { ok: boolean; code: string }
-      expect(res.ok).toBe(false)
-      expect(res.code).toBe('FORBIDDEN')
-    })
-
-    it('edita el pedido como admin', () => {
-      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const createHandler = getHandler('ipc:create-order')
       const created = createHandler(null, { customerName: 'Original', items: 'Vacío', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
       expect(created.ok).toBe(true)
@@ -207,18 +213,34 @@ describe('orders.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.customerName).toBe('Actualizado')
     })
+
+    it('edita el pedido como admin', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const createHandler = getHandler('ipc:create-order')
+      const created = createHandler(null, { customerName: 'Original', items: 'Vacío', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
+      const handler = getHandler('ipc:update-order')
+      const res = handler(null, { id: created.data.id, customerName: 'Actualizado Admin', priority: true }) as { ok: boolean; data: { customerName: string; priority: boolean } }
+      expect(res.ok).toBe(true)
+      expect(res.data.customerName).toBe('Actualizado Admin')
+      expect(res.data.priority).toBe(true)
+    })
   })
 
   // --------------------------------------------------------------------------
-  // DELETE_ORDER
+  // DELETE_ORDER — cajera y admin (soft delete = cancelar)
   // --------------------------------------------------------------------------
   describe('DELETE_ORDER', () => {
-    it('rechaza si el rol es cajera', () => {
+    it('cajera puede cancelar el pedido', () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const createHandler = getHandler('ipc:create-order')
+      const created = createHandler(null, { customerName: 'Para cancelar', items: 'Algo', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
       const handler = getHandler('ipc:delete-order')
-      const res = handler(null, { id: '00000000-0000-0000-0000-000000000001' }) as { ok: boolean; code: string }
-      expect(res.ok).toBe(false)
-      expect(res.code).toBe('FORBIDDEN')
+      const res = handler(null, { id: created.data.id }) as { ok: boolean }
+      expect(res.ok).toBe(true)
     })
 
     it('cancela el pedido como admin (soft delete)', () => {
@@ -231,7 +253,6 @@ describe('orders.handler', () => {
       const res = handler(null, { id: created.data.id }) as { ok: boolean }
       expect(res.ok).toBe(true)
 
-      // Verificar que el pedido ahora está cancelado
       const list = getHandler('ipc:list-orders')
       const listRes = list(null, { status: 'cancelled' }) as { ok: boolean; data: { id: string; status: string }[] }
       expect(listRes.ok).toBe(true)
@@ -240,10 +261,38 @@ describe('orders.handler', () => {
     })
 
     it('rechaza UUID inválido', () => {
-      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:delete-order')
       const res = handler(null, { id: 'no-es-uuid' }) as { ok: boolean }
       expect(res.ok).toBe(false)
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // HARD_DELETE_ORDER — solo admin
+  // --------------------------------------------------------------------------
+  describe('HARD_DELETE_ORDER', () => {
+    it('cajera no puede eliminar permanentemente', () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:hard-delete-order')
+      const res = handler(null, { id: '00000000-0000-0000-0000-000000000001' }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+
+    it('admin puede eliminar permanentemente', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const createHandler = getHandler('ipc:create-order')
+      const created = createHandler(null, { customerName: 'Eliminar', items: 'Algo', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
+      const handler = getHandler('ipc:hard-delete-order')
+      const res = handler(null, { id: created.data.id }) as { ok: boolean }
+      expect(res.ok).toBe(true)
+
+      // Verificar que no aparece más en la lista
+      const list = getHandler('ipc:list-orders')
+      const listRes = list(null) as { ok: boolean; data: { id: string }[] }
+      expect(listRes.data.find(o => o.id === created.data.id)).toBeUndefined()
     })
   })
 })

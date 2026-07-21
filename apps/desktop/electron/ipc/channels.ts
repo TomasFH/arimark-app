@@ -82,6 +82,11 @@ export const IPC = {
   UPDATE_ORDER_STATUS: 'ipc:update-order-status',
   UPDATE_ORDER: 'ipc:update-order',
   DELETE_ORDER: 'ipc:delete-order',
+  HARD_DELETE_ORDER: 'ipc:hard-delete-order',
+
+  // Gastos del turno — deuda a proveedores
+  GET_PROVIDER_DEBT: 'ipc:get-provider-debt',
+  GET_PROVIDER_NAMES: 'ipc:get-provider-names',
 
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
