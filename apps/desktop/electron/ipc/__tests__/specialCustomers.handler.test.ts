@@ -65,10 +65,19 @@ describe('specialCustomers.handler', () => {
   describe('CREATE_SPECIAL_CUSTOMER', () => {
     it('crea un cliente especial como admin', () => {
       const handler = getHandler('ipc:create-special-customer')
-      const res = handler(null, { name: 'Carlos Especial' }) as { ok: boolean; data: { id: string; name: string } }
+      const res = handler(null, { name: 'Carlos Especial' }) as { ok: boolean; data: { id: string; name: string; storeId: string | null } }
       expect(res.ok).toBe(true)
       expect(res.data.name).toBe('Carlos Especial')
       expect(res.data.id).toBeTruthy()
+      // Sin storeId → null (todos los locales)
+      expect(res.data.storeId).toBeNull()
+    })
+
+    it('crea un cliente especial asignado a un local específico', () => {
+      const handler = getHandler('ipc:create-special-customer')
+      const res = handler(null, { name: 'Local Uno', storeId: 'store-001' }) as { ok: boolean; data: { storeId: string | null } }
+      expect(res.ok).toBe(true)
+      expect(res.data.storeId).toBe('store-001')
     })
 
     it('rechaza payload inválido', () => {
@@ -116,6 +125,27 @@ describe('specialCustomers.handler', () => {
       expect(res.data[0].name).toBe('Carlos')
     })
 
+    it('clientes sin local asignado (storeId null) aparecen en todos los locales', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: 'store-999', name: 'Otro', address: 'x', createdAt: now }).run()
+      // Cliente universal (storeId null)
+      db.insert(specialCustomers).values({
+        id: SC_ID, storeId: null, name: 'Universal', createdAt: now, createdBy: 'user-001',
+      }).run()
+      // Cliente de otro local
+      db.insert(specialCustomers).values({
+        id: SC_ID2, storeId: 'store-999', name: 'Solo otro local', createdAt: now, createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:list-special-customers')
+      // Admin sin filtro → effectiveStoreId = 'store-001'; cliente universal debe aparecer
+      const res = handler(null) as { ok: boolean; data: Array<{ name: string; storeId: string | null }> }
+      expect(res.ok).toBe(true)
+      expect(res.data).toHaveLength(1)
+      expect(res.data[0].name).toBe('Universal')
+      expect(res.data[0].storeId).toBeNull()
+    })
+
     it('cajeras también pueden listar (solo lectura)', () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:list-special-customers')
@@ -135,6 +165,15 @@ describe('specialCustomers.handler', () => {
 
       const handler = getHandler('ipc:update-special-customer')
       const res = handler(null, { id: SC_ID, name: 'Nuevo', notes: 'Compra mayoreo' }) as { ok: boolean }
+      expect(res.ok).toBe(true)
+    })
+
+    it('puede cambiar el local asignado a null (todos)', () => {
+      const now = new Date().toISOString()
+      db.insert(specialCustomers).values({ id: SC_ID, storeId: 'store-001', name: 'Cliente', createdAt: now, createdBy: 'user-001' }).run()
+
+      const handler = getHandler('ipc:update-special-customer')
+      const res = handler(null, { id: SC_ID, storeId: null }) as { ok: boolean }
       expect(res.ok).toBe(true)
     })
 

@@ -259,16 +259,18 @@ interface CustomerCardProps {
   customer: SpecialCustomerRow
   prices: SpecialCustomerPriceRow[]
   products: ProductRow[]
+  stores: StoreRow[]
   isAdmin: boolean
-  onSave: (id: string, name: string, notes: string, priceEntries: PriceEntry[]) => Promise<void>
+  onSave: (id: string, name: string, notes: string, storeId: string | null, priceEntries: PriceEntry[]) => Promise<void>
   onDelete: (id: string) => void
 }
 
-function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDelete }: CustomerCardProps) {
+function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSave, onDelete }: CustomerCardProps) {
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [editName, setEditName] = useState(customer.name)
   const [editNotes, setEditNotes] = useState(customer.notes ?? '')
+  const [editStoreId, setEditStoreId] = useState<string | null>(customer.storeId)
   const [editEntries, setEditEntries] = useState<PriceEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -278,6 +280,7 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDe
   function startEdit() {
     setEditName(customer.name)
     setEditNotes(customer.notes ?? '')
+    setEditStoreId(customer.storeId)
     setEditEntries(prices.map(p => {
       const prod = products.find(pr => pr.id === p.productId)
       return {
@@ -298,7 +301,7 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDe
     if (!editName.trim()) { setError('El nombre no puede estar vacío.'); return }
     setSaving(true); setError(null)
     try {
-      await onSave(customer.id, editName.trim(), editNotes.trim(), editEntries)
+      await onSave(customer.id, editName.trim(), editNotes.trim(), editStoreId, editEntries)
       setEditing(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar.')
@@ -329,6 +332,36 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDe
             maxLength={300}
             className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
           />
+          {/* Selector de local */}
+          {stores.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500">Local del cliente</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setEditStoreId(null)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    editStoreId === null ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  Todos los locales
+                </button>
+                {stores.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setEditStoreId(s.id)}
+                    title={s.name}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors truncate max-w-[140px] ${
+                      editStoreId === s.id ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <PriceEditor
           products={products}
@@ -363,9 +396,22 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onSave, onDe
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white">{customer.name}</p>
           {customer.notes && <p className="text-xs text-gray-400 mt-0.5 truncate" title={customer.notes}>{customer.notes}</p>}
-          {updatedDate && (
-            <p className="text-xs text-gray-600 mt-0.5">Modificado: {updatedDate}</p>
-          )}
+          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+            {/* Badge de local asignado */}
+            {customer.storeId !== null ? (
+              <span className="text-xs bg-amber-900/30 text-amber-400/80 border border-amber-700/30 px-1.5 py-0.5 rounded-full truncate max-w-[120px]"
+                title={stores.find(s => s.id === customer.storeId)?.name ?? customer.storeId}>
+                {stores.find(s => s.id === customer.storeId)?.name ?? 'Local desconocido'}
+              </span>
+            ) : (
+              <span className="text-xs bg-gray-800 text-gray-500 border border-gray-700 px-1.5 py-0.5 rounded-full">
+                Todos los locales
+              </span>
+            )}
+            {updatedDate && (
+              <span className="text-xs text-gray-600">Modificado: {updatedDate}</span>
+            )}
+          </div>
           {!expanded && prices.length > 0 && (
             <p className="text-xs text-gray-600 mt-0.5">
               {prices.length} precio{prices.length > 1 ? 's' : ''} especial{prices.length > 1 ? 'es' : ''} · tocá para ver
@@ -461,6 +507,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newNotes, setNewNotes] = useState('')
+  const [newStoreId, setNewStoreId] = useState<string | null>(null)
   const [newEntries, setNewEntries] = useState<PriceEntry[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -524,7 +571,11 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   async function handleCreate() {
     if (!newName.trim()) { setCreateError('El nombre no puede estar vacío.'); return }
     setCreating(true); setCreateError(null)
-    const res = await window.hw.createSpecialCustomer({ name: newName.trim(), notes: newNotes.trim() || undefined })
+    const res = await window.hw.createSpecialCustomer({
+      name: newName.trim(),
+      notes: newNotes.trim() || undefined,
+      storeId: newStoreId,
+    })
     if (!res.ok) { setCreateError(res.error ?? 'Error al crear.'); setCreating(false); return }
 
     await syncPrices(res.data.id, newEntries, [])
@@ -534,17 +585,19 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
     setCreating(false)
     setCustomers(prev => [...prev, res.data])
     setAllPrices(prev => ({ ...prev, [res.data.id]: pricesRes.ok ? pricesRes.data : [] }))
-    setNewName(''); setNewNotes(''); setNewEntries([]); setShowCreate(false)
+    setNewName(''); setNewNotes(''); setNewStoreId(null); setNewEntries([]); setShowCreate(false)
   }
 
-  const handleSaveCustomer = useCallback(async (id: string, name: string, notes: string, entries: PriceEntry[]) => {
-    const res = await window.hw.updateSpecialCustomer({ id, name, notes: notes || undefined })
+  const handleSaveCustomer = useCallback(async (id: string, name: string, notes: string, storeId: string | null, entries: PriceEntry[]) => {
+    const res = await window.hw.updateSpecialCustomer({ id, name, notes: notes || undefined, storeId })
     if (!res.ok) throw new Error(res.error ?? 'Error al actualizar.')
 
     await syncPrices(id, entries, allPrices[id] ?? [])
 
     const pricesRes = await window.hw.getSpecialCustomerPrices({ specialCustomerId: id })
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, name, notes: notes || null, updatedAt: new Date().toISOString() } : c))
+    setCustomers(prev => prev.map(c =>
+      c.id === id ? { ...c, name, notes: notes || null, storeId, updatedAt: new Date().toISOString() } : c
+    ))
     setAllPrices(prev => ({ ...prev, [id]: pricesRes.ok ? pricesRes.data : [] }))
   }, [allPrices])
 
@@ -633,6 +686,36 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               maxLength={300}
               className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
             />
+            {/* Selector de local */}
+            {availableStores.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-500">Asignar a local</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setNewStoreId(null)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                      newStoreId === null ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    Todos los locales
+                  </button>
+                  {availableStores.map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setNewStoreId(s.id)}
+                      title={s.name}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors truncate max-w-[140px] ${
+                        newStoreId === s.id ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}
+                    >
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <PriceEditor
             products={products}
@@ -650,7 +733,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               {creating ? 'Guardando…' : 'Crear'}
             </button>
             <button
-              onClick={() => { setShowCreate(false); setNewName(''); setNewNotes(''); setNewEntries([]); setCreateError(null) }}
+              onClick={() => { setShowCreate(false); setNewName(''); setNewNotes(''); setNewStoreId(null); setNewEntries([]); setCreateError(null) }}
               className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:text-white"
             >
               Cancelar
@@ -686,6 +769,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
             customer={customer}
             prices={allPrices[customer.id] ?? []}
             products={products}
+            stores={availableStores}
             isAdmin={isAdmin}
             onSave={handleSaveCustomer}
             onDelete={handleDeleteCustomer}

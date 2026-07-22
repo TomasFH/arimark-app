@@ -8,7 +8,7 @@
  */
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, or, isNull } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { IPC } from './channels'
@@ -25,12 +25,14 @@ import type { IpcResult } from '../../src/types/hw-api'
 const createSpecialCustomerSchema = z.object({
   name: z.string().min(1).max(100),
   notes: z.string().max(500).optional(),
+  storeId: z.string().min(1).nullable().optional(), // null | undefined = todos los locales
 })
 
 const updateSpecialCustomerSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(100).optional(),
   notes: z.string().max(500).optional(),
+  storeId: z.string().min(1).nullable().optional(), // null = todos los locales
 })
 
 const deleteSpecialCustomerSchema = z.object({
@@ -59,7 +61,7 @@ const deleteSpecialCustomerPriceSchema = z.object({
 
 export type SpecialCustomerRow = {
   id: string
-  storeId: string
+  storeId: string | null   // null = visible en todos los locales
   name: string
   notes: string | null
   createdAt: string
@@ -102,7 +104,13 @@ export function registerSpecialCustomersHandlers() {
       const rows = db
         .select()
         .from(specialCustomers)
-        .where(effectiveStoreId !== null ? eq(specialCustomers.storeId, effectiveStoreId) : undefined)
+        .where(
+          // Si hay un filtro de local activo: incluir clientes de ese local
+          // Y también los clientes sin local asignado (visibles en todos)
+          effectiveStoreId !== null
+            ? or(eq(specialCustomers.storeId, effectiveStoreId), isNull(specialCustomers.storeId))
+            : undefined
+        )
         .all()
 
       return {
@@ -134,21 +142,24 @@ export function registerSpecialCustomersHandlers() {
       return { ok: false, error: 'Datos inválidos.', code: 'INVALID_PAYLOAD' }
     }
 
+    // storeId explícito o null (todos los locales)
+    const assignedStoreId = parsed.data.storeId ?? null
+
     try {
       const db = getDb()
       const id = uuidv4()
       const now = nowUtc()
       db.insert(specialCustomers).values({
         id,
-        storeId: session.storeId,
+        storeId: assignedStoreId,
         name: parsed.data.name.trim(),
         notes: parsed.data.notes?.trim() ?? null,
         createdAt: now,
         createdBy: session.userId,
       }).run()
 
-      log.info('[ipc:create-special-customer]', { id, name: parsed.data.name })
-      return { ok: true, data: { id, storeId: session.storeId, name: parsed.data.name.trim(), notes: parsed.data.notes?.trim() ?? null, createdAt: now, updatedAt: null } }
+      log.info('[ipc:create-special-customer]', { id, name: parsed.data.name, storeId: assignedStoreId })
+      return { ok: true, data: { id, storeId: assignedStoreId, name: parsed.data.name.trim(), notes: parsed.data.notes?.trim() ?? null, createdAt: now, updatedAt: null } }
     } catch (err) {
       log.error('[ipc:create-special-customer]', err)
       return { ok: false, error: 'Error al crear el cliente especial.' }
@@ -173,11 +184,13 @@ export function registerSpecialCustomersHandlers() {
       }
       if (parsed.data.name !== undefined) updates.name = parsed.data.name.trim()
       if (parsed.data.notes !== undefined) updates.notes = parsed.data.notes.trim() || null
+      // storeId: undefined = no cambiar; null = asignar a todos; string = asignar a local
+      if ('storeId' in parsed.data) updates.storeId = parsed.data.storeId ?? null
 
-      db.update(specialCustomers).set(updates).where(and(
-        eq(specialCustomers.id, parsed.data.id),
-        eq(specialCustomers.storeId, session.storeId),
-      )).run()
+      // Los admins pueden editar cualquier cliente especial (no restricción por local)
+      db.update(specialCustomers).set(updates)
+        .where(eq(specialCustomers.id, parsed.data.id))
+        .run()
 
       return { ok: true, data: undefined }
     } catch (err) {
@@ -201,11 +214,9 @@ export function registerSpecialCustomersHandlers() {
         tx.delete(specialCustomerPrices)
           .where(eq(specialCustomerPrices.specialCustomerId, parsed.data.id))
           .run()
+        // Los admins pueden eliminar cualquier cliente especial
         tx.delete(specialCustomers)
-          .where(and(
-            eq(specialCustomers.id, parsed.data.id),
-            eq(specialCustomers.storeId, session.storeId),
-          ))
+          .where(eq(specialCustomers.id, parsed.data.id))
           .run()
       })
       return { ok: true, data: undefined }

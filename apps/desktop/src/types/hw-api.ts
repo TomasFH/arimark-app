@@ -498,7 +498,7 @@ export interface CancelDebtPayload {
 
 export interface SpecialCustomerRow {
   id: string
-  storeId: string
+  storeId: string | null   // null = visible en todos los locales
   name: string
   notes: string | null
   createdAt: string
@@ -520,12 +520,14 @@ export interface SpecialCustomerPriceRow {
 export interface CreateSpecialCustomerPayload {
   name: string
   notes?: string
+  storeId?: string | null  // null | omitido = todos los locales
 }
 
 export interface UpdateSpecialCustomerPayload {
   id: string
   name?: string
   notes?: string
+  storeId?: string | null  // null = todos los locales; omitir para no cambiar
 }
 
 export interface SetSpecialCustomerPricePayload {

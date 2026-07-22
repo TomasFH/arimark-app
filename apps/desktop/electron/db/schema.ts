@@ -158,8 +158,7 @@ export const customerPrices = sqliteTable('customer_prices', {
 export const specialCustomers = sqliteTable('special_customers', {
   id: text('id').primaryKey(),
   storeId: text('store_id')
-    .notNull()
-    .references(() => stores.id),
+    .references(() => stores.id),          // nullable: null = todos los locales
   name: text('name').notNull(),
   notes: text('notes'),
   createdAt: text('created_at').notNull(),

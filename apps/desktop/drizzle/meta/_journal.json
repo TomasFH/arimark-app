@@ -99,6 +99,13 @@
       "when": 1784678403000,
       "tag": "0013_stores_archived_at",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1784678404000,
+      "tag": "0014_special_customers_store_nullable",
+      "breakpoints": true
     }
   ]
 }
