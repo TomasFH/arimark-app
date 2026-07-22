@@ -86,7 +86,6 @@ export function registerAuthHandlers(): void {
 
     const { email, password } = parsed.data
     const config = getBusinessConfig()
-    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
     try {
       const result = await signInAutoDetect(config.license_key, email, password)
