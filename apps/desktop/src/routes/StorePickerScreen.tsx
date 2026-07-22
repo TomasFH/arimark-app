@@ -7,13 +7,16 @@ import type { StoreRow } from '../types/hw-api'
 
 interface Props {
   stores: StoreRow[]
+  intent?: 'cashier'
   onSelect: (storeId: string) => Promise<void>
   onLogout: () => void
 }
 
-export default function StorePickerScreen({ stores, onSelect, onLogout }: Props) {
+export default function StorePickerScreen({ stores, intent, onSelect, onLogout }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const isCashierMode = intent === 'cashier'
 
   async function handleSelect(storeId: string) {
     setError(null)
@@ -31,7 +34,11 @@ export default function StorePickerScreen({ stores, onSelect, onLogout }: Props)
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold text-white">¿En qué local trabajás hoy?</h1>
-          <p className="text-sm text-gray-400">Seleccioná el local donde vas a operar en este turno.</p>
+          <p className="text-sm text-gray-400">
+            {isCashierMode
+              ? 'Seleccioná el local donde vas a abrir la caja.'
+              : 'Seleccioná el local donde vas a operar en este turno.'}
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -43,7 +50,7 @@ export default function StorePickerScreen({ stores, onSelect, onLogout }: Props)
               className="w-full rounded-xl bg-gray-800 border border-gray-700 hover:border-blue-500 hover:bg-gray-700 text-left px-5 py-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <p className="font-semibold text-white">{store.name}</p>
-              {'address' in store && store.address && (
+              {store.address && (
                 <p className="text-sm text-gray-400 mt-0.5 truncate" title={store.address}>
                   {store.address}
                 </p>
@@ -65,7 +72,7 @@ export default function StorePickerScreen({ stores, onSelect, onLogout }: Props)
           disabled={loading}
           className="w-full text-sm text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40 pt-2"
         >
-          ← Volver al login
+          {isCashierMode ? '← Volver al hub' : '← Volver al login'}
         </button>
       </div>
     </div>

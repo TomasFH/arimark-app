@@ -873,6 +873,12 @@ export interface HwApi {
   /** Crea un nuevo local — solo admin */
   createStore: (payload: { name: string; address?: string }) => Promise<IpcResult<StoreRow>>
 
+  /** Actualiza nombre y/o dirección de un local — solo admin */
+  updateStore: (payload: { id: string; name?: string; address?: string | null }) => Promise<IpcResult<StoreRow>>
+
+  /** Elimina un local — solo admin; bloquea si tiene turnos, pedidos o productos */
+  deleteStore: (payload: { id: string }) => Promise<IpcResult>
+
   /** Crea un producto nuevo — solo admin */
   createProduct: (payload: CreateProductPayload) => Promise<IpcResult<{ id: string }>>
 

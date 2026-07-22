@@ -95,6 +95,8 @@ export const IPC = {
   // Gestión de locales (multi-local)
   SELECT_STORE: 'ipc:select-store',
   CREATE_STORE: 'ipc:create-store',
+  UPDATE_STORE: 'ipc:update-store',
+  DELETE_STORE: 'ipc:delete-store',
 
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',

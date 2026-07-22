@@ -149,4 +149,86 @@ describe('stores.handler', () => {
       expect(res.code).toBe('INVALID_PAYLOAD')
     })
   })
+
+  // --------------------------------------------------------------------------
+  // UPDATE_STORE
+  // --------------------------------------------------------------------------
+  describe('UPDATE_STORE', () => {
+    it('actualiza nombre y dirección de un local', () => {
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, { id: STORE_ID, name: 'Local Renombrado', address: 'Nueva dirección 456' }) as { ok: boolean; data: { name: string; address: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.name).toBe('Local Renombrado')
+      expect(res.data.address).toBe('Nueva dirección 456')
+    })
+
+    it('limpia la dirección si se pasa string vacío', () => {
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, { id: STORE_ID, address: '' }) as { ok: boolean; data: { address: string | null } }
+      expect(res.ok).toBe(true)
+      expect(res.data.address).toBeNull()
+    })
+
+    it('rechaza nombre duplicado de otro local', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, { id: STORE_ID, name: 'Local 2' }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
+    it('rechaza si no es admin', () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, { id: STORE_ID, name: 'Intento cajera' }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+
+    it('rechaza local inexistente', () => {
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, { id: '00000000-0000-0000-0000-000000000099', name: 'X' }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('NOT_FOUND')
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // DELETE_STORE
+  // --------------------------------------------------------------------------
+  describe('DELETE_STORE', () => {
+    it('elimina un local vacío cuando hay más de uno', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
+      const handler = getHandler('ipc:delete-store')
+      const res = handler(null, { id: STORE2_ID }) as { ok: boolean }
+      expect(res.ok).toBe(true)
+    })
+
+    it('rechaza eliminar el único local', () => {
+      const handler = getHandler('ipc:delete-store')
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
+    it('rechaza eliminar local con turnos', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
+      const handler = getHandler('ipc:delete-store')
+      // STORE_ID tiene el SHIFT_ID insertado en beforeEach
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
+    it('rechaza si no es admin', () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:delete-store')
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+  })
 })

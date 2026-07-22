@@ -24,7 +24,7 @@ type AppState =
   | { screen: 'license-error'; reason: InitStatus['licenseReason'] & string; message: string }
   | { screen: 'activation'; licenseKey: string }
   | { screen: 'login'; initStatus: InitStatus }
-  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>; stores: StoreRow[]; initStatus: InitStatus }
+  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier' }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
   | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
@@ -173,12 +173,14 @@ export default function App() {
     _partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>,
     storeId: string,
     initStatus: InitStatus,
+    intent?: 'cashier',
   ): Promise<void> {
     const r = await window.hw.selectStore({ storeId })
     if (!r.ok) throw new Error(r.error)
 
     const session = r.data
-    if (session.role === 'admin') {
+    // Si el admin llega sin intención de ir a la caja, vuelve al hub
+    if (session.role === 'admin' && intent !== 'cashier') {
       setState({ screen: 'admin-hub', session, initStatus })
       return
     }
@@ -192,11 +194,23 @@ export default function App() {
 
   async function handleAdminGoToCashier(): Promise<void> {
     if (state.screen !== 'admin-hub') return
-    const shiftResult = await window.hw.getActiveShift()
-    if (shiftResult.ok && shiftResult.data) {
-      setState({ screen: 'cashier', session: state.session, shift: shiftResult.data, initStatus: state.initStatus })
+
+    const storesResult = await window.hw.getStores()
+    const availableStores = storesResult.ok ? storesResult.data : []
+
+    if (availableStores.length <= 1) {
+      // Un solo local (o ninguno): seleccionar automáticamente
+      const storeId = availableStores[0]?.id ?? state.session.storeId ?? ''
+      await handleSelectStore(state.session, storeId, state.initStatus, 'cashier')
     } else {
-      setState({ screen: 'shift-required', session: state.session, initStatus: state.initStatus })
+      // Múltiples locales: pedir que elija en cuál va a trabajar
+      setState({
+        screen: 'store-picker',
+        partialSession: state.session,
+        stores: availableStores,
+        initStatus: state.initStatus,
+        intent: 'cashier',
+      })
     }
   }
 
@@ -279,10 +293,19 @@ export default function App() {
       {state.screen === 'store-picker' && (
         <StorePickerScreen
           stores={state.stores}
+          intent={state.intent}
           onSelect={async (storeId) => {
-            await handleSelectStore(state.partialSession, storeId, state.initStatus)
+            await handleSelectStore(state.partialSession, storeId, state.initStatus, state.intent)
           }}
-          onLogout={() => setState({ screen: 'login', initStatus: state.initStatus })}
+          onLogout={() => {
+            if (state.intent === 'cashier') {
+              // Volver al hub admin sin cerrar sesión
+              const session = state.partialSession as SessionInfo
+              setState({ screen: 'admin-hub', session, initStatus: state.initStatus })
+            } else {
+              setState({ screen: 'login', initStatus: state.initStatus })
+            }
+          }}
         />
       )}
 

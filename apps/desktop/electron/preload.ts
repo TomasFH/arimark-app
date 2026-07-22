@@ -109,6 +109,8 @@ const hw: HwApi = {
   // Gestión de locales (multi-local)
   selectStore: payload => ipcRenderer.invoke(IPC.SELECT_STORE, payload),
   createStore: payload => ipcRenderer.invoke(IPC.CREATE_STORE, payload),
+  updateStore: payload => ipcRenderer.invoke(IPC.UPDATE_STORE, payload),
+  deleteStore: payload => ipcRenderer.invoke(IPC.DELETE_STORE, payload),
 
   // Pedidos (Fase 7)
   createOrder: payload => ipcRenderer.invoke(IPC.CREATE_ORDER, payload),
