@@ -138,11 +138,8 @@ export function registerAuthHandlers(): void {
         }
       }
 
-      // Flujo cajera: usar el primer local autorizado o el default
-      const storeId = (APP_ENV !== 'dev' && profile.authorizedStores.length > 0)
-        ? profile.authorizedStores[0]!
-        : config.default_store_id
-
+      // Flujo cajera: verificar estado activo si ya tiene perfil local
+      // El storeId definitivo se establece en SELECT_STORE; aquí usamos el default temporalmente.
       const db = getDb()
       const existing = db
         .select()
@@ -151,37 +148,19 @@ export function registerAuthHandlers(): void {
         .limit(1)
         .all()[0]
 
-      if (!existing) {
-        db.insert(users).values({
-          id: profile.uid,
-          storeId,
-          name: profile.displayName,
-          firebaseUid: profile.uid,
-          role: 'cashier',
-          active: true,
-          createdAt: new Date().toISOString(),
-        }).run()
-        log.info('[ipc:login] Perfil cajera creado', { uid: profile.uid, storeId })
-      } else if (!existing.active) {
+      if (existing && !existing.active) {
         return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
-      } else if (existing.storeId !== storeId || existing.name !== profile.displayName) {
-        db.update(users).set({ storeId, name: profile.displayName }).where(eq(users.id, existing.id)).run()
       }
 
-      setActiveSession({ userId: profile.uid, storeId, role: 'cashier', shiftId: null })
+      // Setear sesión parcial (storeId se actualizará en SELECT_STORE)
+      setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'cashier', shiftId: null })
 
-      publishCatalog(config.license_key, storeId).catch(err =>
-        log.warn('[ipc:login] Error publicando catálogo', err)
-      )
-      startMobileSyncListener(config.license_key, storeId)
-
-      log.info('[ipc:login] Cajera autenticada', { email, storeId })
+      log.info('[ipc:login] Cajera autenticada — pendiente selección de local', { email })
       return {
         ok: true,
         data: {
           role: 'cashier',
           userId: profile.uid,
-          storeId,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         },
       }

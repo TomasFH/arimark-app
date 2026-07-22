@@ -127,7 +127,7 @@ export function registerCatalogAdminHandlers(): void {
     try {
       const db = getDb()
       const rows = db
-        .select({ id: stores.id, name: stores.name })
+        .select({ id: stores.id, name: stores.name, address: stores.address })
         .from(stores)
         .orderBy(asc(stores.name))
         .all()

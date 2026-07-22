@@ -34,3 +34,13 @@ export function updateActiveShift(shiftId: string | null): void {
     _session = { ..._session, shiftId }
   }
 }
+
+/**
+ * Actualiza el storeId de la sesión activa.
+ * Llamar cuando el usuario selecciona un local tras el login.
+ */
+export function updateActiveStore(storeId: string): void {
+  if (_session) {
+    _session = { ..._session, storeId }
+  }
+}

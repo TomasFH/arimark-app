@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { DevBanner } from './components/SandboxBanner'
 import LoginScreen from './routes/LoginScreen'
+import StorePickerScreen from './routes/StorePickerScreen'
 import ActivationScreen from './routes/ActivationScreen'
 import LicenseErrorScreen from './routes/LicenseErrorScreen'
 import OpenShiftScreen from './routes/OpenShiftScreen'
@@ -9,11 +10,12 @@ import CloseShiftScreen from './routes/CloseShiftScreen'
 import AdminScreen from './routes/AdminScreen'
 import AdminHubScreen from './routes/AdminHubScreen'
 import CashierManagementScreen from './routes/CashierManagementScreen'
+import StoreManagementScreen from './routes/StoreManagementScreen'
 import DebtsScreen from './routes/DebtsScreen'
 import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
 import OrdersScreen from './routes/OrdersScreen'
 import HistoryScreen from './routes/HistoryScreen'
-import type { InitStatus, SessionInfo, ShiftInfo } from './types/hw-api'
+import type { InitStatus, SessionInfo, ShiftInfo, StoreRow } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
@@ -22,12 +24,14 @@ type AppState =
   | { screen: 'license-error'; reason: InitStatus['licenseReason'] & string; message: string }
   | { screen: 'activation'; licenseKey: string }
   | { screen: 'login'; initStatus: InitStatus }
+  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>; stores: StoreRow[]; initStatus: InitStatus }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
   | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'store-management'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
@@ -145,17 +149,39 @@ export default function App() {
     const result = await window.hw.login({ email, password })
     if (!result.ok) throw new Error(result.error)
 
-    const session = result.data
+    const partialSession = result.data
+
+    // Cargar locales disponibles
+    const storesResult = await window.hw.getStores()
+    const availableStores = storesResult.ok ? storesResult.data : []
+
+    if (availableStores.length === 1) {
+      // Un solo local: seleccionar automáticamente
+      await handleSelectStore(partialSession, availableStores[0]!.id, state.initStatus)
+    } else {
+      // Múltiples locales: mostrar selector
+      setState({ screen: 'store-picker', partialSession, stores: availableStores, initStatus: state.initStatus })
+    }
+  }
+
+  async function handleSelectStore(
+    _partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>,
+    storeId: string,
+    initStatus: InitStatus,
+  ): Promise<void> {
+    const r = await window.hw.selectStore({ storeId })
+    if (!r.ok) throw new Error(r.error)
+
+    const session = r.data
     if (session.role === 'admin') {
-      setState({ screen: 'admin-hub', session, initStatus: state.initStatus })
+      setState({ screen: 'admin-hub', session, initStatus })
       return
     }
-    // cajera
     const shiftResult = await window.hw.getActiveShift()
     if (shiftResult.ok && shiftResult.data) {
-      setState({ screen: 'cashier', session, shift: shiftResult.data, initStatus: state.initStatus })
+      setState({ screen: 'cashier', session, shift: shiftResult.data, initStatus })
     } else {
-      setState({ screen: 'shift-required', session, initStatus: state.initStatus })
+      setState({ screen: 'shift-required', session, initStatus })
     }
   }
 
@@ -177,6 +203,11 @@ export default function App() {
   function handleGoToCashierManagement(): void {
     if (state.screen !== 'admin-hub') return
     setState({ screen: 'cashier-management', session: state.session, initStatus: state.initStatus })
+  }
+
+  function handleGoToStoreManagement(): void {
+    if (state.screen !== 'admin-hub') return
+    setState({ screen: 'store-management', session: state.session, initStatus: state.initStatus })
   }
 
   function handleReturnToAdminHub(): void {
@@ -240,6 +271,16 @@ export default function App() {
         />
       )}
 
+      {state.screen === 'store-picker' && (
+        <StorePickerScreen
+          stores={state.stores}
+          onSelect={async (storeId) => {
+            await handleSelectStore(state.partialSession, storeId, state.initStatus)
+          }}
+          onLogout={() => setState({ screen: 'login', initStatus: state.initStatus })}
+        />
+      )}
+
       {state.screen === 'shift-required' && (
         <OpenShiftScreen
           onShiftOpened={handleShiftOpened}
@@ -288,6 +329,7 @@ export default function App() {
           onGoToAdminPanel={handleAdminGoToPanel}
           onGoToCashier={() => void handleAdminGoToCashier()}
           onGoToCashierManagement={handleGoToCashierManagement}
+          onGoToStoreManagement={handleGoToStoreManagement}
           onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
           onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
           onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
@@ -306,6 +348,12 @@ export default function App() {
 
       {state.screen === 'cashier-management' && (
         <CashierManagementScreen
+          onBack={handleReturnToAdminHub}
+        />
+      )}
+
+      {state.screen === 'store-management' && (
+        <StoreManagementScreen
           onBack={handleReturnToAdminHub}
         />
       )}
@@ -338,6 +386,7 @@ export default function App() {
       {state.screen === 'orders' && (
         <OrdersScreen
           isAdmin={state.session.role === 'admin'}
+          currentShiftId={state.fromCashier?.id ?? null}
           onBack={() => {
             if (state.fromCashier) {
               setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })

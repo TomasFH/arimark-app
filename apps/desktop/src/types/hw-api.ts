@@ -231,6 +231,7 @@ export interface AdminProductRow {
 export interface StoreRow {
   id: string
   name: string
+  address?: string | null
 }
 
 export interface CreateProductPayload {
@@ -859,8 +860,14 @@ export interface HwApi {
   /** Retorna todos los productos (con y sin PLU) con precio y disponibilidad para el local dado — solo admin */
   getAllProducts: (storeId: string) => Promise<IpcResult<AdminProductRow[]>>
 
-  /** Lista de locales del sistema — solo admin */
+  /** Lista de locales del sistema */
   getStores: () => Promise<IpcResult<StoreRow[]>>
+
+  /** Finaliza la sesión con el local elegido por el usuario tras el login */
+  selectStore: (payload: { storeId: string }) => Promise<IpcResult<SessionInfo>>
+
+  /** Crea un nuevo local — solo admin */
+  createStore: (payload: { name: string; address?: string }) => Promise<IpcResult<StoreRow>>
 
   /** Crea un producto nuevo — solo admin */
   createProduct: (payload: CreateProductPayload) => Promise<IpcResult<{ id: string }>>

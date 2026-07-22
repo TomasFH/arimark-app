@@ -92,6 +92,8 @@ function depositTotal(payments: DepositPayment[]): number {
 interface Props {
   isAdmin: boolean
   onBack: () => void
+  /** ID del turno activo cuando se navega desde la caja; null si se viene desde admin hub */
+  currentShiftId: string | null
 }
 
 // Modal de confirmación reutilizable
@@ -123,7 +125,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-blu
   )
 }
 
-export default function OrdersScreen({ isAdmin, onBack }: Props) {
+export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props) {
   const [ordersList, setOrdersList] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -143,6 +145,8 @@ export default function OrdersScreen({ isAdmin, onBack }: Props) {
   const [confirmStatus, setConfirmStatus] = useState<{ order: OrderRow; status: OrderStatus } | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<OrderRow | null>(null)
   const [confirmHardDelete, setConfirmHardDelete] = useState<OrderRow | null>(null)
+  // Si hay turno activo y el pedido tiene seña, ofrecer registrar la devolución como gasto
+  const [registerRefund, setRegisterRefund] = useState(true)
 
   const loadOrders = useCallback(async () => {
     const r = await window.hw.listOrders()
@@ -315,10 +319,21 @@ export default function OrdersScreen({ isAdmin, onBack }: Props) {
     setConfirmStatus(null)
   }
 
-  async function executeCancelOrder(order: OrderRow) {
+  async function executeCancelOrder(order: OrderRow, refund: boolean) {
     const r = await window.hw.deleteOrder({ id: order.id })
     if (r.ok) {
       setOrdersList(prev => prev.map(o => o.id === order.id ? { ...o, status: 'cancelled' as OrderStatus, updatedBy: null } : o))
+      // Registrar devolución como gasto si corresponde
+      if (refund && order.depositAmount > 0 && currentShiftId) {
+        await window.hw.registerExpense({
+          category: 'Devolución de seña',
+          amount: order.depositAmount,
+          notes: `Seña devuelta al cliente: ${order.customerName}`,
+        }).catch(err => {
+          // El pedido ya fue cancelado; solo registrar el error sin bloquear
+          console.error('[cancel-order] No se pudo registrar la devolución como gasto', err)
+        })
+      }
     }
     setConfirmCancel(null)
   }
@@ -422,7 +437,7 @@ export default function OrdersScreen({ isAdmin, onBack }: Props) {
             isNew={order.id === newOrderId}
             onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
             onEdit={() => openEdit(order)}
-            onCancel={() => setConfirmCancel(order)}
+            onCancel={() => { setRegisterRefund(true); setConfirmCancel(order) }}
             onHardDelete={isAdmin ? () => setConfirmHardDelete(order) : undefined}
           />
         ))}
@@ -604,13 +619,39 @@ export default function OrdersScreen({ isAdmin, onBack }: Props) {
           title="¿Cancelar pedido?"
           message={
             <>
-              El pedido de <strong className="text-white">{confirmCancel.customerName}</strong> pasará a estado cancelado.
-              Esta acción quedará registrada con tu usuario.
+              <p>
+                El pedido de <strong className="text-white">{confirmCancel.customerName}</strong> pasará a estado cancelado.
+                Esta acción quedará registrada con tu usuario.
+              </p>
+              {confirmCancel.depositAmount > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-amber-400 text-xs font-medium">
+                    ⚠ Este pedido tenía una seña de <strong>${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong>.
+                  </p>
+                  {currentShiftId ? (
+                    <label className="flex items-start gap-2 cursor-pointer select-none bg-gray-800 rounded-lg p-3">
+                      <input
+                        type="checkbox"
+                        checked={registerRefund}
+                        onChange={e => setRegisterRefund(e.target.checked)}
+                        className="mt-0.5 shrink-0 accent-emerald-500"
+                      />
+                      <span className="text-xs text-gray-300">
+                        Registrar devolución de <strong className="text-white">${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong> como gasto de este turno
+                      </span>
+                    </label>
+                  ) : (
+                    <p className="text-xs text-gray-400 bg-gray-800 rounded-lg p-3">
+                      No hay turno activo. Si se devuelve la seña, recordá registrarla manualmente como gasto en el próximo turno (categoría: <em>Devolución de seña</em>).
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           }
           confirmLabel="Sí, cancelar pedido"
           confirmClassName="bg-red-600 hover:bg-red-700"
-          onConfirm={() => void executeCancelOrder(confirmCancel)}
+          onConfirm={() => void executeCancelOrder(confirmCancel, registerRefund)}
           onCancel={() => setConfirmCancel(null)}
         />
       )}

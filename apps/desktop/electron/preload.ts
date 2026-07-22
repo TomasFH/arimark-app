@@ -106,6 +106,10 @@ const hw: HwApi = {
   setSpecialCustomerPrice: payload => ipcRenderer.invoke(IPC.SET_SPECIAL_CUSTOMER_PRICE, payload),
   deleteSpecialCustomerPrice: payload => ipcRenderer.invoke(IPC.DELETE_SPECIAL_CUSTOMER_PRICE, payload),
 
+  // Gestión de locales (multi-local)
+  selectStore: payload => ipcRenderer.invoke(IPC.SELECT_STORE, payload),
+  createStore: payload => ipcRenderer.invoke(IPC.CREATE_STORE, payload),
+
   // Pedidos (Fase 7)
   createOrder: payload => ipcRenderer.invoke(IPC.CREATE_ORDER, payload),
   listOrders: payload => ipcRenderer.invoke(IPC.LIST_ORDERS, payload),

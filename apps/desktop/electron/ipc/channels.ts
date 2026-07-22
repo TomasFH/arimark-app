@@ -92,6 +92,10 @@ export const IPC = {
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
   GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',
 
+  // Gestión de locales (multi-local)
+  SELECT_STORE: 'ipc:select-store',
+  CREATE_STORE: 'ipc:create-store',
+
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',
   LOGIN: 'ipc:login',
