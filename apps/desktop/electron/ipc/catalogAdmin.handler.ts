@@ -123,14 +123,22 @@ async function triggerCatalogPublish(storeId: string): Promise<void> {
 export function registerCatalogAdminHandlers(): void {
 
   // ---- GET_STORES ----
-  ipcMain.handle(IPC.GET_STORES, (_event): IpcResult<StoreRow[]> => {
+  // Por defecto solo devuelve locales activos (no archivados).
+  // Con includeArchived: true devuelve todos (para la pantalla de gestión).
+  ipcMain.handle(IPC.GET_STORES, (_event, payload?: unknown): IpcResult<StoreRow[]> => {
+    const includeArchived = (payload as { includeArchived?: boolean } | undefined)?.includeArchived === true
     try {
       const db = getDb()
-      const rows = db
-        .select({ id: stores.id, name: stores.name, address: stores.address })
-        .from(stores)
-        .orderBy(asc(stores.name))
-        .all()
+      const rows = includeArchived
+        ? db.select({ id: stores.id, name: stores.name, address: stores.address, archivedAt: stores.archivedAt })
+            .from(stores)
+            .orderBy(asc(stores.name))
+            .all()
+        : db.select({ id: stores.id, name: stores.name, address: stores.address, archivedAt: stores.archivedAt })
+            .from(stores)
+            .where(isNull(stores.archivedAt))
+            .orderBy(asc(stores.name))
+            .all()
       return { ok: true, data: rows }
     } catch (err) {
       log.error('[ipc:get-stores] Error', err)

@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { eq, and, ne } from 'drizzle-orm'
+import { eq, and, ne, isNull } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { stores, users, shifts, orders, storeProducts } from '../db/schema'
@@ -27,9 +27,19 @@ const updateStoreSchema = z.object({
   address: z.string().max(200).transform(s => s?.trim() || null).nullable().optional(),
 })
 
-const deleteStoreSchema = z.object({
+const storeIdSchema = z.object({
   id: z.string().min(1),
 })
+
+/** Comprueba si un local tiene datos asociados (turnos, pedidos o productos configurados). */
+function storeHasData(db: ReturnType<typeof getDb>, storeId: string): boolean {
+  const hasShifts = db.select({ id: shifts.id }).from(shifts).where(eq(shifts.storeId, storeId)).all().length > 0
+  if (hasShifts) return true
+  const hasOrders = db.select({ id: orders.id }).from(orders).where(eq(orders.storeId, storeId)).all().length > 0
+  if (hasOrders) return true
+  const hasProducts = db.select({ storeId: storeProducts.storeId }).from(storeProducts).where(eq(storeProducts.storeId, storeId)).all().length > 0
+  return hasProducts
+}
 
 export function registerStoresHandlers(): void {
   // --------------------------------------------------------------------------
@@ -50,9 +60,11 @@ export function registerStoresHandlers(): void {
     try {
       const db = getDb()
 
-      // Verificar que el local existe
-      const store = db.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).all()[0]
+      // Verificar que el local existe y no está archivado
+      const store = db.select({ id: stores.id, archivedAt: stores.archivedAt })
+        .from(stores).where(eq(stores.id, storeId)).all()[0]
       if (!store) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
+      if (store.archivedAt) return { ok: false, error: 'El local está archivado y no puede seleccionarse.', code: 'STORE_ARCHIVED' }
 
       // Actualizar sesión activa con el local elegido
       updateActiveStore(storeId)
@@ -101,6 +113,12 @@ export function registerStoresHandlers(): void {
   })
 
   // --------------------------------------------------------------------------
+  // GET_STORES — lista locales activos (no archivados) por defecto
+  // --------------------------------------------------------------------------
+  // Este handler ya existe en catalogAdmin.handler.ts como GET_STORES.
+  // No se duplica aquí.
+
+  // --------------------------------------------------------------------------
   // CREATE_STORE — solo admin
   // --------------------------------------------------------------------------
   ipcMain.handle(IPC.CREATE_STORE, (_event, payload: unknown): IpcResult<StoreRow> => {
@@ -119,8 +137,10 @@ export function registerStoresHandlers(): void {
     try {
       const db = getDb()
 
-      // No permitir nombres duplicados
-      const existing = db.select({ id: stores.id }).from(stores).where(eq(stores.name, name)).all()[0]
+      // No permitir nombres duplicados entre locales activos
+      const existing = db.select({ id: stores.id }).from(stores)
+        .where(and(eq(stores.name, name), isNull(stores.archivedAt)))
+        .all()[0]
       if (existing) return { ok: false, error: `Ya existe un local con el nombre "${name}".`, code: 'CONFLICT' }
 
       const id = uuidv4()
@@ -161,10 +181,10 @@ export function registerStoresHandlers(): void {
       const existing = db.select().from(stores).where(eq(stores.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
 
-      // Verificar que el nuevo nombre no esté en uso por otro local
+      // Verificar que el nuevo nombre no esté en uso por otro local activo
       if (name) {
         const duplicate = db.select({ id: stores.id }).from(stores)
-          .where(and(eq(stores.name, name), ne(stores.id, id)))
+          .where(and(eq(stores.name, name), ne(stores.id, id), isNull(stores.archivedAt)))
           .all()[0]
         if (duplicate) return { ok: false, error: `Ya existe otro local con el nombre "${name}".`, code: 'CONFLICT' }
       }
@@ -186,10 +206,11 @@ export function registerStoresHandlers(): void {
   })
 
   // --------------------------------------------------------------------------
-  // DELETE_STORE — solo admin; bloquea si el local tiene datos asociados
+  // DELETE_STORE — solo admin; solo si el local está vacío (sin datos)
+  // Si tiene datos, el cliente debe usar ARCHIVE_STORE en su lugar.
   // --------------------------------------------------------------------------
   ipcMain.handle(IPC.DELETE_STORE, (_event, payload: unknown): IpcResult => {
-    const parsed = deleteStoreSchema.safeParse(payload)
+    const parsed = storeIdSchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:delete-store] Payload inválido', parsed.error)
       return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
@@ -207,24 +228,15 @@ export function registerStoresHandlers(): void {
       const existing = db.select().from(stores).where(eq(stores.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
 
-      // No permitir eliminar el único local
-      const allStores = db.select({ id: stores.id }).from(stores).all()
-      if (allStores.length <= 1) {
-        return { ok: false, error: 'No se puede eliminar el único local registrado.', code: 'CONFLICT' }
+      // No permitir eliminar el único local activo
+      const activeStores = db.select({ id: stores.id }).from(stores).where(isNull(stores.archivedAt)).all()
+      if (activeStores.length <= 1 && !existing.archivedAt) {
+        return { ok: false, error: 'No se puede eliminar el único local activo.', code: 'CONFLICT' }
       }
 
-      // Bloquear si tiene turnos, pedidos o productos asociados
-      const hasShifts = db.select({ id: shifts.id }).from(shifts).where(eq(shifts.storeId, id)).all().length > 0
-      if (hasShifts) {
-        return { ok: false, error: 'No se puede eliminar: el local tiene turnos registrados.', code: 'CONFLICT' }
-      }
-      const hasOrders = db.select({ id: orders.id }).from(orders).where(eq(orders.storeId, id)).all().length > 0
-      if (hasOrders) {
-        return { ok: false, error: 'No se puede eliminar: el local tiene pedidos registrados.', code: 'CONFLICT' }
-      }
-      const hasProducts = db.select({ storeId: storeProducts.storeId }).from(storeProducts).where(eq(storeProducts.storeId, id)).all().length > 0
-      if (hasProducts) {
-        return { ok: false, error: 'No se puede eliminar: el local tiene productos configurados.', code: 'CONFLICT' }
+      // Bloquear si tiene datos; en ese caso el cliente debe ofrecer archivar
+      if (storeHasData(db, id)) {
+        return { ok: false, error: 'El local tiene datos registrados. Archivalo en su lugar para preservar el historial.', code: 'STORE_HAS_DATA' }
       }
 
       db.delete(stores).where(eq(stores.id, id)).run()
@@ -234,6 +246,79 @@ export function registerStoresHandlers(): void {
     } catch (err) {
       log.error('[ipc:delete-store] Error inesperado', err)
       return { ok: false, error: 'Error al eliminar el local.' }
+    }
+  })
+
+  // --------------------------------------------------------------------------
+  // ARCHIVE_STORE — marca el local como archivado; preserva todos sus datos
+  // --------------------------------------------------------------------------
+  ipcMain.handle(IPC.ARCHIVE_STORE, (_event, payload: unknown): IpcResult<StoreRow> => {
+    const parsed = storeIdSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:archive-store] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden archivar locales.', code: 'FORBIDDEN' }
+
+    const { id } = parsed.data
+
+    try {
+      const db = getDb()
+
+      const existing = db.select().from(stores).where(eq(stores.id, id)).all()[0]
+      if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
+      if (existing.archivedAt) return { ok: false, error: 'El local ya está archivado.', code: 'CONFLICT' }
+
+      // No permitir archivar el único local activo
+      const activeStores = db.select({ id: stores.id }).from(stores).where(isNull(stores.archivedAt)).all()
+      if (activeStores.length <= 1) {
+        return { ok: false, error: 'No se puede archivar el único local activo.', code: 'CONFLICT' }
+      }
+
+      const archivedAt = new Date().toISOString()
+      db.update(stores).set({ archivedAt }).where(eq(stores.id, id)).run()
+
+      log.info('[ipc:archive-store] Local archivado', { id, name: existing.name })
+      return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt } }
+    } catch (err) {
+      log.error('[ipc:archive-store] Error inesperado', err)
+      return { ok: false, error: 'Error al archivar el local.' }
+    }
+  })
+
+  // --------------------------------------------------------------------------
+  // UNARCHIVE_STORE — reactiva un local archivado
+  // --------------------------------------------------------------------------
+  ipcMain.handle(IPC.UNARCHIVE_STORE, (_event, payload: unknown): IpcResult<StoreRow> => {
+    const parsed = storeIdSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:unarchive-store] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden desarchivar locales.', code: 'FORBIDDEN' }
+
+    const { id } = parsed.data
+
+    try {
+      const db = getDb()
+
+      const existing = db.select().from(stores).where(eq(stores.id, id)).all()[0]
+      if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
+      if (!existing.archivedAt) return { ok: false, error: 'El local no está archivado.', code: 'CONFLICT' }
+
+      db.update(stores).set({ archivedAt: null }).where(eq(stores.id, id)).run()
+
+      log.info('[ipc:unarchive-store] Local desarchivado', { id, name: existing.name })
+      return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt: null } }
+    } catch (err) {
+      log.error('[ipc:unarchive-store] Error inesperado', err)
+      return { ok: false, error: 'Error al desarchivar el local.' }
     }
   })
 }

@@ -51,7 +51,7 @@ const hw: HwApi = {
 
   getAllProducts: (storeId) => ipcRenderer.invoke(IPC.GET_ALL_PRODUCTS, storeId),
 
-  getStores: () => ipcRenderer.invoke(IPC.GET_STORES),
+  getStores: (payload?: { includeArchived?: boolean }) => ipcRenderer.invoke(IPC.GET_STORES, payload),
 
   createProduct: (payload) => ipcRenderer.invoke(IPC.CREATE_PRODUCT, payload),
 
@@ -111,6 +111,8 @@ const hw: HwApi = {
   createStore: payload => ipcRenderer.invoke(IPC.CREATE_STORE, payload),
   updateStore: payload => ipcRenderer.invoke(IPC.UPDATE_STORE, payload),
   deleteStore: payload => ipcRenderer.invoke(IPC.DELETE_STORE, payload),
+  archiveStore: payload => ipcRenderer.invoke(IPC.ARCHIVE_STORE, payload),
+  unarchiveStore: payload => ipcRenderer.invoke(IPC.UNARCHIVE_STORE, payload),
 
   // Pedidos (Fase 7)
   createOrder: payload => ipcRenderer.invoke(IPC.CREATE_ORDER, payload),

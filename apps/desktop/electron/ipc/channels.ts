@@ -97,6 +97,8 @@ export const IPC = {
   CREATE_STORE: 'ipc:create-store',
   UPDATE_STORE: 'ipc:update-store',
   DELETE_STORE: 'ipc:delete-store',
+  ARCHIVE_STORE: 'ipc:archive-store',
+  UNARCHIVE_STORE: 'ipc:unarchive-store',
 
   // Auth / licencias
   ACTIVATE_INSTALLATION: 'ipc:activate-installation',

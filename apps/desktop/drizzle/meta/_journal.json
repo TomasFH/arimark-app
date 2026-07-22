@@ -92,6 +92,13 @@
       "when": 1784678402000,
       "tag": "0012_expenses_provider_debts",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1784678403000,
+      "tag": "0013_stores_archived_at",
+      "breakpoints": true
     }
   ]
 }

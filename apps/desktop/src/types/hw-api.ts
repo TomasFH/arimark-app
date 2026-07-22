@@ -232,6 +232,7 @@ export interface StoreRow {
   id: string
   name: string
   address?: string | null
+  archivedAt?: string | null
 }
 
 export interface CreateProductPayload {
@@ -865,7 +866,7 @@ export interface HwApi {
   getAllProducts: (storeId: string) => Promise<IpcResult<AdminProductRow[]>>
 
   /** Lista de locales del sistema */
-  getStores: () => Promise<IpcResult<StoreRow[]>>
+  getStores: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<StoreRow[]>>
 
   /** Finaliza la sesión con el local elegido por el usuario tras el login */
   selectStore: (payload: { storeId: string }) => Promise<IpcResult<SessionInfo>>
@@ -876,8 +877,14 @@ export interface HwApi {
   /** Actualiza nombre y/o dirección de un local — solo admin */
   updateStore: (payload: { id: string; name?: string; address?: string | null }) => Promise<IpcResult<StoreRow>>
 
-  /** Elimina un local — solo admin; bloquea si tiene turnos, pedidos o productos */
+  /** Elimina un local — solo admin; solo si no tiene datos asociados */
   deleteStore: (payload: { id: string }) => Promise<IpcResult>
+
+  /** Archiva un local — oculta de operaciones pero preserva historial */
+  archiveStore: (payload: { id: string }) => Promise<IpcResult<StoreRow>>
+
+  /** Desarchiva un local — lo vuelve a activar */
+  unarchiveStore: (payload: { id: string }) => Promise<IpcResult<StoreRow>>
 
   /** Crea un producto nuevo — solo admin */
   createProduct: (payload: CreateProductPayload) => Promise<IpcResult<{ id: string }>>

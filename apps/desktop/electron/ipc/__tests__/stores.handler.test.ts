@@ -99,6 +99,15 @@ describe('stores.handler', () => {
       expect(res.code).toBe('NOT_FOUND')
     })
 
+    it('rechaza un local archivado', async () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now, archivedAt: now }).run()
+      const handler = getHandler('ipc:select-store')
+      const res = await handler(null, { storeId: STORE2_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('STORE_ARCHIVED')
+    })
+
     it('rechaza payload inválido (storeId vacío)', async () => {
       const handler = getHandler('ipc:select-store')
       const res = await handler(null, { storeId: '' }) as { ok: boolean; code: string }
@@ -127,7 +136,7 @@ describe('stores.handler', () => {
       expect(res.data.id).toBeDefined()
     })
 
-    it('rechaza nombre duplicado', () => {
+    it('rechaza nombre duplicado entre activos', () => {
       const handler = getHandler('ipc:create-store')
       const res = handler(null, { name: 'Local 1' }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
@@ -169,7 +178,7 @@ describe('stores.handler', () => {
       expect(res.data.address).toBeNull()
     })
 
-    it('rechaza nombre duplicado de otro local', () => {
+    it('rechaza nombre duplicado de otro local activo', () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
       const handler = getHandler('ipc:update-store')
@@ -198,7 +207,7 @@ describe('stores.handler', () => {
   // DELETE_STORE
   // --------------------------------------------------------------------------
   describe('DELETE_STORE', () => {
-    it('elimina un local vacío cuando hay más de uno', () => {
+    it('elimina un local vacío cuando hay más de uno activo', () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
       const handler = getHandler('ipc:delete-store')
@@ -206,18 +215,18 @@ describe('stores.handler', () => {
       expect(res.ok).toBe(true)
     })
 
-    it('rechaza eliminar el único local', () => {
-      const handler = getHandler('ipc:delete-store')
-      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
-      expect(res.ok).toBe(false)
-      expect(res.code).toBe('CONFLICT')
-    })
-
-    it('rechaza eliminar local con turnos', () => {
+    it('devuelve STORE_HAS_DATA si el local tiene turnos', () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
       const handler = getHandler('ipc:delete-store')
-      // STORE_ID tiene el SHIFT_ID insertado en beforeEach
+      // STORE_ID tiene el SHIFT_ID de beforeEach
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('STORE_HAS_DATA')
+    })
+
+    it('rechaza eliminar el único local activo', () => {
+      const handler = getHandler('ipc:delete-store')
       const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('CONFLICT')
@@ -229,6 +238,62 @@ describe('stores.handler', () => {
       const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('FORBIDDEN')
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // ARCHIVE_STORE / UNARCHIVE_STORE
+  // --------------------------------------------------------------------------
+  describe('ARCHIVE_STORE', () => {
+    it('archiva un local activo cuando hay más de uno', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
+      const handler = getHandler('ipc:archive-store')
+      const res = handler(null, { id: STORE2_ID }) as { ok: boolean; data: { archivedAt: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.archivedAt).toBeTruthy()
+    })
+
+    it('rechaza archivar el único local activo', () => {
+      const handler = getHandler('ipc:archive-store')
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
+    it('rechaza archivar un local ya archivado', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now, archivedAt: now }).run()
+      const handler = getHandler('ipc:archive-store')
+      const res = handler(null, { id: STORE2_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
+    it('rechaza si no es admin', () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:archive-store')
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+  })
+
+  describe('UNARCHIVE_STORE', () => {
+    it('desarchiva un local archivado', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now, archivedAt: now }).run()
+      const handler = getHandler('ipc:unarchive-store')
+      const res = handler(null, { id: STORE2_ID }) as { ok: boolean; data: { archivedAt: null } }
+      expect(res.ok).toBe(true)
+      expect(res.data.archivedAt).toBeNull()
+    })
+
+    it('rechaza desarchivar un local ya activo', () => {
+      const handler = getHandler('ipc:unarchive-store')
+      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
     })
   })
 })

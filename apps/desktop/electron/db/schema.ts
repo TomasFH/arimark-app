@@ -8,6 +8,7 @@ export const stores = sqliteTable('stores', {
   name: text('name').notNull(),
   address: text('address'),
   createdAt: text('created_at').notNull(),
+  archivedAt: text('archived_at'),
 })
 
 // ---------------------------------------------------------------------------
