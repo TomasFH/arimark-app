@@ -31,10 +31,9 @@ module.exports = {
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
   },
-  publish: {
-    provider: 'github',
-    private: true,
-  },
+  // Auto-update deshabilitado hasta que se configure un servidor de distribución.
+  // Cuando se active, agregar owner/repo explícitos aquí.
+  publish: null,
   afterPack: async context => {
     await verifyProductionBuild(context)
   },
