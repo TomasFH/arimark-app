@@ -13,7 +13,7 @@ import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, StoreRow, SessionInfo } from '../../src/types/hw-api'
 
 const selectStoreSchema = z.object({
-  storeId: z.string().uuid(),
+  storeId: z.string().min(1),
 })
 
 const createStoreSchema = z.object({

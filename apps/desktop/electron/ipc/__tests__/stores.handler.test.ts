@@ -99,9 +99,9 @@ describe('stores.handler', () => {
       expect(res.code).toBe('NOT_FOUND')
     })
 
-    it('rechaza payload inválido', async () => {
+    it('rechaza payload inválido (storeId vacío)', async () => {
       const handler = getHandler('ipc:select-store')
-      const res = await handler(null, { storeId: 'not-a-uuid' }) as { ok: boolean; code: string }
+      const res = await handler(null, { storeId: '' }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('INVALID_PAYLOAD')
     })
