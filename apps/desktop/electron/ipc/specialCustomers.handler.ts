@@ -84,16 +84,25 @@ export type SpecialCustomerPriceRow = {
 
 export function registerSpecialCustomersHandlers() {
   // ── LIST_SPECIAL_CUSTOMERS ───────────────────────────────────────────
-  ipcMain.handle(IPC.LIST_SPECIAL_CUSTOMERS, (_event): IpcResult<SpecialCustomerRow[]> => {
+  ipcMain.handle(IPC.LIST_SPECIAL_CUSTOMERS, (_event, payload: unknown): IpcResult<SpecialCustomerRow[]> => {
+    const parsed = z.object({ storeIdFilter: z.string().optional() }).optional().safeParse(payload ?? {})
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+
+    const filter = parsed.success ? (parsed.data ?? {}) : {}
+    const effectiveStoreId: string | null =
+      session.role === 'admin' && filter.storeIdFilter === 'all'
+        ? null
+        : session.role === 'admin' && filter.storeIdFilter
+          ? filter.storeIdFilter
+          : session.storeId
 
     try {
       const db = getDb()
       const rows = db
         .select()
         .from(specialCustomers)
-        .where(eq(specialCustomers.storeId, session.storeId))
+        .where(effectiveStoreId !== null ? eq(specialCustomers.storeId, effectiveStoreId) : undefined)
         .all()
 
       return {

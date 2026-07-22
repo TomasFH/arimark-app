@@ -6,7 +6,8 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime } from '../lib/datetime'
-import type { HistoryShiftRow, HistoryShiftDetail, GetHistoryShiftsPayload } from '../types/hw-api'
+import type { HistoryShiftRow, HistoryShiftDetail, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
+import StoreFilter from '../components/StoreFilter'
 
 const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
 
@@ -28,11 +29,20 @@ export default function HistoryScreen({ onBack }: Props) {
 
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
+  const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
 
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null)
   const [detail, setDetail] = useState<HistoryShiftDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+
+  // Cargar locales al montar
+  useEffect(() => {
+    window.hw.getStores().then(r => {
+      if (r.ok) setAvailableStores(r.data)
+    })
+  }, [])
 
   const loadShifts = useCallback(async () => {
     setLoading(true)
@@ -40,16 +50,16 @@ export default function HistoryScreen({ onBack }: Props) {
     const payload: GetHistoryShiftsPayload = {
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
+      storeIdFilter,
     }
     const r = await window.hw.getHistoryShifts(payload)
     if (r.ok) {
-      // Ordenar de más reciente a más antiguo
       setShifts([...r.data].sort((a, b) => b.startedAt.localeCompare(a.startedAt)))
     } else {
       setError(r.error)
     }
     setLoading(false)
-  }, [fromDate, toDate])
+  }, [fromDate, toDate, storeIdFilter])
 
   useEffect(() => {
     void loadShifts()
@@ -82,7 +92,14 @@ export default function HistoryScreen({ onBack }: Props) {
         >
           ←
         </button>
-        <h1 className="text-base font-semibold text-white">Historial de turnos</h1>
+        <h1 className="text-base font-semibold text-white min-w-0 flex-1">Historial de turnos</h1>
+        {availableStores.length > 0 && (
+          <StoreFilter
+            stores={availableStores}
+            value={storeIdFilter}
+            onChange={v => { setStoreIdFilter(v); setSelectedShiftId(null); setDetail(null) }}
+          />
+        )}
       </header>
 
       <div className="flex flex-1 overflow-hidden">

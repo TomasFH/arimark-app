@@ -20,6 +20,8 @@ const getHistoryShiftsSchema = z.object({
   toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
+  /** Admin: 'all' = todos los locales; storeId específico = ese local */
+  storeIdFilter: z.string().optional(),
 }).optional()
 
 const getHistoryShiftDetailSchema = z.object({
@@ -46,11 +48,17 @@ export function registerHistoryHandlers(): void {
     try {
       const db = getDb()
 
+      // Determinar filtro de local
+      const effectiveStoreId: string | null =
+        filter.storeIdFilter === 'all'
+          ? null
+          : filter.storeIdFilter ?? session.storeId
+
       const conditions = [
-        eq(shifts.storeId, session.storeId),
         isNotNull(shifts.closedAt),
         eq(shifts.source, 'desktop'),
-      ]
+      ] as ReturnType<typeof eq>[]
+      if (effectiveStoreId !== null) conditions.push(eq(shifts.storeId, effectiveStoreId))
       if (filter.fromDate) conditions.push(gte(shifts.startedAt, filter.fromDate))
       if (filter.toDate) conditions.push(lte(shifts.startedAt, filter.toDate + 'T23:59:59.999Z'))
 

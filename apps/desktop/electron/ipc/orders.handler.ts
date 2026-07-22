@@ -50,6 +50,8 @@ const listOrdersSchema = z.object({
   status: z.enum(['pending', 'ready', 'delivered', 'cancelled']).optional(),
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Admin: 'all' = todos los locales; storeId específico = ese local */
+  storeIdFilter: z.string().optional(),
 }).optional()
 
 const deleteOrderSchema = z.object({
@@ -185,12 +187,25 @@ export function registerOrderHandlers(): void {
       const db = getDb()
       purgeOldOrders(db, session.storeId)
 
-      const conditions = [eq(orders.storeId, session.storeId)]
+      // Calcular el storeId efectivo para el filtro de lista
+      // Admin puede ver 'all' o un local específico; cajera siempre su local
+      const effectiveStoreId: string | null =
+        session.role === 'admin' && filter.storeIdFilter === 'all'
+          ? null // sin filtro de local
+          : session.role === 'admin' && filter.storeIdFilter
+            ? filter.storeIdFilter
+            : session.storeId
+
+      const conditions = effectiveStoreId !== null
+        ? [eq(orders.storeId, effectiveStoreId)]
+        : []
       if (filter.status) conditions.push(eq(orders.status, filter.status))
       if (filter.fromDate) conditions.push(gte(orders.pickupDate, filter.fromDate))
       if (filter.toDate) conditions.push(lte(orders.pickupDate, filter.toDate))
 
-      const rows = db.select().from(orders).where(and(...conditions)).orderBy(orders.pickupDate, desc(orders.createdAt)).all()
+      const rows = db.select().from(orders).where(
+        conditions.length > 0 ? and(...conditions) : undefined
+      ).orderBy(orders.pickupDate, desc(orders.createdAt)).all()
 
       const allUserIds = [...new Set([...rows.map(r => r.createdBy), ...rows.map(r => r.updatedBy).filter(Boolean) as string[]])]
       const userMap = resolveUserNames(db, allUserIds)
@@ -227,7 +242,10 @@ export function registerOrderHandlers(): void {
 
     try {
       const db = getDb()
-      const existing = db.select().from(orders).where(and(eq(orders.id, id), eq(orders.storeId, session.storeId))).all()[0]
+      const storeCondition = session.role === 'admin'
+        ? eq(orders.id, id)
+        : and(eq(orders.id, id), eq(orders.storeId, session.storeId))
+      const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
       db.update(orders).set({ status, updatedAt: now, updatedBy: session.userId }).where(eq(orders.id, id)).run()
@@ -261,7 +279,10 @@ export function registerOrderHandlers(): void {
 
     try {
       const db = getDb()
-      const existing = db.select().from(orders).where(and(eq(orders.id, id), eq(orders.storeId, session.storeId))).all()[0]
+      const storeCondition = session.role === 'admin'
+        ? eq(orders.id, id)
+        : and(eq(orders.id, id), eq(orders.storeId, session.storeId))
+      const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
       // Bloquear modificación de seña si no hay turno activo
@@ -319,7 +340,10 @@ export function registerOrderHandlers(): void {
 
     try {
       const db = getDb()
-      const existing = db.select({ id: orders.id }).from(orders).where(and(eq(orders.id, id), eq(orders.storeId, session.storeId))).all()[0]
+      const storeCondition = session.role === 'admin'
+        ? eq(orders.id, id)
+        : and(eq(orders.id, id), eq(orders.storeId, session.storeId))
+      const existing = db.select({ id: orders.id }).from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
       db.update(orders).set({
@@ -354,7 +378,7 @@ export function registerOrderHandlers(): void {
 
     try {
       const db = getDb()
-      const existing = db.select({ id: orders.id }).from(orders).where(and(eq(orders.id, id), eq(orders.storeId, session.storeId))).all()[0]
+      const existing = db.select({ id: orders.id }).from(orders).where(eq(orders.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
       db.delete(orders).where(eq(orders.id, id)).run()

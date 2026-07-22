@@ -92,13 +92,13 @@ const hw: HwApi = {
 
   // Deudas / cuenta corriente (Fase 6)
   createDebt: payload => ipcRenderer.invoke(IPC.CREATE_DEBT, payload),
-  getDebts: () => ipcRenderer.invoke(IPC.GET_DEBTS),
+  getDebts: payload => ipcRenderer.invoke(IPC.GET_DEBTS, payload),
   getCustomerBalance: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_BALANCE, payload),
   addDebtPayment: payload => ipcRenderer.invoke(IPC.ADD_DEBT_PAYMENT, payload),
   cancelDebt: payload => ipcRenderer.invoke(IPC.CANCEL_DEBT, payload),
 
   // Clientes especiales (Fase 6 addendum — separados de fiados, solo admins editan)
-  listSpecialCustomers: () => ipcRenderer.invoke(IPC.LIST_SPECIAL_CUSTOMERS),
+  listSpecialCustomers: payload => ipcRenderer.invoke(IPC.LIST_SPECIAL_CUSTOMERS, payload),
   createSpecialCustomer: payload => ipcRenderer.invoke(IPC.CREATE_SPECIAL_CUSTOMER, payload),
   updateSpecialCustomer: payload => ipcRenderer.invoke(IPC.UPDATE_SPECIAL_CUSTOMER, payload),
   deleteSpecialCustomer: payload => ipcRenderer.invoke(IPC.DELETE_SPECIAL_CUSTOMER, payload),

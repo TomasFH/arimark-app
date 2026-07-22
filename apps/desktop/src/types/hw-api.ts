@@ -606,6 +606,8 @@ export interface ListOrdersPayload {
   status?: OrderStatus
   fromDate?: string
   toDate?: string
+  /** Admin: 'all' = todos los locales; storeId específico = ese local */
+  storeIdFilter?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -737,6 +739,8 @@ export interface GetHistoryShiftsPayload {
   toDate?: string
   limit?: number
   offset?: number
+  /** Admin: 'all' = todos los locales; storeId específico = ese local */
+  storeIdFilter?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -941,7 +945,7 @@ export interface HwApi {
   /** Marca una venta como deuda y la asocia a un cliente (existente o nuevo) */
   createDebt: (payload: CreateDebtPayload) => Promise<IpcResult<DebtEventRow>>
   /** Lista deudas activas con saldo algebraico por cliente */
-  getDebts: () => Promise<IpcResult<CustomerDebtSummary[]>>
+  getDebts: (payload?: { storeIdFilter?: string }) => Promise<IpcResult<CustomerDebtSummary[]>>
   /** Saldo y ledger completo de un cliente */
   getCustomerBalance: (payload: { customerId: string }) => Promise<IpcResult<CustomerDebtSummary>>
   /** Registra un pago parcial o total */
@@ -950,7 +954,7 @@ export interface HwApi {
   cancelDebt: (payload: CancelDebtPayload) => Promise<IpcResult>
 
   // ---- Clientes especiales (Fase 6 addendum, solo admins crean/editan) ----
-  listSpecialCustomers: () => Promise<IpcResult<SpecialCustomerRow[]>>
+  listSpecialCustomers: (payload?: { storeIdFilter?: string }) => Promise<IpcResult<SpecialCustomerRow[]>>
   createSpecialCustomer: (payload: CreateSpecialCustomerPayload) => Promise<IpcResult<SpecialCustomerRow>>
   updateSpecialCustomer: (payload: UpdateSpecialCustomerPayload) => Promise<IpcResult>
   deleteSpecialCustomer: (payload: { id: string }) => Promise<IpcResult>

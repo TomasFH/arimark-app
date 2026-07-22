@@ -199,14 +199,24 @@ export function registerDebtHandlers(): void {
   })
 
   // GET_DEBTS — listado de deudas con saldo algebraico por cliente
-  ipcMain.handle(IPC.GET_DEBTS, (_event): IpcResult<CustomerDebtSummary[]> => {
+  ipcMain.handle(IPC.GET_DEBTS, (_event, payload: unknown): IpcResult<CustomerDebtSummary[]> => {
+    const parsed = z.object({ storeIdFilter: z.string().optional() }).optional().safeParse(payload ?? {})
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+
+    // Determinar filtro de local
+    const filter = parsed.success ? (parsed.data ?? {}) : {}
+    const effectiveStoreId: string | null =
+      session.role === 'admin' && filter.storeIdFilter === 'all'
+        ? null
+        : session.role === 'admin' && filter.storeIdFilter
+          ? filter.storeIdFilter
+          : session.storeId
 
     try {
       const db = getDb()
 
-      // Traer todos los eventos de deuda
+      // Traer eventos filtrados por storeId
       const events = db
         .select({
           id: debtEvents.id,
@@ -221,6 +231,7 @@ export function registerDebtHandlers(): void {
           createdBy: debtEvents.createdBy,
         })
         .from(debtEvents)
+        .where(effectiveStoreId !== null ? eq(debtEvents.storeId, effectiveStoreId) : undefined)
         .orderBy(asc(debtEvents.createdAt))
         .all()
 

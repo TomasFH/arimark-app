@@ -22,10 +22,12 @@ import type {
   SpecialCustomerRow,
   SpecialCustomerPriceRow,
   ProductRow,
+  StoreRow,
 } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
+import StoreFilter from '../components/StoreFilter'
 
 interface Props {
   onBack?: () => void
@@ -452,6 +454,8 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
+  const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
 
   // Creación inline
   const [showCreate, setShowCreate] = useState(false)
@@ -464,15 +468,24 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    loadAll()
+    if (isAdmin) {
+      window.hw.getStores().then(r => {
+        if (r.ok) setAvailableStores(r.data)
+      })
+    }
     window.hw.getProducts().then(res => {
       if (res.ok) setProducts(res.data)
     })
-  }, [])
+  }, [isAdmin])
+
+  useEffect(() => {
+    void loadAll()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeIdFilter])
 
   async function loadAll() {
     setLoading(true); setError(null)
-    const res = await window.hw.listSpecialCustomers()
+    const res = await window.hw.listSpecialCustomers(isAdmin ? { storeIdFilter } : undefined)
     setLoading(false)
     if (!res.ok) { setError(res.error ?? 'Error al cargar.'); return }
     setCustomers(res.data)
@@ -567,16 +580,23 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
             ←
           </button>
         )}
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold text-white">Clientes especiales</h1>
           <p className="text-xs text-gray-500">
             Precios de referencia · {isAdmin ? 'modo admin' : 'solo lectura'}
           </p>
         </div>
+        {isAdmin && availableStores.length > 0 && (
+          <StoreFilter
+            stores={availableStores}
+            value={storeIdFilter}
+            onChange={v => setStoreIdFilter(v)}
+          />
+        )}
         {isAdmin && (
           <button
             onClick={() => { setShowCreate(v => !v); setCreateError(null); setNewEntries([]) }}
-            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 transition-colors"
+            className="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 transition-colors"
           >
             {showCreate ? 'Cancelar' : '+ Nuevo cliente'}
           </button>

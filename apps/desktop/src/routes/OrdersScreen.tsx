@@ -11,8 +11,9 @@ import { formatARS } from '../lib/datetime'
 import { formatPhoneInput } from '../lib/phoneInput'
 import type {
   OrderRow, OrderStatus, DepositMethod, DepositPayment,
-  CreateOrderPayload, UpdateOrderPayload, OrderTimeSlot,
+  CreateOrderPayload, UpdateOrderPayload, OrderTimeSlot, StoreRow,
 } from '../types/hw-api'
+import StoreFilter from '../components/StoreFilter'
 
 const DEPOSIT_METHOD_LABELS: Record<DepositMethod, string> = {
   cash: 'Efectivo',
@@ -132,6 +133,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('active')
   const [search, setSearch] = useState('')
 
+  // Filtro de local — solo visible cuando admin llega desde el hub (sin turno activo)
+  const showStoreFilter = isAdmin && currentShiftId === null
+  const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
+  const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
+
   // ID del pedido recién creado — para scroll y highlight
   const [newOrderId, setNewOrderId] = useState<string | null>(null)
 
@@ -149,16 +155,24 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const [registerRefund, setRegisterRefund] = useState(true)
 
   const loadOrders = useCallback(async () => {
-    const r = await window.hw.listOrders()
+    const r = await window.hw.listOrders(showStoreFilter ? { storeIdFilter } : undefined)
     if (r.ok) setOrdersList(r.data)
     else setError(r.error)
     setLoading(false)
-  }, [])
+  }, [showStoreFilter, storeIdFilter])
 
   useEffect(() => {
     setLoading(true)
     void loadOrders()
   }, [loadOrders])
+
+  // Cargar locales disponibles al montar (solo cuando admin desde hub)
+  useEffect(() => {
+    if (!showStoreFilter) return
+    window.hw.getStores().then(r => {
+      if (r.ok) setAvailableStores(r.data)
+    })
+  }, [showStoreFilter])
 
   const filteredOrders = useMemo(() => {
     let list = ordersList
@@ -367,29 +381,34 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   return (
     <div className="flex flex-col flex-1 h-full bg-gray-950 text-white overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="p-2 rounded-lg hover:bg-gray-800 transition-colors text-gray-400 hover:text-white shrink-0"
-            title="Volver"
-          >←</button>
-          <div className="min-w-0">
-            <h1 className="text-base font-semibold text-white">Pedidos</h1>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {urgentTodayCount > 0 && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800/60">
-                  {urgentTodayCount} hoy
-                </span>
-              )}
-              {urgentTomorrowCount > 0 && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-800/60">
-                  {urgentTomorrowCount} mañana
-                </span>
-              )}
-            </div>
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 shrink-0">
+        <button
+          onClick={onBack}
+          className="p-2 rounded-lg hover:bg-gray-800 transition-colors text-gray-400 hover:text-white shrink-0"
+          title="Volver"
+        >←</button>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-base font-semibold text-white">Pedidos</h1>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {urgentTodayCount > 0 && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800/60">
+                {urgentTodayCount} hoy
+              </span>
+            )}
+            {urgentTomorrowCount > 0 && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-800/60">
+                {urgentTomorrowCount} mañana
+              </span>
+            )}
           </div>
         </div>
+        {showStoreFilter && availableStores.length > 0 && (
+          <StoreFilter
+            stores={availableStores}
+            value={storeIdFilter}
+            onChange={v => setStoreIdFilter(v)}
+          />
+        )}
         <button
           onClick={openCreate}
           className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold transition-colors shrink-0"

@@ -149,18 +149,23 @@ export default function App() {
     const result = await window.hw.login({ email, password })
     if (!result.ok) throw new Error(result.error)
 
-    const partialSession = result.data
+    const session = result.data
 
-    // Cargar locales disponibles
+    // Admin: va directo al hub sin seleccionar local
+    // (el selector de local aparece dentro de las secciones que lo necesiten)
+    if (session.role === 'admin') {
+      setState({ screen: 'admin-hub', session, initStatus: state.initStatus })
+      return
+    }
+
+    // Cajera: debe elegir en qué local trabaja
     const storesResult = await window.hw.getStores()
     const availableStores = storesResult.ok ? storesResult.data : []
 
     if (availableStores.length === 1) {
-      // Un solo local: seleccionar automáticamente
-      await handleSelectStore(partialSession, availableStores[0]!.id, state.initStatus)
+      await handleSelectStore(session, availableStores[0]!.id, state.initStatus)
     } else {
-      // Múltiples locales: mostrar selector
-      setState({ screen: 'store-picker', partialSession, stores: availableStores, initStatus: state.initStatus })
+      setState({ screen: 'store-picker', partialSession: session, stores: availableStores, initStatus: state.initStatus })
     }
   }
 
@@ -360,6 +365,7 @@ export default function App() {
 
       {state.screen === 'debts' && (
         <DebtsScreen
+          isAdmin={state.session.role === 'admin'}
           onBack={() => {
             if (state.fromCashier) {
               setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })

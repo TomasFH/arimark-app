@@ -7,9 +7,10 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { formatARS, formatRelativeDate } from '../lib/datetime'
-import type { CustomerDebtSummary, DebtEventRow } from '../types/hw-api'
+import type { CustomerDebtSummary, DebtEventRow, StoreRow } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
+import StoreFilter from '../components/StoreFilter'
 
 // ---------------------------------------------------------------------------
 // Sub-componente: ledger de eventos de un cliente
@@ -230,13 +231,16 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
 
 interface Props {
   onBack?: () => void
+  isAdmin?: boolean
 }
 
-export default function DebtsScreen({ onBack }: Props) {
+export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
   const [debts, setDebts] = useState<CustomerDebtSummary[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
+  const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
 
   // Estado para modal de pago
   const [payTarget, setPayTarget] = useState<CustomerDebtSummary | null>(null)
@@ -249,14 +253,22 @@ export default function DebtsScreen({ onBack }: Props) {
   const [cancelLoading, setCancelLoading] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
+  // Cargar locales al montar (solo admin)
+  useEffect(() => {
+    if (!isAdmin) return
+    window.hw.getStores().then(r => {
+      if (r.ok) setAvailableStores(r.data)
+    })
+  }, [isAdmin])
+
   const loadDebts = useCallback(async () => {
     setLoadingList(true)
     setListError(null)
-    const res = await window.hw.getDebts()
+    const res = await window.hw.getDebts(isAdmin ? { storeIdFilter } : undefined)
     setLoadingList(false)
     if (res.ok) setDebts(res.data)
     else setListError(res.error ?? 'Error al cargar deudas.')
-  }, [])
+  }, [isAdmin, storeIdFilter])
 
   useEffect(() => { loadDebts() }, [loadDebts])
 
@@ -314,16 +326,23 @@ export default function DebtsScreen({ onBack }: Props) {
             ←
           </button>
         )}
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold text-white">📒 Fiados / Cuentas corrientes</h1>
           <p className="text-xs text-gray-500">
             {debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
           </p>
         </div>
+        {isAdmin && availableStores.length > 0 && (
+          <StoreFilter
+            stores={availableStores}
+            value={storeIdFilter}
+            onChange={v => setStoreIdFilter(v)}
+          />
+        )}
         <button
           onClick={loadDebts}
           disabled={loadingList}
-          className="text-xs text-gray-500 hover:text-gray-300 border border-gray-700 rounded-lg px-3 py-1.5 transition-colors"
+          className="shrink-0 text-xs text-gray-500 hover:text-gray-300 border border-gray-700 rounded-lg px-3 py-1.5 transition-colors"
         >
           {loadingList ? '...' : '↺ Actualizar'}
         </button>
