@@ -110,9 +110,9 @@ interface ConfirmModalProps {
 function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-blue-600 hover:bg-blue-700', onConfirm, onCancel }: ConfirmModalProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4">
-        <h2 className="text-base font-semibold text-white">{title}</h2>
-        <div className="text-sm text-gray-400">{message}</div>
+      <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4 overflow-hidden">
+        <h2 className="text-base font-semibold text-white break-words">{title}</h2>
+        <div className="text-sm text-gray-400 break-words">{message}</div>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors">
             Cancelar
@@ -621,7 +621,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           title={`¿${confirmStatus.status === 'ready' ? 'Marcar como listo' : confirmStatus.status === 'delivered' ? 'Marcar como entregado' : 'Revertir a pendiente'}?`}
           message={
             <>
-              Pedido de <strong className="text-white">{confirmStatus.order.customerName}</strong>.
+              Pedido de <strong className="text-white break-all">{confirmStatus.order.customerName}</strong>.
               {' '}Esta acción quedará registrada con tu usuario.
             </>
           }
@@ -639,7 +639,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           message={
             <>
               <p>
-                El pedido de <strong className="text-white">{confirmCancel.customerName}</strong> pasará a estado cancelado.
+                El pedido de <strong className="text-white break-all">{confirmCancel.customerName}</strong> pasará a estado cancelado.
                 Esta acción quedará registrada con tu usuario.
               </p>
               {confirmCancel.depositAmount > 0 && (
@@ -682,7 +682,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           message={
             <>
               Se eliminará el registro completo del pedido de{' '}
-              <strong className="text-white">{confirmHardDelete.customerName}</strong>.
+              <strong className="text-white break-all">{confirmHardDelete.customerName}</strong>.
               Esta acción <strong>no se puede deshacer</strong>.
             </>
           }
