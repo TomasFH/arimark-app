@@ -178,7 +178,6 @@ export function registerAuthHandlers(): void {
     }
 
     const { email, password, storeId } = parsed.data
-    const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
     try {
       const config = getBusinessConfig()
