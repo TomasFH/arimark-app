@@ -177,6 +177,7 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
             <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
           </button>
         </div>
+        </div>
       </div>
     </div>
   )
