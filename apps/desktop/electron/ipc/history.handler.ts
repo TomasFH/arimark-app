@@ -6,7 +6,7 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
   shifts, sales, salePayments, saleItems, expenses,
-  debtEvents, orders, users, products,
+  debtEvents, orders, users, products, providers,
 } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import type {
@@ -309,7 +309,8 @@ export function registerHistoryHandlers(): void {
         .select({
           id: expenses.id,
           createdAt: expenses.createdAt,
-          category: expenses.category,
+          concept: expenses.concept,
+          providerId: expenses.providerId,
           amount: expenses.amount,
           notes: expenses.notes,
           createdBy: expenses.createdBy,
@@ -325,10 +326,19 @@ export function registerHistoryHandlers(): void {
         : []
       const expUserMap = new Map(expUserRows.map(u => [u.id, u.name]))
 
+      // Resolver nombres de proveedor
+      const expProviderIds = [...new Set(expRows.map(r => r.providerId).filter(Boolean) as string[])]
+      const expProviderRows = expProviderIds.length > 0
+        ? db.select({ id: providers.id, name: providers.name }).from(providers).all()
+            .filter(p => expProviderIds.includes(p.id))
+        : []
+      const expProviderMap = new Map(expProviderRows.map(p => [p.id, p.name]))
+
       const historyExpenses = expRows.map(r => ({
         id: r.id,
         createdAt: r.createdAt,
-        category: r.category,
+        concept: r.concept ?? undefined,
+        provider: r.providerId ? (expProviderMap.get(r.providerId) ?? undefined) : undefined,
         amount: r.amount,
         notes: r.notes,
         createdBy: expUserMap.get(r.createdBy) ?? r.createdBy,

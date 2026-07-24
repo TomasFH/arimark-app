@@ -11,6 +11,12 @@ import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
 import { publishCatalog } from '../licensing/catalogPublish'
 import { startMobileSyncListener, stopMobileSyncListener } from '../licensing/mobileSync'
+import {
+  startProviderSyncListener,
+  stopProviderSyncListener,
+  pushUnsyncedProviders,
+  pushUnsyncedDebtEvents,
+} from '../licensing/providerSync'
 import { setSecret, SECRET_KEYS } from '../secureStorage'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
 
@@ -127,6 +133,15 @@ export function registerAuthHandlers(): void {
         }
 
         log.info('[ipc:login] Admin autenticado', { email })
+        // Admin inicia el listener global de providers para tener el autocomplete fresco.
+        const adminConfig = getBusinessConfig()
+        startProviderSyncListener(adminConfig.license_key)
+        pushUnsyncedProviders(adminConfig.license_key).catch(err =>
+          log.warn('[ipc:login] pushUnsyncedProviders (admin) falló (no bloqueante)', err)
+        )
+        pushUnsyncedDebtEvents(adminConfig.license_key).catch(err =>
+          log.warn('[ipc:login] pushUnsyncedDebtEvents (admin) falló (no bloqueante)', err)
+        )
         return {
           ok: true,
           data: {
@@ -231,6 +246,15 @@ export function registerAuthHandlers(): void {
       // Iniciar listener de importación de turnos móviles.
       startMobileSyncListener(config.license_key, storeId)
 
+      // Iniciar sync de proveedores y pushear pendientes.
+      startProviderSyncListener(config.license_key)
+      pushUnsyncedProviders(config.license_key).catch(err =>
+        log.warn('[ipc:login-cashier] pushUnsyncedProviders falló (no bloqueante)', err)
+      )
+      pushUnsyncedDebtEvents(config.license_key).catch(err =>
+        log.warn('[ipc:login-cashier] pushUnsyncedDebtEvents falló (no bloqueante)', err)
+      )
+
       log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
       return {
         ok: true,
@@ -281,8 +305,10 @@ export function registerAuthHandlers(): void {
 
     if (role === 'cashier') {
       stopMobileSyncListener()
+      stopProviderSyncListener()
       setActiveSession(null)
     } else if (role === 'admin') {
+      stopProviderSyncListener()
       await logoutAdmin()
     }
 

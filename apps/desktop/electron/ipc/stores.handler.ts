@@ -9,6 +9,11 @@ import { stores, users, shifts, orders, storeProducts } from '../db/schema'
 import { getActiveSession, updateActiveStore } from '../activeSession'
 import { publishCatalog } from '../licensing/catalogPublish'
 import { startMobileSyncListener } from '../licensing/mobileSync'
+import {
+  startProviderSyncListener,
+  pushUnsyncedProviders,
+  pushUnsyncedDebtEvents,
+} from '../licensing/providerSync'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, StoreRow, SessionInfo } from '../../src/types/hw-api'
 
@@ -94,6 +99,15 @@ export function registerStoresHandlers(): void {
           log.warn('[ipc:select-store] publishCatalog falló (no bloqueante)', err)
         )
         startMobileSyncListener(config.license_key, storeId)
+
+        // Iniciar sync de proveedores y pushear pendientes.
+        startProviderSyncListener(config.license_key)
+        pushUnsyncedProviders(config.license_key).catch(err =>
+          log.warn('[ipc:select-store] pushUnsyncedProviders falló (no bloqueante)', err)
+        )
+        pushUnsyncedDebtEvents(config.license_key).catch(err =>
+          log.warn('[ipc:select-store] pushUnsyncedDebtEvents falló (no bloqueante)', err)
+        )
       }
 
       log.info('[ipc:select-store] Local seleccionado', { storeId, role: session.role })

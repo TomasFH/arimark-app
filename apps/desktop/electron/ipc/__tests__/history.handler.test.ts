@@ -184,7 +184,7 @@ describe('history.handler', () => {
         id: '33333333-0000-0000-0000-000000000001',
         storeId: STORE_ID,
         shiftId: SHIFT_ID,
-        category: 'Limpieza',
+        concept: 'Limpieza',
         amount: 200,
         createdAt: now,
         createdBy: USER_ID,

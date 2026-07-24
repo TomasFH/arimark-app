@@ -15,6 +15,7 @@ import DebtsScreen from './routes/DebtsScreen'
 import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
 import OrdersScreen from './routes/OrdersScreen'
 import HistoryScreen from './routes/HistoryScreen'
+import ProvidersScreen from './routes/ProvidersScreen'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
@@ -36,6 +37,7 @@ type AppState =
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -362,6 +364,7 @@ export default function App() {
           onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
           onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
           onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
+          onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
           onLogout={handleLogout}
         />
       )}
@@ -428,6 +431,12 @@ export default function App() {
 
       {state.screen === 'history' && (
         <HistoryScreen
+          onBack={handleReturnToAdminHub}
+        />
+      )}
+
+      {state.screen === 'providers' && (
+        <ProvidersScreen
           onBack={handleReturnToAdminHub}
         />
       )}

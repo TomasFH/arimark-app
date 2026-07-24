@@ -97,6 +97,14 @@ Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediant
 - Alta de cuentas nuevas: mientras no exista un panel de administración (Fase 4) o una Cloud Function dedicada, la creación de una cuenta de cajera/admin (Firebase Auth + documento de perfil en Firestore) es **manual, desde la consola de Firebase**. Deuda técnica señalada, no silenciada.
 - Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. Si la PC se reinicia sin internet, no se puede volver a loguear una cajera (riesgo aceptado explícitamente por el desarrollador; no se implementa un PIN de emergencia en la PC). En el **celular** el acceso offline se logra con la sesión persistente de Firebase Auth: la cajera debe haberse logueado al menos una vez con internet en ese dispositivo (configuración inicial), y de ahí en más la app abre y opera offline sin credenciales.
 
+**Excepción explícita al principio "datos operativos 100% locales" — Proveedores (Fase S1, jul 2026):**
+Los **proveedores** y sus **eventos de deuda** son la primera categoría de datos operativos que se sincronizan con Firestore. Esto se debe a que:
+  1. Los proveedores suelen visitar ambos locales; su identidad debe ser compartida para evitar duplicados.
+  2. El admin necesita ver la deuda combinada cross-local desde cualquier dispositivo.
+Mecanismo: **outbox pattern** con columna `syncedAt`. Las PCs escriben en SQLite con `syncedAt=null`, un worker en background pushea a `licenses/{key}/providers/{id}` y `licenses/{key}/providerDebtEvents/{id}` marcando `syncedAt` al confirmar. Un listener `onSnapshot` mantiene el cache local de proveedores actualizado (para autocomplete global).
+**La tabla `providers` en SQLite es un cache local** sincronizable; Firestore es la fuente de verdad compartida. La deuda del propio local sigue calculándose 100% localmente (sin depender de conexión); solo la vista combinada admin requiere Firestore.
+Esto no viola la regla "Firebase solo en main" — toda la sincronización ocurre en el proceso main de Electron.
+
 ## IPC y validación
 
 - Todo handler IPC en el proceso main **valida el payload recibido con zod** antes de procesarlo.

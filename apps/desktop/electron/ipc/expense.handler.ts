@@ -2,29 +2,40 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { eq, desc, sql, and, sum } from 'drizzle-orm'
+import { eq, desc, sql, and, sum, isNotNull } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { expenses, providerDebtEvents, users } from '../db/schema'
+import { expenses, providerDebtEvents, providers, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import { providerIdFromName, providerNameKey } from './providerUtils'
+import { pushUnsyncedProviders, pushUnsyncedDebtEvents } from '../licensing/providerSync'
 import type { IpcResult, ExpenseRow, ProviderDebtRow } from '../../src/types/hw-api'
 
-/** Categorías predefinidas que se sugieren si el local aún no tiene historial */
-const DEFAULT_CATEGORIES = ['Insumos', 'Limpieza', 'Servicios', 'Otros']
+/** Conceptos predefinidos que se sugieren si el local aún no tiene historial */
+const DEFAULT_CONCEPTS = ['Insumos', 'Limpieza', 'Servicios', 'Otros']
 
 const registerExpenseSchema = z.object({
-  category: z.string().min(1).max(80).transform(s => s.trim()),
+  /** Concepto libre del gasto (obligatorio cuando no hay proveedor). */
+  concept: z.string().max(80).transform(s => s.trim()).optional(),
+  /** ID del proveedor elegido del autocomplete (ya existe en cache). */
+  providerId: z.string().min(1).optional(),
+  /** Nombre de proveedor nuevo tipeado (no existe en cache). Se crea al guardar. */
+  provider: z.string().max(100).transform(s => s.trim()).optional(),
   amount: z.number().positive(),
   notes: z.string().max(300).optional(),
-  provider: z.string().max(100).transform(s => s.trim()).optional(),
   /** Monto que quedó sin pagar al proveedor en esta visita (genera deuda nueva) */
   newDebtAmount: z.number().min(0).optional(),
   /** Monto de deuda anterior al proveedor que se paga en este gasto */
   paysOldDebt: z.number().min(0).optional(),
-})
+}).refine(
+  data => data.providerId || (data.provider && data.provider.length > 0) || (data.concept && data.concept.length > 0),
+  { message: 'Se requiere proveedor (id o nombre) o concepto.' }
+)
 
 const getProviderDebtSchema = z.object({
-  provider: z.string().min(1).max(100).transform(s => s.trim()),
+  /** ID del proveedor (determinístico, hex del nameKey). */
+  providerId: z.string().min(1),
 })
 
 export function registerExpenseHandlers(): void {
@@ -39,60 +50,102 @@ export function registerExpenseHandlers(): void {
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
 
-    const { category, amount, notes, provider, newDebtAmount, paysOldDebt } = parsed.data
+    const { concept, amount, notes, newDebtAmount, paysOldDebt } = parsed.data
     const id = uuidv4()
     const now = new Date().toISOString()
 
     try {
       const db = getDb()
 
-      db.transaction(tx => {
-        tx.insert(expenses)
-          .values({
-            id,
-            storeId: session.storeId,
-            shiftId: session.shiftId!,
-            category,
-            provider: provider ?? null,
-            amount,
-            notes: notes ?? null,
+      // Resolver identidad del proveedor
+      let resolvedProviderId: string | null = null
+      let resolvedProviderName: string | null = null
+
+      if (parsed.data.providerId) {
+        // Vino del autocomplete — usar el id exacto, no recomputar
+        resolvedProviderId = parsed.data.providerId
+        const prov = db.select({ name: providers.name }).from(providers)
+          .where(eq(providers.id, resolvedProviderId)).get()
+        resolvedProviderName = prov?.name ?? resolvedProviderId
+      } else if (parsed.data.provider && parsed.data.provider.length > 0) {
+        // Nombre nuevo tipeado — upsert en cache con id determinístico
+        const provName = parsed.data.provider
+        resolvedProviderId = providerIdFromName(provName)
+        resolvedProviderName = provName
+
+        const existing = db.select().from(providers).where(eq(providers.id, resolvedProviderId)).get()
+        if (!existing) {
+          db.insert(providers).values({
+            id: resolvedProviderId,
+            name: provName,
+            nameKey: providerNameKey(provName),
             createdAt: now,
             createdBy: session.userId,
-          })
-          .run()
+            syncedAt: null,
+          }).run()
+        }
+      }
 
-        // Registrar eventos de deuda si corresponde
-        if (provider && provider.length > 0) {
+      db.transaction(tx => {
+        tx.insert(expenses).values({
+          id,
+          storeId: session.storeId,
+          shiftId: session.shiftId!,
+          concept: concept ?? null,
+          providerId: resolvedProviderId,
+          amount,
+          notes: notes ?? null,
+          createdAt: now,
+          createdBy: session.userId,
+          syncedAt: null,
+        }).run()
+
+        if (resolvedProviderId && resolvedProviderName) {
           if (newDebtAmount && newDebtAmount > 0) {
             tx.insert(providerDebtEvents).values({
               id: uuidv4(),
               storeId: session.storeId,
-              provider,
+              providerId: resolvedProviderId,
+              provider: resolvedProviderName,
               type: 'debt',
               amount: newDebtAmount,
               expenseId: id,
               shiftId: session.shiftId!,
               createdAt: now,
               createdBy: session.userId,
+              syncedAt: null,
             }).run()
           }
           if (paysOldDebt && paysOldDebt > 0) {
             tx.insert(providerDebtEvents).values({
               id: uuidv4(),
               storeId: session.storeId,
-              provider,
+              providerId: resolvedProviderId,
+              provider: resolvedProviderName,
               type: 'payment',
               amount: paysOldDebt,
               expenseId: id,
               shiftId: session.shiftId!,
               createdAt: now,
               createdBy: session.userId,
+              syncedAt: null,
             }).run()
           }
         }
       })
 
-      log.info('[ipc:register-expense] Gasto registrado', { id, category, amount, provider, newDebtAmount, paysOldDebt })
+      // Push no bloqueante
+      const config = getBusinessConfig()
+      if (resolvedProviderId) {
+        pushUnsyncedProviders(config.license_key).catch(err =>
+          log.warn('[ipc:register-expense] pushUnsyncedProviders falló', err)
+        )
+        pushUnsyncedDebtEvents(config.license_key).catch(err =>
+          log.warn('[ipc:register-expense] pushUnsyncedDebtEvents falló', err)
+        )
+      }
+
+      log.info('[ipc:register-expense] Gasto registrado', { id, concept, amount, providerId: resolvedProviderId })
       return { ok: true, data: { id } }
     } catch (err) {
       log.error('[ipc:register-expense] Error inesperado', err)
@@ -110,8 +163,8 @@ export function registerExpenseHandlers(): void {
       const rows = db
         .select({
           id: expenses.id,
-          category: expenses.category,
-          provider: expenses.provider,
+          concept: expenses.concept,
+          providerId: expenses.providerId,
           amount: expenses.amount,
           notes: expenses.notes,
           createdAt: expenses.createdAt,
@@ -130,14 +183,24 @@ export function registerExpenseHandlers(): void {
         : []
       const userMap = new Map(userRows.map(u => [u.id, u.name]))
 
+      // Resolver nombres de proveedor para las filas que tienen providerId
+      const providerIds = [...new Set(rows.map(r => r.providerId).filter(Boolean) as string[])]
+      const providerRows = providerIds.length > 0
+        ? db.select({ id: providers.id, name: providers.name }).from(providers)
+            .where(sql`${providers.id} IN ${providerIds}`)
+            .all()
+        : []
+      const providerMap = new Map(providerRows.map(p => [p.id, p.name]))
+
       return {
         ok: true,
         data: rows.map(r => ({
           id: r.id,
-          category: r.category,
-          provider: r.provider,
+          concept: r.concept ?? undefined,
+          provider: r.providerId ? (providerMap.get(r.providerId) ?? r.providerId) : undefined,
+          providerId: r.providerId ?? undefined,
           amount: r.amount,
-          notes: r.notes,
+          notes: r.notes ?? undefined,
           createdAt: r.createdAt,
           createdBy: userMap.get(r.createdBy) ?? r.createdBy,
         })),
@@ -148,6 +211,7 @@ export function registerExpenseHandlers(): void {
     }
   })
 
+  // GET_EXPENSE_CATEGORIES — retorna conceptos usados anteriormente en este local (para sugerencias)
   ipcMain.handle(IPC.GET_EXPENSE_CATEGORIES, (_event): IpcResult<string[]> => {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
@@ -155,25 +219,25 @@ export function registerExpenseHandlers(): void {
     try {
       const db = getDb()
       const used = db
-        .selectDistinct({ category: expenses.category })
+        .selectDistinct({ concept: expenses.concept })
         .from(expenses)
-        .where(eq(expenses.storeId, session.storeId))
+        .where(and(eq(expenses.storeId, session.storeId), isNotNull(expenses.concept)))
         .all()
-        .map(r => r.category)
-        .filter(Boolean)
+        .map(r => r.concept)
+        .filter((c): c is string => Boolean(c))
 
-      if (used.length === 0) return { ok: true, data: DEFAULT_CATEGORIES }
+      if (used.length === 0) return { ok: true, data: DEFAULT_CONCEPTS }
 
       const usedSet = new Set(used.map(c => c.toLowerCase()))
-      const extras = DEFAULT_CATEGORIES.filter(c => !usedSet.has(c.toLowerCase()))
+      const extras = DEFAULT_CONCEPTS.filter(c => !usedSet.has(c.toLowerCase()))
       return { ok: true, data: [...used, ...extras] }
     } catch (err) {
       log.error('[ipc:get-expense-categories] Error inesperado', err)
-      return { ok: false, error: 'Error al obtener las categorías.' }
+      return { ok: false, error: 'Error al obtener los conceptos.' }
     }
   })
 
-  // GET_PROVIDER_DEBT — consulta saldo actual de deuda hacia un proveedor
+  // GET_PROVIDER_DEBT — saldo actual de deuda hacia un proveedor (solo del local activo)
   ipcMain.handle(IPC.GET_PROVIDER_DEBT, (_event, payload: unknown): IpcResult<ProviderDebtRow | null> => {
     const parsed = getProviderDebtSchema.safeParse(payload)
     if (!parsed.success) {
@@ -185,15 +249,19 @@ export function registerExpenseHandlers(): void {
 
     try {
       const db = getDb()
-      const provider = parsed.data.provider
+      const { providerId } = parsed.data
 
-      // Suma de deudas
+      // Buscar nombre del proveedor
+      const provRow = db.select({ name: providers.name })
+        .from(providers).where(eq(providers.id, providerId)).get()
+      const providerName = provRow?.name ?? providerId
+
       const debtRows = db
         .select({ total: sum(providerDebtEvents.amount), lastAt: sql<string>`MAX(${providerDebtEvents.createdAt})` })
         .from(providerDebtEvents)
         .where(and(
           eq(providerDebtEvents.storeId, session.storeId),
-          eq(providerDebtEvents.provider, provider),
+          eq(providerDebtEvents.providerId, providerId),
           eq(providerDebtEvents.type, 'debt'),
         ))
         .all()
@@ -203,7 +271,7 @@ export function registerExpenseHandlers(): void {
         .from(providerDebtEvents)
         .where(and(
           eq(providerDebtEvents.storeId, session.storeId),
-          eq(providerDebtEvents.provider, provider),
+          eq(providerDebtEvents.providerId, providerId),
           eq(providerDebtEvents.type, 'payment'),
         ))
         .all()
@@ -217,7 +285,8 @@ export function registerExpenseHandlers(): void {
       return {
         ok: true,
         data: {
-          provider,
+          provider: providerName,
+          providerId,
           balance: Math.max(0, balance),
           lastEventAt: debtRows[0]?.lastAt ?? '',
         },
@@ -228,7 +297,8 @@ export function registerExpenseHandlers(): void {
     }
   })
 
-  // GET_PROVIDER_NAMES — nombres de proveedores con historial (para autocomplete)
+  // GET_PROVIDER_NAMES — nombres de proveedores desde cache (para autocomplete legacy)
+  // Preferir LIST_PROVIDERS para nuevos usos.
   ipcMain.handle(IPC.GET_PROVIDER_NAMES, (_event): IpcResult<string[]> => {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
@@ -236,12 +306,11 @@ export function registerExpenseHandlers(): void {
     try {
       const db = getDb()
       const rows = db
-        .selectDistinct({ provider: expenses.provider })
-        .from(expenses)
-        .where(and(eq(expenses.storeId, session.storeId), sql`${expenses.provider} IS NOT NULL`))
+        .select({ name: providers.name })
+        .from(providers)
+        .where(sql`${providers.archivedAt} IS NULL`)
         .all()
-        .map(r => r.provider)
-        .filter((p): p is string => Boolean(p))
+        .map(r => r.name)
       return { ok: true, data: rows }
     } catch (err) {
       log.error('[ipc:get-provider-names] Error inesperado', err)

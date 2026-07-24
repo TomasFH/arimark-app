@@ -349,9 +349,12 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
           {expenses.map(exp => (
             <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="text-white font-medium truncate" title={exp.category}>{exp.category}</p>
+                <p className="text-white font-medium truncate" title={exp.provider ?? exp.concept ?? ''}>
+                  {exp.provider ?? exp.concept ?? '—'}
+                </p>
                 <div className="flex gap-3 text-xs text-gray-500">
                   <span>{toLocalTime(exp.createdAt)}</span>
+                  {exp.provider && exp.concept && <span className="truncate" title={exp.concept}>{exp.concept}</span>}
                   {exp.notes && <span className="truncate" title={exp.notes}>{exp.notes}</span>}
                 </div>
               </div>

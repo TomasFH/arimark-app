@@ -69,7 +69,16 @@ export default function ExpenseListModal({ onClose }: Props) {
                 {expenses.map(e => (
                   <tr key={e.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
                     <td className="py-2 pr-3 text-gray-500 text-xs">{formatTime(e.createdAt)}</td>
-                    <td className="py-2 pr-3 text-white">{e.category}</td>
+                    <td className="py-2 pr-3 text-white">
+                      {e.provider ? (
+                        <span className="truncate" title={e.provider}>{e.provider}</span>
+                      ) : (
+                        <span className="truncate" title={e.concept}>{e.concept ?? '—'}</span>
+                      )}
+                      {e.provider && e.concept && (
+                        <span className="block text-xs text-gray-500 truncate" title={e.concept}>{e.concept}</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3 text-gray-500 text-xs">{e.notes ?? '—'}</td>
                     <td className="py-2 text-right font-semibold text-amber-400">{formatARS(e.amount)}</td>
                   </tr>

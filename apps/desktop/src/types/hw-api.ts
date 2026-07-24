@@ -153,10 +153,14 @@ export interface CloseShiftPayload {
 // ---------------------------------------------------------------------------
 export interface ExpenseRow {
   id: string
-  category: string
-  provider: string | null
+  /** Concepto libre del gasto (cuando no hay proveedor). */
+  concept?: string
+  /** Nombre de pantalla del proveedor asociado. */
+  provider?: string
+  /** ID del proveedor (para consultar deuda). */
+  providerId?: string
   amount: number
-  notes: string | null
+  notes?: string
   createdAt: string
   createdBy: string
 }
@@ -619,20 +623,47 @@ export interface ListOrdersPayload {
 
 export interface ProviderDebtRow {
   provider: string
+  /** ID del proveedor (para consultas y vinculación). */
+  providerId: string
   /** Saldo pendiente (positivo = deben pagarle; 0 = sin deuda) */
   balance: number
   lastEventAt: string
 }
 
 export interface RegisterExpensePayload {
-  category: string
+  /** Concepto libre (obligatorio cuando no hay proveedor). */
+  concept?: string
+  /** ID del proveedor elegido del autocomplete. */
+  providerId?: string
+  /** Nombre de proveedor nuevo (se crea implícitamente). */
+  provider?: string
   amount: number
   notes?: string
-  provider?: string
   /** Monto que NO se pagó ahora y queda como deuda para la próxima visita */
   newDebtAmount?: number
   /** Monto de deuda anterior que se paga en este gasto */
   paysOldDebt?: number
+}
+
+// ---------------------------------------------------------------------------
+// Proveedores (entidades globales sincronizadas — Fase S1)
+// ---------------------------------------------------------------------------
+
+export interface ProviderRow {
+  id: string
+  name: string
+  phone?: string
+  notes?: string
+  archivedAt?: string
+}
+
+export interface ProviderWithDebtRow {
+  id: string
+  name: string
+  /** Deuda total combinada entre todos los locales. */
+  total: number
+  /** Desglose por local (solo visible para admin). */
+  perStore: Array<{ storeId: string; storeName: string; balance: number }>
 }
 
 // ---------------------------------------------------------------------------
@@ -678,7 +709,8 @@ export interface HistorySaleRow {
 export interface HistoryExpenseRow {
   id: string
   createdAt: string
-  category: string
+  concept?: string
+  provider?: string
   amount: number
   notes: string | null
   createdBy: string
@@ -936,17 +968,29 @@ export interface HwApi {
   /** Lista los gastos del turno activo */
   getShiftExpenses: () => Promise<IpcResult<ExpenseRow[]>>
 
-  /** Devuelve el saldo de deuda actual hacia un proveedor */
-  getProviderDebt: (payload: { provider: string }) => Promise<IpcResult<ProviderDebtRow | null>>
+  /** Devuelve el saldo de deuda actual hacia un proveedor (por providerId) */
+  getProviderDebt: (payload: { providerId: string }) => Promise<IpcResult<ProviderDebtRow | null>>
 
-  /** Devuelve los nombres de proveedores con historial en el local (para autocomplete) */
+  /** Devuelve los nombres de proveedores desde la cache (legacy; preferir listProviders) */
   getProviderNames: () => Promise<IpcResult<string[]>>
 
   /**
-   * Retorna las categorías de gasto usadas previamente (para autocomplete).
+   * Retorna los conceptos de gasto usados previamente (para autocomplete).
    * Incluye sugerencias predefinidas si aún no hay historial.
    */
   getExpenseCategories: () => Promise<IpcResult<string[]>>
+
+  // ---- Proveedores (Fase S1) ----
+  /** Lista proveedores activos desde la cache local. */
+  listProviders: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<ProviderRow[]>>
+  /** Crea un proveedor nuevo (admin; también implícito desde el registro de gasto). */
+  createProvider: (payload: { name: string; phone?: string; notes?: string }) => Promise<IpcResult<ProviderRow>>
+  /** Edita nombre, teléfono o notas de un proveedor. */
+  updateProvider: (payload: { id: string; name?: string; phone?: string | null; notes?: string | null }) => Promise<IpcResult<ProviderRow>>
+  /** Archiva un proveedor (soft-delete). */
+  archiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>
+  /** Lista proveedores con deuda combinada cross-local (solo admin; lee Firestore). */
+  getProvidersWithDebt: () => Promise<IpcResult<ProviderWithDebtRow[]>>
 
   // ---- Clientes especiales (Fase 6) ----
   /** Crea un cliente nuevo */

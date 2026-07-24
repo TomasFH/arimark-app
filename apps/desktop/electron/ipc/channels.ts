@@ -88,6 +88,13 @@ export const IPC = {
   GET_PROVIDER_DEBT: 'ipc:get-provider-debt',
   GET_PROVIDER_NAMES: 'ipc:get-provider-names',
 
+  // Proveedores (entidades globales sincronizadas — Fase S1)
+  LIST_PROVIDERS: 'ipc:list-providers',
+  CREATE_PROVIDER: 'ipc:create-provider',
+  UPDATE_PROVIDER: 'ipc:update-provider',
+  ARCHIVE_PROVIDER: 'ipc:archive-provider',
+  GET_PROVIDERS_WITH_DEBT: 'ipc:get-providers-with-debt',
+
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
   GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',

@@ -85,6 +85,13 @@ const hw: HwApi = {
 
   getProviderNames: () => ipcRenderer.invoke(IPC.GET_PROVIDER_NAMES),
 
+  // Proveedores (Fase S1)
+  listProviders: payload => ipcRenderer.invoke(IPC.LIST_PROVIDERS, payload),
+  createProvider: payload => ipcRenderer.invoke(IPC.CREATE_PROVIDER, payload),
+  updateProvider: payload => ipcRenderer.invoke(IPC.UPDATE_PROVIDER, payload),
+  archiveProvider: payload => ipcRenderer.invoke(IPC.ARCHIVE_PROVIDER, payload),
+  getProvidersWithDebt: () => ipcRenderer.invoke(IPC.GET_PROVIDERS_WITH_DEBT),
+
   // Clientes especiales (Fase 6)
   createCustomer: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER, payload),
   getCustomers: payload => ipcRenderer.invoke(IPC.GET_CUSTOMERS, payload),

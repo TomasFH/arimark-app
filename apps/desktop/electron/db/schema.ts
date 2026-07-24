@@ -336,6 +336,30 @@ export const debtEvents = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
+// Proveedores (caché local sincronizable con Firestore)
+//
+// id = lower(hex(nameKey)) — determinístico: mismo nombre → mismo id en todas las PCs.
+// Garantiza dedup offline sin coordinación entre locales.
+// ---------------------------------------------------------------------------
+export const providers = sqliteTable('providers', {
+  id: text('id').primaryKey(), // hex(lower(trim(name))) — ver providerIdFromName()
+  /** Nombre de pantalla (editable sin romper la identidad). */
+  name: text('name').notNull(),
+  /** lower(trim(name)) — clave de dedup case-insensitive. Inmutable tras la creación. */
+  nameKey: text('name_key').notNull(),
+  phone: text('phone'),
+  notes: text('notes'),
+  archivedAt: text('archived_at'),
+  createdAt: text('created_at').notNull(),
+  /** Nullable para backfill de proveedores migrados de gastos previos. */
+  createdBy: text('created_by').references(() => users.id),
+  updatedAt: text('updated_at'),
+  updatedBy: text('updated_by').references(() => users.id),
+  /** null = pendiente de push a Firestore; ISO string = ya sincronizado. */
+  syncedAt: text('synced_at'),
+})
+
+// ---------------------------------------------------------------------------
 // Gastos
 // ---------------------------------------------------------------------------
 export const expenses = sqliteTable(
@@ -348,10 +372,10 @@ export const expenses = sqliteTable(
     shiftId: text('shift_id')
       .notNull()
       .references(() => shifts.id),
-    /** Categoría del gasto — texto libre, sin enum para permitir categorías personalizadas. */
-    category: text('category').notNull(),
-    /** Proveedor relacionado con el gasto (texto libre, opcional). Usado para seguimiento de deudas. */
-    provider: text('provider'),
+    /** Concepto libre del gasto. Requerido cuando no hay proveedor asignado. */
+    concept: text('concept'),
+    /** Proveedor asociado a este gasto (FK a entidad proveedor sincronizable). */
+    providerId: text('provider_id').references(() => providers.id),
     amount: real('amount').notNull(),
     notes: text('notes'),
     createdAt: text('created_at').notNull(),
@@ -360,7 +384,10 @@ export const expenses = sqliteTable(
       .references(() => users.id),
     syncedAt: text('synced_at'),
   },
-  table => [index('idx_expenses_shift').on(table.shiftId)]
+  table => [
+    index('idx_expenses_shift').on(table.shiftId),
+    index('idx_expenses_provider').on(table.providerId),
+  ]
 )
 
 // ---------------------------------------------------------------------------
@@ -451,7 +478,9 @@ export const providerDebtEvents = sqliteTable(
     storeId: text('store_id')
       .notNull()
       .references(() => stores.id),
-    /** Nombre del proveedor normalizado (trim, sin cambiar mayúsculas en almacenamiento) */
+    /** FK a la entidad proveedor (sincronizable). Nullable para eventos migrados. */
+    providerId: text('provider_id').references(() => providers.id),
+    /** Nombre del proveedor denormalizado (para queries simples sin join). */
     provider: text('provider').notNull(),
     /** 'debt' = nueva deuda generada al pagar menos de lo facturado; 'payment' = pago de deuda anterior */
     type: text('type', { enum: ['debt', 'payment'] }).notNull(),
@@ -465,9 +494,12 @@ export const providerDebtEvents = sqliteTable(
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id),
+    /** null = pendiente de push a Firestore; ISO string = ya sincronizado. */
+    syncedAt: text('synced_at'),
   },
   table => [
     index('idx_provider_debt_store_provider').on(table.storeId, table.provider),
+    index('idx_provider_debt_provider_id').on(table.providerId, table.storeId),
   ]
 )
 

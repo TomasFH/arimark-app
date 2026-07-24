@@ -19,6 +19,7 @@ import { registerOrderHandlers } from './orders.handler'
 import { registerHistoryHandlers } from './history.handler'
 import { registerStoresHandlers } from './stores.handler'
 import { registerDevSeedHandlers } from './devSeed.handler'
+import { registerProvidersHandlers } from './providers.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
 
 export function registerAllHandlers(manager: HardwareManager): void {
@@ -42,6 +43,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerOrderHandlers()
   registerHistoryHandlers()
   registerStoresHandlers()
+  registerProvidersHandlers()
 
   // Herramientas de desarrollo — nunca en producción.
   if ((process.env['APP_ENV'] ?? 'dev') !== 'production') {
