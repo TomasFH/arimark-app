@@ -580,3 +580,37 @@ No retirarse sin completar este circuito:
 - Confirmar en los logs que `electron-updater` consultó el feed correctamente.
 - Entregar `license_key` por escrito al cliente.
 - Agendar seguimiento a los 7 días: revisar logs, verificar backups diarios, revisar que el ciclo semanal completo funcionó.
+
+---
+
+## Deuda técnica documentada — pendiente de diseño/implementación
+
+### DT-01: Selección incorrecta de local al iniciar sesión
+
+**Descripción del problema:**
+Al abrir caja la cajera elige el local en el que va a trabajar. Si presiona el local equivocado no puede volver atrás: solo puede cerrar la caja, lo que genera un turno/cierre sin sentido. En el peor caso, la cajera no se da cuenta del error y registra ventas, gastos y movimientos en el local incorrecto durante toda la jornada.
+
+**Impacto real:**
+- Estadísticas de venta del local incorrecto infladas/desinfladas.
+- Historial cruzado entre locales.
+- En el caso del local B que tiene menor volumen de ventas, unos pocos días de error pueden distorsionar significativamente los reportes del local A.
+
+**Dos sub-problemas a resolver:**
+
+**1. Volver atrás antes de abrir caja (corrección inmediata)**
+La pantalla de selección de local debe incluir un botón "Volver / Cambiar local" que permita a la cajera regresar a la selección de local sin forzar un inicio de turno. Actualmente no existe esta opción.
+
+**2. Migración de datos si el error fue descubierto tarde (corrección tardía)**
+Si la cajera ya registró ventas y gastos en el local incorrecto, se necesita una herramienta de admin para migrar los datos de ese turno al local correcto. Los datos involucrados son:
+- Turno (`shifts.store_id`)
+- Ventas (`sales.store_id`)
+- Pagos de ventas (`sale_payments`)
+- Gastos (`expenses.store_id`)
+- Eventos de deuda a proveedores (`provider_debt_events.store_id`)
+- Pedidos con seña registrados en ese turno
+
+La migración debe ser atómica (una transacción SQLite única), requiere doble confirmación admin y debe dejar un evento de auditoría indicando que se realizó la corrección, quién la autorizó y cuándo.
+
+**Prioridad:** Media-baja en contexto actual (2 locales con cajeras que conocen bien su lugar de trabajo). Aumenta si se agregan locales o si hay rotación frecuente de cajeras entre locales.
+
+**Cuándo implementar:** Antes de cualquier expansión a 3 o más locales, o si se reporta el problema en producción.
