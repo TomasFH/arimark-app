@@ -13,7 +13,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { isNull, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { providers, providerDebtEvents, stores } from '../db/schema'
@@ -22,7 +22,6 @@ import { getBusinessConfig } from '../businessConfig'
 import { providerIdFromName, providerNameKey } from './providerUtils'
 import {
   pushUnsyncedProviders,
-  pushUnsyncedDebtEvents,
 } from '../licensing/providerSync'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
 import { getFirestore, collection, getDocs } from 'firebase/firestore'
@@ -294,15 +293,15 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
   const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]))
 
   // Cargar nombres de proveedores desde cache local
-  const providerRows = db.select({ id: providers.id, name: providers.name }).from(providers).all()
+  const providerRows = db.select({ id: providers.id, name: providers.name, archivedAt: providers.archivedAt }).from(providers).all()
   const providerNameMap = new Map(providerRows.map(p => [p.id, p.name]))
 
   // Leer todos los eventos de deuda desde Firestore
   const eventsCol = collection(firestore, 'licenses', config.license_key, 'providerDebtEvents')
   const snap = await getDocs(eventsCol)
 
-  interface DebtKey { providerId: string; storeId: string }
-  const balances = new Map<string, { balance: number; providerId: string; storeId: string }>()
+  interface BalanceEntry { balance: number; providerId: string; storeId: string }
+  const balances = new Map<string, BalanceEntry>()
 
   for (const docSnap of snap.docs) {
     const evt = docSnap.data() as {
