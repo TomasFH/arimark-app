@@ -17,7 +17,7 @@
  * Ver la documentación en cashiers.handler.ts.
  */
 import { useEffect, useState } from 'react'
-import type { CashierRow, StoreRow } from '../types/hw-api'
+import type { CashierRow } from '../types/hw-api'
 
 interface Props {
   onBack: () => void
@@ -25,7 +25,6 @@ interface Props {
 
 export default function CashierManagementScreen({ onBack }: Props) {
   const [cashiers, setCashiers] = useState<CashierRow[]>([])
-  const [stores, setStores] = useState<StoreRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -35,15 +34,10 @@ export default function CashierManagementScreen({ onBack }: Props) {
   async function load() {
     setLoading(true)
     setError(null)
-    const [cashiersR, storesR] = await Promise.all([
-      window.hw.listCashiers(),
-      window.hw.getStores(),
-    ])
-    if (storesR.ok) setStores(storesR.data)
+    const cashiersR = await window.hw.listCashiers()
     if (cashiersR.ok) {
       setCashiers(cashiersR.data)
     } else {
-      // Mostrar error informativo pero no impedir el uso de la pantalla
       setError(cashiersR.error)
     }
     setLoading(false)
@@ -65,8 +59,6 @@ export default function CashierManagementScreen({ onBack }: Props) {
     if (r.ok) void load()
     else setError(r.error)
   }
-
-  const storeName = (id: string) => stores.find(s => s.id === id)?.name ?? id
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
@@ -123,9 +115,6 @@ export default function CashierManagementScreen({ onBack }: Props) {
                 <div className="min-w-0">
                   <p className="font-medium text-sm truncate">{c.displayName}</p>
                   <p className="text-xs text-gray-400 mt-0.5 truncate">{c.email}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    {c.authorizedStores.map(id => storeName(id)).join(', ')}
-                  </p>
                 </div>
                 <div className="flex items-center gap-2 ml-4 shrink-0">
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c.active ? 'bg-green-900/50 text-green-300' : 'bg-gray-800 text-gray-500'}`}>
@@ -154,7 +143,6 @@ export default function CashierManagementScreen({ onBack }: Props) {
 
       {showCreate && (
         <CreateCashierModal
-          stores={stores}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); void load() }}
         />
@@ -176,34 +164,26 @@ export default function CashierManagementScreen({ onBack }: Props) {
 // ---------------------------------------------------------------------------
 
 interface CreateCashierModalProps {
-  stores: StoreRow[]
   onClose: () => void
   onCreated: () => void
 }
 
-function CreateCashierModal({ stores, onClose, onCreated }: CreateCashierModalProps) {
+function CreateCashierModal({ onClose, onCreated }: CreateCashierModalProps) {
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
-  const [selectedStores, setSelectedStores] = useState<string[]>(stores.length === 1 ? [stores[0]!.id] : [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState(false)
-
-  function toggleStore(id: string) {
-    setSelectedStores(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
-  }
 
   async function handleCreate() {
     setError(null)
     if (!displayName.trim()) { setError('El nombre es obligatorio.'); return }
     if (!email.trim()) { setError('El email es obligatorio.'); return }
-    if (selectedStores.length === 0) { setError('Seleccioná al menos un local.'); return }
 
     setSaving(true)
     const r = await window.hw.createCashier({
       displayName: displayName.trim(),
       email: email.trim().toLowerCase(),
-      authorizedStores: selectedStores,
     })
     setSaving(false)
 
@@ -254,21 +234,6 @@ function CreateCashierModal({ stores, onClose, onCreated }: CreateCashierModalPr
               placeholder="cajera@ejemplo.com"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500" />
           </div>
-          {stores.length > 1 && (
-            <div>
-              <label className="block text-xs text-gray-400 mb-2">Locales autorizados</label>
-              <div className="space-y-1">
-                {stores.map(s => (
-                  <label key={s.id} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={selectedStores.includes(s.id)}
-                      onChange={() => toggleStore(s.id)}
-                      className="accent-red-500 h-4 w-4" />
-                    <span className="text-sm text-gray-200">{s.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}

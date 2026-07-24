@@ -106,17 +106,6 @@ describe('auth.handler', () => {
       expect(result).toMatchObject({ ok: false })
     })
 
-    it('rechaza si el local no está en authorizedStores del perfil', async () => {
-      vi.mocked(signInWithRole).mockResolvedValue({
-        ok: true,
-        profile: { uid: 'uid-1', email: 'cajera1@negocio.com', role: 'cashier', authorizedStores: ['otro-local'], displayName: 'Cajera Uno', active: true },
-      })
-
-      const handler = getHandler('ipc:login-cashier')
-      const result = await handler({}, { email: 'cajera1@negocio.com', password: 'correct', storeId: 'store-1' })
-      expect(result).toMatchObject({ ok: false })
-    })
-
     it('login exitoso crea el perfil local si no existía y retorna SessionInfo', async () => {
       const { insertChain } = mockDbWithUser(undefined)
       vi.mocked(signInWithRole).mockResolvedValue({

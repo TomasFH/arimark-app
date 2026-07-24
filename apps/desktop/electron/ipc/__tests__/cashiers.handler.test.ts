@@ -39,17 +39,6 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
     const result = await getHandler('ipc:create-cashier')({}, {
       displayName: 'Test',
       email: 'no-es-email',
-      authorizedStores: ['local1'],
-    }) as { ok: boolean; code: string }
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe('VALIDATION_ERROR')
-  })
-
-  it('CREATE_CASHIER rechaza locales vacíos', async () => {
-    const result = await getHandler('ipc:create-cashier')({}, {
-      displayName: 'Test',
-      email: 'test@test.com',
-      authorizedStores: [],
     }) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('VALIDATION_ERROR')
@@ -60,7 +49,6 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
     const create = await getHandler('ipc:create-cashier')({}, {
       displayName: 'Nueva Cajera',
       email: uniqueEmail('nueva'),
-      authorizedStores: ['local1'],
     }) as { ok: boolean; data: { uid: string } }
     expect(create.ok).toBe(true)
     expect(create.data.uid).toBeTruthy()
@@ -70,7 +58,7 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
 
   it('TOGGLE_CASHIER desactiva una cajera creada', async () => {
     const c = await getHandler('ipc:create-cashier')({}, {
-      displayName: 'Cajera Toggle', email: uniqueEmail('toggle_off'), authorizedStores: ['l1'],
+      displayName: 'Cajera Toggle', email: uniqueEmail('toggle_off'),
     }) as { ok: boolean; data: { uid: string } }
     expect(c.ok).toBe(true)
     const toggle = await getHandler('ipc:toggle-cashier')({}, { uid: c.data.uid, active: false }) as { ok: boolean }
@@ -81,7 +69,7 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
 
   it('TOGGLE_CASHIER reactiva una cajera inactiva', async () => {
     const c = await getHandler('ipc:create-cashier')({}, {
-      displayName: 'Cajera Toggle', email: uniqueEmail('toggle_on'), authorizedStores: ['l1'],
+      displayName: 'Cajera Toggle', email: uniqueEmail('toggle_on'),
     }) as { ok: boolean; data: { uid: string } }
     expect(c.ok).toBe(true)
     await getHandler('ipc:toggle-cashier')({}, { uid: c.data.uid, active: false })
@@ -105,7 +93,7 @@ describe('cashiers.handler (dev mode — mocks en memoria)', () => {
 
   it('DELETE_CASHIER elimina una cajera y desaparece de la lista', async () => {
     const c = await getHandler('ipc:create-cashier')({}, {
-      displayName: 'Borrar Test', email: uniqueEmail('delete'), authorizedStores: ['l1'],
+      displayName: 'Borrar Test', email: uniqueEmail('delete'),
     }) as { ok: boolean; data: { uid: string } }
     expect(c.ok).toBe(true)
     const del = await getHandler('ipc:delete-cashier')({}, { uid: c.data.uid }) as { ok: boolean }

@@ -189,13 +189,8 @@ export function registerAuthHandlers(): void {
 
       const { profile } = result
 
-      // En dev no hay perfil real en Firestore (bypass) — se salta la
-      // verificación de local autorizado. En producción, la cajera solo
-      // puede operar los locales que su perfil habilita explícitamente.
-      if (APP_ENV !== 'dev' && !profile.authorizedStores.includes(storeId)) {
-        log.warn('[ipc:login-cashier] Local no autorizado', { uid: profile.uid, storeId })
-        return { ok: false, error: 'No autorizado para operar en este local.' }
-      }
+      // Las cajeras pueden operar en cualquier local activo.
+      // No se verifica authorizedStores — la selección de local es libre.
 
       const db = getDb()
       const existing = db

@@ -36,8 +36,9 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
       </header>
 
       {/* Opciones principales */}
-      <div className="flex flex-1 items-center justify-center px-6">
-        <div className="w-full max-w-xl space-y-4">
+      <div className="flex-1 overflow-y-auto">
+        <div className="flex items-center justify-center min-h-full px-6">
+          <div className="w-full max-w-xl space-y-4 py-8">
           <p className="text-center text-gray-400 text-sm mb-8">¿Qué querés hacer?</p>
 
           {/* Panel de administración */}

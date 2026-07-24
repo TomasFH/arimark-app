@@ -41,7 +41,7 @@ import type { IpcResult, CashierRow } from '../../src/types/hw-api'
 const createCashierSchema = z.object({
   displayName: z.string().min(2).max(80),
   email: z.string().email(),
-  authorizedStores: z.array(z.string().min(1)).min(1),
+  authorizedStores: z.array(z.string().min(1)).optional(), // ya no es requerido — cualquier cajera puede operar en cualquier local
 })
 
 const toggleCashierSchema = z.object({
@@ -276,11 +276,11 @@ export function registerCashiersHandlers(): void {
 
     const { displayName, email, authorizedStores } = parsed.data
 
-    if (!isFirebaseAvailable()) return devCreateCashier(displayName, email, authorizedStores)
+    if (!isFirebaseAvailable()) return devCreateCashier(displayName, email, authorizedStores ?? [])
 
     try {
       const { license_key } = getBusinessConfig()
-      const result = await firebaseCreateCashier(license_key, displayName, email, authorizedStores)
+      const result = await firebaseCreateCashier(license_key, displayName, email, authorizedStores ?? [])
       if (result.ok) log.info('[ipc:create-cashier] Cajera creada', { email })
       return result
     } catch (err) {

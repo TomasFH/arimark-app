@@ -394,7 +394,7 @@ export interface CashierRow {
 export interface CreateCashierPayload {
   displayName: string
   email: string
-  authorizedStores: string[]
+  authorizedStores?: string[]
 }
 
 export interface ToggleCashierPayload {
