@@ -206,7 +206,7 @@ export function registerHistoryHandlers(): void {
     try {
       const db = getDb()
 
-      const shift = db.select().from(shifts).where(and(eq(shifts.id, shiftId), eq(shifts.storeId, session.storeId))).all()[0]
+      const shift = db.select().from(shifts).where(eq(shifts.id, shiftId)).all()[0]
       if (!shift) return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
 
       const cashierRow = db.select({ name: users.name }).from(users).where(eq(users.id, shift.userId)).all()[0]

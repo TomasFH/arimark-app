@@ -216,6 +216,12 @@ export default function ScanInput({ onAddItem, products }: Props) {
       if (w !== null && w > 0) {
         setPriceRaw(formatDecimalInputValue(String(Math.round(w * refPrice))))
       }
+    } else if (!specialPrice && (!refPrice || refPrice === 0)) {
+      // Sin precio de catálogo: enfocar el campo precio para que el usuario lo ingrese
+      const w = parseDecimalInput(v)
+      if (w !== null && w > 0) {
+        setTimeout(() => priceInputRef.current?.focus(), 0)
+      }
     }
   }
 
@@ -543,35 +549,43 @@ export default function ScanInput({ onAddItem, products }: Props) {
             </div>
           ) : (
             /* ── Campos: productos por kg ── */
-            <div className="flex gap-2">
-              <div className="w-24 shrink-0">
-                <label className="block text-[9px] text-gray-500 mb-0.5">Peso (kg)</label>
-                <DecimalInput
-                  value={weightRaw}
-                  onChange={handleKgWeightChange}
-                  maxDecimals={3}
-                  weightMode
-                  placeholder="ej. 0,490"
-                  className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
-                />
+            <div className="space-y-1.5">
+              <div className="flex gap-2">
+                <div className="w-24 shrink-0">
+                  <label className="block text-[9px] text-gray-500 mb-0.5">Peso (kg)</label>
+                  <DecimalInput
+                    value={weightRaw}
+                    onChange={handleKgWeightChange}
+                    maxDecimals={3}
+                    weightMode
+                    placeholder="ej. 0,490"
+                    className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[9px] text-gray-500 mb-0.5">
+                    Precio total ($)
+                    {refPrice && !specialPrice && (
+                      <span className="ml-1 text-amber-600">· {formatARS(refPrice)}/kg</span>
+                    )}
+                  </label>
+                  <DecimalInput
+                    ref={priceInputRef}
+                    value={priceRaw}
+                    onChange={handleKgPriceChange}
+                    placeholder="ej. 7.350"
+                    className={`w-full rounded-md border bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none ${
+                      specialPrice ? 'border-orange-700 focus:border-orange-500' : 'border-gray-700 focus:border-orange-500'
+                    }`}
+                  />
+                </div>
               </div>
-              <div className="flex-1">
-                <label className="block text-[9px] text-gray-500 mb-0.5">
-                  Precio total ($)
-                  {refPrice && !specialPrice && (
-                    <span className="ml-1 text-amber-600">· {formatARS(refPrice)}/kg</span>
-                  )}
-                </label>
-                <DecimalInput
-                  ref={priceInputRef}
-                  value={priceRaw}
-                  onChange={handleKgPriceChange}
-                  placeholder="ej. 7.350"
-                  className={`w-full rounded-md border bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none ${
-                    specialPrice ? 'border-orange-700 focus:border-orange-500' : 'border-gray-700 focus:border-orange-500'
-                  }`}
-                />
-              </div>
+              {/* Aviso cuando el producto existe pero no tiene precio en el catálogo */}
+              {matchedProduct && !refPrice && !specialPrice && (
+                <p className="text-[10px] text-yellow-500 leading-snug">
+                  Sin precio de lista — ingresá el precio total manualmente.
+                </p>
+              )}
             </div>
           )}
 

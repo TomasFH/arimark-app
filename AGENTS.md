@@ -95,7 +95,16 @@ Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediant
 - La app móvil usa **las mismas credenciales Firebase Auth** y lee el mismo perfil Firestore. El login es en `apps/mobile/src/lib/auth.ts`. La sesión queda persistida en el dispositivo (`initializeAuth` con `indexedDBLocalPersistence`), así que tras el primer login con internet la cajera opera offline sin volver a ingresar credenciales ni PIN. `restoreSession()` rehidrata al usuario al abrir la app.
 - No hay control de concurrencia entre dispositivos: la misma cajera puede estar logueada en la PC y en su celular al mismo tiempo. Firebase Auth es la única fuente de identidad.
 - Alta de cuentas nuevas: mientras no exista un panel de administración (Fase 4) o una Cloud Function dedicada, la creación de una cuenta de cajera/admin (Firebase Auth + documento de perfil en Firestore) es **manual, desde la consola de Firebase**. Deuda técnica señalada, no silenciada.
-- Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. Si la PC se reinicia sin internet, no se puede volver a loguear una cajera (riesgo aceptado explícitamente por el desarrollador; no se implementa un PIN de emergencia en la PC). En el **celular** el acceso offline se logra con la sesión persistente de Firebase Auth: la cajera debe haberse logueado al menos una vez con internet en ese dispositivo (configuración inicial), y de ahí en más la app abre y opera offline sin credenciales.
+- Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. En el **celular** el acceso offline se logra con la sesión persistente de Firebase Auth: la cajera debe haberse logueado al menos una vez con internet en ese dispositivo (configuración inicial), y de ahí en más la app abre y opera offline sin credenciales.
+- **Login offline en PC — decisión pendiente (jul 2026):** `signInWithEmailAndPassword` requiere red; si la PC se reinicia sin internet, actualmente la cajera no puede iniciar sesión. Esto fue "riesgo aceptado" hasta jul 2026, pero se identificó como inaceptable en operación real. La solución acordada a implementar es la **Opción E — caché de credenciales hasheadas en `safeStorage`**:
+  - Al login exitoso con Firebase, el main process guarda en `safeStorage` un registro por usuario: `{ userId, name, role, email, hash: scrypt(password), storedAt, expiresAt: +30 días }`.
+  - En ausencia de internet, la pantalla de login es idéntica a la normal (sin bypass ni botón especial). El main intenta Firebase → falla → busca hash local para ese email → compara con `crypto.scrypt` (Node.js nativo, sin dependencias nuevas).
+  - Si el hash coincide: sesión válida con banner "Sin conexión — sesión guardada localmente".
+  - Si no coincide o no hay hash: "Credenciales incorrectas o sin conexión." — sin información extra.
+  - Cuando vuelve internet: re-verificación silenciosa; si la cuenta fue deshabilitada en Firebase se cierra la sesión.
+  - Limitación aceptada: primera vez en una PC nueva siempre requiere internet (no hay hash previo).
+  - El hash en `safeStorage` expira a los 30 días para forzar re-auth periódica con internet.
+  - **No implementar hasta que el desarrollador confirme inicio de la tarea.**
 
 **Excepción explícita al principio "datos operativos 100% locales" — Proveedores (Fase S1, jul 2026):**
 Los **proveedores** y sus **eventos de deuda** son la primera categoría de datos operativos que se sincronizan con Firestore. Esto se debe a que:
@@ -118,6 +127,7 @@ Esto no viola la regla "Firebase solo en main" — toda la sincronización ocurr
 - Toda escritura que afecta más de una tabla va dentro de una **transacción atómica** de `better-sqlite3`. Si una transacción falla, no queda nada escrito a medias.
 - Las deudas se gestionan con el **modelo de ledger** (`debt_events`). Cada cambio de estado es un evento nuevo. Nunca se sobreescribe un saldo.
 - Toda tabla nueva requiere su migración generada con Drizzle Kit en la carpeta `drizzle/` antes de ser usada.
+- **Timestamp del journal obligatorio:** al agregar una entrada nueva en `drizzle/meta/_journal.json`, el campo `when` debe ser **mayor** que el `when` de la migración anterior. Usar siempre `Date.now()` en el momento de escribir. Si el `when` queda menor que el de la migración previa, Drizzle no la aplica y la app falla en runtime con "no such column".
 - Los tests de DB usan siempre la instancia `:memory:` de `electron/db/__tests__/helpers/inMemoryDb.ts`.
 
 ## Entornos de ejecución

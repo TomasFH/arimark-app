@@ -132,6 +132,33 @@ describe('history.handler', () => {
       expect(res.code).toBe('NOT_FOUND')
     })
 
+    it('retorna el detalle de un turno de otro local (cross-store)', () => {
+      // El admin está en STORE_ID pero el turno pertenece a otro local
+      const OTHER_STORE_ID = 'store-002'
+      const OTHER_SHIFT_ID = '00000000-0000-0000-0000-000000000003'
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: OTHER_STORE_ID, name: 'Local 2', address: 'Calle 2', createdAt: now }).run()
+      db.insert(shifts).values({
+        id: OTHER_SHIFT_ID,
+        storeId: OTHER_STORE_ID,
+        userId: USER_ID,
+        shiftType: 'evening',
+        startedAt: '2026-07-01T14:00:00.000Z',
+        closedAt: '2026-07-01T22:00:00.000Z',
+        openingCash: 500,
+        source: 'desktop',
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = handler(null, { shiftId: OTHER_SHIFT_ID }) as {
+        ok: boolean
+        data: { shift: { id: string; shiftType: string } }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.shift.id).toBe(OTHER_SHIFT_ID)
+      expect(res.data.shift.shiftType).toBe('evening')
+    })
+
     it('retorna detalle completo del turno', () => {
       const handler = getHandler('ipc:get-history-shift-detail')
       const res = handler(null, { shiftId: SHIFT_ID }) as {

@@ -127,9 +127,41 @@ describe('shift.handler', () => {
       expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
     })
 
-    it('rechaza si ya existe un turno abierto', () => {
-      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
-      const mockAll = vi.fn().mockReturnValue([{ id: 'existing-shift' }])
+    it('retoma el turno propio (resumed=true) si el mismo usuario ya tenía uno abierto', () => {
+      // Si la PC se reinició o la sesión se cerró sin cerrar turno, al volver a intentar
+      // abrir, el handler detecta que es el mismo usuario y retoma sin error.
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT) // user-001
+      const existingShift = {
+        id: 'existing-shift',
+        userId: 'user-001', // mismo que SESSION_NO_SHIFT
+        storeId: 'store-001',
+        shiftType: 'morning',
+        startedAt: '2026-01-01T08:00:00.000Z',
+        openingCash: 500,
+      }
+      const mockAll = vi.fn().mockReturnValue([existingShift])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 500 }) as { ok: boolean; data: { id: string; resumed?: boolean } }
+      expect(result.ok).toBe(true)
+      expect(result.data.id).toBe('existing-shift')
+      expect(result.data.resumed).toBe(true)
+      expect(updateActiveShift).toHaveBeenCalledWith('existing-shift')
+      expect(startDaemon).toHaveBeenCalledWith(2)
+    })
+
+    it('rechaza con SHIFT_ALREADY_OPEN si el turno abierto pertenece a otro usuario', () => {
+      // La regla es: un turno abierto de OTRA cajera bloquea la apertura.
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT) // user-001
+      const mockAll = vi.fn().mockReturnValue([{ id: 'other-shift', userId: 'user-002' }])
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
           from: vi.fn().mockReturnValue({
@@ -142,6 +174,29 @@ describe('shift.handler', () => {
 
       const result = getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 500 })
       expect(result).toMatchObject({ ok: false, code: 'SHIFT_ALREADY_OPEN' })
+    })
+
+    it('permite abrir turno cuando el turno anterior está cerrado (no hay turno abierto)', () => {
+      // La query filtra por closedAt IS NULL; si todos los turnos anteriores
+      // tienen closedAt != null, la DB no los devuelve y la apertura debe funcionar.
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const mockAll = vi.fn().mockReturnValue([]) // ningún turno abierto
+      const mockRun = vi.fn()
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({ run: mockRun }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 500 }) as { ok: boolean }
+      expect(result.ok).toBe(true)
     })
 
     it('crea un turno, actualiza la sesión activa e inicia el daemon', () => {
@@ -167,6 +222,78 @@ describe('shift.handler', () => {
       expect(mockRun).toHaveBeenCalledOnce()
       expect(updateActiveShift).toHaveBeenCalledWith(expect.any(String))
       expect(startDaemon).toHaveBeenCalledWith(2)
+    })
+
+    it('abre turno cuando el turno anterior del local está cerrado (closedAt != null)', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      // El turno anterior existe pero tiene closedAt → la query filtra por isNull(closedAt)
+      // → no hay turno abierto → se permite abrir uno nuevo.
+      const mockAll = vi.fn().mockReturnValue([]) // query devuelve vacío (el cerrado no cumple el WHERE)
+      const mockRun = vi.fn()
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({ run: mockRun }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:open-shift')({}, { shiftType: 'evening', openingCash: 0 }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      expect(mockRun).toHaveBeenCalledOnce()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // GET_STORE_OPEN_SHIFT
+  // ---------------------------------------------------------------------------
+  describe('GET_STORE_OPEN_SHIFT', () => {
+    it('retorna error si no hay sesión activa', () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const result = getHandler('ipc:get-store-open-shift')({})
+      expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
+    })
+
+    it('retorna null si no hay turno abierto en el local', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const mockAll = vi.fn().mockReturnValue([])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-store-open-shift')({}) as { ok: boolean; data: null }
+      expect(result.ok).toBe(true)
+      expect(result.data).toBeNull()
+    })
+
+    it('retorna userId y shiftId del turno abierto', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const mockAll = vi.fn().mockReturnValue([{ id: 'shift-abc', userId: 'user-002' }])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-store-open-shift')({}) as { ok: boolean; data: { userId: string; shiftId: string } }
+      expect(result.ok).toBe(true)
+      expect(result.data.userId).toBe('user-002')
+      expect(result.data.shiftId).toBe('shift-abc')
     })
   })
 
@@ -404,6 +531,101 @@ describe('shift.handler', () => {
       const result = getHandler('ipc:dismiss-inactivity-warning')({})
       expect(result).toMatchObject({ ok: true })
       expect(dismissWarning).toHaveBeenCalledOnce()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // GET_USER_OPEN_SHIFT
+  // ---------------------------------------------------------------------------
+  describe('GET_USER_OPEN_SHIFT', () => {
+    it('retorna error si no hay sesión activa', () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const result = getHandler('ipc:get-user-open-shift')({})
+      expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
+    })
+
+    it('retorna null si el usuario no tiene turno abierto', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const mockAll = vi.fn().mockReturnValue([])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-user-open-shift')({}) as { ok: boolean; data: null }
+      expect(result.ok).toBe(true)
+      expect(result.data).toBeNull()
+    })
+
+    it('retorna el turno abierto del usuario con shiftId, storeId, shiftType y openingCash', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT) // userId = user-001
+      const shift = {
+        id: 'shift-xyz',
+        userId: 'user-001',
+        storeId: 'store-002',
+        shiftType: 'morning',
+        startedAt: '2026-07-26T08:00:00.000Z',
+        openingCash: 3000,
+        closedAt: null,
+        source: 'desktop',
+      }
+      const mockAll = vi.fn().mockReturnValue([shift])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-user-open-shift')({}) as {
+        ok: boolean
+        data: { shiftId: string; storeId: string; shiftType: string; openingCash: number }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data.shiftId).toBe('shift-xyz')
+      expect(result.data.storeId).toBe('store-002')
+      expect(result.data.shiftType).toBe('morning')
+      expect(result.data.openingCash).toBe(3000)
+    })
+
+    it('retorna el turno incluso si storeId difiere del de la sesión (cross-local)', () => {
+      // session.storeId = store-001, pero el turno abierto puede estar en store-002
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const shift = {
+        id: 'shift-abc',
+        userId: 'user-001',
+        storeId: 'store-002', // local diferente al de la sesión parcial
+        shiftType: 'evening',
+        startedAt: '2026-07-26T14:00:00.000Z',
+        openingCash: 0,
+        closedAt: null,
+        source: 'desktop',
+      }
+      const mockAll = vi.fn().mockReturnValue([shift])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({ all: mockAll }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-user-open-shift')({}) as {
+        ok: boolean
+        data: { shiftId: string; storeId: string }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data.storeId).toBe('store-002')
     })
   })
 })

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, expenses, providers } from '../../db/schema'
+import { stores, users, shifts, expenses, providers, providerDebtEvents } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -163,6 +163,44 @@ describe('expense.handler', () => {
       const result = handler(null, { concept: 'Insumos', amount: 500 }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NO_SHIFT')
+    })
+
+    it('registra evento de deuda con storeId del debtStoreId cuando se provee uno válido', () => {
+      // Pre-insertar segundo local
+      db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: new Date().toISOString() }).run()
+
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Proveedor Cross',
+        amount: 80000,
+        newDebtAmount: 20000,
+        debtStoreId: 'store-002',
+      }) as { ok: boolean; data: { id: string } }
+
+      expect(result.ok).toBe(true)
+
+      // El gasto debe quedar en el local de la sesión (store-001)
+      const expRow = db.select().from(expenses).all()[0]
+      expect(expRow.storeId).toBe('store-001')
+
+      // El evento de deuda debe quedar en el local especificado (store-002)
+      const debtEvent = db.select().from(providerDebtEvents).all()[0]
+      expect(debtEvent.storeId).toBe('store-002')
+      expect(debtEvent.type).toBe('debt')
+      expect(debtEvent.amount).toBe(20000)
+    })
+
+    it('rechaza debtStoreId inválido — local inexistente', () => {
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Proveedor Cross',
+        amount: 80000,
+        newDebtAmount: 20000,
+        debtStoreId: 'store-inexistente',
+      }) as { ok: boolean; code: string }
+
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_DEBT_STORE')
     })
   })
 

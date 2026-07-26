@@ -150,6 +150,8 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   // Confirmaciones de estado y delete
   const [confirmStatus, setConfirmStatus] = useState<{ order: OrderRow; status: OrderStatus } | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<OrderRow | null>(null)
+  // Confirmación de seña antes de guardar
+  const [showDepositConfirm, setShowDepositConfirm] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState<OrderRow | null>(null)
   // Si hay turno activo y el pedido tiene seña, ofrecer registrar la devolución como gasto
   const [registerRefund, setRegisterRefund] = useState(true)
@@ -279,6 +281,21 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       setFormError('Seleccioná el medio de pago de la seña.'); return
     }
 
+    // Si hay seña, pedir confirmación antes de persistir
+    if (total > 0) {
+      setShowDepositConfirm(true)
+      return
+    }
+
+    await doSave()
+  }
+
+  async function doSave() {
+    setShowDepositConfirm(false)
+    const customerName = form.customerName.trim()
+    const items = form.items.trim()
+    const pickupDate = form.pickupDate.trim()
+    const total = depositTotal(form.depositPayments)
     setSaving(true)
     try {
       if (editingOrder) {
@@ -340,7 +357,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       // Registrar devolución como gasto si corresponde
       if (refund && order.depositAmount > 0 && currentShiftId) {
         await window.hw.registerExpense({
-          category: 'Devolución de seña',
+          concept: 'Devolución de seña',
           amount: order.depositAmount,
           notes: `Seña devuelta al cliente: ${order.customerName}`,
         }).catch(err => {
@@ -673,6 +690,57 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           onConfirm={() => void executeCancelOrder(confirmCancel, registerRefund)}
           onCancel={() => setConfirmCancel(null)}
         />
+      )}
+
+      {/* Modal de confirmación de seña antes de guardar */}
+      {showDepositConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-white">
+              {editingOrder ? 'Confirmar cambios en el pedido' : 'Confirmar pedido con seña'}
+            </h2>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Cliente</span>
+                <span className="text-white font-medium truncate ml-4">{form.customerName.trim()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Retiro</span>
+                <span className="text-white">{form.pickupDate}</span>
+              </div>
+              <div className="border-t border-gray-700 pt-2 space-y-1">
+                <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Seña</p>
+                {form.depositPayments.map(p => (
+                  <div key={p.method} className="flex justify-between">
+                    <span className="text-gray-400">{DEPOSIT_METHOD_LABELS[p.method]}</span>
+                    <span className="text-blue-300 font-semibold">{formatARS(p.amount)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-gray-700 pt-1">
+                  <span className="text-gray-300 font-semibold">Total seña</span>
+                  <span className="text-blue-300 font-bold">{formatARS(depositTotal(form.depositPayments))}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDepositConfirm(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors text-sm"
+              >
+                Volver
+              </button>
+              <button
+                onClick={() => void doSave()}
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors text-white text-sm disabled:opacity-40"
+              >
+                {saving ? 'Guardando…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal de eliminación permanente (solo admin) */}

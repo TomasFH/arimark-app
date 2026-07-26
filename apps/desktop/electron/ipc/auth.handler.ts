@@ -110,7 +110,7 @@ export function registerAuthHandlers(): void {
 
         // Setear sesión activa con el local por defecto para que el admin
         // pueda operar turnos en modo cajera de emergencia sin error NO_SESSION.
-        setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'admin', shiftId: null })
+        setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'admin', shiftId: null, displayName: profile.displayName })
 
         // Upsert en la tabla users para que los FK de sales resuelvan cuando
         // el admin opera como cajera. El rol se guarda como 'cashier' porque
@@ -167,7 +167,7 @@ export function registerAuthHandlers(): void {
       }
 
       // Setear sesión parcial (storeId se actualizará en SELECT_STORE)
-      setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'cashier', shiftId: null })
+      setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'cashier', shiftId: null, displayName: profile.displayName })
 
       log.info('[ipc:login] Cajera autenticada — pendiente selección de local', { email })
       return {
@@ -236,7 +236,7 @@ export function registerAuthHandlers(): void {
           .run()
       }
 
-      setActiveSession({ userId: profile.uid, storeId, role: 'cashier', shiftId: null })
+      setActiveSession({ userId: profile.uid, storeId, role: 'cashier', shiftId: null, displayName: profile.displayName })
 
       // Publicar catálogo a Firestore (para que la PWA móvil pueda descargarlo).
       publishCatalog(config.license_key, storeId).catch(err =>

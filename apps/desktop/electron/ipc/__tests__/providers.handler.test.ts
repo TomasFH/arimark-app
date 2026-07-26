@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, providers } from '../../db/schema'
+import { stores, users, providers, providerDebtEvents, shifts } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -244,6 +244,186 @@ describe('providers.handler', () => {
       const result = await (handler(null) as Promise<{ ok: boolean; data: unknown[] }>)
       expect(result.ok).toBe(true)
       expect(result.data).toBeInstanceOf(Array)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  describe('GET_PROVIDER_DEBT_HISTORY (ipc:get-provider-debt-history)', () => {
+    const SHIFT_ID = 'shift-001'
+    const PROVIDER_ID = providerIdFromName('proveedor test')
+
+    function insertTestData() {
+      const now = new Date().toISOString()
+      db.insert(shifts).values({
+        id: SHIFT_ID,
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 0,
+      }).run()
+      db.insert(providers).values({
+        id: PROVIDER_ID,
+        name: 'Proveedor Test',
+        nameKey: 'proveedor test',
+        createdAt: now,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-001',
+        storeId: 'store-001',
+        providerId: PROVIDER_ID,
+        provider: 'Proveedor Test',
+        type: 'debt',
+        amount: 5000,
+        shiftId: SHIFT_ID,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-002',
+        storeId: 'store-002',
+        providerId: PROVIDER_ID,
+        provider: 'Proveedor Test',
+        type: 'payment',
+        amount: 2000,
+        shiftId: SHIFT_ID,
+        createdAt: new Date(Date.now() - 1000).toISOString(),
+        createdBy: 'admin-001',
+      }).run()
+    }
+
+    it('payload inválido retorna INVALID_PAYLOAD', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: '' }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('cajera no-admin recibe FORBIDDEN', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('FORBIDDEN')
+    })
+
+    it('admin recibe historial con eventos del proveedor ordenados por fecha desc', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      insertTestData()
+
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
+        ok: boolean
+        data: Array<{
+          id: string
+          type: string
+          amount: number
+          storeName: string
+          createdByName: string
+        }>
+      }>)
+
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(2)
+      // Primer elemento es el más reciente (evt-001 se insertó con Date.now())
+      expect(result.data[0].id).toBe('evt-001')
+      expect(result.data[0].type).toBe('debt')
+      expect(result.data[0].amount).toBe(5000)
+      expect(result.data[0].storeName).toBe('Local A')
+      expect(result.data[0].createdByName).toBe('Cajera Test')
+
+      expect(result.data[1].id).toBe('evt-002')
+      expect(result.data[1].type).toBe('payment')
+      expect(result.data[1].amount).toBe(2000)
+      expect(result.data[1].storeName).toBe('Local B')
+      expect(result.data[1].createdByName).toBe('Admin')
+    })
+
+    it('no hay sesión retorna NO_SESSION', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SESSION')
+    })
+
+    it('proveedor sin eventos retorna array vacío', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const now = new Date().toISOString()
+      db.insert(providers).values({
+        id: PROVIDER_ID,
+        name: 'Proveedor Test',
+        nameKey: 'proveedor test',
+        createdAt: now,
+      }).run()
+
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; data: unknown[] }>)
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(0)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  describe('SETTLE_PROVIDER_DEBT (ipc:settle-provider-debt)', () => {
+    const PROVIDER_ID = providerIdFromName('proveedor settle')
+
+    function insertProvider() {
+      db.insert(providers).values({
+        id: PROVIDER_ID,
+        name: 'Proveedor Settle',
+        nameKey: 'proveedor settle',
+        createdAt: new Date().toISOString(),
+      }).run()
+    }
+
+    it('payload inválido retorna INVALID_PAYLOAD', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:settle-provider-debt')
+      const result = await (handler(null, { providerId: PROVIDER_ID, amount: -100 }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('cajera recibe FORBIDDEN', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:settle-provider-debt')
+      const result = await (handler(null, { providerId: PROVIDER_ID, amount: 5000 }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('FORBIDDEN')
+    })
+
+    it('sin sesión retorna NO_SESSION', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const handler = getHandler('ipc:settle-provider-debt')
+      const result = await (handler(null, { providerId: PROVIDER_ID, amount: 5000 }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SESSION')
+    })
+
+    it('admin con sesión inserta evento payment en SQLite y retorna eventId', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      insertProvider()
+
+      const handler = getHandler('ipc:settle-provider-debt')
+      const result = await (handler(null, { providerId: PROVIDER_ID, amount: 8000 }) as Promise<{
+        ok: boolean
+        data: { eventId: string }
+      }>)
+
+      expect(result.ok).toBe(true)
+      expect(result.data.eventId).toBeTruthy()
+
+      const allEvents = db.select().from(providerDebtEvents).all()
+      expect(allEvents).toHaveLength(1)
+      const evt = allEvents[0]
+      expect(evt.type).toBe('payment')
+      expect(evt.amount).toBe(8000)
+      expect(evt.providerId).toBe(PROVIDER_ID)
+      expect(evt.storeId).toBe('store-001')
+      expect(evt.shiftId).toBeNull()
+      expect(evt.syncedAt).toBeNull()
     })
   })
 })

@@ -6,6 +6,7 @@ import {
   parseNumericInput,
   formatDecimalInputValue,
   parseDecimalInput,
+  calcCursorPosition,
 } from '../numericInput'
 
 describe('numericInput', () => {
@@ -40,6 +41,43 @@ describe('numericInput', () => {
   describe('formatNumericInputValue', () => {
     it('sanitiza y formatea en un solo paso', () => {
       expect(formatNumericInputValue('1.000abc')).toBe('1.000')
+    })
+  })
+
+  describe('calcCursorPosition', () => {
+    it('cursor al inicio retorna 0', () => {
+      expect(calcCursorPosition('1000', 0, '1.000')).toBe(0)
+    })
+
+    it('cursor al final retorna la longitud del formateado', () => {
+      // rawValue "1000" cursor 4 → 4 dígitos antes → en "1.000" el 4.° dígito está en pos 4 → retorna 5
+      expect(calcCursorPosition('1000', 4, '1.000')).toBe(5)
+    })
+
+    it('cursor en medio sin cambio de separadores: preserva posición de dígito', () => {
+      // rawValue "1000" cursor 2 → 2 dígitos antes → en "1.000" el 2.° dígito está en pos 3 → retorna 3
+      expect(calcCursorPosition('1000', 2, '1.000')).toBe(3)
+    })
+
+    it('bug principal: borrar dígito que elimina un punto separador', () => {
+      // Tras borrar: rawValue = "1.00.000", cursor = 2 → 1 dígito antes ("1.")
+      // formatted = "100.000" → cursor queda después del 1.er dígito → posición 1
+      expect(calcCursorPosition('1.00.000', 2, '100.000')).toBe(1)
+    })
+
+    it('inserción en medio que agrega un separador: cursor avanza correctamente', () => {
+      // Usuario insertó "2" → rawValue = "12000", cursor = 2 → 2 dígitos antes ("12")
+      // formatted = "12.000" → 2.° dígito en pos 1 → retorna 2
+      expect(calcCursorPosition('12000', 2, '12.000')).toBe(2)
+    })
+
+    it('valor vacío retorna 0', () => {
+      expect(calcCursorPosition('', 0, '')).toBe(0)
+    })
+
+    it('cursor después de separador en rawValue cuenta solo dígitos', () => {
+      // rawValue "1.000" cursor 2 → chars "1." → 1 dígito → en "1.000" pos 1
+      expect(calcCursorPosition('1.000', 2, '1.000')).toBe(1)
     })
   })
 

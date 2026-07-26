@@ -34,6 +34,7 @@ export interface AppInfo {
 // ---------------------------------------------------------------------------
 // Init status — resultado del arranque del proceso main
 // ---------------------------------------------------------------------------
+
 export interface InitStatus {
   businessName: string
   defaultStoreId: string
@@ -87,6 +88,8 @@ export interface ShiftInfo {
   shiftType: ShiftType
   startedAt: string
   openingCash: number
+  /** true solo cuando OPEN_SHIFT retomó un turno ya existente (no creó uno nuevo). */
+  resumed?: boolean
 }
 
 export interface OpenShiftPayload {
@@ -159,7 +162,12 @@ export interface ExpenseRow {
   provider?: string
   /** ID del proveedor (para consultar deuda). */
   providerId?: string
+  /** Monto efectivamente pagado (lo que salió de caja). */
   amount: number
+  /** Deuda nueva generada en esta visita (total - pagado). Undefined si no hubo. */
+  newDebtAmount?: number
+  /** Deuda anterior del proveedor que se pagó en esta visita. Undefined si no hubo. */
+  paysOldDebt?: number
   notes?: string
   createdAt: string
   createdBy: string
@@ -237,6 +245,14 @@ export interface StoreRow {
   name: string
   address?: string | null
   archivedAt?: string | null
+  /** Hora de inicio del turno mañana, formato "HH:MM". Null = sin autodetección. */
+  morningStart?: string | null
+  /** Hora de fin del turno mañana, formato "HH:MM". */
+  morningEnd?: string | null
+  /** Hora de inicio del turno tarde, formato "HH:MM". */
+  afternoonStart?: string | null
+  /** Hora de fin del turno tarde, formato "HH:MM". */
+  afternoonEnd?: string | null
 }
 
 export interface CreateProductPayload {
@@ -281,6 +297,8 @@ export interface SaleItemPayload {
 export interface SalePaymentPayload {
   paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit'
   amount: number
+  /** Solo crédito: cantidad de cuotas. 1 = contado. Null/undefined para otros métodos. */
+  installments?: number
 }
 
 export interface CreateSalePayload {
@@ -628,6 +646,12 @@ export interface ProviderDebtRow {
   /** Saldo pendiente (positivo = deben pagarle; 0 = sin deuda) */
   balance: number
   lastEventAt: string
+  /** Nombre del cajero/admin que realizó el último pago (si la deuda está saldada) */
+  lastPaymentBy?: string
+  /** Nombre del local desde el que se registró el pago (solo si fue cross-local) */
+  lastPaymentStoreName?: string
+  /** ISO timestamp del último pago */
+  lastPaymentAt?: string
 }
 
 export interface RegisterExpensePayload {
@@ -643,6 +667,17 @@ export interface RegisterExpensePayload {
   newDebtAmount?: number
   /** Monto de deuda anterior que se paga en este gasto */
   paysOldDebt?: number
+  /**
+   * Local al que se imputa la deuda con el proveedor.
+   * Si se omite, se usa el local de la sesión activa.
+   * Permite pagar deuda de otro local desde la caja actual.
+   */
+  debtStoreId?: string
+}
+
+/** Payload para actualizar un gasto existente del turno activo. */
+export interface UpdateExpensePayload extends RegisterExpensePayload {
+  id: string
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +699,32 @@ export interface ProviderWithDebtRow {
   total: number
   /** Desglose por local (solo visible para admin). */
   perStore: Array<{ storeId: string; storeName: string; balance: number }>
+}
+
+/** Un evento individual del ledger de deuda de un proveedor. */
+export interface ProviderDebtEventRow {
+  id: string
+  /** 'debt' = deuda nueva generada; 'payment' = pago de deuda anterior. */
+  type: 'debt' | 'payment'
+  amount: number
+  storeId: string
+  storeName: string
+  createdAt: string
+  /** Nombre del usuario que registró el evento; fallback al userId si no se encuentra en SQLite. */
+  createdByName: string
+  expenseId: string | null
+}
+
+export interface SettleProviderDebtPayload {
+  providerId: string
+  /** Monto total a saldar (entero positivo, en pesos). */
+  amount: number
+  /**
+   * Local desde el que se registra el pago. Si no se provee, usa session.storeId.
+   * Permite al admin saldar la deuda de un local específico cuando filtra el historial
+   * por local (evita compensaciones cruzadas entre locales).
+   */
+  storeId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -875,6 +936,19 @@ export interface HwApi {
   /** Retorna el turno activo del local (null si no hay ninguno abierto) */
   getActiveShift: () => Promise<IpcResult<ShiftInfo | null>>
 
+  /**
+   * Retorna el turno abierto del local actual (cualquier usuario), o null si no hay ninguno.
+   * Solo consulta turnos de fuente 'desktop'. Usado para pre-verificación en OpenShiftScreen.
+   */
+  getStoreOpenShift: () => Promise<IpcResult<{ userId: string; shiftId: string; userName: string } | null>>
+
+  /**
+   * Retorna el turno abierto del usuario en sesión (cualquier local), o null si no hay ninguno.
+   * Usado al post-login de cajeras para detectar si tienen un turno sin cerrar y reanudarlas
+   * directamente, salteando el store picker y la pantalla de apertura de turno.
+   */
+  getUserOpenShift: () => Promise<IpcResult<{ shiftId: string; storeId: string; shiftType: string; openingCash: number } | null>>
+
   /** Abre un nuevo turno para la cajera autenticada */
   openShift: (payload: OpenShiftPayload) => Promise<IpcResult<ShiftInfo>>
 
@@ -909,7 +983,7 @@ export interface HwApi {
   createStore: (payload: { name: string; address?: string }) => Promise<IpcResult<StoreRow>>
 
   /** Actualiza nombre y/o dirección de un local — solo admin */
-  updateStore: (payload: { id: string; name?: string; address?: string | null }) => Promise<IpcResult<StoreRow>>
+  updateStore: (payload: { id: string; name?: string; address?: string | null; morningStart?: string | null; morningEnd?: string | null; afternoonStart?: string | null; afternoonEnd?: string | null }) => Promise<IpcResult<StoreRow>>
 
   /** Elimina un local — solo admin; solo si no tiene datos asociados */
   deleteStore: (payload: { id: string }) => Promise<IpcResult>
@@ -965,11 +1039,18 @@ export interface HwApi {
   /** Registra un gasto durante el turno activo */
   registerExpense: (payload: RegisterExpensePayload) => Promise<IpcResult<{ id: string }>>
 
+  /** Actualiza un gasto del turno activo (solo mientras el turno está abierto) */
+  updateExpense: (payload: UpdateExpensePayload) => Promise<IpcResult<{ id: string }>>
+
+  /** Elimina un gasto del turno activo y sus eventos de deuda asociados */
+  deleteExpense: (id: string) => Promise<IpcResult<undefined>>
+
   /** Lista los gastos del turno activo */
   getShiftExpenses: () => Promise<IpcResult<ExpenseRow[]>>
 
-  /** Devuelve el saldo de deuda actual hacia un proveedor (por providerId) */
-  getProviderDebt: (payload: { providerId: string }) => Promise<IpcResult<ProviderDebtRow | null>>
+  /** Devuelve el saldo de deuda actual hacia un proveedor (por providerId).
+   *  storeId opcional: si se provee, consulta ese local en lugar del local de sesión. */
+  getProviderDebt: (payload: { providerId: string; storeId?: string }) => Promise<IpcResult<ProviderDebtRow | null>>
 
   /** Devuelve los nombres de proveedores desde la cache (legacy; preferir listProviders) */
   getProviderNames: () => Promise<IpcResult<string[]>>
@@ -991,6 +1072,13 @@ export interface HwApi {
   archiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>
   /** Lista proveedores con deuda combinada cross-local (solo admin; lee Firestore). */
   getProvidersWithDebt: () => Promise<IpcResult<ProviderWithDebtRow[]>>
+  /** Historial de eventos de deuda de un proveedor (solo admin). */
+  getProviderDebtHistory: (payload: { providerId: string }) => Promise<IpcResult<ProviderDebtEventRow[]>>
+  /**
+   * Registra un pago completo de la deuda con un proveedor (solo admin).
+   * Funciona fuera de turno: shiftId = null si no hay turno abierto.
+   */
+  settleProviderDebt: (payload: SettleProviderDebtPayload) => Promise<IpcResult<{ eventId: string }>>
 
   // ---- Clientes especiales (Fase 6) ----
   /** Crea un cliente nuevo */

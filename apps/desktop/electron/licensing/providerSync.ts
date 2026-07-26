@@ -19,6 +19,7 @@ import {
   collection,
   doc,
   setDoc,
+  updateDoc,
   onSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore'
@@ -210,6 +211,40 @@ export function startProviderSyncListener(licenseKey: string): void {
 }
 
 /** Detiene todos los listeners activos de providerSync. */
+/**
+ * Marca eventos de deuda ya sincronizados como eliminados en Firestore.
+ *
+ * Se llama cuando una cajera elimina o edita un gasto durante el turno activo.
+ * En lugar de borrar los documentos (no permitido por las reglas del ledger),
+ * se setea `deleted: true` vía updateDoc. El handler de consulta filtra estos
+ * documentos al calcular el balance de deuda del proveedor.
+ *
+ * No-op si Firebase no está disponible o la lista de IDs es vacía.
+ */
+export async function markDebtEventsDeletedInFirestore(
+  licenseKey: string,
+  eventIds: string[],
+): Promise<void> {
+  if (!isFirebaseAvailable() || eventIds.length === 0) return
+
+  const app = getFirebaseApp()
+  const firestore = getFirestore(app)
+  const now = new Date().toISOString()
+
+  for (const id of eventIds) {
+    try {
+      const ref = doc(firestore, 'licenses', licenseKey, 'providerDebtEvents', id)
+      await updateDoc(ref, { deleted: true, deletedAt: now })
+      log.info('[providerSync] Evento de deuda marcado como eliminado en Firestore', { id })
+    } catch (err) {
+      // No bloqueante: si falla, el balance puede quedar desincronizado temporalmente.
+      // Se corregirá en el próximo push o recarga. Se registra el error explícitamente.
+      log.error('[providerSync] No se pudo marcar evento como eliminado en Firestore', { id, err })
+    }
+  }
+}
+
+
 export function stopProviderSyncListener(): void {
   listeners.forEach(u => u())
   listeners.length = 0

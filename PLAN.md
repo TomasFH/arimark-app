@@ -597,8 +597,8 @@ Al abrir caja la cajera elige el local en el que va a trabajar. Si presiona el l
 
 **Dos sub-problemas a resolver:**
 
-**1. Volver atrás antes de abrir caja (corrección inmediata)**
-La pantalla de selección de local debe incluir un botón "Volver / Cambiar local" que permita a la cajera regresar a la selección de local sin forzar un inicio de turno. Actualmente no existe esta opción.
+**1. Volver atrás antes de abrir caja (corrección inmediata)** ✅ RESUELTO (jul 2026)
+La pantalla "Abrir turno" ahora muestra un botón "← Cambiar local" para cajeras. Si hay más de un local activo, lleva de vuelta al selector. Si solo hay uno, va al login.
 
 **2. Migración de datos si el error fue descubierto tarde (corrección tardía)**
 Si la cajera ya registró ventas y gastos en el local incorrecto, se necesita una herramienta de admin para migrar los datos de ese turno al local correcto. Los datos involucrados son:
@@ -614,3 +614,121 @@ La migración debe ser atómica (una transacción SQLite única), requiere doble
 **Prioridad:** Media-baja en contexto actual (2 locales con cajeras que conocen bien su lugar de trabajo). Aumenta si se agregan locales o si hay rotación frecuente de cajeras entre locales.
 
 **Cuándo implementar:** Antes de cualquier expansión a 3 o más locales, o si se reporta el problema en producción.
+
+---
+
+### DT-02: Login offline en PC — caché de credenciales en `safeStorage`
+
+**Descripción del problema:**
+`signInWithEmailAndPassword` de Firebase requiere red activa. Si la PC arranca sin internet (corte de luz + router offline, por ejemplo), la cajera no puede iniciar sesión aunque la base de datos local esté intacta y toda la operación sea 100% offline.
+
+**Por qué no alcanza con restaurar la sesión del último usuario:**
+En un local con dos cajeras (mañana y tarde), la cajera de la mañana podría "saltear" el login simplemente desenchufando el cable de red para entrar automáticamente como la cajera de la tarde (el último usuario cacheado). Eso invalida la trazabilidad de acciones.
+
+**Solución acordada — Opción E: validación local con hash en `safeStorage`:**
+- Al login exitoso con Firebase, el proceso main guarda en `safeStorage` por cada usuario: `{ userId, name, role, email, hash: scrypt(password), storedAt, expiresAt: ahora + 30 días }`.
+- En ausencia de internet, la pantalla de login es **idéntica** a la normal — sin botón de bypass ni modo especial visible. La cajera ingresa email + contraseña como siempre.
+- El main intenta Firebase → falla por red → busca hash local para ese email → compara con `crypto.scrypt` (Node.js nativo, sin dependencias nuevas).
+- Si el hash coincide: sesión válida con banner amarillo "Sin conexión — sesión guardada localmente".
+- Si no coincide o el email nunca fue logueado en esa PC: "Credenciales incorrectas o sin conexión." — sin información adicional.
+- Cuando vuelve internet: re-verificación silenciosa en background; si la cuenta fue deshabilitada en Firebase se fuerza logout.
+- El hash expira a los 30 días para forzar re-autenticación online periódicamente.
+
+**Limitación aceptada:** Una cajera nueva que nunca hizo login en esa PC necesita internet la primera vez. No hay solución para ese caso y no se contempla.
+
+**Módulos a crear/modificar:**
+- `electron/offlineAuth.ts` — `cacheCredentials(email, password, profile)` y `validateOffline(email, password)`.
+- `electron/licensing/session.ts` — intentar `validateOffline` si Firebase lanza `auth/network-request-failed`.
+- Renderer: leer flag `offlineSession` del estado de sesión para mostrar el banner.
+
+**Prioridad:** Alta — es un escenario realista en operación diaria.
+
+**Cuándo implementar:** Antes de la entrega al cliente / puesta en producción real. No bloquea desarrollo, pero debe estar antes del primer uso real sostenido.
+
+---
+
+### DT-03: Retomar turno propio al reiniciar sesión
+
+**Descripción del problema:**
+La validación anti-duplicados implementada en jul 2026 (`SHIFT_ALREADY_OPEN`) bloquea cualquier intento de abrir turno si ya hay uno abierto en ese local. El comportamiento correcto cuando el turno abierto es de la misma cajera que está iniciando sesión es **retomar ese turno automáticamente**, no mostrar un error.
+
+Casos que este bug afecta:
+- La PC se reinicia (corte de luz, actualización de Windows) en medio de un turno.
+- La cajera cierra sesión sin cerrar turno y vuelve a entrar.
+- La cajera inicia sesión desde el celular mientras su turno de PC sigue abierto.
+
+**Solución:**
+En el handler `OPEN_SHIFT`, si ya hay un turno abierto en el local y su `userId` coincide con `session.userId`, devolver el turno existente en lugar de retornar `SHIFT_ALREADY_OPEN`. El renderer (`OpenShiftScreen` / `App.tsx`) detecta este caso y setea `shiftId` en la sesión activa sin mostrar pantalla de apertura.
+
+Si el turno abierto pertenece a **otra** cajera, mantener el bloqueo actual con el mensaje existente.
+
+**Prioridad:** Alta — es un escenario cotidiano (reinicios de Windows, etc.).
+
+**Cuándo implementar:** Antes de la entrega al cliente / primera jornada real.
+
+---
+
+### DT-04: Local por defecto por dispositivo PC
+
+**Descripción del problema:**
+Las PCs son estáticas — cada una vive permanentemente en un local. Pedir a la cajera que seleccione el local en cada sesión es una fricción innecesaria y una fuente de error (selección de local equivocado → turno registrado en el local incorrecto → ver DT-01).
+
+**Solución:**
+Guardar en `safeStorage` el `storeId` por defecto de esa PC. El admin lo configura una sola vez desde la pantalla de gestión de locales (botón "Fijar este local como predeterminado para esta PC"). En los logins subsiguientes, el local se pre-selecciona automáticamente; la cajera solo confirma. Puede seguir cambiándolo si lo necesita.
+
+Para la app móvil no aplica — el teléfono viaja con la cajera, la selección manual es inevitable.
+
+**Prioridad:** Media — mejora UX pero DT-01 sub-problema 1 ya mitiga el riesgo principal.
+
+**Cuándo implementar:** Junto con DT-02 o antes de la entrega al cliente.
+
+---
+
+### DT-05: Compactación histórica de datos (data tiering)
+
+**Descripción del problema:**
+A largo plazo (2+ años), la tabla `sales` puede crecer a millones de filas. SQLite lo maneja sin problema en términos de rendimiento, pero las consultas históricas de períodos largos pueden volverse lentas y el archivo `.sqlite` puede crecer considerablemente (estimado: 200-400 MB en 3 años a volumen de carnicería con 2 locales).
+
+**Solución acordada:**
+No implementar compactación destructiva. En cambio, agregar un job diario que materialice agregados en una tabla `daily_summaries`:
+- Ingresos totales por día, desglosados por medio de pago.
+- Cantidad de ventas y tickets promedio.
+- Total de gastos por turno y por local.
+- Promedio de cierre de caja.
+
+Las consultas históricas del panel admin leerán `daily_summaries` (N filas donde N = días) en lugar de hacer `SUM()` sobre millones de ventas. Las ventas individuales permanecen intactas e íntegras — no se destruye información.
+
+**Por qué no ahora:**
+- El volumen proyectado no genera problemas de performance en el horizonte de 3-5 años.
+- Implementar ahora añade complejidad sin beneficio real inmediato.
+- La compactación destructiva (borrar ventas individuales viejas) es irreversible; si surgiera necesidad de ese detalle luego, ya no estaría disponible.
+
+**Prioridad:** Baja — para evaluar cuando el archivo `.sqlite` supere los 500 MB o las consultas históricas demoren más de 2 segundos.
+
+**Cuándo implementar:** Largo plazo, solo si el rendimiento real lo justifica.
+
+---
+
+### DT-06: Sincronización multi-dispositivo en tiempo real (turno compartido)
+
+**Visión objetivo:**
+La misma cajera puede trabajar en PC y celular de forma intercambiable, como un juego con progreso en la nube. Si registra una venta en PC, el celular la ve en tiempo real. Si la luz se corta y continúa en el celular, cuando vuelve la luz la PC retoma exactamente donde dejó el celular, sin cerrar turno ni volver a abrirlo. Un solo turno, varios dispositivos, sincronizados a través de Firebase.
+
+**Estado actual (jul 2026) — limitación temporal:**
+El auto-resume en PC (`GET_USER_OPEN_SHIFT`) solo detecta turnos `source='desktop'`. Las ventas, gastos y el estado de la caja son 100% locales en SQLite; no se sincronizan a Firestore. Por lo tanto, si la cajera usó el celular, la PC no puede ver esos registros.
+
+Workaround aceptado hasta que se implemente: cerrar el turno desde el celular y abrir uno nuevo en la PC. Quedan dos turnos separados en el historial en lugar de uno continuo.
+
+**Prerequisitos técnicos para implementar la visión completa:**
+1. **Sync operacional PC → Firestore en tiempo real**: ventas, gastos, estado del turno (monto en caja) se pushean a Firestore al confirmar cada operación (outbox pattern, igual que proveedores).
+2. **Sync Firestore → PC en tiempo real**: `onSnapshot` listener que reciba updates de otro dispositivo del mismo usuario y los aplique al SQLite local.
+3. **Sync operacional mobile → Firestore**: la app móvil ya escribe en Firestore (modelo actual), pero las ventas y gastos aún no.
+4. **Resolución de conflictos**: si dos dispositivos registran operaciones simultáneas (el usuario tiene la app abierta en ambos), se necesita una estrategia de merge (CRDT o timestamp-last-write-wins son opciones válidas para este dominio).
+5. **Auto-resume cross-device**: `GET_USER_OPEN_SHIFT` incluye `source='mobile'` y el IPC `OPEN_SHIFT` detecta turnos abiertos en cualquier dispositivo, ofreciendo reanudar con los datos ya sincronizados.
+
+**Impacto arquitectónico:**
+Mueve ventas y gastos de "datos 100% locales" a "datos sincronizados con Firestore", lo cual es una extensión natural del modelo que ya se usa para proveedores (Fase S1). Es el paso más grande hacia la arquitectura de nube completa descrita en la visión de largo plazo del proyecto.
+
+**Prioridad:** Media-alta — el escenario de corte de luz es poco frecuente pero no improbable, y la sincronización multi-dispositivo es una expectativa central del producto a largo plazo.
+
+**Cuándo implementar:** Fase futura dedicada (sugerido: Fase S2 — Sync operacional). No bloquea ninguna fase actual.

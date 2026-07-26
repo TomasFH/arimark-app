@@ -130,11 +130,29 @@ export function registerCatalogAdminHandlers(): void {
     try {
       const db = getDb()
       const rows = includeArchived
-        ? db.select({ id: stores.id, name: stores.name, address: stores.address, archivedAt: stores.archivedAt })
+        ? db.select({
+              id: stores.id,
+              name: stores.name,
+              address: stores.address,
+              archivedAt: stores.archivedAt,
+              morningStart: stores.morningStart,
+              morningEnd: stores.morningEnd,
+              afternoonStart: stores.afternoonStart,
+              afternoonEnd: stores.afternoonEnd,
+            })
             .from(stores)
             .orderBy(asc(stores.name))
             .all()
-        : db.select({ id: stores.id, name: stores.name, address: stores.address, archivedAt: stores.archivedAt })
+        : db.select({
+              id: stores.id,
+              name: stores.name,
+              address: stores.address,
+              archivedAt: stores.archivedAt,
+              morningStart: stores.morningStart,
+              morningEnd: stores.morningEnd,
+              afternoonStart: stores.afternoonStart,
+              afternoonEnd: stores.afternoonEnd,
+            })
             .from(stores)
             .where(isNull(stores.archivedAt))
             .orderBy(asc(stores.name))

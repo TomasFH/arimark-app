@@ -13,6 +13,8 @@ export interface ActiveSession {
   role: 'cashier' | 'admin'
   /** ID del turno abierto, null si aún no se abrió turno en esta sesión. */
   shiftId: string | null
+  /** Nombre visible del usuario (displayName de Firestore). Se usa en el upsert de la tabla users. */
+  displayName?: string
 }
 
 let _session: ActiveSession | null = null

@@ -14,18 +14,20 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
 import { eq } from 'drizzle-orm'
+import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { providers, providerDebtEvents, stores } from '../db/schema'
+import { providers, providerDebtEvents, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { providerIdFromName, providerNameKey } from './providerUtils'
 import {
   pushUnsyncedProviders,
+  pushUnsyncedDebtEvents,
 } from '../licensing/providerSync'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
-import { getFirestore, collection, getDocs } from 'firebase/firestore'
-import type { IpcResult, ProviderRow, ProviderWithDebtRow } from '../../src/types/hw-api'
+import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore'
+import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderDebtEventRow } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación
@@ -46,6 +48,17 @@ const updateProviderSchema = z.object({
 
 const archiveProviderSchema = z.object({
   id: z.string().min(1),
+})
+
+const getProviderDebtHistorySchema = z.object({
+  providerId: z.string().min(1),
+})
+
+const settleProviderDebtSchema = z.object({
+  providerId: z.string().min(1),
+  amount: z.number().int().positive(),
+  /** Local desde el que se registra el pago. Si no se provee, usa session.storeId. */
+  storeId: z.string().min(1).optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -252,6 +265,115 @@ export function registerProvidersHandlers(): void {
   })
 
   // -----------------------------------------------------------------------
+  // GET_PROVIDER_DEBT_HISTORY — admin: eventos individuales de un proveedor
+  //   Orden descendente por createdAt (más reciente primero).
+  //   Fuente primaria: Firestore. Fallback: SQLite local.
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.GET_PROVIDER_DEBT_HISTORY, async (_event, payload: unknown): Promise<IpcResult<ProviderDebtEventRow[]>> => {
+    const parsed = getProviderDebtHistorySchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:get-provider-debt-history] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
+
+    const { providerId } = parsed.data
+
+    try {
+      if (isFirebaseAvailable()) {
+        return await getProviderDebtHistoryFromFirestore(providerId)
+      }
+      return getProviderDebtHistoryLocal(providerId)
+    } catch (err) {
+      log.error('[ipc:get-provider-debt-history] Error', err)
+      try {
+        return getProviderDebtHistoryLocal(providerId)
+      } catch (fallbackErr) {
+        log.error('[ipc:get-provider-debt-history] Fallback local también falló', fallbackErr)
+        return { ok: false, error: 'Error al obtener historial de deuda.' }
+      }
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // SETTLE_PROVIDER_DEBT — admin: registra un pago completo de la deuda con
+  //   un proveedor. No requiere turno abierto (shiftId = null si no hay).
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.SETTLE_PROVIDER_DEBT, async (_event, payload: unknown): Promise<IpcResult<{ eventId: string }>> => {
+    const parsed = settleProviderDebtSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:settle-provider-debt] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
+
+    const { providerId, amount, storeId: payloadStoreId } = parsed.data
+    // El storeId del pago: si viene en el payload, usarlo (el admin eligió un local específico
+    // al filtrar el historial). Si no, usar el storeId de sesión como fallback.
+    const effectiveStoreId = payloadStoreId ?? session.storeId
+    const now = new Date().toISOString()
+    const eventId = uuidv4()
+
+    try {
+      const db = getDb()
+
+      const providerRow = db.select({ name: providers.name })
+        .from(providers)
+        .where(eq(providers.id, providerId))
+        .get()
+      if (!providerRow) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+
+      // Garantizar que el admin tiene fila en la tabla users (FK created_by).
+      // Un admin puede llegar aquí sin haber pasado por SELECT_STORE si solo usa el panel admin.
+      const existingUser = db.select({ id: users.id }).from(users).where(eq(users.id, session.userId)).get()
+      if (!existingUser) {
+        db.insert(users).values({
+          id: session.userId,
+          storeId: session.storeId,
+          name: session.displayName ?? session.userId,
+          firebaseUid: session.userId,
+          role: 'cashier',
+          active: true,
+          createdAt: now,
+        }).run()
+      }
+
+      db.transaction(tx => {
+        tx.insert(providerDebtEvents).values({
+          id: eventId,
+          storeId: effectiveStoreId,
+          providerId,
+          provider: providerRow.name,
+          type: 'payment',
+          amount,
+          expenseId: null,
+          shiftId: session.shiftId ?? null,
+          createdAt: now,
+          createdBy: session.userId,
+          syncedAt: null,
+        }).run()
+      })
+
+      const config = getBusinessConfig()
+      pushUnsyncedDebtEvents(config.license_key).catch(err =>
+        log.warn('[ipc:settle-provider-debt] push de eventos falló (no bloqueante)', err)
+      )
+
+      log.info('[ipc:settle-provider-debt] Deuda saldada', { providerId, amount, eventId })
+      return { ok: true, data: { eventId } }
+    } catch (err) {
+      log.error('[ipc:settle-provider-debt] Error', err)
+      return { ok: false, error: 'Error al registrar el pago.' }
+    }
+  })
+
+  // -----------------------------------------------------------------------
   // GET_PROVIDERS_WITH_DEBT — admin: agrega deuda cross-local desde Firestore
   //   Fallback a SQLite local si Firebase no disponible (dev / sin conexión).
   // -----------------------------------------------------------------------
@@ -302,6 +424,7 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
 
   interface BalanceEntry { balance: number; providerId: string; storeId: string }
   const balances = new Map<string, BalanceEntry>()
+  const firestoreIds = new Set<string>()
 
   for (const docSnap of snap.docs) {
     const evt = docSnap.data() as {
@@ -310,11 +433,16 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
       storeId: string
       type: 'debt' | 'payment'
       amount: number
+      deleted?: boolean
     }
+
+    // Ignorar eventos marcados como eliminados (borrado lógico al editar/eliminar gastos)
+    if (evt.deleted === true) continue
 
     const pid = evt.providerId ?? null
     if (!pid) continue
 
+    firestoreIds.add(docSnap.id)
     const key = `${pid}::${evt.storeId}`
     const existing = balances.get(key)
     const delta = evt.type === 'debt' ? evt.amount : -evt.amount
@@ -323,6 +451,30 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
       existing.balance += delta
     } else {
       balances.set(key, { balance: delta, providerId: pid, storeId: evt.storeId })
+    }
+  }
+
+  // Mezclar con eventos locales aún no sincronizados con Firestore.
+  // Garantiza que pagos recién registrados en esta PC (ej. settleProviderDebt)
+  // impacten el balance inmediatamente sin esperar el push async.
+  const localEvents = db.select({
+    id: providerDebtEvents.id,
+    providerId: providerDebtEvents.providerId,
+    storeId: providerDebtEvents.storeId,
+    type: providerDebtEvents.type,
+    amount: providerDebtEvents.amount,
+  }).from(providerDebtEvents).all()
+
+  for (const evt of localEvents) {
+    if (firestoreIds.has(evt.id)) continue   // ya contado desde Firestore
+    if (!evt.providerId) continue
+    const key = `${evt.providerId}::${evt.storeId}`
+    const existing = balances.get(key)
+    const delta = evt.type === 'debt' ? evt.amount : -evt.amount
+    if (existing) {
+      existing.balance += delta
+    } else {
+      balances.set(key, { balance: delta, providerId: evt.providerId, storeId: evt.storeId })
     }
   }
 
@@ -357,6 +509,111 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
 
   const result = Array.from(byProvider.values())
     .sort((a, b) => b.total - a.total)
+
+  return { ok: true, data: result }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers para GET_PROVIDER_DEBT_HISTORY
+// ---------------------------------------------------------------------------
+
+async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<IpcResult<ProviderDebtEventRow[]>> {
+  const config = getBusinessConfig()
+  const app = getFirebaseApp()
+  const firestore = getFirestore(app)
+  const db = getDb()
+
+  const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).all()
+  const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]))
+
+  const userRows = db.select({ id: users.id, name: users.name }).from(users).all()
+  const userNameMap = new Map(userRows.map(u => [u.id, u.name]))
+
+  const eventsCol = collection(firestore, 'licenses', config.license_key, 'providerDebtEvents')
+  const q = query(eventsCol, where('providerId', '==', providerId))
+  const snap = await getDocs(q)
+
+  const result: ProviderDebtEventRow[] = []
+  const seenIds = new Set<string>()
+
+  for (const docSnap of snap.docs) {
+    const evt = docSnap.data() as {
+      id?: string
+      type: 'debt' | 'payment'
+      amount: number
+      storeId: string
+      createdAt: string
+      createdBy: string
+      expenseId?: string | null
+      deleted?: boolean
+    }
+
+    if (evt.deleted === true) continue
+
+    seenIds.add(docSnap.id)
+    result.push({
+      id: docSnap.id,
+      type: evt.type,
+      amount: evt.amount,
+      storeId: evt.storeId,
+      storeName: storeNameMap.get(evt.storeId) ?? evt.storeId,
+      createdAt: evt.createdAt,
+      createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
+      expenseId: evt.expenseId ?? null,
+    })
+  }
+
+  // Incluir eventos locales aún no sincronizados con Firestore.
+  // Esto garantiza que pagos recién registrados en esta PC aparecen inmediatamente
+  // en el historial sin esperar a que el push async a Firestore complete.
+  const localResult = getProviderDebtHistoryLocal(providerId)
+  if (localResult.ok) {
+    for (const evt of localResult.data) {
+      if (!seenIds.has(evt.id)) {
+        result.push(evt)
+      }
+    }
+  }
+
+  result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+  return { ok: true, data: result }
+}
+
+function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderDebtEventRow[]> {
+  const db = getDb()
+
+  const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).all()
+  const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]))
+
+  const userRows = db.select({ id: users.id, name: users.name }).from(users).all()
+  const userNameMap = new Map(userRows.map(u => [u.id, u.name]))
+
+  const events = db.select({
+    id: providerDebtEvents.id,
+    type: providerDebtEvents.type,
+    amount: providerDebtEvents.amount,
+    storeId: providerDebtEvents.storeId,
+    createdAt: providerDebtEvents.createdAt,
+    createdBy: providerDebtEvents.createdBy,
+    expenseId: providerDebtEvents.expenseId,
+  })
+    .from(providerDebtEvents)
+    .where(eq(providerDebtEvents.providerId, providerId))
+    .all()
+
+  const result: ProviderDebtEventRow[] = events.map(evt => ({
+    id: evt.id,
+    type: evt.type,
+    amount: evt.amount,
+    storeId: evt.storeId,
+    storeName: storeNameMap.get(evt.storeId) ?? evt.storeId,
+    createdAt: evt.createdAt,
+    createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
+    expenseId: evt.expenseId ?? null,
+  }))
+
+  result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
   return { ok: true, data: result }
 }

@@ -573,7 +573,8 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
       {/* Modal de registro de gastos */}
       {showExpenseModal && (
         <ExpenseModal
-          onRegistered={() => { setShowExpenseModal(false); refreshBalance() }}
+          onSaved={() => refreshBalance()}
+          onRegistered={() => setShowExpenseModal(false)}
           onCancel={() => setShowExpenseModal(false)}
         />
       )}

@@ -38,12 +38,20 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Perfiles de usuario (cajeras y admins) — cada uno lee solo el propio.
+    // Perfiles de usuario (cajeras y admins).
+    //
+    // - Cada usuario puede leer su propio perfil (login).
+    // - Admins pueden leer y escribir TODOS los perfiles de su licencia
+    //   (para listar cajeras, crear, activar/desactivar, soft-delete).
+    //
     // Alta/baja manual desde consola hasta que exista panel admin (Fase 4).
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey}/users/{uid} {
+      // El propio usuario puede leer su perfil (para el flujo de login)
       allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if false;
+      // Admins pueden leer y escribir todos los perfiles de la licencia
+      allow read, write: if request.auth != null
+        && get(/databases/$(database)/documents/licenses/$(licenseKey)/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     // -----------------------------------------------------------------------

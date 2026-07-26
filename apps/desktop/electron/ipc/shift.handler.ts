@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { eq, and, isNull, desc, count, sum } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { shifts, sales, salePayments, expenses, billDenominations, debtEvents, orders } from '../db/schema'
+import { shifts, sales, salePayments, expenses, billDenominations, debtEvents, orders, users } from '../db/schema'
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
@@ -98,15 +98,15 @@ export function registerShiftHandlers(): void {
     try {
       const db = getDb()
 
-      // Verificar que el mismo usuario no tenga ya un turno abierto.
-      // Dos usuarios distintos pueden tener turnos abiertos simultáneamente
-      // en el mismo local (caso de traspaso, admin en modo cajera, etc.).
+      // Verificar que no haya ningún turno abierto en este local.
+      // La regla es un único turno activo por local (storeId), independientemente
+      // de quién lo abrió. Si otra cajera o el admin ya tiene el turno del local
+      // abierto, no se puede abrir uno nuevo hasta que ese cierre.
       const existing = db
         .select()
         .from(shifts)
         .where(and(
           eq(shifts.storeId, session.storeId),
-          eq(shifts.userId, session.userId),
           isNull(shifts.closedAt),
           eq(shifts.source, 'desktop')
         ))
@@ -114,9 +114,33 @@ export function registerShiftHandlers(): void {
         .all()[0]
 
       if (existing) {
+        // Si el turno abierto pertenece al mismo usuario, retomarlo sin error.
+        // Esto cubre el caso en que la PC se reinició o la sesión se cerró
+        // sin cerrar el turno: la cajera puede retomar su turno directamente.
+        if (existing.userId === session.userId) {
+          updateActiveShift(existing.id)
+          const thresholdHoursResume = _getInactivityThreshold()
+          startDaemon(thresholdHoursResume)
+          log.info('[ipc:open-shift] Turno propio retomado', { id: existing.id })
+          return {
+            ok: true,
+            data: {
+              id: existing.id,
+              storeId: existing.storeId,
+              userId: existing.userId,
+              shiftType: existing.shiftType,
+              startedAt: existing.startedAt,
+              openingCash: existing.openingCash,
+              resumed: true,
+            },
+          }
+        }
+        // Si pertenece a otra cajera, rechazar con el nombre de quien tiene el turno abierto.
+        const ownerUser = db.select({ name: users.name }).from(users).where(eq(users.id, existing.userId)).get()
+        const ownerName = ownerUser?.name ?? 'otra cajera'
         return {
           ok: false,
-          error: 'Ya tenés un turno abierto. Cerralo antes de abrir uno nuevo.',
+          error: `Ya hay un turno abierto en este local (${ownerName}). Pedile que cierre su turno antes de iniciar uno nuevo.`,
           code: 'SHIFT_ALREADY_OPEN',
         }
       }
@@ -384,6 +408,80 @@ export function registerShiftHandlers(): void {
   ipcMain.handle(IPC.DISMISS_INACTIVITY_WARNING, (): IpcResult => {
     dismissWarning()
     return { ok: true, data: undefined }
+  })
+
+  // Retorna el turno abierto del local actual (cualquier usuario), o null si no hay ninguno.
+  // Usado por el renderer para pre-verificar el estado del local antes de mostrar el formulario
+  // de apertura de turno (evita el parpadeo de carga al hacer click en "Abrir turno").
+  ipcMain.handle(IPC.GET_STORE_OPEN_SHIFT, (_event): IpcResult<{ userId: string; shiftId: string; userName: string } | null> => {
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    }
+
+    try {
+      const db = getDb()
+      const shift = db
+        .select({ id: shifts.id, userId: shifts.userId })
+        .from(shifts)
+        .where(and(
+          eq(shifts.storeId, session.storeId),
+          isNull(shifts.closedAt),
+          eq(shifts.source, 'desktop')
+        ))
+        .limit(1)
+        .all()[0]
+
+      if (!shift) return { ok: true, data: null }
+
+      const ownerUser = db.select({ name: users.name }).from(users).where(eq(users.id, shift.userId)).get()
+      const userName = ownerUser?.name ?? shift.userId
+
+      return { ok: true, data: { userId: shift.userId, shiftId: shift.id, userName } }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:get-store-open-shift] Error inesperado', message)
+      return { ok: false, error: 'Error al consultar el turno del local.' }
+    }
+  })
+
+  // Retorna el turno abierto del usuario en sesión (cualquier local), o null si no hay ninguno.
+  // Usado al post-login para detectar si la cajera tiene un turno sin cerrar y reanudarla
+  // directamente, salteando el store picker y la pantalla de apertura de turno.
+  ipcMain.handle(IPC.GET_USER_OPEN_SHIFT, (_event): IpcResult<{ shiftId: string; storeId: string; shiftType: string; openingCash: number } | null> => {
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    }
+
+    try {
+      const db = getDb()
+      const shift = db
+        .select()
+        .from(shifts)
+        .where(and(
+          eq(shifts.userId, session.userId),
+          isNull(shifts.closedAt),
+          eq(shifts.source, 'desktop')
+        ))
+        .limit(1)
+        .all()[0]
+
+      if (!shift) return { ok: true, data: null }
+      return {
+        ok: true,
+        data: {
+          shiftId: shift.id,
+          storeId: shift.storeId,
+          shiftType: shift.shiftType,
+          openingCash: shift.openingCash,
+        },
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:get-user-open-shift] Error inesperado', message)
+      return { ok: false, error: 'Error al consultar el turno del usuario.' }
+    }
   })
 }
 

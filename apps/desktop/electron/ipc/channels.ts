@@ -18,6 +18,8 @@ export const IPC = {
 
   // Turnos
   GET_ACTIVE_SHIFT: 'ipc:get-active-shift',
+  GET_STORE_OPEN_SHIFT: 'ipc:get-store-open-shift',
+  GET_USER_OPEN_SHIFT: 'ipc:get-user-open-shift',
   OPEN_SHIFT: 'ipc:open-shift',
   GET_SHIFT_SUMMARY: 'ipc:get-shift-summary',
   CLOSE_SHIFT: 'ipc:close-shift',
@@ -52,6 +54,8 @@ export const IPC = {
 
   // Gastos del turno
   REGISTER_EXPENSE: 'ipc:register-expense',
+  UPDATE_EXPENSE: 'ipc:update-expense',
+  DELETE_EXPENSE: 'ipc:delete-expense',
   GET_SHIFT_EXPENSES: 'ipc:get-shift-expenses',
   GET_EXPENSE_CATEGORIES: 'ipc:get-expense-categories',
 
@@ -94,6 +98,8 @@ export const IPC = {
   UPDATE_PROVIDER: 'ipc:update-provider',
   ARCHIVE_PROVIDER: 'ipc:archive-provider',
   GET_PROVIDERS_WITH_DEBT: 'ipc:get-providers-with-debt',
+  GET_PROVIDER_DEBT_HISTORY: 'ipc:get-provider-debt-history',
+  SETTLE_PROVIDER_DEBT: 'ipc:settle-provider-debt',
 
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',

@@ -70,6 +70,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
+  // Paso de confirmación antes de ejecutar el cierre
+  const [showConfirm, setShowConfirm] = useState(false)
+
   // Pantalla de confirmación post-cierre
   const [closed, setClosed] = useState(false)
   const [closedSummary, setClosedSummary] = useState<{
@@ -155,8 +158,12 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       setSaveError('Hay montos que no son múltiplos de su denominación. Corregalos antes de cerrar.')
       return
     }
+    // Mostrar resumen de confirmación antes de ejecutar el cierre
+    setShowConfirm(true)
+  }
 
-    setSaving(true)
+  async function doCloseShift() {
+    setShowConfirm(false)
     setSaveError(null)
 
     const billDenominations = billRows
@@ -306,6 +313,7 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
     : 0
 
   return (
+    <>
     <div className="min-h-screen bg-gray-950 text-white overflow-y-auto">
       <div className="max-w-2xl mx-auto p-6 space-y-6">
         <div className="text-center space-y-1">
@@ -605,6 +613,60 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         </div>
       </div>
     </div>
+
+    {/* Modal de confirmación antes de ejecutar el cierre */}
+    {showConfirm && summary && (
+      <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4">
+          <h2 className="text-base font-semibold text-white">¿Cerrar el turno ahora?</h2>
+          <p className="text-sm text-gray-400">
+            Esta acción finaliza el turno y no puede deshacerse. Verificá los datos antes de confirmar.
+          </p>
+
+          <div className="space-y-2 text-sm bg-gray-800/50 rounded-xl p-4">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Total vendido</span>
+              <span className="text-white font-semibold">{fmt(summary.totalRevenue)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">Efectivo esperado</span>
+              <span className="text-emerald-400 font-semibold">{fmt(summary.cashInHand)}</span>
+            </div>
+            {deliveredAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Monto a entregar</span>
+                <span className="text-white">{fmt(deliveredAmount)}</span>
+              </div>
+            )}
+            {countedRegister > 0 && (
+              <div className={`flex justify-between border-t border-gray-700 pt-2 ${diff === 0 ? 'text-emerald-400' : diff > 0 ? 'text-blue-300' : 'text-red-400'}`}>
+                <span>{diff === 0 ? 'Caja cuadrada' : diff > 0 ? 'Sobrante' : 'Faltante'}</span>
+                <span className="font-semibold">
+                  {diff === 0 ? '✓' : fmt(Math.abs(diff))}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowConfirm(false)}
+              className="flex-1 py-2.5 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors text-sm"
+            >
+              Volver
+            </button>
+            <button
+              onClick={() => void doCloseShift()}
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 font-semibold transition-colors text-white text-sm disabled:opacity-40"
+            >
+              {saving ? 'Cerrando…' : 'Cerrar turno'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 

@@ -24,6 +24,7 @@ const saleItemSchema = z.object({
 const salePaymentSchema = z.object({
   paymentMethod: z.enum(['cash', 'debit', 'wallet', 'credit']),
   amount: z.number().positive(),
+  installments: z.number().int().positive().optional(),
 })
 
 const createSaleSchema = z
@@ -144,6 +145,7 @@ export function registerSaleHandlers(): void {
               saleId,
               paymentMethod: payment.paymentMethod,
               amount: payment.amount,
+              installments: payment.installments ?? null,
               createdAt: confirmAt,
               createdBy: session.userId,
             })

@@ -30,6 +30,10 @@ const updateStoreSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(100).transform(s => s.trim()).optional(),
   address: z.string().max(200).transform(s => s?.trim() || null).nullable().optional(),
+  morningStart: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+  morningEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+  afternoonStart: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+  afternoonEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
 })
 
 const storeIdSchema = z.object({
@@ -77,14 +81,22 @@ export function registerStoresHandlers(): void {
       // Upsert del usuario en la tabla local (caché de perfil) con el storeId seleccionado
       const existing = db.select().from(users).where(eq(users.id, session.userId)).all()[0]
       if (existing) {
-        if (existing.storeId !== storeId) {
-          db.update(users).set({ storeId }).where(eq(users.id, session.userId)).run()
+        const needsUpdate = existing.storeId !== storeId ||
+          (session.displayName && existing.name !== session.displayName)
+        if (needsUpdate) {
+          db.update(users)
+            .set({
+              storeId,
+              ...(session.displayName ? { name: session.displayName } : {}),
+            })
+            .where(eq(users.id, session.userId))
+            .run()
         }
       } else {
         db.insert(users).values({
           id: session.userId,
           storeId,
-          name: session.userId,
+          name: session.displayName ?? session.userId,
           firebaseUid: session.userId,
           role: 'cashier',
           active: true,
@@ -188,6 +200,7 @@ export function registerStoresHandlers(): void {
     if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden editar locales.', code: 'FORBIDDEN' }
 
     const { id, name, address } = parsed.data
+    const { morningStart, morningEnd, afternoonStart, afternoonEnd } = parsed.data
 
     try {
       const db = getDb()
@@ -205,14 +218,33 @@ export function registerStoresHandlers(): void {
 
       const updatedName = name ?? existing.name
       const updatedAddress = address !== undefined ? address : existing.address
+      const updatedMorningStart = morningStart !== undefined ? morningStart : existing.morningStart
+      const updatedMorningEnd = morningEnd !== undefined ? morningEnd : existing.morningEnd
+      const updatedAfternoonStart = afternoonStart !== undefined ? afternoonStart : existing.afternoonStart
+      const updatedAfternoonEnd = afternoonEnd !== undefined ? afternoonEnd : existing.afternoonEnd
 
       db.update(stores).set({
         name: updatedName,
         address: updatedAddress ?? null,
+        morningStart: updatedMorningStart ?? null,
+        morningEnd: updatedMorningEnd ?? null,
+        afternoonStart: updatedAfternoonStart ?? null,
+        afternoonEnd: updatedAfternoonEnd ?? null,
       }).where(eq(stores.id, id)).run()
 
       log.info('[ipc:update-store] Local actualizado', { id, name: updatedName })
-      return { ok: true, data: { id, name: updatedName, address: updatedAddress ?? null } }
+      return {
+        ok: true,
+        data: {
+          id,
+          name: updatedName,
+          address: updatedAddress ?? null,
+          morningStart: updatedMorningStart ?? null,
+          morningEnd: updatedMorningEnd ?? null,
+          afternoonStart: updatedAfternoonStart ?? null,
+          afternoonEnd: updatedAfternoonEnd ?? null,
+        },
+      }
     } catch (err) {
       log.error('[ipc:update-store] Error inesperado', err)
       return { ok: false, error: 'Error al actualizar el local.' }

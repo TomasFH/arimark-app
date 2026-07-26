@@ -28,6 +28,41 @@ export function formatNumericInputValue(raw: string): string {
 }
 
 /**
+ * Calcula la nueva posición del cursor en el string ya formateado,
+ * preservando el conteo de dígitos que había antes del cursor en el
+ * string crudo (tal como lo entrega el evento del input, antes de formatear).
+ *
+ * Uso típico: onChange captura rawCursor = e.target.selectionStart, formatea
+ * el valor y llama a esta función para obtener dónde poner el cursor después
+ * del reformateo.
+ *
+ * @param rawValue  - Valor tal como llegó en el evento (puede tener separadores
+ *                    parciales o ninguno; e.g. "1.00.000" tras borrar un dígito).
+ * @param rawCursor - Posición del cursor en rawValue (selectionStart).
+ * @param formatted - Valor ya formateado con separadores de miles.
+ */
+export function calcCursorPosition(
+  rawValue: string,
+  rawCursor: number,
+  formatted: string,
+): number {
+  const digitsBeforeCursor = rawValue.slice(0, rawCursor).replace(/\D/g, '').length
+
+  if (digitsBeforeCursor === 0) return 0
+
+  let count = 0
+  for (let i = 0; i < formatted.length; i++) {
+    if (/\d/.test(formatted[i])) {
+      count++
+      if (count === digitsBeforeCursor) {
+        return i + 1
+      }
+    }
+  }
+  return formatted.length
+}
+
+/**
  * Convierte el valor formateado del input a número entero.
  * Retorna null si el campo está vacío.
  */

@@ -9,6 +9,14 @@ export const stores = sqliteTable('stores', {
   address: text('address'),
   createdAt: text('created_at').notNull(),
   archivedAt: text('archived_at'),
+  /** Hora de inicio del turno mañana, formato "HH:MM". Nullable = sin autodetección. */
+  morningStart: text('morning_start'),
+  /** Hora de fin del turno mañana, formato "HH:MM". */
+  morningEnd: text('morning_end'),
+  /** Hora de inicio del turno tarde, formato "HH:MM". */
+  afternoonStart: text('afternoon_start'),
+  /** Hora de fin del turno tarde, formato "HH:MM". */
+  afternoonEnd: text('afternoon_end'),
 })
 
 // ---------------------------------------------------------------------------
@@ -291,6 +299,7 @@ export const salePayments = sqliteTable(
       enum: ['cash', 'debit', 'wallet', 'credit'],
     }).notNull(),
     amount: real('amount').notNull(),
+    installments: integer('installments'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -487,9 +496,8 @@ export const providerDebtEvents = sqliteTable(
     amount: real('amount').notNull(),
     /** Gasto origen de este evento (puede ser null para pagos de deuda previos) */
     expenseId: text('expense_id').references(() => expenses.id),
-    shiftId: text('shift_id')
-      .notNull()
-      .references(() => shifts.id),
+    /** null cuando el pago lo registra un admin fuera de turno (SETTLE_PROVIDER_DEBT). */
+    shiftId: text('shift_id').references(() => shifts.id),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()

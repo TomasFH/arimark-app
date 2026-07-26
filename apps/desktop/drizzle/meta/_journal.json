@@ -113,6 +113,27 @@
       "when": 1784678405000,
       "tag": "0015_providers",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1784678410000,
+      "tag": "0016_sale_payments_installments",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1785167340000,
+      "tag": "0017_provider_debt_shift_nullable",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1785200000000,
+      "tag": "0018_stores_shift_hours",
+      "breakpoints": true
     }
   ]
 }

@@ -23,8 +23,15 @@ export default function StoreManagementScreen({ onBack }: Props) {
   const [modal, setModal] = useState<{ mode: ModalMode; store?: StoreRow } | null>(null)
   const [formName, setFormName] = useState('')
   const [formAddress, setFormAddress] = useState('')
+  const [formMorningStart, setFormMorningStart] = useState('')
+  const [formMorningEnd, setFormMorningEnd] = useState('')
+  const [formAfternoonStart, setFormAfternoonStart] = useState('')
+  const [formAfternoonEnd, setFormAfternoonEnd] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Feedback de guardado exitoso (solo para edición, no para creación)
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null)
 
   // Confirmación de eliminación / archivo
   const [deleteTarget, setDeleteTarget] = useState<StoreRow | null>(null)
@@ -46,6 +53,10 @@ export default function StoreManagementScreen({ onBack }: Props) {
   function openCreate() {
     setFormName('')
     setFormAddress('')
+    setFormMorningStart('')
+    setFormMorningEnd('')
+    setFormAfternoonStart('')
+    setFormAfternoonEnd('')
     setSaveError(null)
     setModal({ mode: 'create' })
   }
@@ -53,6 +64,10 @@ export default function StoreManagementScreen({ onBack }: Props) {
   function openEdit(store: StoreRow) {
     setFormName(store.name)
     setFormAddress(store.address ?? '')
+    setFormMorningStart(store.morningStart ?? '')
+    setFormMorningEnd(store.morningEnd ?? '')
+    setFormAfternoonStart(store.afternoonStart ?? '')
+    setFormAfternoonEnd(store.afternoonEnd ?? '')
     setSaveError(null)
     setModal({ mode: 'edit', store })
   }
@@ -75,10 +90,18 @@ export default function StoreManagementScreen({ onBack }: Props) {
         id: modal.store.id,
         name,
         address: formAddress.trim() || null,
+        morningStart: formMorningStart.trim() || null,
+        morningEnd: formMorningEnd.trim() || null,
+        afternoonStart: formAfternoonStart.trim() || null,
+        afternoonEnd: formAfternoonEnd.trim() || null,
       })
       setSaving(false)
       if (!r.ok) { setSaveError(r.error); return }
       setStores(prev => prev.map(s => s.id === r.data.id ? { ...r.data, archivedAt: s.archivedAt } : s))
+      setModal(null)
+      setSaveSuccessMsg('Cambios guardados')
+      setTimeout(() => setSaveSuccessMsg(null), 2500)
+      return
     }
 
     setModal(null)
@@ -155,6 +178,13 @@ export default function StoreManagementScreen({ onBack }: Props) {
         {loading && <p className="text-gray-500 text-sm animate-pulse">Cargando…</p>}
         {error && <p className="text-red-400 text-sm">{error}</p>}
 
+        {saveSuccessMsg && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-900/40 border border-green-700/50 text-green-300 text-sm">
+            <span className="text-green-400">✓</span>
+            {saveSuccessMsg}
+          </div>
+        )}
+
         {!loading && !error && (
           <>
             {/* Locales activos */}
@@ -172,6 +202,17 @@ export default function StoreManagementScreen({ onBack }: Props) {
                     {store.address && (
                       <p className="text-sm text-gray-400 truncate" title={store.address}>
                         {store.address}
+                      </p>
+                    )}
+                    {(store.morningStart || store.afternoonStart) && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {store.morningStart && store.morningEnd
+                          ? `Mañana: ${store.morningStart}–${store.morningEnd}`
+                          : ''}
+                        {store.morningStart && store.afternoonStart ? ' · ' : ''}
+                        {store.afternoonStart && store.afternoonEnd
+                          ? `Tarde: ${store.afternoonStart}–${store.afternoonEnd}`
+                          : ''}
                       </p>
                     )}
                   </div>
@@ -249,7 +290,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
       {/* Modal crear / editar */}
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4">
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-base font-semibold">
               {modal.mode === 'create' ? 'Nuevo local' : `Editar "${modal.store?.name}"`}
             </h2>
@@ -279,6 +320,56 @@ export default function StoreManagementScreen({ onBack }: Props) {
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                 />
               </div>
+
+              {/* Horarios de turno — solo en modo edición */}
+              {modal.mode === 'edit' && (
+                <div className="space-y-3 border-t border-gray-700 pt-3">
+                  <p className="text-sm font-medium text-gray-300">Horarios de turno (opcional)</p>
+                  <p className="text-xs text-gray-500">Si se configuran, la app sugerirá el turno automáticamente al abrir.</p>
+
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-400">Turno Mañana</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={formMorningStart}
+                        onChange={e => setFormMorningStart(e.target.value)}
+                        placeholder="HH:MM"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                      />
+                      <span className="text-gray-500 shrink-0 text-xs">hasta</span>
+                      <input
+                        type="time"
+                        value={formMorningEnd}
+                        onChange={e => setFormMorningEnd(e.target.value)}
+                        placeholder="HH:MM"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-400">Turno Tarde</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={formAfternoonStart}
+                        onChange={e => setFormAfternoonStart(e.target.value)}
+                        placeholder="HH:MM"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                      />
+                      <span className="text-gray-500 shrink-0 text-xs">hasta</span>
+                      <input
+                        type="time"
+                        value={formAfternoonEnd}
+                        onChange={e => setFormAfternoonEnd(e.target.value)}
+                        placeholder="HH:MM"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {saveError && <p className="text-red-400 text-sm">{saveError}</p>}
 

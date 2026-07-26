@@ -160,7 +160,16 @@ export default function App() {
       return
     }
 
-    // Cajera: debe elegir en qué local trabaja
+    // Cajera: verificar si tiene un turno abierto para reanudarla directamente
+    // (evita mostrar el store picker cuando el turno ya está activo en algún local).
+    const userShiftResult = await window.hw.getUserOpenShift()
+    if (userShiftResult.ok && userShiftResult.data) {
+      // Hay un turno sin cerrar — seleccionar ese local automáticamente y retomar.
+      await handleSelectStore(session, userShiftResult.data.storeId, state.initStatus)
+      return
+    }
+
+    // No hay turno abierto → flujo normal (selector de local o selección automática)
     const storesResult = await window.hw.getStores()
     const availableStores = storesResult.ok ? storesResult.data : []
 
@@ -252,6 +261,25 @@ export default function App() {
     setState({ screen: 'cashier', session: state.session, shift, initStatus: state.initStatus })
   }
 
+  /** Permite a la cajera corregir la elección de local antes de abrir turno. */
+  async function handleGoBackFromShiftRequired(): Promise<void> {
+    if (state.screen !== 'shift-required') return
+    const session = state.session
+    const initStatus = state.initStatus
+
+    const storesResult = await window.hw.getStores()
+    const availableStores = storesResult.ok ? storesResult.data.filter(s => !s.archivedAt) : []
+
+    if (availableStores.length > 1) {
+      // Volver al selector de local (sin cerrar sesión)
+      setState({ screen: 'store-picker', partialSession: session, stores: availableStores, initStatus })
+    } else {
+      // Un solo local disponible: no tiene sentido volver al picker, ir al login
+      await window.hw.logout({ role: session.role, storeId: session.storeId })
+      setState({ screen: 'login', initStatus })
+    }
+  }
+
   async function handleLogout(): Promise<void> {
     const session = 'session' in state ? state.session : null
     if (!session) return
@@ -314,7 +342,14 @@ export default function App() {
       {state.screen === 'shift-required' && (
         <OpenShiftScreen
           onShiftOpened={handleShiftOpened}
-          onCancel={state.session.role === 'admin' ? handleReturnToAdminHub : undefined}
+          onCancel={
+            state.session.role === 'admin'
+              ? handleReturnToAdminHub
+              : handleGoBackFromShiftRequired
+          }
+          cancelLabel={state.session.role === 'admin' ? '← Volver al hub' : '← Cambiar local'}
+          storeId={state.session.storeId}
+          userId={state.session.userId}
         />
       )}
 

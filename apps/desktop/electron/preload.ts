@@ -33,6 +33,10 @@ const hw: HwApi = {
 
   getActiveShift: () => ipcRenderer.invoke(IPC.GET_ACTIVE_SHIFT),
 
+  getStoreOpenShift: () => ipcRenderer.invoke(IPC.GET_STORE_OPEN_SHIFT),
+
+  getUserOpenShift: () => ipcRenderer.invoke(IPC.GET_USER_OPEN_SHIFT),
+
   openShift: payload => ipcRenderer.invoke(IPC.OPEN_SHIFT, payload),
 
   getShiftSummary: () => ipcRenderer.invoke(IPC.GET_SHIFT_SUMMARY),
@@ -77,6 +81,10 @@ const hw: HwApi = {
 
   registerExpense: payload => ipcRenderer.invoke(IPC.REGISTER_EXPENSE, payload),
 
+  updateExpense: payload => ipcRenderer.invoke(IPC.UPDATE_EXPENSE, payload),
+
+  deleteExpense: id => ipcRenderer.invoke(IPC.DELETE_EXPENSE, { id }),
+
   getShiftExpenses: () => ipcRenderer.invoke(IPC.GET_SHIFT_EXPENSES),
 
   getExpenseCategories: () => ipcRenderer.invoke(IPC.GET_EXPENSE_CATEGORIES),
@@ -91,6 +99,8 @@ const hw: HwApi = {
   updateProvider: payload => ipcRenderer.invoke(IPC.UPDATE_PROVIDER, payload),
   archiveProvider: payload => ipcRenderer.invoke(IPC.ARCHIVE_PROVIDER, payload),
   getProvidersWithDebt: () => ipcRenderer.invoke(IPC.GET_PROVIDERS_WITH_DEBT),
+  getProviderDebtHistory: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_DEBT_HISTORY, payload),
+  settleProviderDebt: payload => ipcRenderer.invoke(IPC.SETTLE_PROVIDER_DEBT, payload),
 
   // Clientes especiales (Fase 6)
   createCustomer: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER, payload),
