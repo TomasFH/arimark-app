@@ -160,13 +160,17 @@ describe('shift.handler', () => {
 
     it('rechaza con SHIFT_ALREADY_OPEN si el turno abierto pertenece a otro usuario', () => {
       // La regla es: un turno abierto de OTRA cajera bloquea la apertura.
+      // El handler hace dos queries: una con .limit(1).all() para buscar el turno abierto
+      // y otra con .get() para resolver el nombre del dueño del turno.
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT) // user-001
       const mockAll = vi.fn().mockReturnValue([{ id: 'other-shift', userId: 'user-002' }])
+      const mockGet = vi.fn().mockReturnValue({ name: 'Cajera 2' })
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockReturnValue({
               limit: vi.fn().mockReturnValue({ all: mockAll }),
+              get: mockGet,
             }),
           }),
         }),
@@ -278,22 +282,27 @@ describe('shift.handler', () => {
     })
 
     it('retorna userId y shiftId del turno abierto', () => {
+      // El handler hace dos queries: una con .limit(1).all() para el turno
+      // y otra con .get() para resolver el nombre del usuario dueño.
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const mockAll = vi.fn().mockReturnValue([{ id: 'shift-abc', userId: 'user-002' }])
+      const mockGet = vi.fn().mockReturnValue({ name: 'Cajera 2' })
       vi.mocked(getDb).mockReturnValue({
         select: vi.fn().mockReturnValue({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockReturnValue({
               limit: vi.fn().mockReturnValue({ all: mockAll }),
+              get: mockGet,
             }),
           }),
         }),
       } as unknown as ReturnType<typeof getDb>)
 
-      const result = getHandler('ipc:get-store-open-shift')({}) as { ok: boolean; data: { userId: string; shiftId: string } }
+      const result = getHandler('ipc:get-store-open-shift')({}) as { ok: boolean; data: { userId: string; shiftId: string; userName: string } }
       expect(result.ok).toBe(true)
       expect(result.data.userId).toBe('user-002')
       expect(result.data.shiftId).toBe('shift-abc')
+      expect(result.data.userName).toBe('Cajera 2')
     })
   })
 
