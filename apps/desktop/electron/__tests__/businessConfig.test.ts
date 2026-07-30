@@ -31,7 +31,7 @@ describe('loadBusinessConfig', () => {
   it('carga correctamente una config válida', async () => {
     const configPath = writeConfig({
       business_name: 'Mi Carnicería',
-      license_key: 'ABC-123',
+      tenant_id: 'ABC-123',
       timezone: 'America/Argentina/Buenos_Aires',
       default_store_id: 'store-uuid-001',
       logo_path: '',
@@ -42,14 +42,27 @@ describe('loadBusinessConfig', () => {
     const config = loadBusinessConfig(configPath)
 
     expect(config.business_name).toBe('Mi Carnicería')
-    expect(config.license_key).toBe('ABC-123')
+    expect(config.tenant_id).toBe('ABC-123')
     expect(config.default_store_id).toBe('store-uuid-001')
+  })
+
+  it('acepta license_key legacy y lo normaliza a tenant_id', async () => {
+    const configPath = writeConfig({
+      business_name: 'Negocio Legacy',
+      license_key: 'LEGACY-001',
+      default_store_id: 'store-001',
+    })
+
+    const { loadBusinessConfig } = await import('../businessConfig')
+    const config = loadBusinessConfig(configPath)
+    expect(config.tenant_id).toBe('LEGACY-001')
+    expect('license_key' in config).toBe(false)
   })
 
   it('aplica timezone default si no se provee', async () => {
     const configPath = writeConfig({
       business_name: 'Negocio',
-      license_key: 'XYZ',
+      tenant_id: 'XYZ',
       default_store_id: 'store-001',
     })
 
@@ -61,7 +74,7 @@ describe('loadBusinessConfig', () => {
   it('lanza error si business_name está vacío', async () => {
     const configPath = writeConfig({
       business_name: '',
-      license_key: 'ABC',
+      tenant_id: 'ABC',
       default_store_id: 'store-001',
     })
 
@@ -79,7 +92,7 @@ describe('loadBusinessConfig', () => {
     process.env['APP_ENV'] = 'dev'
     const { loadBusinessConfig } = await import('../businessConfig')
     const config = loadBusinessConfig('/ruta/inexistente/business.json')
-    expect(config.license_key).toBe('SANDBOX-0000-0000-0000')
+    expect(config.tenant_id).toBe('SANDBOX-0000-0000-0000')
   })
 
   it('lanza error si el JSON está malformado', async () => {

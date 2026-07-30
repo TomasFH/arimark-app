@@ -6,7 +6,7 @@ vi.mock('../../licensing/firebase', () => ({
   isFirebaseAvailable: vi.fn().mockReturnValue(false),
   getFirebaseApp: vi.fn(),
 }))
-vi.mock('../../businessConfig', () => ({ getBusinessConfig: vi.fn().mockReturnValue({ license_key: 'test-key' }) }))
+vi.mock('../../businessConfig', () => ({ getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'test-key' }) }))
 
 import { ipcMain } from 'electron'
 import { registerCashiersHandlers } from '../cashiers.handler'

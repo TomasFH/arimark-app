@@ -17,7 +17,7 @@ vi.mock('../../licensing/catalogPublish', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn().mockReturnValue({ license_key: 'TEST-KEY' }),
+  getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'TEST-KEY' }),
 }))
 
 vi.mock('uuid', () => ({ v4: () => 'new-uuid' }))

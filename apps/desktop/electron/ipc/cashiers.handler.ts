@@ -250,8 +250,8 @@ export function registerCashiersHandlers(): void {
   ipcMain.handle(IPC.LIST_CASHIERS, async (): Promise<IpcResult<CashierRow[]>> => {
     if (!isFirebaseAvailable()) return devListCashiers()
     try {
-      const { license_key } = getBusinessConfig()
-      return await firebaseListCashiers(license_key)
+      const { tenant_id } = getBusinessConfig()
+      return await firebaseListCashiers(tenant_id)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log.error('[ipc:list-cashiers] Error', msg)
@@ -279,8 +279,8 @@ export function registerCashiersHandlers(): void {
     if (!isFirebaseAvailable()) return devCreateCashier(displayName, email, authorizedStores ?? [])
 
     try {
-      const { license_key } = getBusinessConfig()
-      const result = await firebaseCreateCashier(license_key, displayName, email, authorizedStores ?? [])
+      const { tenant_id } = getBusinessConfig()
+      const result = await firebaseCreateCashier(tenant_id, displayName, email, authorizedStores ?? [])
       if (result.ok) log.info('[ipc:create-cashier] Cajera creada', { email })
       return result
     } catch (err) {
@@ -308,8 +308,8 @@ export function registerCashiersHandlers(): void {
     if (!isFirebaseAvailable()) return devToggleCashier(uid, active)
 
     try {
-      const { license_key } = getBusinessConfig()
-      const result = await firebaseToggleCashier(license_key, uid, active)
+      const { tenant_id } = getBusinessConfig()
+      const result = await firebaseToggleCashier(tenant_id, uid, active)
       log.info('[ipc:toggle-cashier]', { uid, active })
       return result
     } catch (err) {
@@ -330,8 +330,8 @@ export function registerCashiersHandlers(): void {
     if (!isFirebaseAvailable()) return devDeleteCashier(uid)
 
     try {
-      const { license_key } = getBusinessConfig()
-      const result = await firebaseDeleteCashier(license_key, uid)
+      const { tenant_id } = getBusinessConfig()
+      const result = await firebaseDeleteCashier(tenant_id, uid)
       log.info('[ipc:delete-cashier] Cajera eliminada (soft)', { uid })
       return result
     } catch (err) {

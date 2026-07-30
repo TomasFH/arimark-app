@@ -94,7 +94,7 @@ export function registerAuthHandlers(): void {
     const config = getBusinessConfig()
 
     try {
-      const result = await signInAutoDetect(config.license_key, email, password)
+      const result = await signInAutoDetect(config.tenant_id, email, password)
       if (!result.ok) return { ok: false, error: result.error }
 
       const { profile } = result
@@ -135,11 +135,11 @@ export function registerAuthHandlers(): void {
         log.info('[ipc:login] Admin autenticado', { email })
         // Admin inicia el listener global de providers para tener el autocomplete fresco.
         const adminConfig = getBusinessConfig()
-        startProviderSyncListener(adminConfig.license_key)
-        pushUnsyncedProviders(adminConfig.license_key).catch(err =>
+        startProviderSyncListener(adminConfig.tenant_id)
+        pushUnsyncedProviders(adminConfig.tenant_id).catch(err =>
           log.warn('[ipc:login] pushUnsyncedProviders (admin) falló (no bloqueante)', err)
         )
-        pushUnsyncedDebtEvents(adminConfig.license_key).catch(err =>
+        pushUnsyncedDebtEvents(adminConfig.tenant_id).catch(err =>
           log.warn('[ipc:login] pushUnsyncedDebtEvents (admin) falló (no bloqueante)', err)
         )
         return {
@@ -196,7 +196,7 @@ export function registerAuthHandlers(): void {
 
     try {
       const config = getBusinessConfig()
-      const result = await signInWithRole(config.license_key, email, password, 'cashier')
+      const result = await signInWithRole(config.tenant_id, email, password, 'cashier')
       if (!result.ok) {
         return { ok: false, error: result.error }
       }
@@ -239,19 +239,19 @@ export function registerAuthHandlers(): void {
       setActiveSession({ userId: profile.uid, storeId, role: 'cashier', shiftId: null, displayName: profile.displayName })
 
       // Publicar catálogo a Firestore (para que la PWA móvil pueda descargarlo).
-      publishCatalog(config.license_key, storeId).catch(err =>
+      publishCatalog(config.tenant_id, storeId).catch(err =>
         log.warn('[ipc:login-cashier] Error publicando catálogo', err)
       )
 
       // Iniciar listener de importación de turnos móviles.
-      startMobileSyncListener(config.license_key, storeId)
+      startMobileSyncListener(config.tenant_id, storeId)
 
       // Iniciar sync de proveedores y pushear pendientes.
-      startProviderSyncListener(config.license_key)
-      pushUnsyncedProviders(config.license_key).catch(err =>
+      startProviderSyncListener(config.tenant_id)
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
         log.warn('[ipc:login-cashier] pushUnsyncedProviders falló (no bloqueante)', err)
       )
-      pushUnsyncedDebtEvents(config.license_key).catch(err =>
+      pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
         log.warn('[ipc:login-cashier] pushUnsyncedDebtEvents falló (no bloqueante)', err)
       )
 
@@ -280,7 +280,7 @@ export function registerAuthHandlers(): void {
     }
 
     const config = getBusinessConfig()
-    const result = await loginAdmin(config.license_key, parsed.data.email, parsed.data.password)
+    const result = await loginAdmin(config.tenant_id, parsed.data.email, parsed.data.password)
     if (!result.ok) {
       return { ok: false, error: result.error }
     }

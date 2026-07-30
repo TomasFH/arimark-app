@@ -20,7 +20,7 @@ vi.mock('../../activeSession', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn(() => ({ license_key: 'test-key', default_store_id: STORE_ID })),
+  getBusinessConfig: vi.fn(() => ({ tenant_id: 'test-key', default_store_id: STORE_ID })),
 }))
 
 vi.mock('../../licensing/catalogPublish', () => ({

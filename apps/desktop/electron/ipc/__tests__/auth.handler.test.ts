@@ -25,7 +25,7 @@ vi.mock('../../licensing/installation', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn().mockReturnValue({ license_key: 'TEST-LIC-001' }),
+  getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'TEST-LIC-001' }),
 }))
 
 vi.mock('../../activeSession', () => ({

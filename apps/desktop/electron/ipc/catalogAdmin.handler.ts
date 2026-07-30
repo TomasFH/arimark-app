@@ -109,8 +109,8 @@ function buildCurrentPriceMap(
  */
 async function triggerCatalogPublish(storeId: string): Promise<void> {
   try {
-    const { license_key } = getBusinessConfig()
-    await publishCatalog(license_key, storeId)
+    const { tenant_id } = getBusinessConfig()
+    await publishCatalog(tenant_id, storeId)
   } catch (err) {
     log.warn('[catalog-admin] No se pudo republicar el catálogo a Firestore:', err)
   }

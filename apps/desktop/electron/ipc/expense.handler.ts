@@ -169,10 +169,10 @@ export function registerExpenseHandlers(): void {
       // Push no bloqueante
       const config = getBusinessConfig()
       if (resolvedProviderId) {
-        pushUnsyncedProviders(config.license_key).catch(err =>
+        pushUnsyncedProviders(config.tenant_id).catch(err =>
           log.warn('[ipc:register-expense] pushUnsyncedProviders falló', err)
         )
-        pushUnsyncedDebtEvents(config.license_key).catch(err =>
+        pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
           log.warn('[ipc:register-expense] pushUnsyncedDebtEvents falló', err)
         )
       }
@@ -307,17 +307,17 @@ export function registerExpenseHandlers(): void {
       // Push no bloqueante
       const config = getBusinessConfig()
       if (resolvedProviderId) {
-        pushUnsyncedProviders(config.license_key).catch(err =>
+        pushUnsyncedProviders(config.tenant_id).catch(err =>
           log.warn('[ipc:update-expense] pushUnsyncedProviders falló', err)
         )
-        pushUnsyncedDebtEvents(config.license_key).catch(err =>
+        pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
           log.warn('[ipc:update-expense] pushUnsyncedDebtEvents falló', err)
         )
       }
 
       // Marcar como eliminados los eventos viejos que ya estaban en Firestore
       if (syncedOldEventIds.length > 0) {
-        markDebtEventsDeletedInFirestore(config.license_key, syncedOldEventIds).catch(err =>
+        markDebtEventsDeletedInFirestore(config.tenant_id, syncedOldEventIds).catch(err =>
           log.error('[ipc:update-expense] markDebtEventsDeletedInFirestore falló', err)
         )
       }
@@ -370,7 +370,7 @@ export function registerExpenseHandlers(): void {
       // Marcar como eliminados en Firestore los eventos que ya habían sido sincronizados
       if (syncedEventIds.length > 0) {
         const config = getBusinessConfig()
-        markDebtEventsDeletedInFirestore(config.license_key, syncedEventIds).catch(err =>
+        markDebtEventsDeletedInFirestore(config.tenant_id, syncedEventIds).catch(err =>
           log.error('[ipc:delete-expense] markDebtEventsDeletedInFirestore falló', err)
         )
       }

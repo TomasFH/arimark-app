@@ -1,7 +1,7 @@
 {
-  "_comment": "Copiar a config/business.json con los datos reales del cliente. Este archivo es el template — NO contiene datos reales.",
+  "_comment": "Copiar a config/business.json con los datos reales del cliente. Este archivo es el template — NO contiene datos reales. tenant_id es el namespace de datos en Firestore (ruta licenses/{tenant_id}/...).",
   "business_name": "Nombre del negocio",
-  "license_key": "XXXX-XXXX-XXXX-XXXX",
+  "tenant_id": "XXXX-XXXX-XXXX-XXXX",
   "timezone": "America/Argentina/Buenos_Aires",
   "default_store_id": "uuid-del-local-principal",
   "logo_path": "",

@@ -66,7 +66,8 @@ function createWindow(): BrowserWindow {
  * Calcula el InitStatus al arrancar.
  * En sandbox: siempre válido, sin Firebase.
  * En producción: autentica anónimo para Firestore; no hay gate de licencia
- * (el license_key de business.json es solo namespace de datos — ver TASKS_V1 A1).
+ * (el tenant_id de business.json es solo namespace de datos — ver TASKS_V1 A1/A2).
+ * InitStatus.licenseKey se mantiene por compat UI; su valor es config.tenant_id.
  */
 async function computeInitStatus(): Promise<InitStatus> {
   const config = loadBusinessConfig()
@@ -76,7 +77,7 @@ async function computeInitStatus(): Promise<InitStatus> {
     return {
       businessName: config.business_name,
       defaultStoreId: config.default_store_id,
-      licenseKey: config.license_key,
+      licenseKey: config.tenant_id,
       licenseValid: true,
       needsActivation: false,
     }
@@ -98,7 +99,7 @@ async function computeInitStatus(): Promise<InitStatus> {
   return {
     businessName: config.business_name,
     defaultStoreId: config.default_store_id,
-    licenseKey: config.license_key,
+    licenseKey: config.tenant_id,
     licenseValid: true,
     needsActivation: false,
   }

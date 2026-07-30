@@ -2,7 +2,7 @@
  * Namespace de datos del negocio (histórico: "licencia").
  *
  * A1 (jul 2026): se eliminó el gate de verificación de licencia activa en
- * Firestore. El valor de `license_key` / futuro `tenant_id` en business.json
+ * Firestore. El valor de `tenant_id` en business.json
  * solo identifica el prefijo de rutas en Firestore (`licenses/{key}/...`).
  * Cualquiera puede instalar y usar la app; la única puerta es Firebase Auth.
  *

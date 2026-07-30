@@ -107,17 +107,17 @@ export function registerStoresHandlers(): void {
       // Para cajeras: iniciar sincronización con el local seleccionado
       if (session.role === 'cashier') {
         const config = getBusinessConfig()
-        publishCatalog(config.license_key, storeId).catch(err =>
+        publishCatalog(config.tenant_id, storeId).catch(err =>
           log.warn('[ipc:select-store] publishCatalog falló (no bloqueante)', err)
         )
-        startMobileSyncListener(config.license_key, storeId)
+        startMobileSyncListener(config.tenant_id, storeId)
 
         // Iniciar sync de proveedores y pushear pendientes.
-        startProviderSyncListener(config.license_key)
-        pushUnsyncedProviders(config.license_key).catch(err =>
+        startProviderSyncListener(config.tenant_id)
+        pushUnsyncedProviders(config.tenant_id).catch(err =>
           log.warn('[ipc:select-store] pushUnsyncedProviders falló (no bloqueante)', err)
         )
-        pushUnsyncedDebtEvents(config.license_key).catch(err =>
+        pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
           log.warn('[ipc:select-store] pushUnsyncedDebtEvents falló (no bloqueante)', err)
         )
       }

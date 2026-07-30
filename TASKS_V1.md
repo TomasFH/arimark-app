@@ -37,20 +37,17 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 ---
 
-### A2 — Renombrar `license_key` a `tenant_id` en business.json y código
+### A2 — Renombrar `license_key` a `tenant_id` en business.json y código ✅ HECHA (2026-07-30)
 
-**Contexto:**
-`business.json` tiene el campo `license_key` que se usa como prefijo para todas las rutas de Firestore (`licenses/{license_key}/...`). Semánticamente ya no es una "licencia" sino un identificador del negocio (tenant). Se renombra para claridad.
+**Estado:** Completada. Typecheck + suite verde (451 main + 77 renderer).
 
-**Qué hacer:**
-1. Leer `apps/desktop/config/business.json` y `apps/desktop/config/business.example.json`.
-2. Leer `apps/desktop/electron/businessConfig.ts` para ver el schema Zod de `business.json`.
-3. En `businessConfig.ts`: renombrar el campo `license_key` a `tenant_id` en el schema Zod (mantener backward compat si hace falta con `.or()`).
-4. En `apps/desktop/config/business.json` y `business.example.json`: renombrar el campo.
-5. Buscar todos los usos de `config.license_key` en el codebase (`rg "license_key"`) y reemplazarlos por `config.tenant_id`.
-6. Actualizar referencias en tests.
-
-**Verificación:** `pnpm run typecheck` verde. `pnpm run test` verde. `rg "license_key"` no devuelve hits en archivos `.ts` (solo en SQLs de migración o comentarios históricos está OK).
+**Qué se hizo:**
+- `businessConfig.ts`: schema usa `tenant_id`; preprocess acepta `license_key` legacy y lo normaliza.
+- `business.json` / `business.example.json`: campo renombrado a `tenant_id`.
+- Todos los handlers/tests usan `config.tenant_id` / `{ tenant_id }`.
+- Rutas Firestore siguen siendo `licenses/{tenant_id}/...` (colección Firebase sin migrar).
+- Quedan `license_key` solo en: comentarios/compat del preprocess, y columna histórica SQLite `installations.license_key` en `schema.ts`.
+- `InitStatus.licenseKey` (camelCase UI) se mantiene; su valor es `config.tenant_id`.
 
 ---
 

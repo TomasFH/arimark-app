@@ -44,6 +44,7 @@ export const users = sqliteTable('users', {
 // ---------------------------------------------------------------------------
 export const adminDevices = sqliteTable('admin_devices', {
   uid: text('uid').primaryKey(),
+  /** Columna histórica DB; el namespace de negocio en config es `tenant_id` (A2). */
   licenseKey: text('license_key').notNull(),
   deviceHint: text('device_hint'),
   firstSeen: text('first_seen').notNull(),

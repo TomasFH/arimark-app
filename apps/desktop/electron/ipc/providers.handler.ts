@@ -156,7 +156,7 @@ export function registerProvidersHandlers(): void {
       }).run()
 
       const config = getBusinessConfig()
-      pushUnsyncedProviders(config.license_key).catch(err =>
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
         log.warn('[ipc:create-provider] push falló (no bloqueante)', err)
       )
 
@@ -202,7 +202,7 @@ export function registerProvidersHandlers(): void {
       db.update(providers).set(updates).where(eq(providers.id, id)).run()
 
       const config = getBusinessConfig()
-      pushUnsyncedProviders(config.license_key).catch(err =>
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
         log.warn('[ipc:update-provider] push falló (no bloqueante)', err)
       )
 
@@ -252,7 +252,7 @@ export function registerProvidersHandlers(): void {
       }).where(eq(providers.id, id)).run()
 
       const config = getBusinessConfig()
-      pushUnsyncedProviders(config.license_key).catch(err =>
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
         log.warn('[ipc:archive-provider] push falló (no bloqueante)', err)
       )
 
@@ -361,7 +361,7 @@ export function registerProvidersHandlers(): void {
       })
 
       const config = getBusinessConfig()
-      pushUnsyncedDebtEvents(config.license_key).catch(err =>
+      pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
         log.warn('[ipc:settle-provider-debt] push de eventos falló (no bloqueante)', err)
       )
 
@@ -419,7 +419,7 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
   const providerNameMap = new Map(providerRows.map(p => [p.id, p.name]))
 
   // Leer todos los eventos de deuda desde Firestore
-  const eventsCol = collection(firestore, 'licenses', config.license_key, 'providerDebtEvents')
+  const eventsCol = collection(firestore, 'licenses', config.tenant_id, 'providerDebtEvents')
   const snap = await getDocs(eventsCol)
 
   interface BalanceEntry { balance: number; providerId: string; storeId: string }
@@ -529,7 +529,7 @@ async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<
   const userRows = db.select({ id: users.id, name: users.name }).from(users).all()
   const userNameMap = new Map(userRows.map(u => [u.id, u.name]))
 
-  const eventsCol = collection(firestore, 'licenses', config.license_key, 'providerDebtEvents')
+  const eventsCol = collection(firestore, 'licenses', config.tenant_id, 'providerDebtEvents')
   const q = query(eventsCol, where('providerId', '==', providerId))
   const snap = await getDocs(q)
 
