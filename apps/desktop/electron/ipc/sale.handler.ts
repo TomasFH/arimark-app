@@ -7,6 +7,8 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { sales, saleItems, salePayments, products } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedSales } from '../licensing/saleSync'
 import { notifySaleOccurred } from './inactivityDaemon'
 import type { IpcResult, SaleResult, ShiftSaleRow } from '../../src/types/hw-api'
 
@@ -165,6 +167,13 @@ export function registerSaleHandlers(): void {
 
     log.info('[ipc:create-sale] Venta confirmada', { saleId, total, payments: payments.length })
     notifySaleOccurred()
+
+    // Push a Firestore (outbox: syncedAt=null). Fire-and-forget.
+    const config = getBusinessConfig()
+    pushUnsyncedSales(config.tenant_id).catch(err =>
+      log.warn('[ipc:create-sale] push de venta falló (no bloqueante)', err)
+    )
+
     return { ok: true, data: { saleId, total } }
   })
 

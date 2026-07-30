@@ -21,6 +21,22 @@ vi.mock('../auth.handler', () => ({
   registerAuthHandlers: vi.fn(),
 }))
 
+vi.mock('../../businessConfig', () => ({
+  getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'test-tenant' }),
+}))
+
+const { mockPushUnsyncedSales } = vi.hoisted(() => ({
+  mockPushUnsyncedSales: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/saleSync', () => ({
+  pushUnsyncedSales: mockPushUnsyncedSales,
+}))
+
+vi.mock('../inactivityDaemon', () => ({
+  notifySaleOccurred: vi.fn(),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
@@ -122,6 +138,7 @@ describe('sale.handler — CREATE_SALE', () => {
     expect(result.ok).toBe(true)
     expect(result.data.saleId).toBeTypeOf('string')
     expect(result.data.total).toBe(3000)
+    expect(mockPushUnsyncedSales).toHaveBeenCalledWith('test-tenant')
   })
 
   it('acepta notas opcionales en la venta', async () => {
