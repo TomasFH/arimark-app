@@ -51,19 +51,18 @@ describe('initStatus.handler', () => {
     expect(result.data).toEqual(sandboxStatus)
   })
 
-  it('retorna licenseValid: false cuando la licencia es inválida', () => {
-    const expiredStatus: InitStatus = {
+  it('retorna el InitStatus almacenado tal cual (campos legacy licenseValid inclusive)', () => {
+    // A1: el main ya no marca licenseValid:false; el handler solo refleja lo seteado.
+    const stored: InitStatus = {
       ...sandboxStatus,
-      licenseValid: false,
-      licenseReason: 'expired',
-      licenseMessage: 'Licencia vencida.',
+      licenseValid: true,
+      needsActivation: false,
     }
-    setInitStatus(expiredStatus)
+    setInitStatus(stored)
     const handler = getHandler()
     const result = handler({}) as { ok: boolean; data?: InitStatus }
     expect(result.ok).toBe(true)
-    expect(result.data?.licenseValid).toBe(false)
-    expect(result.data?.licenseReason).toBe('expired')
+    expect(result.data?.licenseValid).toBe(true)
   })
 
   it('retorna needsActivation: true cuando la instalación no está activada', () => {

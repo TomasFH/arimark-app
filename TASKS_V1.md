@@ -23,25 +23,17 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 ## BLOQUE A — Eliminar sistema de licencias
 
-### A1 — Eliminar verificación de licencia activa en startup
+### A1 — Eliminar verificación de licencia activa en startup ✅ HECHA (2026-07-30)
 
-**Contexto:**
-Al iniciar la app, se llama a `verifyLicense()` en `apps/desktop/electron/licensing/license.ts`.
-Esta función consulta Firestore para verificar que `licenses/{license_key}` existe y tiene `activo: true`.
-Si falla (sin internet o licencia no configurada), la app no inicia.
-El objetivo es eliminar este bloqueo — cualquiera puede instalar y usar la app sin activación previa.
-El `license_key` en `business.json` se mantiene pero solo como namespace de datos, no como gate.
+**Estado:** Completada. Typecheck + suite verde (450 main + 77 renderer).
 
-**Qué hacer:**
-1. Leer `apps/desktop/electron/main.ts` y encontrar dónde se llama `verifyLicense()` o `computeInitStatus()`.
-2. Leer `apps/desktop/electron/licensing/license.ts` para entender qué hace `verifyLicense()`.
-3. Leer `apps/desktop/electron/ipc/auth.handler.ts` para ver si `verifyLicense` se invoca en el flujo de login.
-4. Eliminar las llamadas a `verifyLicense()` del flujo de inicio y del flujo de login.
-5. La función puede quedar en el código pero sin invocarse (o eliminarla completamente si no rompe nada).
-6. Asegurarse de que `getBusinessConfig()` siga cargando `license_key` de `business.json` — solo cambia que no se verifica activeness en Firestore.
-7. Actualizar los tests afectados en `apps/desktop/electron/licensing/__tests__/license.test.ts` y `apps/desktop/electron/ipc/__tests__/auth.handler.test.ts`.
+**Qué se hizo:**
+- `main.ts` / `computeInitStatus()`: ya no llama a `verifyLicense()`. En producción solo intenta `signInAnon()` (no bloqueante) y siempre devuelve `licenseValid: true`.
+- `license.ts`: gate eliminado; `verifyLicense` queda como no-op deprecated que siempre retorna válida (sin red).
+- Tests: `license.test.ts` reescrito; `initStatus.handler.test.ts` actualizado. `auth.handler` no usaba `verifyLicense` (sin cambios).
+- `business.json` / `license_key` se siguen cargando; solo dejan de actuar como gate.
 
-**Verificación:** `pnpm run typecheck` verde. `pnpm run test` verde. La app inicia sin necesidad de un documento `licenses/{key}` activo en Firestore.
+**Pendiente relacionado (fuera de A1):** UI `LicenseErrorScreen` / `ActivationScreen` siguen en el código pero el main ya no las dispara por licencia inválida. Se pueden limpiar en una tarea futura si hace falta.
 
 ---
 

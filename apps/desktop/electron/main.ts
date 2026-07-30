@@ -19,7 +19,6 @@ import { getDbPath, getDb } from './db/client'
 import { stores } from './db/schema'
 import { eq } from 'drizzle-orm'
 import { runMigrations } from './db/migrate'
-import { verifyLicense } from './licensing/license'
 import { signInAnon } from './licensing/installation'
 import { setInitStatus } from './ipc/initStatus.handler'
 import type { InitStatus } from '../src/types/hw-api'
@@ -66,7 +65,8 @@ function createWindow(): BrowserWindow {
 /**
  * Calcula el InitStatus al arrancar.
  * En sandbox: siempre válido, sin Firebase.
- * En producción: verifica licencia y estado de activación contra Firebase.
+ * En producción: autentica anónimo para Firestore; no hay gate de licencia
+ * (el license_key de business.json es solo namespace de datos — ver TASKS_V1 A1).
  */
 async function computeInitStatus(): Promise<InitStatus> {
   const config = loadBusinessConfig()
@@ -82,35 +82,19 @@ async function computeInitStatus(): Promise<InitStatus> {
     }
   }
 
-  // Producción: primero autenticarse anónimamente (necesario para que Firestore
-  // acepte las lecturas posteriores), luego verificar licencia e instalación.
+  // Producción: autenticarse anónimamente para que Firestore acepte lecturas
+  // posteriores (catálogo, sync). No se bloquea el arranque si falla.
   let anonUid: string | null = null
   try {
     anonUid = await signInAnon()
   } catch (err) {
-    log.warn('[main] signInAnon falló — se intentará verificación offline', err)
+    log.warn('[main] signInAnon falló — Firebase puede no estar disponible hasta el login', err)
   }
 
-  const licenseStatus = await verifyLicense(config.license_key)
-
-  if (!licenseStatus.valid) {
-    return {
-      businessName: config.business_name,
-      defaultStoreId: config.default_store_id,
-      licenseKey: config.license_key,
-      licenseValid: false,
-      licenseReason: licenseStatus.reason,
-      licenseMessage: licenseStatus.message,
-      needsActivation: false,
-    }
-  }
-
-  // DEUDA TÉCNICA: la Cloud Function `activateInstallation` no está implementada.
-  // El chequeo de activación queda bypaseado hasta que se implemente el flujo
-  // de activación por código de un solo uso (ver PLAN.md → Checklist primer deploy).
   if (anonUid) {
-    log.info('[main] Instalación anónima registrada (activación bypaseada)', { anonUid })
+    log.info('[main] Sesión anónima lista (sin gate de licencia)', { anonUid })
   }
+
   return {
     businessName: config.business_name,
     defaultStoreId: config.default_store_id,
