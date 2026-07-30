@@ -122,5 +122,57 @@ service cloud.firestore {
       allow read, create, update: if request.auth != null;
       allow delete: if false;
     }
+
+    // -----------------------------------------------------------------------
+    // Turnos operativos (sync PC → Firestore, lectura admin remota — TASKS_V1 B1).
+    // Path: licenses/{key}/shifts/{shiftId}
+    // Distinto del staging móvil en sync/{storeId}/shifts.
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/shifts/{shiftId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Ventas operativas (sync PC → Firestore — TASKS_V1 B2).
+    // Documento embebido con items[] y payments[].
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/sales/{saleId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Gastos operativos (sync PC → Firestore — TASKS_V1 B3).
+    // Soft-delete vía update (deleted:true); hard delete prohibido.
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/expenses/{expenseId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Empleados / asistencia / vales / salarios / conteos (TASKS_V1 D/E/F).
+    // Reglas anticipadas: auth requerido; hard delete prohibido.
+    // -----------------------------------------------------------------------
+    match /licenses/{licenseKey}/attendance/{id} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /licenses/{licenseKey}/employeeVales/{id} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /licenses/{licenseKey}/salaryPayments/{id} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /licenses/{licenseKey}/stockCounts/{id} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
   }
 }

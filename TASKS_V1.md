@@ -439,24 +439,15 @@ Los admins deben ver esta información desde cualquier dispositivo. Mismo patró
 
 ## BLOQUE G — Firestore Security Rules
 
-### G1 — Actualizar reglas de Firestore para nuevas colecciones
+### G1 — Actualizar reglas de Firestore para nuevas colecciones ✅ HECHA (2026-07-30)
 
-**Contexto:**
-Cada vez que se agrega una colección nueva a Firestore, las reglas en `firebase/firestore.rules` deben incluirla.
+**Estado:** Completada. `firebase deploy --only firestore:rules` OK en proyecto `arimark-7f418`.
 
-**Qué hacer:**
-1. Leer `firebase/firestore.rules` para entender la estructura actual.
-2. Agregar reglas para:
-   - `licenses/{tenantId}/shifts/{shiftId}` — read: auth != null; write: auth != null.
-   - `licenses/{tenantId}/sales/{saleId}` — read: auth != null; write: auth != null.
-   - `licenses/{tenantId}/expenses/{expenseId}` — read: auth != null; write: auth != null; (soft-delete como debt events).
-   - `licenses/{tenantId}/attendance/{id}` — read: auth != null; write: auth != null.
-   - `licenses/{tenantId}/employeeVales/{id}` — read: auth != null; write: auth != null.
-   - `licenses/{tenantId}/salaryPayments/{id}` — read: auth != null; write: auth != null.
-   - `licenses/{tenantId}/stockCounts/{id}` — read: auth != null; write: auth != null.
-3. Deployar con `firebase deploy --only firestore:rules` desde la raíz del proyecto.
-
-**Verificación:** `firebase deploy` exitoso sin errores.
+**Qué se hizo:**
+- Agregadas reglas (read/create/update si `auth != null`; `delete: false`) para:
+  - `shifts`, `sales`, `expenses` (B1–B3)
+  - `attendance`, `employeeVales`, `salaryPayments`, `stockCounts` (anticipadas D/E/F)
+- Soft-delete vía `update` (campo `deleted`) permitido; hard delete prohibido.
 
 ---
 
