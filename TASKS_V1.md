@@ -84,22 +84,19 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 ---
 
-### B3 — Sync de gastos a Firestore al registrar
+### B3 — Sync de gastos a Firestore al registrar ✅ HECHA (2026-07-30)
 
-**Contexto:**
-Los gastos (`expenses`) ya tienen `syncedAt` en schema (definido pero no usado para este fin todavía — se usa para proveedores vía `provider_debt_events`, no para el gasto en sí).
-Ruta en Firestore: `licenses/{tenant_id}/expenses/{expenseId}`.
+**Estado:** Completada. Typecheck + suite verde (463 main + 77 renderer).
 
-**Qué hacer:**
-1. Leer `apps/desktop/electron/db/schema.ts` — verificar si `expenses` tiene `syncedAt`. Si no, agregar migración.
-2. Leer `apps/desktop/electron/ipc/expense.handler.ts` — handlers `REGISTER_EXPENSE`, `UPDATE_EXPENSE`, `DELETE_EXPENSE`.
-3. Crear `apps/desktop/electron/licensing/expenseSync.ts` con `pushUnsyncedExpenses(tenantId)`.
-   - Para `DELETE_EXPENSE`: marcar `deleted: true` en Firestore (soft delete, igual que debt events).
-   - Para `UPDATE_EXPENSE`: re-push con datos actualizados.
-4. Llamar en los handlers correspondientes (fire-and-forget, no bloqueante).
-5. Tests.
+**Qué se hizo:**
+- Creado `apps/desktop/electron/licensing/expenseSync.ts`:
+  - `pushUnsyncedExpenses(tenantId)` → `licenses/{tenant}/expenses/{id}` (incluye providerName)
+  - `markExpensesDeletedInFirestore(tenantId, ids)` → soft-delete `deleted:true`
+- `REGISTER_EXPENSE` / `UPDATE_EXPENSE`: fire-and-forget push (update ya pone `syncedAt=null`)
+- `DELETE_EXPENSE`: soft-delete en Firestore si el gasto tenía `syncedAt`
+- Tests: `expenseSync.test.ts` (4) + assert en `expense.handler.test.ts`
 
-**Verificación:** `pnpm run typecheck` verde. `pnpm run test` verde.
+**Nota:** requiere **G1** (reglas Firestore para `expenses`).
 
 ---
 

@@ -25,6 +25,17 @@ vi.mock('../../businessConfig', () => ({
 vi.mock('../../licensing/providerSync', () => ({
   pushUnsyncedProviders: vi.fn().mockResolvedValue(undefined),
   pushUnsyncedDebtEvents: vi.fn().mockResolvedValue(undefined),
+  markDebtEventsDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
+}))
+
+const { mockPushUnsyncedExpenses, mockMarkExpensesDeleted } = vi.hoisted(() => ({
+  mockPushUnsyncedExpenses: vi.fn().mockResolvedValue(undefined),
+  mockMarkExpensesDeleted: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/expenseSync', () => ({
+  pushUnsyncedExpenses: mockPushUnsyncedExpenses,
+  markExpensesDeletedInFirestore: mockMarkExpensesDeleted,
 }))
 
 import { ipcMain } from 'electron'
@@ -76,6 +87,7 @@ describe('expense.handler', () => {
       const result = handler(null, { concept: 'Insumos', amount: 1500 }) as { ok: boolean; data: { id: string } }
       expect(result.ok).toBe(true)
       expect(result.data.id).toBeTruthy()
+      expect(mockPushUnsyncedExpenses).toHaveBeenCalledWith('test-license')
 
       const row = db.select().from(expenses).all()[0]
       expect(row.concept).toBe('Insumos')

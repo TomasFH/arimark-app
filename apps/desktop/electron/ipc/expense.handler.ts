@@ -10,6 +10,7 @@ import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { providerIdFromName, providerNameKey } from './providerUtils'
 import { pushUnsyncedProviders, pushUnsyncedDebtEvents, markDebtEventsDeletedInFirestore } from '../licensing/providerSync'
+import { pushUnsyncedExpenses, markExpensesDeletedInFirestore } from '../licensing/expenseSync'
 import type { IpcResult, ExpenseRow, ProviderDebtRow } from '../../src/types/hw-api'
 
 /** Conceptos predefinidos que se sugieren si el local aún no tiene historial */
@@ -168,6 +169,9 @@ export function registerExpenseHandlers(): void {
 
       // Push no bloqueante
       const config = getBusinessConfig()
+      pushUnsyncedExpenses(config.tenant_id).catch(err =>
+        log.warn('[ipc:register-expense] pushUnsyncedExpenses falló', err)
+      )
       if (resolvedProviderId) {
         pushUnsyncedProviders(config.tenant_id).catch(err =>
           log.warn('[ipc:register-expense] pushUnsyncedProviders falló', err)
@@ -304,8 +308,11 @@ export function registerExpenseHandlers(): void {
         }
       })
 
-      // Push no bloqueante
+      // Push no bloqueante (syncedAt ya quedó null en el update)
       const config = getBusinessConfig()
+      pushUnsyncedExpenses(config.tenant_id).catch(err =>
+        log.warn('[ipc:update-expense] pushUnsyncedExpenses falló', err)
+      )
       if (resolvedProviderId) {
         pushUnsyncedProviders(config.tenant_id).catch(err =>
           log.warn('[ipc:update-expense] pushUnsyncedProviders falló', err)
@@ -353,7 +360,12 @@ export function registerExpenseHandlers(): void {
         return { ok: false, error: 'Solo se pueden eliminar gastos del turno activo.' }
       }
 
-      // Antes de borrar, capturar IDs de eventos ya sincronizados con Firestore
+      // Antes de borrar, capturar IDs ya sincronizados (gasto + eventos de deuda)
+      const expenseSyncedAt = db
+        .select({ syncedAt: expenses.syncedAt })
+        .from(expenses)
+        .where(eq(expenses.id, id))
+        .get()?.syncedAt
       const syncedEventIds = db
         .select({ id: providerDebtEvents.id, syncedAt: providerDebtEvents.syncedAt })
         .from(providerDebtEvents)
@@ -367,9 +379,15 @@ export function registerExpenseHandlers(): void {
         tx.delete(expenses).where(eq(expenses.id, id)).run()
       })
 
+      const config = getBusinessConfig()
+      // Soft-delete del gasto en Firestore si ya había sido sincronizado
+      if (expenseSyncedAt != null) {
+        markExpensesDeletedInFirestore(config.tenant_id, [id]).catch(err =>
+          log.error('[ipc:delete-expense] markExpensesDeletedInFirestore falló', err)
+        )
+      }
       // Marcar como eliminados en Firestore los eventos que ya habían sido sincronizados
       if (syncedEventIds.length > 0) {
-        const config = getBusinessConfig()
         markDebtEventsDeletedInFirestore(config.tenant_id, syncedEventIds).catch(err =>
           log.error('[ipc:delete-expense] markDebtEventsDeletedInFirestore falló', err)
         )
