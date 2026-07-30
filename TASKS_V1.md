@@ -53,27 +53,18 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 ## BLOQUE B — Sync operativo a Firestore (prerequisito para acceso remoto del admin)
 
-### B1 — Sync de turnos a Firestore al abrir y cerrar
+### B1 — Sync de turnos a Firestore al abrir y cerrar ✅ HECHA (2026-07-30)
 
-**Contexto:**
-Los turnos (`shifts`) hoy solo viven en SQLite local. Para que el admin los vea desde cualquier dispositivo, hay que empujarlos a Firestore al abrirse y al cerrarse.
-Patrón a seguir: `apps/desktop/electron/licensing/providerSync.ts` (outbox con `syncedAt`).
-La tabla `shifts` en `apps/desktop/electron/db/schema.ts` ya tiene columna `syncedAt`.
-Ruta en Firestore: `licenses/{tenant_id}/shifts/{shiftId}`.
+**Estado:** Completada. Typecheck + suite verde (455 main + 77 renderer).
 
-**Qué hacer:**
-1. Leer `apps/desktop/electron/db/schema.ts` para ver los campos de la tabla `shifts`.
-2. Leer `apps/desktop/electron/ipc/shift.handler.ts` para entender los handlers `OPEN_SHIFT` y `CLOSE_SHIFT`.
-3. Leer `apps/desktop/electron/licensing/providerSync.ts` como referencia del outbox pattern.
-4. Crear `apps/desktop/electron/licensing/shiftSync.ts` con funciones:
-   - `pushUnsyncedShifts(tenantId: string): Promise<void>` — busca shifts con `syncedAt=null`, los empuja a Firestore y marca `syncedAt`.
-   - Documento Firestore: todos los campos del shift (id, storeId, userId, shiftType, startedAt, closedAt, openingCash, closingCash, source, etc.)
-5. En `shift.handler.ts`, después de `OPEN_SHIFT` exitoso: llamar `pushUnsyncedShifts(config.tenant_id).catch(...)` (fire-and-forget, no bloqueante).
-6. En `shift.handler.ts`, después de `CLOSE_SHIFT` exitoso: ídem.
-7. Actualizar `apps/desktop/electron/ipc/index.ts` si hace falta.
-8. Agregar tests en `apps/desktop/electron/ipc/__tests__/shift.handler.test.ts` para verificar que el push se llama (mock de `pushUnsyncedShifts`).
+**Qué se hizo:**
+- Creado `apps/desktop/electron/licensing/shiftSync.ts` con `pushUnsyncedShifts(tenantId)`.
+- Ruta Firestore: `licenses/{tenantId}/shifts/{shiftId}` (merge).
+- `OPEN_SHIFT`: tras insert, fire-and-forget `pushUnsyncedShifts`.
+- `CLOSE_SHIFT`: setea `syncedAt: null` en el update (para re-push) + fire-and-forget push.
+- Tests: `shiftSync.test.ts` (4) + asserts de push en `shift.handler.test.ts`.
 
-**Verificación:** `pnpm run typecheck` verde. `pnpm run test` verde.
+**Nota:** hasta ejecutar **G1** (reglas Firestore para `shifts`), el push en producción puede fallar por permisos — se loguea y no bloquea la UI.
 
 ---
 

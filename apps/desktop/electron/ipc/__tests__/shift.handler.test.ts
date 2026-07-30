@@ -25,7 +25,15 @@ vi.mock('../inactivityDaemon', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn().mockReturnValue({ inactivityThresholdHours: 2 }),
+  getBusinessConfig: vi.fn().mockReturnValue({ inactivityThresholdHours: 2, tenant_id: 'test-tenant' }),
+}))
+
+const { mockPushUnsyncedShifts } = vi.hoisted(() => ({
+  mockPushUnsyncedShifts: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/shiftSync', () => ({
+  pushUnsyncedShifts: mockPushUnsyncedShifts,
 }))
 
 import { ipcMain } from 'electron'
@@ -226,6 +234,7 @@ describe('shift.handler', () => {
       expect(mockRun).toHaveBeenCalledOnce()
       expect(updateActiveShift).toHaveBeenCalledWith(expect.any(String))
       expect(startDaemon).toHaveBeenCalledWith(2)
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
     })
 
     it('abre turno cuando el turno anterior del local está cerrado (closedAt != null)', () => {
@@ -507,6 +516,7 @@ describe('shift.handler', () => {
       expect(result).toMatchObject({ ok: true })
       expect(mockTx).toHaveBeenCalledOnce()
       expect(updateActiveShift).toHaveBeenCalledWith(null)
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
       expect(stopDaemon).toHaveBeenCalledOnce()
     })
 

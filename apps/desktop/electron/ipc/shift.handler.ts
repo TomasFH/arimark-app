@@ -9,6 +9,7 @@ import { shifts, sales, salePayments, expenses, billDenominations, debtEvents, o
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedShifts } from '../licensing/shiftSync'
 import type { IpcResult, ShiftInfo, ShiftSummary } from '../../src/types/hw-api'
 
 const openShiftSchema = z.object({
@@ -165,6 +166,12 @@ export function registerShiftHandlers(): void {
       // Iniciar daemon de inactividad para el turno recién abierto.
       const thresholdHours = _getInactivityThreshold()
       startDaemon(thresholdHours)
+
+      // Push a Firestore (outbox: syncedAt=null). Fire-and-forget.
+      const config = getBusinessConfig()
+      pushUnsyncedShifts(config.tenant_id).catch(err =>
+        log.warn('[ipc:open-shift] push de turno falló (no bloqueante)', err)
+      )
 
       return {
         ok: true,
@@ -367,6 +374,8 @@ export function registerShiftHandlers(): void {
             deliveredAmount: deliveredAmount ?? null,
             deliveredTo: deliveredTo ?? null,
             notes: notes ?? null,
+            // Marcar para re-push: el turno pudo haberse sincronizado al abrir.
+            syncedAt: null,
           })
           .where(eq(shifts.id, session.shiftId!))
           .run()
@@ -390,6 +399,12 @@ export function registerShiftHandlers(): void {
       const closedShiftId = session.shiftId
       updateActiveShift(null)
       stopDaemon()
+
+      // Push a Firestore con datos de cierre. Fire-and-forget.
+      const config = getBusinessConfig()
+      pushUnsyncedShifts(config.tenant_id).catch(err =>
+        log.warn('[ipc:close-shift] push de turno falló (no bloqueante)', err)
+      )
 
       log.info('[ipc:close-shift] Turno cerrado', {
         shiftId: closedShiftId,
