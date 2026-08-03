@@ -100,340 +100,233 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 ---
 
-### B4 — Panel admin (Electron) lee historial de ventas y turnos desde Firestore
+### B4 — Panel admin (Electron) lee historial de ventas y turnos desde Firestore ✅ HECHA (2026-07-30)
 
-**Contexto:**
-El panel admin en la app Electron tiene `apps/desktop/src/routes/HistoryScreen.tsx` que hoy lee solo de SQLite local.
-Un admin en su PC de casa no tiene datos en SQLite local — necesita leer de Firestore.
-Patrón: si `isFirebaseAvailable()` y el resultado de SQLite local está vacío (o el admin abrió sesión sin turno de este local), leer de Firestore. Similar a como funciona `GET_PROVIDERS_WITH_DEBT`.
+**Estado:** Completada. Typecheck + suite verde (468 main + 77 renderer).
 
-**Qué hacer:**
-1. Leer `apps/desktop/electron/ipc/history.handler.ts` — handlers `GET_HISTORY_SHIFTS` y `GET_HISTORY_SHIFT_DETAIL`.
-2. Leer `apps/desktop/electron/ipc/providers.handler.ts` — ver cómo `getProvidersWithDebtFromFirestore` hace fallback a local.
-3. En `history.handler.ts`, modificar `GET_HISTORY_SHIFTS`:
-   - Si `isFirebaseAvailable()`, consultar `licenses/{tenant_id}/shifts` en Firestore (filtrado por `storeId` si se requiere, o todos para admin).
-   - Fusionar con SQLite local (mismo patrón que proveedores: IDs como dedup key).
-   - Devolver resultado combinado ordenado por fecha.
-4. En `GET_HISTORY_SHIFT_DETAIL`: leer detalles de ventas desde Firestore si no están en SQLite.
-5. Actualizar tests.
+**Qué se hizo:**
+- Nuevo `electron/licensing/historyFirestore.ts`: lee `shifts` / `sales` / `expenses` de Firestore y arma filas de historial; `mergeHistoryShiftRows` preferiendo local.
+- `GET_HISTORY_SHIFTS` async: merge local+remoto si `isFirebaseAvailable()`; paginación tras el merge.
+- `GET_HISTORY_SHIFT_DETAIL` async: si el turno no está en SQLite, arma detalle desde Firestore (sin señas/fiados aún no sync).
+- Tests: mocks Firebase off por defecto; casos de merge y detalle remoto; `historyFirestore.test.ts` para merge.
 
-**Verificación:** `pnpm run typecheck` verde. `pnpm run test` verde. Un admin en PC diferente puede ver el historial de otro local.
+**Limitaciones aceptadas:** detalle remoto no incluye deposits/debts (aún no sync). `cashierName` remoto puede ser `userId` si no hay cache local de usuarios.
 
 ---
 
 ## BLOQUE C — App móvil: sección admin
 
-### C1 — Agregar sección admin en apps/mobile para ver turnos y ventas
+### C1 — Agregar sección admin en apps/mobile para ver turnos y ventas ✅ HECHA (2026-08-01)
 
-**Contexto:**
-`apps/mobile` es una app Capacitor. El rol del usuario logueado se lee de Firestore (campo `role` en perfil).
-Los admins hoy no tienen ninguna pantalla útil en la app móvil.
-Necesitan poder ver: turnos del día por local, ventas del turno seleccionado, total por medio de pago.
+**Estado:** Completada. `pnpm --filter @carniceria/mobile build` + tests verdes.
 
-**Qué hacer:**
-1. Leer `apps/mobile/src/lib/auth.ts` para entender cómo se obtiene el rol del usuario.
-2. Leer `apps/mobile/src/App.tsx` para entender el routing actual.
-3. Crear `apps/mobile/src/routes/AdminDashboard.tsx`:
-   - Selector de local (dropdown con los stores del tenant).
-   - Lista de turnos del local seleccionado (leídos de `licenses/{tenant_id}/shifts`, filtrado por `storeId`, ordenado por `startedAt` desc).
-   - Click en turno → ver ventas de ese turno (leídas de `licenses/{tenant_id}/sales`, filtrado por `shiftId`).
-   - Total por medio de pago calculado en frontend.
-4. En `App.tsx`: si `user.role === 'admin'`, mostrar `AdminDashboard` como pantalla inicial (en lugar del POS).
-5. Los admins ven datos, no operan el POS.
+**Qué se hizo:**
+- `src/lib/adminHistory.ts`: lee `stores` / `shifts` / `sales` de Firestore; `sumPaymentTotals` para totales por medio.
+- `src/components/AdminDashboard.tsx`: selector de local, lista de turnos (abiertos/cerrados), detalle con ventas y totales.
+- `App.tsx`: si `profile.role === 'admin'` → `AdminDashboard` (sin POS).
+- Test unitario de `sumPaymentTotals`.
 
-**Verificación:** `pnpm --filter @carniceria/mobile build` sin errores de TypeScript.
+**Limitaciones aceptadas:** solo lectura; requiere internet; no incluye gastos/fiados/señas en esta pantalla.
 
 ---
 
 ## BLOQUE D — Empleados y carniceros
 
-### D1 — Migración DB: tablas de empleados, asistencia y vales
+### D1 — Migración DB: tablas de empleados, asistencia y vales ✅ HECHA (2026-08-02)
 
-**Contexto:**
-Los carniceros se registran solo por nombre (sin cuenta Firebase, sin login).
-La asistencia se registra por fecha y estado. Los vales son adelantos de salario.
-El salario semanal es configurable por empleado.
+**Estado:** Completada. Typecheck + migraciones verdes.
 
-**Qué hacer:**
-1. Leer `apps/desktop/electron/db/schema.ts` para entender la estructura existente.
-2. Leer `apps/desktop/drizzle/meta/_journal.json` para ver el último `when` y usar uno mayor.
-3. Agregar en `schema.ts`:
-   ```typescript
-   export const employees = sqliteTable('employees', {
-     id: text('id').primaryKey(),
-     name: text('name').notNull().unique(),
-     weeklyWage: integer('weekly_wage').notNull().default(0),
-     active: integer('active', { mode: 'boolean' }).notNull().default(true),
-     createdAt: text('created_at').notNull(),
-   })
+**Qué se hizo:**
+- Reemplazó el esquema preliminar de `0000` (`employees` con store/role, `employee_advances`, `attendance` vieja) por el modelo D1.
+- Migración `0020_employees_ops.sql`: DROP de tablas preliminares + CREATE de `employees`, `attendance`, `employee_vales`, `salary_payments`.
+- `syncedAt` incluido en attendance/vales/salary (anticipado F1).
+- Índice único `(employee_id, date)` en attendance para upsert de D3.
+- Tests de migraciones actualizados (`employee_vales` + `salary_payments`).
 
-   export const attendance = sqliteTable('attendance', {
-     id: text('id').primaryKey(),
-     employeeId: text('employee_id').notNull().references(() => employees.id),
-     date: text('date').notNull(), // YYYY-MM-DD
-     status: text('status').notNull(), // 'present' | 'absent' | 'late' | 'early_departure'
-     note: text('note'),
-     recordedBy: text('recorded_by').notNull().references(() => users.id),
-     createdAt: text('created_at').notNull(),
-   })
-
-   export const employeeVales = sqliteTable('employee_vales', {
-     id: text('id').primaryKey(),
-     employeeId: text('employee_id').notNull().references(() => employees.id),
-     shiftId: text('shift_id').references(() => shifts.id),
-     amount: integer('amount').notNull(),
-     description: text('description'),
-     paidAt: text('paid_at').notNull(),
-     recordedBy: text('recorded_by').notNull().references(() => users.id),
-     createdAt: text('created_at').notNull(),
-   })
-
-   export const salaryPayments = sqliteTable('salary_payments', {
-     id: text('id').primaryKey(),
-     employeeId: text('employee_id').notNull().references(() => employees.id),
-     shiftId: text('shift_id').references(() => shifts.id),
-     amount: integer('amount').notNull(),
-     weekStart: text('week_start').notNull(), // YYYY-MM-DD lunes de esa semana
-     valesDeducted: integer('vales_deducted').notNull().default(0),
-     netPaid: integer('net_paid').notNull(),
-     recordedBy: text('recorded_by').notNull().references(() => users.id),
-     paidAt: text('paid_at').notNull(),
-   })
-   ```
-4. Generar migración con `pnpm --filter @carniceria/desktop db:generate`.
-5. Agregar entrada en `drizzle/meta/_journal.json` con `when` mayor al último existente.
-6. Agregar el archivo SQL generado en `drizzle/` al control de versiones.
-
-**Verificación:** `pnpm run typecheck` verde. La migración aplica sin error en la DB dev.
+**Verificación:** `pnpm --filter desktop run typecheck` + tests de migraciones OK.
 
 ---
 
-### D2 — IPC handlers para empleados (CRUD)
+### D2 — IPC handlers para empleados (CRUD) ✅ HECHA (2026-08-02)
 
-**Contexto:**
-ABM de empleados, solo admin. Nombre único como identificador natural.
+**Estado:** Completada. Typecheck + tests del handler verdes.
 
-**Qué hacer:**
-1. Agregar en `apps/desktop/electron/ipc/channels.ts`:
-   - `LIST_EMPLOYEES`, `CREATE_EMPLOYEE`, `UPDATE_EMPLOYEE`, `ARCHIVE_EMPLOYEE`
-2. Crear `apps/desktop/electron/ipc/employees.handler.ts`:
-   - `LIST_EMPLOYEES`: devuelve todos los activos (y archivados si se pide).
-   - `CREATE_EMPLOYEE(name, weeklyWage)`: valida nombre único, inserta.
-   - `UPDATE_EMPLOYEE(id, name?, weeklyWage?)`: actualiza campos.
-   - `ARCHIVE_EMPLOYEE(id)`: soft-delete (active = false).
-   - Todos validan sesión activa y rol admin.
-   - Payloads validados con Zod.
-3. Registrar handlers en `apps/desktop/electron/ipc/index.ts`.
-4. Exponer en `apps/desktop/electron/preload.ts`.
-5. Agregar tipos en `apps/desktop/src/types/hw-api.ts`.
-6. Crear tests en `apps/desktop/electron/ipc/__tests__/employees.handler.test.ts`.
+**Qué se hizo:**
+- Canales `LIST_EMPLOYEES` / `CREATE_EMPLOYEE` / `UPDATE_EMPLOYEE` / `ARCHIVE_EMPLOYEE`.
+- `employees.handler.ts`: Zod, solo admin en mutaciones; nombre único case-insensitive; archive = `active=false`.
+- Preload + tipos `EmployeeRow` en `hw-api.ts`.
+- Tests: payload inválido, conflicto de nombre, forbid cajera, CRUD + archive.
 
-**Verificación:** `pnpm run test` verde.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D2).
 
 ---
 
-### D3 — IPC handlers para asistencia
+### D3 — IPC handlers para asistencia ✅ HECHA (2026-08-02)
 
-**Contexto:**
-La cajera o admin puede registrar/editar la asistencia del día para cada carnicero.
-Estados: `present`, `absent`, `late`, `early_departure`. Todos pueden tener nota opcional.
-Solo un registro por empleado por fecha.
+**Estado:** Completada. Typecheck + tests del handler verdes.
 
-**Qué hacer:**
-1. Agregar en `channels.ts`: `RECORD_ATTENDANCE`, `UPDATE_ATTENDANCE`, `LIST_ATTENDANCE`.
-2. En `employees.handler.ts` (o archivo separado `attendance.handler.ts`):
-   - `RECORD_ATTENDANCE(employeeId, date, status, note?)`: upsert por (employeeId, date).
-   - `UPDATE_ATTENDANCE(id, status?, note?)`: actualiza.
-   - `LIST_ATTENDANCE(startDate, endDate, employeeId?)`: lista con join a empleados.
-3. Exponer en preload, agregar tipos.
-4. Tests cubriendo: registro nuevo, upsert (mismo día), lista filtrada.
+**Qué se hizo:**
+- Canales `RECORD_ATTENDANCE` / `UPDATE_ATTENDANCE` / `LIST_ATTENDANCE`.
+- `attendance.handler.ts`: upsert por `(employeeId, date)`; cajera o admin; join a nombre en listados.
+- `syncedAt=null` en escrituras (listo para F1).
+- Preload + tipos `AttendanceRow` / payloads.
+- Tests: registro, upsert, lista filtrada, payload inválido, archivado, NOT_FOUND.
 
-**Verificación:** `pnpm run test` verde.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D3).
 
 ---
 
-### D4 — IPC handlers para vales
+### D4 — IPC handlers para vales ✅ HECHA (2026-08-02)
 
-**Contexto:**
-Un vale es un adelanto: el carnicero retira dinero o productos de la caja durante la semana.
-Se registra durante un turno activo. Descuenta del efectivo en caja (es una salida de efectivo).
-Al pagar salario semanal, los vales acumulados de esa semana se deducen automáticamente.
+**Estado:** Completada. Typecheck + tests del handler verdes.
 
-**Qué hacer:**
-1. Agregar en `channels.ts`: `REGISTER_VALE`, `LIST_VALES`, `GET_WEEKLY_VALE_SUMMARY`.
-2. Handlers:
-   - `REGISTER_VALE(employeeId, amount, description?)`:
-     - Requiere turno activo (`session.shiftId`).
-     - Inserta en `employee_vales`.
-     - **Descuenta del efectivo en caja**: registrar también en `expenses` con categoría `vale` y amount igual (para que `getShiftSummary` lo cuente como salida de efectivo). O manejar como tipo especial en `cash_flow`. Consultar cómo `getShiftSummary` calcula `cashInHand` para no romper la lógica existente.
-   - `LIST_VALES(employeeId, weekStart?, weekEnd?)`: lista vales.
-   - `GET_WEEKLY_VALE_SUMMARY(employeeId, weekStart)`: devuelve `{ totalVales, weeklyWage, netToPay }`.
-3. Exponer en preload, agregar tipos.
-4. Tests.
+**Qué se hizo:**
+- Canales `REGISTER_VALE` / `LIST_VALES` / `GET_WEEKLY_VALE_SUMMARY`.
+- `vales.handler.ts`: requiere turno activo; transacción vale + `expenses` (concepto `Vale: {nombre}`) para que `cashInHand` baje.
+- Resumen semanal: `weekStart` (lunes) → domingo; `netToPay = max(0, wage - vales)`.
+- Push fire-and-forget de expenses; `syncedAt=null` en vale (F1).
+- Tests: gasto suma al turno, NO_SHIFT, lista, summary.
 
-**Nota importante:** revisar `apps/desktop/electron/ipc/shift.handler.ts` handler `GET_SHIFT_SUMMARY` para entender cómo se calcula `cashInHand` y asegurarse de que los vales lo decrementan correctamente.
-
-**Verificación:** `pnpm run test` verde. `cashInHand` se reduce al registrar un vale.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D4).
 
 ---
 
-### D5 — IPC handler para pago de salario semanal
+### D5 — IPC handler para pago de salario semanal ✅ HECHA (2026-08-02)
 
-**Contexto:**
-El pago de salario sale del efectivo de caja. No es un gasto del negocio sino una salida categorizada como `salary_payment`. Requiere turno activo. El admin verifica y aprueba; la cajera ejecuta desde la app con el monto calculado.
+**Estado:** Completada. Typecheck + tests del handler verdes.
 
-**Qué hacer:**
-1. Agregar en `channels.ts`: `PAY_WEEKLY_SALARY`.
-2. Handler `PAY_WEEKLY_SALARY(employeeId, weekStart, amount, valesDeducted)`:
-   - Requiere turno activo.
-   - Valida que `amount > 0`.
-   - Inserta en `salary_payments`.
-   - Registra salida de efectivo en `expenses` (o `cash_flow`) con categoría `salary_payment` para que `getShiftSummary` lo contabilice.
-   - Transacción atómica.
-3. Exponer en preload, agregar tipos.
-4. Tests.
+**Qué se hizo:**
+- Canal `PAY_WEEKLY_SALARY`.
+- `salary.handler.ts`: turno activo; `netPaid = amount - valesDeducted`; gasto solo si neto > 0; conflicto si ya hay pago esa semana.
+- Concepto de gasto `Salario: {nombre}` (afecta `cashInHand`).
+- Preload + tipos `SalaryPaymentRow` / `PayWeeklySalaryPayload`.
+- Tests: neto/gasto, neto 0, duplicado, NO_SHIFT, payload inválido.
 
-**Verificación:** `pnpm run test` verde. `cashInHand` se reduce al pagar salario.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D5).
 
 ---
 
-### D6 — UI: Pantalla de gestión de empleados (admin)
+### D6 — UI: Pantalla de gestión de empleados (admin) ✅ HECHA (2026-08-02)
 
-**Contexto:**
-Solo visible para admins. Lista empleados activos, permite crear/editar/archivar y configurar sueldo semanal.
+**Estado:** Completada. Typecheck verde.
 
-**Qué hacer:**
-1. Crear `apps/desktop/src/routes/EmployeesScreen.tsx`.
-2. Lista de empleados con nombre, sueldo semanal, botones Editar / Archivar.
-3. Modal de creación/edición: campo nombre (texto) y campo sueldo semanal (`NumericInput` — ver `src/components/NumericInput.tsx`, obligatorio para campos numéricos).
-4. Validación: nombre no vacío, nombre único (error del IPC).
-5. Aplicar reglas de UI del proyecto: `truncate` en texto largo, `shrink-0` en botones, `title` en textos truncados.
-6. Agregar botón de acceso en `apps/desktop/src/routes/AdminHubScreen.tsx`.
-7. Agregar ruta en `apps/desktop/src/App.tsx`.
+**Qué se hizo:**
+- `EmployeesScreen.tsx`: lista, modal crear/editar (`NumericInput` sueldo), confirmar archivar.
+- Acceso desde `AdminHubScreen` + ruta `employees` en `App.tsx`.
+- Truncate + `title` en nombres; botones `shrink-0`.
 
-**Verificación:** La pantalla renderiza, el flujo CRUD funciona sin errores de consola.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D6).
 
 ---
 
-### D7 — UI: Registro de asistencia (cajera y admin)
+### D7 — UI: Registro de asistencia (cajera y admin) ✅ HECHA (2026-08-02)
 
-**Contexto:**
-La cajera o admin puede marcar la asistencia de carniceros al inicio o durante el turno.
-Accesible desde la pantalla de cajera y desde el panel admin.
+**Estado:** Completada. Typecheck verde.
 
-**Qué hacer:**
-1. Crear `apps/desktop/src/routes/AttendanceModal.tsx`.
-2. Lista de empleados activos con selector de estado para cada uno: `presente` / `ausente` / `llegó tarde` / `se retiró anticipado`.
-3. Campo de nota opcional para `ausente` y `se retiró anticipado` (obligatorio para `ausente`).
-4. Botón guardar — llama `RECORD_ATTENDANCE` por cada empleado con estado seleccionado.
-5. Acceso desde botón en `CashierScreen.tsx` (barra de acciones superior) y desde `AdminHubScreen.tsx`.
+**Qué se hizo:**
+- `AttendanceModal.tsx`: lista empleados activos; estados presente/ausente/tarde/retiro anticipado; nota obligatoria si ausente.
+- Guarda con `recordAttendance` (upsert del día); al reabrir precarga registros existentes.
+- Acceso: botón “✓ Asistencia” en `CashierScreen` y tarjeta en `AdminHubScreen`.
+- Helper `todayLocalYmd()` en `datetime.ts` para la fecha local YYYY-MM-DD.
 
-**Verificación:** Modal abre, se puede marcar asistencia, los datos aparecen al reabrir.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D7).
 
 ---
 
-### D8 — UI: Vales y pago semanal (cajera y admin)
+### D8 — UI: Vales y pago semanal (cajera y admin) ✅ HECHA (2026-08-02)
 
-**Contexto:**
-La cajera puede registrar vales durante el turno. Al final de la semana, el admin ve el resumen y autoriza el pago de salario.
+**Estado:** Completada. Typecheck verde.
 
-**Qué hacer:**
-1. Crear `apps/desktop/src/routes/ValesModal.tsx`:
-   - Lista de empleados activos.
-   - Al seleccionar uno: muestra vales de la semana actual y total acumulado.
-   - Botón "Registrar vale": campo monto (`NumericInput`) y descripción opcional. Confirma y descuenta de caja.
-2. Crear `apps/desktop/src/routes/SalaryPaymentModal.tsx` (solo admin):
-   - Lista empleados con sueldo semanal configurado.
-   - Para cada uno: sueldo semanal, vales deducidos, neto a pagar.
-   - Botón "Pagar salario" con doble confirmación mostrando el desglose.
-   - Llama `PAY_WEEKLY_SALARY`.
-3. Accesos en `CashierScreen.tsx` (vales, durante turno) y `AdminHubScreen.tsx` (pago de salario).
+**Qué se hizo:**
+- `ValesModal.tsx`: empleados, resumen semanal, lista de vales, registro con `NumericInput` (descuenta caja).
+- `SalaryPaymentModal.tsx`: panel **solo consulta** (bruto / vales / neto). El admin no registra pago; la cajera paga efectivo tras OK verbal. IPC `payWeeklySalary` queda en backend (legado/tests) sin UI.
+- Accesos: **💵 Vales** en `CashierScreen`; **Liquidación semanal** en `AdminHubScreen`.
+- Helpers `weekStartMondayLocalYmd` / `addDaysYmd` en `datetime.ts`.
 
-**Verificación:** Flujo completo funciona. El efectivo en caja se reduce al registrar vale y al pagar salario.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección D8).
 
 ---
 
 ## BLOQUE E — Conteo dominical de stock
 
-### E1 — Migración DB: tabla stock_counts
+### E1 — Migración DB: tabla stock_counts ✅ HECHA (2026-08-02)
 
-**Qué hacer:**
-1. Agregar en `schema.ts`:
-   ```typescript
-   export const stockCounts = sqliteTable('stock_counts', {
-     id: text('id').primaryKey(),
-     storeId: text('store_id').notNull().references(() => stores.id),
-     countDate: text('count_date').notNull(), // YYYY-MM-DD
-     recordedBy: text('recorded_by').notNull().references(() => users.id),
-     createdAt: text('created_at').notNull(),
-   })
+**Estado:** Completada. Migración `0021_stock_counts` + test de tablas.
 
-   export const stockCountItems = sqliteTable('stock_count_items', {
-     id: text('id').primaryKey(),
-     stockCountId: text('stock_count_id').notNull().references(() => stockCounts.id),
-     productId: integer('product_id').notNull(), // PLU
-     productName: text('product_name').notNull(),
-     quantityKg: integer('quantity_kg'), // en gramos (evita decimales)
-     quantityUnits: integer('quantity_units'),
-     notes: text('notes'),
-   })
-   ```
-2. Generar migración y actualizar `_journal.json` con `when` mayor al último.
-
-**Verificación:** Migración aplica sin error.
+**Qué se hizo:**
+- Tablas `stock_counts` / `stock_count_items` en schema + SQL journal.
+- `quantityKg` en gramos; `productId` = PLU.
 
 ---
 
-### E2 — IPC handlers para conteos de stock
+### E2 — IPC handlers para conteos de stock ✅ HECHA (2026-08-02)
 
-**Qué hacer:**
-1. Agregar en `channels.ts`: `CREATE_STOCK_COUNT`, `LIST_STOCK_COUNTS`, `GET_STOCK_COUNT_DETAIL`.
-2. Crear `apps/desktop/electron/ipc/stockCount.handler.ts`:
-   - `CREATE_STOCK_COUNT(countDate, items[])`: crea header + items en transacción. Solo cajera con turno activo o admin.
-   - `LIST_STOCK_COUNTS(storeId?, startDate?, endDate?)`: lista conteos con fecha y quien registró.
-   - `GET_STOCK_COUNT_DETAIL(stockCountId)`: devuelve items del conteo.
-3. Exponer en preload, agregar tipos.
-4. Tests.
+**Estado:** Completada. Typecheck + **11 tests nuevos** en `stockCount.handler.test.ts`.
 
-**Verificación:** `pnpm run test` verde.
+**Qué se hizo:**
+- Canales CREATE / LIST / GET_DETAIL.
+- Cajera requiere turno; admin puede sin turno.
+- Transacción atómica header + items; filtros por local/fechas.
 
 ---
 
-### E3 — UI: Formulario de conteo dominical
+### E3 — UI: Formulario de conteo dominical ✅ HECHA (2026-08-02)
 
-**Qué hacer:**
-1. Crear `apps/desktop/src/routes/StockCountModal.tsx`:
-   - Formulario con un campo por producto (leídos del catálogo activo del local).
-   - Campos de kg (usando `NumericInput`) y unidades (usando `NumericInput`).
-   - Campo de nota opcional por ítem.
-   - Al confirmar, llama `CREATE_STOCK_COUNT` con todos los ítems.
-   - Muestra confirmación de guardado.
-2. Crear `apps/desktop/src/routes/StockCountHistoryScreen.tsx`:
-   - Lista de conteos pasados filtrable por local y fecha.
-   - Al clickear un conteo: ver detalle con todos los ítems y cantidades.
-   - Solo accesible para admin.
-3. Acceso desde `AdminHubScreen.tsx` (ver historial) y desde `CashierScreen.tsx` o botón específico para el conteo semanal.
+**Estado:** Completada. Typecheck verde. Buscador por nombre/PLU en el modal. Operativamente lo harían carniceros (rol pendiente); hoy admin/cajera; ~1×/semana.
 
-**Verificación:** Se puede cargar un conteo y verlo en el historial.
+**Qué se hizo:**
+- `StockCountModal`: catálogo del local; kg con `DecimalInput` (→ gramos); unidades con `NumericInput`.
+- `StockCountHistoryScreen`: filtros + detalle (admin).
+- Accesos: **⚖️ Conteo** en cajera; hub admin (nuevo + historial).
+
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección E).
 
 ---
 
 ## BLOQUE F — Sync de empleados/asistencia/vales a Firestore
 
-### F1 — Sync de asistencia, vales y pagos de salario a Firestore
+### F1 — Sync de asistencia, vales y pagos de salario a Firestore ✅ HECHA (2026-08-02)
 
-**Contexto:**
-Los admins deben ver esta información desde cualquier dispositivo. Mismo patrón outbox que proveedores.
+**Estado:** Completada. Typecheck + **tests nuevos** en `employeeSync.test.ts`.
 
-**Qué hacer:**
-1. Agregar columna `syncedAt` a `attendance`, `employee_vales`, `salary_payments` en la migración de D1 (o en migración adicional si D1 ya fue aplicada).
-2. Crear `apps/desktop/electron/licensing/employeeSync.ts` con:
-   - `pushUnsyncedAttendance(tenantId)`: push de registros con `syncedAt=null` a `licenses/{tenantId}/attendance/{id}`.
-   - `pushUnsyncedVales(tenantId)`: push a `licenses/{tenantId}/employeeVales/{id}`.
-   - `pushUnsyncedSalaryPayments(tenantId)`: push a `licenses/{tenantId}/salaryPayments/{id}`.
-3. Llamar en los handlers correspondientes (fire-and-forget).
+**Qué se hizo:**
+- `syncedAt` ya existía desde D1 en attendance / employee_vales / salary_payments.
+- `employeeSync.ts`: push outbox a `attendance`, `employeeVales`, `salaryPayments` (+ `employeeName`).
+- Fire-and-forget desde handlers de asistencia/vales/salario; drenaje en login y select-store.
+- No-op en `APP_ENV=dev` (`isFirebaseAvailable`).
 
-**Verificación:** `pnpm run typecheck` verde. `pnpm run test` verde.
+**Checklist manual:** `CHECKLIST_TEST_V1.md` (sección F1).
+
+---
+
+## BLOQUE H — Local habitual de carniceros / cajeras (PENDIENTE — no implementar aún)
+
+> **Estado:** Idea acordada (ago 2026). **No implementar** hasta cerrar el checklist de test en local real.
+> Motivo del aplazamiento: no sumar features nuevas antes del testeo en carnicería.
+
+### Problema
+Hay carniceros (y cajeras) que suelen trabajar en un local, pero a veces van al otro. Hoy la lista de asistencia/vales muestra todos los activos en ambos locales. Se quiere filtrar sin perder el caso excepcional.
+
+### Invariante de sync (ya vigente — no romper)
+- El **maestro `employees` es único y compartido** entre locales (Firestore + SQLite cache).
+- Un carnicero es **el mismo perfil** en A y en B (mismo `id`).
+- Asistencia, vales y salarios semanales se acumulan por `employeeId`, **no por local**.
+- Si el carnicero 4 saca un vale en A y otro en B la misma semana, el resumen semanal / pago de salario debe ver **la suma**.
+- Las cajeras ya eligen local al login; su identidad Auth es única. Este bloque no inventa un segundo perfil por local.
+
+### Diseño acordado (UI)
+1. Campo opcional en empleado: **local habitual** (`homeStoreId`: A | B | null = ambos).
+2. Lista de Asistencia en el local actual:
+   - Muestra: habitual = este local, sin asignar, o ya marcados hoy **en este** local.
+   - Oculta: quien ya tiene asistencia **hoy en otro** local.
+   - Botón **"Agregar visitante"** → carniceros de otro habitual aún no marcados hoy en ningún lado.
+3. Vales: mismo filtro por habitual + visitante (sin la regla “ya marcado en otro local”; un vale no implica asistencia).
+4. Admin Empleados: asignar/editar local habitual al crear/editar.
+
+### No hacer
+- Inferir local por historial automático.
+- Duplicar empleados por local.
+- Bloquear vales/asistencia de forma dura por local.
 
 ---
 
@@ -455,16 +348,14 @@ Los admins deben ver esta información desde cualquier dispositivo. Mismo patró
 
 Para maximizar valor entregable en orden:
 
-1. **A1** (eliminar licencia) — desbloquea instalación simple
-2. **A2** (renombrar license_key → tenant_id) — limpieza arquitectural
-3. **B1** → **B2** → **B3** (sync turnos, ventas, gastos) — prerequisito para acceso remoto
-4. **G1** (reglas Firestore) — necesario para que B1-B3 funcionen en producción
-5. **B4** (admin Electron lee de Firestore) — cierra el loop del acceso remoto desktop
-6. **C1** (admin mobile) — acceso remoto desde celular
-7. **D1** → **D2** → **D3** → **D4** → **D5** (empleados DB + handlers) — base de datos primero
-8. **D6** → **D7** → **D8** (empleados UI) — pantallas sobre la base
-9. **E1** → **E2** → **E3** (stock count) — conteo dominical
-10. **F1** (sync empleados/asistencia) — último, cuando todo lo anterior esté
+1. ~~A1–A2~~ ✅
+2. ~~B1–B4~~ ✅ (sync operativo + historial remote)
+3. ~~C1~~ ✅ (admin PWA historial)
+4. ~~D1–D8~~ ✅ código; **pendiente checklist manual** (`CHECKLIST_TEST_V1.md`)
+5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
+6. ~~F1 / G1~~ ✅
+7. **Ahora:** completar checklist en local real — no abrir H todavía
+8. **Después del testeo:** BLOQUE H (local habitual / visitante)
 
 ---
 

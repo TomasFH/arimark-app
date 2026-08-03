@@ -7,7 +7,20 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { orders, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedOrders, markOrderDeletedInFirestore } from '../licensing/orderSync'
 import type { IpcResult, OrderRow, DepositPayment } from '../../src/types/hw-api'
+
+function scheduleOrderPush(): void {
+  try {
+    const { tenant_id } = getBusinessConfig()
+    pushUnsyncedOrders(tenant_id).catch(err =>
+      log.warn('[ipc:orders] pushUnsyncedOrders falló (no bloqueante)', err),
+    )
+  } catch (err) {
+    log.warn('[ipc:orders] scheduleOrderPush omitido', err)
+  }
+}
 
 const depositPaymentSchema = z.object({
   method: z.enum(['cash', 'debit', 'wallet', 'credit']),
@@ -155,7 +168,10 @@ export function registerOrderHandlers(): void {
         depositShiftId: (depositAmount ?? 0) > 0 ? (session.shiftId ?? null) : null,
         createdAt: now,
         createdBy: session.userId,
+        syncedAt: null,
       }).run()
+
+      scheduleOrderPush()
 
       const userMap = resolveUserNames(db, [session.userId])
       const created = db.select().from(orders).where(eq(orders.id, id)).all()[0]
@@ -248,7 +264,9 @@ export function registerOrderHandlers(): void {
       const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
-      db.update(orders).set({ status, updatedAt: now, updatedBy: session.userId }).where(eq(orders.id, id)).run()
+      db.update(orders).set({ status, updatedAt: now, updatedBy: session.userId, syncedAt: null }).where(eq(orders.id, id)).run()
+
+      scheduleOrderPush()
 
       const updated = db.select().from(orders).where(eq(orders.id, id)).all()[0]
       const userMap = resolveUserNames(db, [updated.createdBy, session.userId])
@@ -294,7 +312,7 @@ export function registerOrderHandlers(): void {
         return { ok: false, error: 'Se necesita un turno activo para modificar la seña.', code: 'NO_SHIFT' }
       }
 
-      const setData: Partial<typeof orders.$inferInsert> = { updatedAt: now, updatedBy: session.userId }
+      const setData: Partial<typeof orders.$inferInsert> = { updatedAt: now, updatedBy: session.userId, syncedAt: null }
       if (updates.customerName !== undefined) setData.customerName = updates.customerName
       if (updates.phone !== undefined) setData.phone = updates.phone
       if (updates.items !== undefined) setData.items = updates.items
@@ -311,6 +329,8 @@ export function registerOrderHandlers(): void {
       }
 
       db.update(orders).set(setData).where(eq(orders.id, id)).run()
+
+      scheduleOrderPush()
 
       const updated = db.select().from(orders).where(eq(orders.id, id)).all()[0]
       const userMap = resolveUserNames(db, [updated.createdBy, session.userId])
@@ -350,7 +370,10 @@ export function registerOrderHandlers(): void {
         status: 'cancelled',
         updatedAt: new Date().toISOString(),
         updatedBy: session.userId,
+        syncedAt: null,
       }).where(eq(orders.id, id)).run()
+
+      scheduleOrderPush()
 
       log.info('[ipc:delete-order] Pedido cancelado', { id, by: session.userId })
       return { ok: true, data: undefined }
@@ -382,6 +405,15 @@ export function registerOrderHandlers(): void {
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
       db.delete(orders).where(eq(orders.id, id)).run()
+
+      try {
+        const { tenant_id } = getBusinessConfig()
+        markOrderDeletedInFirestore(tenant_id, id).catch(err =>
+          log.warn('[ipc:hard-delete-order] markOrderDeletedInFirestore falló', err),
+        )
+      } catch (err) {
+        log.warn('[ipc:hard-delete-order] markOrderDeletedInFirestore omitido', err)
+      }
 
       log.info('[ipc:hard-delete-order] Pedido eliminado permanentemente', { id, by: session.userId })
       return { ok: true, data: undefined }

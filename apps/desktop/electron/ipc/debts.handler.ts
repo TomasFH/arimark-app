@@ -7,8 +7,21 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { customers, debtEvents, sales } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
+
+function scheduleCustomerDebtPush(): void {
+  try {
+    const { tenant_id } = getBusinessConfig()
+    pushUnsyncedCustomerDebtOps(tenant_id).catch(err =>
+      log.warn('[ipc:debts] pushUnsyncedCustomerDebtOps falló (no bloqueante)', err),
+    )
+  } catch (err) {
+    log.warn('[ipc:debts] scheduleCustomerDebtPush omitido', err)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -133,6 +146,7 @@ export function registerDebtHandlers(): void {
               active: true,
               createdAt: nowUtc(),
               createdBy: session.userId,
+              syncedAt: null,
             })
             .run()
           customerId = newId
@@ -167,11 +181,14 @@ export function registerDebtHandlers(): void {
             notes: notes?.trim() ?? null,
             createdAt: now,
             createdBy: session.userId,
+            syncedAt: null,
           })
           .run()
 
         return { eventId, customerId: customerId!, customerName: customer.name, now, debtAmount }
       })
+
+      scheduleCustomerDebtPush()
 
       log.info('[ipc:create-debt] Deuda creada', { eventId: result.eventId, saleId, customerId: result.customerId })
 
@@ -400,8 +417,11 @@ export function registerDebtHandlers(): void {
           notes: notes?.trim() ?? null,
           createdAt: now,
           createdBy: session.userId,
+          syncedAt: null,
         })
         .run()
+
+      scheduleCustomerDebtPush()
 
       log.info('[ipc:add-debt-payment] Pago registrado', { customerId, amount, eventType })
 
@@ -464,8 +484,11 @@ export function registerDebtHandlers(): void {
           notes: notes?.trim() ?? 'Deuda cancelada por administrador.',
           createdAt: nowUtc(),
           createdBy: session.userId,
+          syncedAt: null,
         })
         .run()
+
+      scheduleCustomerDebtPush()
 
       log.info('[ipc:cancel-debt] Deuda cancelada', { customerId, balance: currentBalance })
       return { ok: true, data: undefined }

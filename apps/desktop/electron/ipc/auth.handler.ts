@@ -17,6 +17,14 @@ import {
   pushUnsyncedProviders,
   pushUnsyncedDebtEvents,
 } from '../licensing/providerSync'
+import {
+  stopStoreSyncListener,
+  ensureStoresSynced,
+} from '../licensing/storeSync'
+import { pushUnsyncedEmployeeOps, ensureEmployeesSynced, stopEmployeeSyncListener } from '../licensing/employeeSync'
+import { ensureOrdersSynced, stopOrderSyncListener } from '../licensing/orderSync'
+import { ensureCustomerDebtsSynced, stopCustomerDebtSyncListener } from '../licensing/customerDebtSync'
+import { ensureSpecialCustomersSynced, stopSpecialCustomerSyncListener } from '../licensing/specialCustomerSync'
 import { setSecret, SECRET_KEYS } from '../secureStorage'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
 
@@ -133,7 +141,7 @@ export function registerAuthHandlers(): void {
         }
 
         log.info('[ipc:login] Admin autenticado', { email })
-        // Admin inicia el listener global de providers para tener el autocomplete fresco.
+        // Sync proveedores + locales (await locales para cache fresco en UI).
         const adminConfig = getBusinessConfig()
         startProviderSyncListener(adminConfig.tenant_id)
         pushUnsyncedProviders(adminConfig.tenant_id).catch(err =>
@@ -142,6 +150,34 @@ export function registerAuthHandlers(): void {
         pushUnsyncedDebtEvents(adminConfig.tenant_id).catch(err =>
           log.warn('[ipc:login] pushUnsyncedDebtEvents (admin) falló (no bloqueante)', err)
         )
+        pushUnsyncedEmployeeOps(adminConfig.tenant_id).catch(err =>
+          log.warn('[ipc:login] pushUnsyncedEmployeeOps (admin) falló (no bloqueante)', err)
+        )
+        try {
+          await ensureStoresSynced(adminConfig.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureStoresSynced (admin) falló (no bloqueante)', err)
+        }
+        try {
+          await ensureEmployeesSynced(adminConfig.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureEmployeesSynced (admin) falló (no bloqueante)', err)
+        }
+        try {
+          await ensureOrdersSynced(adminConfig.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureOrdersSynced (admin) falló (no bloqueante)', err)
+        }
+        try {
+          await ensureCustomerDebtsSynced(adminConfig.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureCustomerDebtsSynced (admin) falló (no bloqueante)', err)
+        }
+        try {
+          await ensureSpecialCustomersSynced(adminConfig.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureSpecialCustomersSynced (admin) falló (no bloqueante)', err)
+        }
         return {
           ok: true,
           data: {
@@ -168,6 +204,22 @@ export function registerAuthHandlers(): void {
 
       // Setear sesión parcial (storeId se actualizará en SELECT_STORE)
       setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'cashier', shiftId: null, displayName: profile.displayName })
+
+      // Crítico: bajar locales de Firestore ANTES de que el renderer llame getStores()
+      // (el store picker / auto-select usa nombres de la cache SQLite).
+      try {
+        await ensureStoresSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login] ensureStoresSynced (cajera) falló (no bloqueante)', err)
+      }
+      try {
+        await ensureEmployeesSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login] ensureEmployeesSynced (cajera) falló (no bloqueante)', err)
+      }
+      pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
+        log.warn('[ipc:login] pushUnsyncedEmployeeOps (cajera) falló (no bloqueante)', err)
+      )
 
       log.info('[ipc:login] Cajera autenticada — pendiente selección de local', { email })
       return {
@@ -255,6 +307,36 @@ export function registerAuthHandlers(): void {
         log.warn('[ipc:login-cashier] pushUnsyncedDebtEvents falló (no bloqueante)', err)
       )
 
+      // Sync de locales (await: push pendientes + pull fresco + listener).
+      try {
+        await ensureStoresSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login-cashier] ensureStoresSynced falló (no bloqueante)', err)
+      }
+      try {
+        await ensureEmployeesSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login-cashier] ensureEmployeesSynced falló (no bloqueante)', err)
+      }
+      try {
+        await ensureOrdersSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login-cashier] ensureOrdersSynced falló (no bloqueante)', err)
+      }
+      try {
+        await ensureCustomerDebtsSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login-cashier] ensureCustomerDebtsSynced falló (no bloqueante)', err)
+      }
+      try {
+        await ensureSpecialCustomersSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login-cashier] ensureSpecialCustomersSynced falló (no bloqueante)', err)
+      }
+      pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
+        log.warn('[ipc:login-cashier] pushUnsyncedEmployeeOps falló (no bloqueante)', err)
+      )
+
       log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
       return {
         ok: true,
@@ -306,9 +388,19 @@ export function registerAuthHandlers(): void {
     if (role === 'cashier') {
       stopMobileSyncListener()
       stopProviderSyncListener()
+      stopStoreSyncListener()
+      stopEmployeeSyncListener()
+      stopOrderSyncListener()
+      stopCustomerDebtSyncListener()
+      stopSpecialCustomerSyncListener()
       setActiveSession(null)
     } else if (role === 'admin') {
       stopProviderSyncListener()
+      stopStoreSyncListener()
+      stopEmployeeSyncListener()
+      stopOrderSyncListener()
+      stopCustomerDebtSyncListener()
+      stopSpecialCustomerSyncListener()
       await logoutAdmin()
     }
 

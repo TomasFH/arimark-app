@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { StoreSelector } from './components/StoreSelector'
 import { OpenShiftScreen } from './components/OpenShiftScreen'
 import { PosScreen } from './components/PosScreen'
+import { AdminDashboard } from './components/AdminDashboard'
 import { signIn, signOut, restoreSession } from './lib/auth'
 import { syncCatalog, getCatalog } from './lib/catalog'
 import { db } from './lib/db'
@@ -25,6 +26,7 @@ import type { LocalProfile, CatalogProduct, LocalShift, ShiftType } from './type
 type Screen =
   | 'checking'
   | 'login'
+  | 'admin'
   | 'store-select'
   | 'loading'
   | 'open-shift'
@@ -88,6 +90,13 @@ export default function App() {
   }
 
   async function afterAuthentication(profile: LocalProfile, mode: 'online' | 'offline') {
+    // Admin: solo consulta Firestore (historial). No opera el POS.
+    if (profile.role === 'admin') {
+      setSession({ profile, storeId: '', loginMode: mode })
+      setScreen('admin')
+      return
+    }
+
     const { authorizedStores } = profile
 
     if (authorizedStores.length === 1) {
@@ -193,6 +202,15 @@ export default function App() {
             <LoginFormFields error={loginError} online={online} onSubmit={handleLogin} />
           </div>
         </div>
+      )
+    }
+
+    if (screen === 'admin' && session) {
+      return (
+        <AdminDashboard
+          profile={session.profile}
+          onLogout={handleLogout}
+        />
       )
     }
 

@@ -101,6 +101,31 @@ export const IPC = {
   GET_PROVIDER_DEBT_HISTORY: 'ipc:get-provider-debt-history',
   SETTLE_PROVIDER_DEBT: 'ipc:settle-provider-debt',
 
+  // Empleados / carniceros (Bloque D)
+  LIST_EMPLOYEES: 'ipc:list-employees',
+  CREATE_EMPLOYEE: 'ipc:create-employee',
+  UPDATE_EMPLOYEE: 'ipc:update-employee',
+  ARCHIVE_EMPLOYEE: 'ipc:archive-employee',
+  UNARCHIVE_EMPLOYEE: 'ipc:unarchive-employee',
+
+  // Asistencia (Bloque D)
+  RECORD_ATTENDANCE: 'ipc:record-attendance',
+  UPDATE_ATTENDANCE: 'ipc:update-attendance',
+  LIST_ATTENDANCE: 'ipc:list-attendance',
+
+  // Vales / adelantos (Bloque D)
+  REGISTER_VALE: 'ipc:register-vale',
+  LIST_VALES: 'ipc:list-vales',
+  GET_WEEKLY_VALE_SUMMARY: 'ipc:get-weekly-vale-summary',
+
+  // Pago de salario semanal (Bloque D)
+  PAY_WEEKLY_SALARY: 'ipc:pay-weekly-salary',
+
+  // Conteo de stock (Bloque E)
+  CREATE_STOCK_COUNT: 'ipc:create-stock-count',
+  LIST_STOCK_COUNTS: 'ipc:list-stock-counts',
+  GET_STOCK_COUNT_DETAIL: 'ipc:get-stock-count-detail',
+
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
   GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',
@@ -119,6 +144,9 @@ export const IPC = {
   LOGIN_CASHIER: 'ipc:login-cashier',
   LOGIN_ADMIN: 'ipc:login-admin',
   LOGOUT: 'ipc:logout',
+
+  /** Re-sincroniza stores/empleados/catálogo desde Firestore sin cerrar sesión. */
+  REFRESH_REMOTE_DATA: 'ipc:refresh-remote-data',
 
 
   // Gestión de PLUs (balanza KRETZ)

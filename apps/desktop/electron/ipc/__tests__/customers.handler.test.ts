@@ -18,6 +18,14 @@ vi.mock('../../activeSession', () => ({
   getActiveSession: vi.fn(),
 }))
 
+vi.mock('../../businessConfig', () => ({
+  getBusinessConfig: vi.fn(() => ({ tenant_id: 'test-key' })),
+}))
+
+vi.mock('../../licensing/customerDebtSync', () => ({
+  pushUnsyncedCustomers: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'

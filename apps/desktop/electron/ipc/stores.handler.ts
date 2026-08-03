@@ -8,12 +8,21 @@ import { getDb } from '../db/client'
 import { stores, users, shifts, orders, storeProducts } from '../db/schema'
 import { getActiveSession, updateActiveStore } from '../activeSession'
 import { publishCatalog } from '../licensing/catalogPublish'
+import { pullCatalogFromFirestore } from '../licensing/catalogSync'
 import { startMobileSyncListener } from '../licensing/mobileSync'
 import {
   startProviderSyncListener,
   pushUnsyncedProviders,
   pushUnsyncedDebtEvents,
 } from '../licensing/providerSync'
+import {
+  pushUnsyncedStores,
+  ensureStoresSynced,
+} from '../licensing/storeSync'
+import { pushUnsyncedEmployeeOps, ensureEmployeesSynced } from '../licensing/employeeSync'
+import { ensureOrdersSynced, pushUnsyncedOrders } from '../licensing/orderSync'
+import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
+import { ensureSpecialCustomersSynced, pushUnsyncedSpecialCustomerOps } from '../licensing/specialCustomerSync'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, StoreRow, SessionInfo } from '../../src/types/hw-api'
 
@@ -104,21 +113,80 @@ export function registerStoresHandlers(): void {
         }).run()
       }
 
-      // Para cajeras: iniciar sincronización con el local seleccionado
-      if (session.role === 'cashier') {
+      // Publicar catálogo a Firestore para ambos roles (el guard en catalogPublish.ts evita
+      // que una instancia remote sobrescriba con un catálogo vacío).
+      {
         const config = getBusinessConfig()
         publishCatalog(config.tenant_id, storeId).catch(err =>
           log.warn('[ipc:select-store] publishCatalog falló (no bloqueante)', err)
         )
+      }
+
+      // Para cajeras: iniciar listeners de sincronización adicionales
+      if (session.role === 'cashier') {
+        const config = getBusinessConfig()
         startMobileSyncListener(config.tenant_id, storeId)
 
-        // Iniciar sync de proveedores y pushear pendientes.
+        // Sync de proveedores y pushear pendientes.
         startProviderSyncListener(config.tenant_id)
         pushUnsyncedProviders(config.tenant_id).catch(err =>
           log.warn('[ipc:select-store] pushUnsyncedProviders falló (no bloqueante)', err)
         )
         pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
           log.warn('[ipc:select-store] pushUnsyncedDebtEvents falló (no bloqueante)', err)
+        )
+      }
+
+      // Sync de locales: push + pull fresco + listener (ambos roles)
+      {
+        const config = getBusinessConfig()
+        try {
+          await ensureStoresSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:select-store] ensureStoresSynced falló (no bloqueante)', err)
+        }
+        try {
+          await ensureEmployeesSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:select-store] ensureEmployeesSynced falló (no bloqueante)', err)
+        }
+        pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
+          log.warn('[ipc:select-store] pushUnsyncedEmployeeOps falló (no bloqueante)', err)
+        )
+      }
+
+      // Sincronizar catálogo de productos desde Firestore (cubre instancias remote sin productos locales)
+      {
+        const config = getBusinessConfig()
+        try {
+          await pullCatalogFromFirestore(config.tenant_id, storeId)
+        } catch (err) {
+          log.warn('[ipc:select-store] pullCatalogFromFirestore falló (no bloqueante)', err)
+        }
+        // Tras catálogo: pedidos / fiados / clientes especiales (precios especiales necesitan productos)
+        try {
+          await ensureOrdersSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:select-store] ensureOrdersSynced falló (no bloqueante)', err)
+        }
+        try {
+          await ensureCustomerDebtsSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:select-store] ensureCustomerDebtsSynced falló (no bloqueante)', err)
+        }
+        try {
+          await ensureSpecialCustomersSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:select-store] ensureSpecialCustomersSynced falló (no bloqueante)', err)
+        }
+        pushUnsyncedOrders(config.tenant_id).catch(err =>
+          log.warn('[ipc:select-store] pushUnsyncedOrders falló (no bloqueante)', err),
+        )
+        pushUnsyncedCustomerDebtOps(config.tenant_id).catch(err =>
+          log.warn('[ipc:select-store] pushUnsyncedCustomerDebtOps falló (no bloqueante)', err),
+        )
+        pushUnsyncedSpecialCustomerOps(config.tenant_id).catch(err =>
+          log.warn('[ipc:select-store] pushUnsyncedSpecialCustomerOps falló (no bloqueante)', err),
         )
       }
 
@@ -177,6 +245,11 @@ export function registerStoresHandlers(): void {
         createdAt: new Date().toISOString(),
       }).run()
 
+      const config = getBusinessConfig()
+      pushUnsyncedStores(config.tenant_id).catch(err =>
+        log.warn('[ipc:create-store] pushUnsyncedStores falló (no bloqueante)', err)
+      )
+
       log.info('[ipc:create-store] Local creado', { id, name })
       return { ok: true, data: { id, name, address: address ?? null } }
     } catch (err) {
@@ -230,7 +303,13 @@ export function registerStoresHandlers(): void {
         morningEnd: updatedMorningEnd ?? null,
         afternoonStart: updatedAfternoonStart ?? null,
         afternoonEnd: updatedAfternoonEnd ?? null,
+        syncedAt: null,
       }).where(eq(stores.id, id)).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedStores(config.tenant_id).catch(err =>
+        log.warn('[ipc:update-store] pushUnsyncedStores falló (no bloqueante)', err)
+      )
 
       log.info('[ipc:update-store] Local actualizado', { id, name: updatedName })
       return {
@@ -325,7 +404,12 @@ export function registerStoresHandlers(): void {
       }
 
       const archivedAt = new Date().toISOString()
-      db.update(stores).set({ archivedAt }).where(eq(stores.id, id)).run()
+      db.update(stores).set({ archivedAt, syncedAt: null }).where(eq(stores.id, id)).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedStores(config.tenant_id).catch(err =>
+        log.warn('[ipc:archive-store] pushUnsyncedStores falló (no bloqueante)', err)
+      )
 
       log.info('[ipc:archive-store] Local archivado', { id, name: existing.name })
       return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt } }
@@ -358,7 +442,12 @@ export function registerStoresHandlers(): void {
       if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
       if (!existing.archivedAt) return { ok: false, error: 'El local no está archivado.', code: 'CONFLICT' }
 
-      db.update(stores).set({ archivedAt: null }).where(eq(stores.id, id)).run()
+      db.update(stores).set({ archivedAt: null, syncedAt: null }).where(eq(stores.id, id)).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedStores(config.tenant_id).catch(err =>
+        log.warn('[ipc:unarchive-store] pushUnsyncedStores falló (no bloqueante)', err)
+      )
 
       log.info('[ipc:unarchive-store] Local desarchivado', { id, name: existing.name })
       return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt: null } }

@@ -5,6 +5,9 @@ import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
 import ExpenseListModal from './ExpenseListModal'
+import AttendanceModal from './AttendanceModal'
+import ValesModal from './ValesModal'
+import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import DebtModal from '../components/DebtModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, ShiftSaleRow } from '../types/hw-api'
@@ -38,6 +41,9 @@ interface CartItem extends SaleItemDraft {
 export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers, onViewOrders, isActive = true }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false)
+  const [showValesModal, setShowValesModal] = useState(false)
+  const [showStockCountModal, setShowStockCountModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
@@ -55,6 +61,8 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [shiftSales, setShiftSales] = useState<ShiftSaleRow[]>([])
   // Feedback visual cuando el lector captura un escaneo global
   const [scanFlash, setScanFlash] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [storeName, setStoreName] = useState<string | null>(null)
   const scanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Cargar catálogo (PLU → producto/precio) para resolver los escaneos.
@@ -63,6 +71,17 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
       if (res.ok) setProducts(res.data)
     })
   }, [])
+
+  // Nombre del local activo (session o shift).
+  useEffect(() => {
+    const storeId = session.storeId ?? shift.storeId
+    if (!storeId) return
+    void window.hw.getStores().then(res => {
+      if (!res.ok) return
+      const store = res.data.find(s => s.id === storeId)
+      if (store) setStoreName(store.name)
+    })
+  }, [session.storeId, shift.storeId])
 
   // Cargar balance + ventas y refrescar cada 30 segundos
   function refreshBalance(): void {
@@ -75,6 +94,33 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     void window.hw.getShiftSales().then(r => {
       if (r.ok) setShiftSales(r.data)
     })
+  }
+
+  async function handleRefreshRemote(): Promise<void> {
+    if (refreshing) return
+    setRefreshing(true)
+    setError('')
+    try {
+      const sync = await window.hw.refreshRemoteData()
+      if (!sync.ok) {
+        setError(sync.error ?? 'No se pudieron actualizar los datos remotos.')
+        return
+      }
+      const productsRes = await window.hw.getProducts()
+      if (productsRes.ok) setProducts(productsRes.data)
+      const storeId = session.storeId ?? shift.storeId
+      if (storeId) {
+        const storesRes = await window.hw.getStores()
+        if (storesRes.ok) {
+          const store = storesRes.data.find(s => s.id === storeId)
+          if (store) setStoreName(store.name)
+        }
+      }
+      refreshBalance()
+      refreshSales()
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   useEffect(() => {
@@ -263,9 +309,17 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     <div className="flex flex-1 flex-col bg-gray-950 text-white">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-gray-800 bg-gray-900 px-6 py-3">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold text-amber-400">{shiftLabel}</span>
-          <span className="text-xs text-gray-500">Turno abierto</span>
+        <div className="flex items-center gap-4 min-w-0">
+          {storeName && (
+            <span
+              className="text-sm font-semibold text-white truncate max-w-[12rem]"
+              title={storeName}
+            >
+              {storeName}
+            </span>
+          )}
+          <span className="text-sm font-semibold text-amber-400 shrink-0">{shiftLabel}</span>
+          <span className="text-xs text-gray-500 shrink-0">Turno abierto</span>
           {/* Balance estimado en caja */}
           {cashInHand !== null && (
             <span className="text-xs text-emerald-400 font-medium">
@@ -291,6 +345,27 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
             className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-600 hover:text-white transition-colors"
           >
             📋 Productos
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAttendanceModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-lime-600 hover:text-lime-300 transition-colors"
+          >
+            ✓ Asistencia
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowValesModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-sky-600 hover:text-sky-300 transition-colors"
+          >
+            💵 Vales
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowStockCountModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-cyan-600 hover:text-cyan-300 transition-colors"
+          >
+            ⚖️ Conteo
           </button>
           <button
             onClick={() => setShowExpenseModal(true)}
@@ -339,6 +414,15 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
               ← Panel admin
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => void handleRefreshRemote()}
+            disabled={refreshing}
+            title="Actualizar datos remotos"
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:border-gray-600 hover:text-gray-300 transition-colors disabled:opacity-50"
+          >
+            {refreshing ? '…' : '↺'}
+          </button>
           <button
             onClick={onCloseShift}
             className="rounded-md bg-red-700 px-3 py-1.5 text-xs text-white hover:bg-red-600 transition-colors"
@@ -568,6 +652,21 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
       {/* Modal de lista de productos */}
       {showProductsModal && (
         <ProductsListModal onClose={() => setShowProductsModal(false)} />
+      )}
+
+      {showAttendanceModal && (
+        <AttendanceModal onClose={() => setShowAttendanceModal(false)} />
+      )}
+
+      {showValesModal && (
+        <ValesModal
+          onClose={() => setShowValesModal(false)}
+          onSaved={() => refreshBalance()}
+        />
+      )}
+
+      {showStockCountModal && (
+        <StockCountModal onClose={() => setShowStockCountModal(false)} />
       )}
 
       {/* Modal de registro de gastos */}

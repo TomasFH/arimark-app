@@ -28,6 +28,51 @@ vi.mock('../../businessConfig', () => ({
   getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'TEST-LIC-001' }),
 }))
 
+vi.mock('../../licensing/employeeSync', () => ({
+  pushUnsyncedEmployeeOps: vi.fn().mockResolvedValue(undefined),
+  ensureEmployeesSynced: vi.fn().mockResolvedValue(undefined),
+  stopEmployeeSyncListener: vi.fn(),
+}))
+
+vi.mock('../../licensing/orderSync', () => ({
+  ensureOrdersSynced: vi.fn().mockResolvedValue(undefined),
+  stopOrderSyncListener: vi.fn(),
+}))
+
+vi.mock('../../licensing/customerDebtSync', () => ({
+  ensureCustomerDebtsSynced: vi.fn().mockResolvedValue(undefined),
+  stopCustomerDebtSyncListener: vi.fn(),
+}))
+
+vi.mock('../../licensing/specialCustomerSync', () => ({
+  ensureSpecialCustomersSynced: vi.fn().mockResolvedValue(undefined),
+  stopSpecialCustomerSyncListener: vi.fn(),
+}))
+
+vi.mock('../../licensing/providerSync', () => ({
+  startProviderSyncListener: vi.fn(),
+  stopProviderSyncListener: vi.fn(),
+  pushUnsyncedProviders: vi.fn().mockResolvedValue(undefined),
+  pushUnsyncedDebtEvents: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/storeSync', () => ({
+  startStoreSyncListener: vi.fn(),
+  stopStoreSyncListener: vi.fn(),
+  pushUnsyncedStores: vi.fn().mockResolvedValue(undefined),
+  pullStoresFromFirestore: vi.fn().mockResolvedValue(undefined),
+  ensureStoresSynced: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/catalogPublish', () => ({
+  publishCatalog: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/mobileSync', () => ({
+  startMobileSyncListener: vi.fn(),
+  stopMobileSyncListener: vi.fn(),
+}))
+
 vi.mock('../../activeSession', () => ({
   setActiveSession: vi.fn(),
 }))

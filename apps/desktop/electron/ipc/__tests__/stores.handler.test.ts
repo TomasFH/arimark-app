@@ -32,6 +32,43 @@ vi.mock('../../licensing/mobileSync', () => ({
   stopMobileSyncListener: vi.fn(),
 }))
 
+vi.mock('../../licensing/providerSync', () => ({
+  startProviderSyncListener: vi.fn(),
+  pushUnsyncedProviders: vi.fn().mockResolvedValue(undefined),
+  pushUnsyncedDebtEvents: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/storeSync', () => ({
+  startStoreSyncListener: vi.fn(),
+  pushUnsyncedStores: vi.fn().mockResolvedValue(undefined),
+  pullStoresFromFirestore: vi.fn().mockResolvedValue(undefined),
+  ensureStoresSynced: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/employeeSync', () => ({
+  pushUnsyncedEmployeeOps: vi.fn().mockResolvedValue(undefined),
+  ensureEmployeesSynced: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/catalogSync', () => ({
+  pullCatalogFromFirestore: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/orderSync', () => ({
+  ensureOrdersSynced: vi.fn().mockResolvedValue(undefined),
+  pushUnsyncedOrders: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/customerDebtSync', () => ({
+  ensureCustomerDebtsSynced: vi.fn().mockResolvedValue(undefined),
+  pushUnsyncedCustomerDebtOps: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/specialCustomerSync', () => ({
+  ensureSpecialCustomersSynced: vi.fn().mockResolvedValue(undefined),
+  pushUnsyncedSpecialCustomerOps: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'

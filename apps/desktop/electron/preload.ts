@@ -31,6 +31,8 @@ const hw: HwApi = {
 
   logout: payload => ipcRenderer.invoke(IPC.LOGOUT, payload),
 
+  refreshRemoteData: () => ipcRenderer.invoke(IPC.REFRESH_REMOTE_DATA),
+
   getActiveShift: () => ipcRenderer.invoke(IPC.GET_ACTIVE_SHIFT),
 
   getStoreOpenShift: () => ipcRenderer.invoke(IPC.GET_STORE_OPEN_SHIFT),
@@ -101,6 +103,31 @@ const hw: HwApi = {
   getProvidersWithDebt: () => ipcRenderer.invoke(IPC.GET_PROVIDERS_WITH_DEBT),
   getProviderDebtHistory: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_DEBT_HISTORY, payload),
   settleProviderDebt: payload => ipcRenderer.invoke(IPC.SETTLE_PROVIDER_DEBT, payload),
+
+  // Empleados / carniceros (Bloque D)
+  listEmployees: payload => ipcRenderer.invoke(IPC.LIST_EMPLOYEES, payload),
+  createEmployee: payload => ipcRenderer.invoke(IPC.CREATE_EMPLOYEE, payload),
+  updateEmployee: payload => ipcRenderer.invoke(IPC.UPDATE_EMPLOYEE, payload),
+  archiveEmployee: payload => ipcRenderer.invoke(IPC.ARCHIVE_EMPLOYEE, payload),
+  unarchiveEmployee: payload => ipcRenderer.invoke(IPC.UNARCHIVE_EMPLOYEE, payload),
+
+  // Asistencia (Bloque D)
+  recordAttendance: payload => ipcRenderer.invoke(IPC.RECORD_ATTENDANCE, payload),
+  updateAttendance: payload => ipcRenderer.invoke(IPC.UPDATE_ATTENDANCE, payload),
+  listAttendance: payload => ipcRenderer.invoke(IPC.LIST_ATTENDANCE, payload),
+
+  // Vales / adelantos (Bloque D)
+  registerVale: payload => ipcRenderer.invoke(IPC.REGISTER_VALE, payload),
+  listVales: payload => ipcRenderer.invoke(IPC.LIST_VALES, payload),
+  getWeeklyValeSummary: payload => ipcRenderer.invoke(IPC.GET_WEEKLY_VALE_SUMMARY, payload),
+
+  // Pago de salario semanal (Bloque D)
+  payWeeklySalary: payload => ipcRenderer.invoke(IPC.PAY_WEEKLY_SALARY, payload),
+
+  // Conteo de stock (Bloque E)
+  createStockCount: payload => ipcRenderer.invoke(IPC.CREATE_STOCK_COUNT, payload),
+  listStockCounts: payload => ipcRenderer.invoke(IPC.LIST_STOCK_COUNTS, payload),
+  getStockCountDetail: payload => ipcRenderer.invoke(IPC.GET_STOCK_COUNT_DETAIL, payload),
 
   // Clientes especiales (Fase 6)
   createCustomer: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER, payload),

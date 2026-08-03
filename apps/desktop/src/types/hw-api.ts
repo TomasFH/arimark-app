@@ -728,6 +728,187 @@ export interface SettleProviderDebtPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Empleados / carniceros (Bloque D)
+// ---------------------------------------------------------------------------
+
+export interface EmployeeRow {
+  id: string
+  name: string
+  weeklyWage: number
+  active: boolean
+  createdAt: string
+}
+
+export interface CreateEmployeePayload {
+  name: string
+  weeklyWage: number
+}
+
+export interface UpdateEmployeePayload {
+  id: string
+  name?: string
+  weeklyWage?: number
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'early_departure'
+
+export interface AttendanceRow {
+  id: string
+  employeeId: string
+  employeeName: string
+  date: string
+  status: AttendanceStatus
+  note: string | null
+  recordedBy: string
+  createdAt: string
+}
+
+export interface RecordAttendancePayload {
+  employeeId: string
+  date: string
+  status: AttendanceStatus
+  note?: string | null
+}
+
+export interface UpdateAttendancePayload {
+  id: string
+  status?: AttendanceStatus
+  note?: string | null
+}
+
+export interface ListAttendancePayload {
+  startDate: string
+  endDate: string
+  employeeId?: string
+}
+
+export interface EmployeeValeRow {
+  id: string
+  employeeId: string
+  shiftId: string | null
+  amount: number
+  description: string | null
+  /** Ítems registrados (solo vales con productos). null = adelanto en efectivo. */
+  items: ValeItem[] | null
+  paidAt: string
+  recordedBy: string
+  createdAt: string
+}
+
+/** Ítem individual dentro de un vale con productos. */
+export interface ValeItem {
+  productId: string
+  productName: string
+  unit: 'kg' | 'unit'
+  /** Para kg: decimal. Para unidades: entero. */
+  quantity: number
+  unitPrice: number
+  subtotal: number
+}
+
+export interface RegisterValePayload {
+  employeeId: string
+  amount: number
+  description?: string | null
+  /** Items del vale. Si se provee, el amount debe coincidir con la suma de subtotales. */
+  items?: ValeItem[] | null
+}
+
+export interface ListValesPayload {
+  employeeId: string
+  weekStart?: string
+  weekEnd?: string
+}
+
+export interface WeeklyValeSummary {
+  employeeId: string
+  weekStart: string
+  weekEnd: string
+  totalVales: number
+  weeklyWage: number
+  netToPay: number
+}
+
+export interface GetWeeklyValeSummaryPayload {
+  employeeId: string
+  weekStart: string
+}
+
+export interface SalaryPaymentRow {
+  id: string
+  employeeId: string
+  shiftId: string | null
+  amount: number
+  weekStart: string
+  valesDeducted: number
+  netPaid: number
+  recordedBy: string
+  paidAt: string
+}
+
+export interface PayWeeklySalaryPayload {
+  employeeId: string
+  weekStart: string
+  amount: number
+  valesDeducted: number
+}
+
+// ---------------------------------------------------------------------------
+// Conteo de stock (Bloque E)
+// ---------------------------------------------------------------------------
+
+export interface StockCountItemRow {
+  id: string
+  stockCountId: string
+  /** PLU */
+  productId: number
+  productName: string
+  /** Gramos (null si no aplica). */
+  quantityKg: number | null
+  quantityUnits: number | null
+  notes: string | null
+}
+
+export interface StockCountRow {
+  id: string
+  storeId: string
+  storeName: string
+  countDate: string
+  recordedBy: string
+  recordedByName: string
+  itemCount: number
+  createdAt: string
+}
+
+export interface StockCountDetail extends StockCountRow {
+  items: StockCountItemRow[]
+}
+
+export interface CreateStockCountItemPayload {
+  productId: number
+  productName: string
+  quantityKg?: number | null
+  quantityUnits?: number | null
+  notes?: string | null
+}
+
+export interface CreateStockCountPayload {
+  countDate: string
+  storeId?: string
+  items: CreateStockCountItemPayload[]
+}
+
+export interface ListStockCountsPayload {
+  storeId?: string
+  startDate?: string
+  endDate?: string
+}
+
+export interface GetStockCountDetailPayload {
+  stockCountId: string
+}
+
+// ---------------------------------------------------------------------------
 // Historial completo (Fase 7 — solo admin)
 // ---------------------------------------------------------------------------
 
@@ -932,6 +1113,12 @@ export interface HwApi {
   /** Cierra la sesión activa */
   logout: (payload: { role: 'cashier' | 'admin'; storeId?: string }) => Promise<IpcResult>
 
+  /**
+   * Re-sincroniza locales, empleados y catálogo desde Firestore sin cerrar sesión.
+   * Usado por el botón ↺ de la UI.
+   */
+  refreshRemoteData: () => Promise<IpcResult<{ storeId: string | null }>>
+
 
   /** Retorna el turno activo del local (null si no hay ninguno abierto) */
   getActiveShift: () => Promise<IpcResult<ShiftInfo | null>>
@@ -1079,6 +1266,31 @@ export interface HwApi {
    * Funciona fuera de turno: shiftId = null si no hay turno abierto.
    */
   settleProviderDebt: (payload: SettleProviderDebtPayload) => Promise<IpcResult<{ eventId: string }>>
+
+  // ---- Empleados / carniceros (Bloque D) ----
+  listEmployees: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<EmployeeRow[]>>
+  createEmployee: (payload: CreateEmployeePayload) => Promise<IpcResult<EmployeeRow>>
+  updateEmployee: (payload: UpdateEmployeePayload) => Promise<IpcResult<EmployeeRow>>
+  archiveEmployee: (payload: { id: string }) => Promise<IpcResult<EmployeeRow>>
+  unarchiveEmployee: (payload: { id: string }) => Promise<IpcResult<EmployeeRow>>
+
+  // ---- Asistencia (Bloque D) ----
+  recordAttendance: (payload: RecordAttendancePayload) => Promise<IpcResult<AttendanceRow>>
+  updateAttendance: (payload: UpdateAttendancePayload) => Promise<IpcResult<AttendanceRow>>
+  listAttendance: (payload: ListAttendancePayload) => Promise<IpcResult<AttendanceRow[]>>
+
+  // ---- Vales / adelantos (Bloque D) ----
+  registerVale: (payload: RegisterValePayload) => Promise<IpcResult<EmployeeValeRow>>
+  listVales: (payload: ListValesPayload) => Promise<IpcResult<EmployeeValeRow[]>>
+  getWeeklyValeSummary: (payload: GetWeeklyValeSummaryPayload) => Promise<IpcResult<WeeklyValeSummary>>
+
+  // ---- Pago de salario semanal (Bloque D) ----
+  payWeeklySalary: (payload: PayWeeklySalaryPayload) => Promise<IpcResult<SalaryPaymentRow>>
+
+  // ---- Conteo de stock (Bloque E) ----
+  createStockCount: (payload: CreateStockCountPayload) => Promise<IpcResult<StockCountDetail>>
+  listStockCounts: (payload?: ListStockCountsPayload) => Promise<IpcResult<StockCountRow[]>>
+  getStockCountDetail: (payload: GetStockCountDetailPayload) => Promise<IpcResult<StockCountDetail>>
 
   // ---- Clientes especiales (Fase 6) ----
   /** Crea un cliente nuevo */

@@ -91,6 +91,14 @@ export async function publishCatalog(licenseKey: string, storeId: string): Promi
         price: priceMap.get(r.productId) ?? 0,
       }))
 
+    // Si no hay productos con PLU y precio, este SQLite es una instancia remota
+    // o el catálogo todavía no fue configurado. No publicar para no sobrescribir
+    // el catálogo válido que ya existe en Firestore.
+    if (catalogProducts.length === 0) {
+      log.info('[catalogPublish] Sin productos con PLU y precio — publicación omitida', { storeId })
+      return
+    }
+
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const catalogRef = doc(firestore, 'licenses', licenseKey, 'catalog', storeId)

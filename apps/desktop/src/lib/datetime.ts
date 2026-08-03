@@ -57,6 +57,35 @@ export function toLocalDate(utcString: string): string {
 }
 
 /**
+ * Fecha de hoy en el timezone de presentación, formato YYYY-MM-DD (ISO date).
+ * Usar para claves de asistencia y filtros por día local.
+ */
+export function todayLocalYmd(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: _timezone })
+}
+
+/**
+ * Suma (o resta) días a una fecha YYYY-MM-DD de calendario (sin timezone).
+ */
+export function addDaysYmd(yyyyMmDd: string, days: number): string {
+  const d = new Date(`${yyyyMmDd}T12:00:00.000Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Lunes de la semana que contiene `fromYmd` (o hoy local), formato YYYY-MM-DD.
+ * Semana laboral lun–dom (como `week_start` de salarios/vales).
+ */
+export function weekStartMondayLocalYmd(fromYmd?: string): string {
+  const ymd = fromYmd ?? todayLocalYmd()
+  const d = new Date(`${ymd}T12:00:00.000Z`)
+  const day = d.getUTCDay() // 0=dom … 6=sáb
+  const mondayOffset = day === 0 ? -6 : 1 - day
+  return addDaysYmd(ymd, mondayOffset)
+}
+
+/**
  * Retorna solo la hora en el timezone de presentación.
  */
 export function toLocalTime(utcString: string): string {

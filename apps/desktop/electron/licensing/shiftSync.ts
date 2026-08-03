@@ -19,7 +19,7 @@ import { getFirestore, doc, setDoc } from 'firebase/firestore'
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { shifts } from '../db/schema'
+import { shifts, users } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 
 /**
@@ -40,11 +40,16 @@ export async function pushUnsyncedShifts(tenantId: string): Promise<void> {
 
   for (const s of pending) {
     try {
+      // Resolver nombre del cajero desde el cache local de usuarios.
+      const userRow = db.select({ name: users.name }).from(users).where(eq(users.id, s.userId)).all()[0]
+      const cashierName = userRow?.name ?? null
+
       const ref = doc(firestore, 'licenses', tenantId, 'shifts', s.id)
       await setDoc(ref, {
         id: s.id,
         storeId: s.storeId,
         userId: s.userId,
+        cashierName,
         shiftType: s.shiftType,
         startedAt: s.startedAt,
         closedAt: s.closedAt ?? null,

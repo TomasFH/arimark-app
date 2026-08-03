@@ -16,6 +16,8 @@ import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
 import OrdersScreen from './routes/OrdersScreen'
 import HistoryScreen from './routes/HistoryScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
+import EmployeesScreen from './routes/EmployeesScreen'
+import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
@@ -38,6 +40,8 @@ type AppState =
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'employees'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
@@ -240,6 +244,16 @@ export default function App() {
     setState({ screen: 'store-management', session: state.session, initStatus: state.initStatus })
   }
 
+  function handleGoToEmployees(): void {
+    if (state.screen !== 'admin-hub') return
+    setState({ screen: 'employees', session: state.session, initStatus: state.initStatus })
+  }
+
+  function handleGoToStockCounts(): void {
+    if (state.screen !== 'admin-hub') return
+    setState({ screen: 'stock-counts', session: state.session, initStatus: state.initStatus })
+  }
+
   function handleReturnToAdminHub(): void {
     const session = 'session' in state ? state.session : null
     const initStatus = 'initStatus' in state ? state.initStatus : null
@@ -400,6 +414,8 @@ export default function App() {
           onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
           onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
           onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
+          onGoToEmployees={handleGoToEmployees}
+          onGoToStockCounts={handleGoToStockCounts}
           onLogout={handleLogout}
         />
       )}
@@ -472,6 +488,18 @@ export default function App() {
 
       {state.screen === 'providers' && (
         <ProvidersScreen
+          onBack={handleReturnToAdminHub}
+        />
+      )}
+
+      {state.screen === 'employees' && (
+        <EmployeesScreen
+          onBack={handleReturnToAdminHub}
+        />
+      )}
+
+      {state.screen === 'stock-counts' && (
+        <StockCountHistoryScreen
           onBack={handleReturnToAdminHub}
         />
       )}

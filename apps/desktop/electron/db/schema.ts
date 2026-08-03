@@ -1,4 +1,4 @@
-import { sqliteTable, text, real, integer, index, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, real, integer, index, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // ---------------------------------------------------------------------------
 // Locales
@@ -17,6 +17,8 @@ export const stores = sqliteTable('stores', {
   afternoonStart: text('afternoon_start'),
   /** Hora de fin del turno tarde, formato "HH:MM". */
   afternoonEnd: text('afternoon_end'),
+  /** null = pendiente de push a Firestore; ISO string = ya sincronizado. */
+  syncedAt: text('synced_at'),
 })
 
 // ---------------------------------------------------------------------------
@@ -176,6 +178,7 @@ export const specialCustomers = sqliteTable('special_customers', {
     .references(() => users.id),
   updatedAt: text('updated_at'),
   updatedBy: text('updated_by').references(() => users.id),
+  syncedAt: text('synced_at'),
 })
 
 export const specialCustomerPrices = sqliteTable(
@@ -194,6 +197,7 @@ export const specialCustomerPrices = sqliteTable(
     updatedBy: text('updated_by')
       .notNull()
       .references(() => users.id),
+    syncedAt: text('synced_at'),
   },
   table => [index('idx_sc_prices_customer').on(table.specialCustomerId)]
 )
@@ -513,65 +517,136 @@ export const providerDebtEvents = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Empleados
+// Empleados / carniceros (sin cuenta Firebase — solo nombre)
 // ---------------------------------------------------------------------------
 export const employees = sqliteTable('employees', {
   id: text('id').primaryKey(),
-  storeId: text('store_id')
-    .notNull()
-    .references(() => stores.id),
-  name: text('name').notNull(),
-  role: text('role', { enum: ['butcher', 'cashier', 'other'] }).notNull(),
-  weeklySalary: real('weekly_salary').notNull(),
+  name: text('name').notNull().unique(),
+  /** Sueldo semanal en pesos enteros. */
+  weeklyWage: integer('weekly_wage').notNull().default(0),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
+  /** null = pendiente de push a Firestore (maestro compartido entre PCs). */
+  syncedAt: text('synced_at'),
 })
 
 // ---------------------------------------------------------------------------
-// Vales y adelantos
+// Asistencia (un registro por empleado por fecha)
 // ---------------------------------------------------------------------------
-export const employeeAdvances = sqliteTable(
-  'employee_advances',
+export const attendance = sqliteTable(
+  'attendance',
   {
     id: text('id').primaryKey(),
     employeeId: text('employee_id')
       .notNull()
       .references(() => employees.id),
-    storeId: text('store_id')
-      .notNull()
-      .references(() => stores.id),
-    amount: real('amount').notNull(),
-    reason: text('reason'),
-    advanceDate: text('advance_date').notNull(),
-    paidInWeek: text('paid_in_week'),
-    createdBy: text('created_by')
+    /** YYYY-MM-DD */
+    date: text('date').notNull(),
+    status: text('status', {
+      enum: ['present', 'absent', 'late', 'early_departure'],
+    }).notNull(),
+    note: text('note'),
+    recordedBy: text('recorded_by')
       .notNull()
       .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    /** null = pendiente de push a Firestore. */
     syncedAt: text('synced_at'),
   },
-  table => [index('idx_advances_employee').on(table.employeeId, table.paidInWeek)]
+  table => [
+    uniqueIndex('idx_attendance_employee_date').on(table.employeeId, table.date),
+    index('idx_attendance_date').on(table.date),
+  ],
 )
 
 // ---------------------------------------------------------------------------
-// Asistencia
+// Vales / adelantos de salario (salida de efectivo durante el turno)
 // ---------------------------------------------------------------------------
-export const attendance = sqliteTable('attendance', {
-  id: text('id').primaryKey(),
-  employeeId: text('employee_id')
-    .notNull()
-    .references(() => employees.id),
-  storeId: text('store_id')
-    .notNull()
-    .references(() => stores.id),
-  date: text('date').notNull(),
-  status: text('status', {
-    enum: ['present', 'late', 'early_leave', 'absent'],
-  }).notNull(),
-  justification: text('justification', { enum: ['medical', 'personal', 'other'] }),
-  notes: text('notes'),
-  photoPath: text('photo_path'),
-  createdBy: text('created_by')
-    .notNull()
-    .references(() => users.id),
-  syncedAt: text('synced_at'),
-})
+export const employeeVales = sqliteTable(
+  'employee_vales',
+  {
+    id: text('id').primaryKey(),
+    employeeId: text('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    shiftId: text('shift_id').references(() => shifts.id),
+    amount: integer('amount').notNull(),
+    description: text('description'),
+    /**
+     * Items del vale en formato JSON (ValeItem[]). null = adelanto en efectivo sin productos.
+     */
+    items: text('items'),
+    paidAt: text('paid_at').notNull(),
+    recordedBy: text('recorded_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    syncedAt: text('synced_at'),
+  },
+  table => [index('idx_employee_vales_employee').on(table.employeeId, table.paidAt)],
+)
+
+// ---------------------------------------------------------------------------
+// Pagos de salario semanal
+// ---------------------------------------------------------------------------
+export const salaryPayments = sqliteTable(
+  'salary_payments',
+  {
+    id: text('id').primaryKey(),
+    employeeId: text('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    shiftId: text('shift_id').references(() => shifts.id),
+    amount: integer('amount').notNull(),
+    /** YYYY-MM-DD — lunes de esa semana. */
+    weekStart: text('week_start').notNull(),
+    valesDeducted: integer('vales_deducted').notNull().default(0),
+    netPaid: integer('net_paid').notNull(),
+    recordedBy: text('recorded_by')
+      .notNull()
+      .references(() => users.id),
+    paidAt: text('paid_at').notNull(),
+    syncedAt: text('synced_at'),
+  },
+  table => [index('idx_salary_payments_employee_week').on(table.employeeId, table.weekStart)],
+)
+
+// ---------------------------------------------------------------------------
+// Conteo dominical de stock (snapshot por local y fecha)
+// ---------------------------------------------------------------------------
+export const stockCounts = sqliteTable(
+  'stock_counts',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    /** YYYY-MM-DD */
+    countDate: text('count_date').notNull(),
+    recordedBy: text('recorded_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  table => [
+    index('idx_stock_counts_store_date').on(table.storeId, table.countDate),
+  ],
+)
+
+export const stockCountItems = sqliteTable(
+  'stock_count_items',
+  {
+    id: text('id').primaryKey(),
+    stockCountId: text('stock_count_id')
+      .notNull()
+      .references(() => stockCounts.id),
+    /** PLU del producto al momento del conteo. */
+    productId: integer('product_id').notNull(),
+    productName: text('product_name').notNull(),
+    /** Cantidad en gramos (null si el producto no se cuenta por kg). */
+    quantityKg: integer('quantity_kg'),
+    quantityUnits: integer('quantity_units'),
+    notes: text('notes'),
+  },
+  table => [index('idx_stock_count_items_count').on(table.stockCountId)],
+)

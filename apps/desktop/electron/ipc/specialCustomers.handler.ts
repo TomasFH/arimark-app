@@ -15,8 +15,25 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { specialCustomers, specialCustomerPrices, products } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import {
+  pushUnsyncedSpecialCustomerOps,
+  markSpecialCustomerDeletedInFirestore,
+  markSpecialCustomerPriceDeletedInFirestore,
+} from '../licensing/specialCustomerSync'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
+
+function scheduleSpecialCustomerPush(): void {
+  try {
+    const { tenant_id } = getBusinessConfig()
+    pushUnsyncedSpecialCustomerOps(tenant_id).catch(err =>
+      log.warn('[ipc:special-customers] pushUnsyncedSpecialCustomerOps falló (no bloqueante)', err),
+    )
+  } catch (err) {
+    log.warn('[ipc:special-customers] scheduleSpecialCustomerPush omitido', err)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Schemas Zod
@@ -156,7 +173,10 @@ export function registerSpecialCustomersHandlers() {
         notes: parsed.data.notes?.trim() ?? null,
         createdAt: now,
         createdBy: session.userId,
+        syncedAt: null,
       }).run()
+
+      scheduleSpecialCustomerPush()
 
       log.info('[ipc:create-special-customer]', { id, name: parsed.data.name, storeId: assignedStoreId })
       return { ok: true, data: { id, storeId: assignedStoreId, name: parsed.data.name.trim(), notes: parsed.data.notes?.trim() ?? null, createdAt: now, updatedAt: null } }
@@ -181,6 +201,7 @@ export function registerSpecialCustomersHandlers() {
       const updates: Partial<typeof specialCustomers.$inferInsert> = {
         updatedAt: now,
         updatedBy: session.userId,
+        syncedAt: null,
       }
       if (parsed.data.name !== undefined) updates.name = parsed.data.name.trim()
       if (parsed.data.notes !== undefined) updates.notes = parsed.data.notes.trim() || null
@@ -191,6 +212,8 @@ export function registerSpecialCustomersHandlers() {
       db.update(specialCustomers).set(updates)
         .where(eq(specialCustomers.id, parsed.data.id))
         .run()
+
+      scheduleSpecialCustomerPush()
 
       return { ok: true, data: undefined }
     } catch (err) {
@@ -219,6 +242,16 @@ export function registerSpecialCustomersHandlers() {
           .where(eq(specialCustomers.id, parsed.data.id))
           .run()
       })
+
+      try {
+        const { tenant_id } = getBusinessConfig()
+        markSpecialCustomerDeletedInFirestore(tenant_id, parsed.data.id).catch(err =>
+          log.warn('[ipc:delete-special-customer] markDeleted falló', err),
+        )
+      } catch (err) {
+        log.warn('[ipc:delete-special-customer] markDeleted omitido', err)
+      }
+
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:delete-special-customer]', err)
@@ -301,6 +334,7 @@ export function registerSpecialCustomersHandlers() {
           notes: notes?.trim() ?? null,
           updatedAt: now,
           updatedBy: session.userId,
+          syncedAt: null,
         }).where(eq(specialCustomerPrices.id, existing.id)).run()
       } else {
         db.insert(specialCustomerPrices).values({
@@ -311,8 +345,11 @@ export function registerSpecialCustomersHandlers() {
           notes: notes?.trim() ?? null,
           updatedAt: now,
           updatedBy: session.userId,
+          syncedAt: null,
         }).run()
       }
+
+      scheduleSpecialCustomerPush()
 
       return { ok: true, data: undefined }
     } catch (err) {
@@ -332,12 +369,33 @@ export function registerSpecialCustomersHandlers() {
 
     try {
       const db = getDb()
+      const existing = db
+        .select({ id: specialCustomerPrices.id })
+        .from(specialCustomerPrices)
+        .where(and(
+          eq(specialCustomerPrices.specialCustomerId, parsed.data.specialCustomerId),
+          eq(specialCustomerPrices.productId, parsed.data.productId),
+        ))
+        .get()
+
       db.delete(specialCustomerPrices)
         .where(and(
           eq(specialCustomerPrices.specialCustomerId, parsed.data.specialCustomerId),
           eq(specialCustomerPrices.productId, parsed.data.productId),
         ))
         .run()
+
+      if (existing) {
+        try {
+          const { tenant_id } = getBusinessConfig()
+          markSpecialCustomerPriceDeletedInFirestore(tenant_id, existing.id).catch(err =>
+            log.warn('[ipc:delete-special-customer-price] markDeleted falló', err),
+          )
+        } catch (err) {
+          log.warn('[ipc:delete-special-customer-price] markDeleted omitido', err)
+        }
+      }
+
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:delete-special-customer-price]', err)

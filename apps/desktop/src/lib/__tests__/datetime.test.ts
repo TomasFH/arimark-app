@@ -9,6 +9,9 @@ import {
   setDisplayTimezone,
   startOfDayUtc,
   endOfDayUtc,
+  todayLocalYmd,
+  addDaysYmd,
+  weekStartMondayLocalYmd,
 } from '../datetime'
 
 const TZ = 'America/Argentina/Buenos_Aires'
@@ -71,6 +74,30 @@ describe('formatKg', () => {
   it('muestra 3 decimales', () => {
     expect(formatKg(1.5)).toBe('1.500 kg')
     expect(formatKg(0.234)).toBe('0.234 kg')
+  })
+})
+
+describe('todayLocalYmd', () => {
+  it('retorna YYYY-MM-DD en el timezone de presentación', () => {
+    const result = todayLocalYmd()
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(result).toBe(new Date().toLocaleDateString('en-CA', { timeZone: TZ }))
+  })
+})
+
+describe('addDaysYmd / weekStartMondayLocalYmd', () => {
+  it('suma días sobre YYYY-MM-DD', () => {
+    expect(addDaysYmd('2026-07-28', 6)).toBe('2026-08-03')
+    expect(addDaysYmd('2026-08-03', -6)).toBe('2026-07-28')
+  })
+
+  it('resuelve el lunes de la semana (lun–dom)', () => {
+    // martes 2026-07-28 → lunes 2026-07-27
+    expect(weekStartMondayLocalYmd('2026-07-28')).toBe('2026-07-27')
+    // domingo → lunes anterior
+    expect(weekStartMondayLocalYmd('2026-08-02')).toBe('2026-07-27')
+    // lunes → mismo día
+    expect(weekStartMondayLocalYmd('2026-07-27')).toBe('2026-07-27')
   })
 })
 

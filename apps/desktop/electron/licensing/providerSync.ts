@@ -177,9 +177,11 @@ export function startProviderSyncListener(licenseKey: string): void {
             notes: data.notes ?? null,
             archivedAt: data.archivedAt ?? null,
             createdAt: data.createdAt,
-            createdBy: data.createdBy ?? null,
+            // Nullificar referencias a usuarios que pueden no existir en esta PC
+            // (PC de casa, perfil remote, etc.) — la columna es nullable en schema.
+            createdBy: null,
             updatedAt: data.updatedAt ?? null,
-            updatedBy: data.updatedBy ?? null,
+            updatedBy: null,
             syncedAt: now, // ya vino de Firestore, no necesita re-push
           })
           .onConflictDoUpdate({
@@ -190,7 +192,8 @@ export function startProviderSyncListener(licenseKey: string): void {
               notes: data.notes ?? null,
               archivedAt: data.archivedAt ?? null,
               updatedAt: data.updatedAt ?? null,
-              updatedBy: data.updatedBy ?? null,
+              // updatedBy queda null para no imponer FK a usuarios ausentes
+              updatedBy: null,
               syncedAt: now,
             },
           })

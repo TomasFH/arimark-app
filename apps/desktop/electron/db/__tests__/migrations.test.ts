@@ -37,8 +37,11 @@ describe('migrations', () => {
       'stock_entries',
       'orders',
       'employees',
-      'employee_advances',
+      'employee_vales',
       'attendance',
+      'salary_payments',
+      'stock_counts',
+      'stock_count_items',
     ]
 
     for (const table of expected) {

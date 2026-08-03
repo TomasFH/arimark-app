@@ -134,6 +134,48 @@
       "when": 1785200000000,
       "tag": "0018_stores_shift_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1785515741018,
+      "tag": "0019_stores_synced_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785715287998,
+      "tag": "0020_employees_ops",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785718909781,
+      "tag": "0021_stock_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785725243218,
+      "tag": "0022_employees_synced_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785800000000,
+      "tag": "0023_vale_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785900000000,
+      "tag": "0024_ops_sync",
+      "breakpoints": true
     }
   ]
 }

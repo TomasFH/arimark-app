@@ -2,7 +2,11 @@
  * Pantalla de entrada para el administrador.
  * Permite elegir entre el panel de administración y el modo cajera de emergencia.
  */
+import { useState } from 'react'
 import type { SessionInfo, InitStatus } from '../types/hw-api'
+import AttendanceModal from './AttendanceModal'
+import SalaryPaymentModal from './SalaryPaymentModal'
+import StockCountModal from './StockCountModal'
 
 interface Props {
   session: SessionInfo
@@ -16,10 +20,27 @@ interface Props {
   onGoToOrders: () => void
   onGoToHistory: () => void
   onGoToProviders: () => void
+  onGoToEmployees: () => void
+  onGoToStockCounts: () => void
   onLogout: () => void
 }
 
-export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToStoreManagement, onGoToDebts, onGoToSpecialCustomers, onGoToOrders, onGoToHistory, onGoToProviders, onLogout }: Props) {
+export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToStoreManagement, onGoToDebts, onGoToSpecialCustomers, onGoToOrders, onGoToHistory, onGoToProviders, onGoToEmployees, onGoToStockCounts, onLogout }: Props) {
+  const [showAttendance, setShowAttendance] = useState(false)
+  const [showSalary, setShowSalary] = useState(false)
+  const [showStockCount, setShowStockCount] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function handleRefreshRemote(): Promise<void> {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await window.hw.refreshRemoteData()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       {/* Header */}
@@ -28,12 +49,23 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
           <p className="text-xs text-gray-500 uppercase tracking-wider">Administrador</p>
           <h1 className="text-base font-semibold text-white">{initStatus.businessName}</h1>
         </div>
-        <button
-          onClick={onLogout}
-          className="text-sm text-gray-400 hover:text-white transition-colors"
-        >
-          Cerrar sesión
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleRefreshRemote()}
+            disabled={refreshing}
+            title="Actualizar datos remotos"
+            className="text-sm text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
+          >
+            {refreshing ? 'Actualizando…' : '↺ Actualizar'}
+          </button>
+          <button
+            onClick={onLogout}
+            className="text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </header>
 
       {/* Opciones principales */}
@@ -194,9 +226,108 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
             </div>
             <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
           </button>
+
+          {/* Empleados */}
+          <button
+            onClick={onGoToEmployees}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-lime-600/20 flex items-center justify-center text-3xl">
+              👷
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-white">Empleados</p>
+              <p className="text-sm text-gray-400 mt-0.5 truncate">
+                Carniceros: alta, sueldo semanal y archivo
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
+          </button>
+
+          {/* Asistencia */}
+          <button
+            type="button"
+            onClick={() => setShowAttendance(true)}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-teal-600/20 flex items-center justify-center text-3xl">
+              ✓
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-white">Asistencia</p>
+              <p className="text-sm text-gray-400 mt-0.5 truncate">
+                Marcar presente, ausente, tarde o retiro anticipado
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
+          </button>
+
+          {/* Liquidación semanal (solo consulta) */}
+          <button
+            type="button"
+            onClick={() => setShowSalary(true)}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-blue-600/20 flex items-center justify-center text-3xl">
+              💵
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-white">Liquidación semanal</p>
+              <p className="text-sm text-gray-400 mt-0.5 truncate">
+                Consulta: sueldo menos vales (sin registrar pago)
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
+          </button>
+
+          {/* Conteo de stock */}
+          <button
+            type="button"
+            onClick={() => setShowStockCount(true)}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-cyan-600/20 flex items-center justify-center text-3xl">
+              ⚖️
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-white">Nuevo conteo de stock</p>
+              <p className="text-sm text-gray-400 mt-0.5 truncate">
+                Registrar inventario del día (dominical u ocasional)
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
+          </button>
+
+          {/* Historial conteos */}
+          <button
+            type="button"
+            onClick={onGoToStockCounts}
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+          >
+            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-slate-600/20 flex items-center justify-center text-3xl">
+              📦
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-white">Historial de conteos</p>
+              <p className="text-sm text-gray-400 mt-0.5 truncate">
+                Ver conteos pasados por local y fecha
+              </p>
+            </div>
+            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
+          </button>
         </div>
         </div>
       </div>
+
+      {showAttendance && (
+        <AttendanceModal onClose={() => setShowAttendance(false)} />
+      )}
+      {showSalary && (
+        <SalaryPaymentModal onClose={() => setShowSalary(false)} />
+      )}
+      {showStockCount && (
+        <StockCountModal onClose={() => setShowStockCount(false)} />
+      )}
     </div>
   )
 }

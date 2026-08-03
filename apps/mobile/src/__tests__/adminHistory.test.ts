@@ -1,0 +1,57 @@
+import { describe, it, expect } from 'vitest'
+import { sumPaymentTotals, type AdminSale } from '../lib/adminHistory'
+
+function sale(partial: Partial<AdminSale> & { id: string }): AdminSale {
+  return {
+    shiftId: 's1',
+    total: 0,
+    status: 'confirmed',
+    createdAt: '2026-08-01T12:00:00.000Z',
+    items: [],
+    payments: [],
+    ...partial,
+  }
+}
+
+describe('sumPaymentTotals', () => {
+  it('suma por medio de pago e ignora canceladas', () => {
+    const totals = sumPaymentTotals([
+      sale({
+        id: 'a',
+        payments: [
+          { paymentMethod: 'cash', amount: 1000 },
+          { paymentMethod: 'debit', amount: 500 },
+        ],
+      }),
+      sale({
+        id: 'b',
+        payments: [{ paymentMethod: 'wallet', amount: 200 }],
+      }),
+      sale({
+        id: 'c',
+        status: 'cancelled',
+        payments: [{ paymentMethod: 'cash', amount: 999 }],
+      }),
+      sale({
+        id: 'd',
+        payments: [{ paymentMethod: 'credit', amount: 300 }],
+      }),
+    ])
+
+    expect(totals.cash).toBe(1000)
+    expect(totals.debit).toBe(500)
+    expect(totals.wallet).toBe(200)
+    expect(totals.credit).toBe(300)
+    expect(totals.total).toBe(2000)
+  })
+
+  it('retorna ceros si no hay ventas', () => {
+    expect(sumPaymentTotals([])).toEqual({
+      cash: 0,
+      debit: 0,
+      wallet: 0,
+      credit: 0,
+      total: 0,
+    })
+  })
+})

@@ -7,8 +7,21 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { customers } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedCustomers } from '../licensing/customerDebtSync'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
+
+function scheduleCustomerPush(): void {
+  try {
+    const { tenant_id } = getBusinessConfig()
+    pushUnsyncedCustomers(tenant_id).catch(err =>
+      log.warn('[ipc:customers] pushUnsyncedCustomers falló (no bloqueante)', err),
+    )
+  } catch (err) {
+    log.warn('[ipc:customers] scheduleCustomerPush omitido', err)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Schemas Zod
@@ -86,8 +99,11 @@ export function registerCustomerHandlers(): void {
           active: true,
           createdAt: now,
           createdBy: session.userId,
+          syncedAt: null,
         })
         .run()
+
+      scheduleCustomerPush()
 
       const row = db.select().from(customers).where(eq(customers.id, id)).get()
       if (!row) return { ok: false, error: 'Error al recuperar cliente creado.' }
@@ -167,8 +183,11 @@ export function registerCustomerHandlers(): void {
       if (fields.type !== undefined) updates.type = fields.type
       if (fields.notes !== undefined) updates.notes = fields.notes.trim() || null
       if (fields.active !== undefined) updates.active = fields.active
+      updates.syncedAt = null
 
       db.update(customers).set(updates).where(eq(customers.id, id)).run()
+
+      scheduleCustomerPush()
 
       const updated = db.select().from(customers).where(eq(customers.id, id)).get()!
       log.info('[ipc:update-customer] Cliente actualizado', { id })

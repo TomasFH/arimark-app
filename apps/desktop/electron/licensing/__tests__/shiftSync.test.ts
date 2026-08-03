@@ -105,6 +105,66 @@ describe('shiftSync', () => {
       expect(synced).toHaveLength(2)
     })
 
+    it('incluye cashierName resuelto desde la tabla users', async () => {
+      const now = new Date().toISOString()
+      db.insert(shifts).values({
+        id: 'shift-with-name',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 1000,
+        source: 'desktop',
+        syncedAt: null,
+      }).run()
+
+      await pushUnsyncedShifts(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'shift-with-name',
+          cashierName: 'Cajera Test',
+        }),
+        { merge: true },
+      )
+    })
+
+    it('cashierName es null si el usuario no está en cache local', async () => {
+      // Insertar un user con nombre vacío para simular que el cache tiene el UID
+      // pero no resolvió el nombre (edge case: primer login aún en proceso).
+      const now = new Date().toISOString()
+      db.insert(users).values({
+        id: 'uid-sin-nombre',
+        name: '',
+        storeId: 'store-001',
+        role: 'cashier',
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-no-name',
+        storeId: 'store-001',
+        userId: 'uid-sin-nombre',
+        shiftType: 'evening',
+        startedAt: now,
+        openingCash: 0,
+        source: 'desktop',
+        syncedAt: null,
+      }).run()
+
+      await pushUnsyncedShifts(TENANT)
+
+      // El nombre es una cadena vacía — historyFirestore muestra el fallback userId
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: 'uid-sin-nombre',
+        }),
+        { merge: true },
+      )
+    })
+
     it('incluye campos de cierre cuando el turno está cerrado', async () => {
       const now = new Date().toISOString()
       db.insert(shifts).values({

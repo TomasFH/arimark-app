@@ -9,6 +9,12 @@ import {
   debtEvents, orders, users, products, providers,
 } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import { isFirebaseAvailable } from '../licensing/firebase'
+import {
+  fetchHistoryShiftsFromFirestore,
+  fetchHistoryShiftDetailFromFirestore,
+  mergeHistoryShiftRows,
+} from '../licensing/historyFirestore'
 import type {
   IpcResult,
   HistoryShiftRow,
@@ -32,7 +38,7 @@ export function registerHistoryHandlers(): void {
   // --------------------------------------------------------------------------
   // GET_HISTORY_SHIFTS — lista de turnos cerrados con resumen (solo admin)
   // --------------------------------------------------------------------------
-  ipcMain.handle(IPC.GET_HISTORY_SHIFTS, (_event, payload: unknown): IpcResult<HistoryShiftRow[]> => {
+  ipcMain.handle(IPC.GET_HISTORY_SHIFTS, async (_event, payload: unknown): Promise<IpcResult<HistoryShiftRow[]>> => {
     const parsed = getHistoryShiftsSchema.safeParse(payload ?? {})
     if (!parsed.success) {
       log.error('[ipc:get-history-shifts] Payload inválido', parsed.error)
@@ -44,6 +50,9 @@ export function registerHistoryHandlers(): void {
     if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden ver el historial.', code: 'FORBIDDEN' }
 
     const filter = parsed.data ?? { limit: 50, offset: 0 }
+    const pageLimit = filter.limit ?? 50
+    const pageOffset = filter.offset ?? 0
+    const useRemote = isFirebaseAvailable()
 
     try {
       const db = getDb()
@@ -62,16 +71,17 @@ export function registerHistoryHandlers(): void {
       if (filter.fromDate) conditions.push(gte(shifts.startedAt, filter.fromDate))
       if (filter.toDate) conditions.push(lte(shifts.startedAt, filter.toDate + 'T23:59:59.999Z'))
 
+      // Con Firebase: traer más filas locales y paginar después del merge
       const shiftRows = db
         .select()
         .from(shifts)
         .where(and(...conditions))
         .orderBy(asc(shifts.startedAt))
-        .limit(filter.limit ?? 50)
-        .offset(filter.offset ?? 0)
+        .limit(useRemote ? 500 : pageLimit)
+        .offset(useRemote ? 0 : pageOffset)
         .all()
 
-      if (shiftRows.length === 0) return { ok: true, data: [] }
+      if (shiftRows.length === 0 && !useRemote) return { ok: true, data: [] }
 
       const shiftIds = shiftRows.map(s => s.id)
       const userIds = [...new Set(shiftRows.map(s => s.userId))]
@@ -161,7 +171,7 @@ export function registerHistoryHandlers(): void {
         if (r.shiftId) depositsByShift.set(r.shiftId, Number(r.total ?? 0))
       }
 
-      const result: HistoryShiftRow[] = shiftRows.map(s => {
+      const localResult: HistoryShiftRow[] = shiftRows.map(s => {
         const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
         const exp = expensesByShift.get(s.id) ?? 0
         const dep = depositsByShift.get(s.id) ?? 0
@@ -180,7 +190,20 @@ export function registerHistoryHandlers(): void {
         }
       })
 
-      return { ok: true, data: result }
+      if (!useRemote) return { ok: true, data: localResult }
+
+      try {
+        const remote = await fetchHistoryShiftsFromFirestore({
+          fromDate: filter.fromDate,
+          toDate: filter.toDate,
+          effectiveStoreId,
+        })
+        const merged = mergeHistoryShiftRows(localResult, remote)
+        return { ok: true, data: merged.slice(pageOffset, pageOffset + pageLimit) }
+      } catch (fbErr) {
+        log.warn('[ipc:get-history-shifts] Firestore no disponible; se usa solo local', fbErr)
+        return { ok: true, data: localResult.slice(pageOffset, pageOffset + pageLimit) }
+      }
     } catch (err) {
       log.error('[ipc:get-history-shifts] Error inesperado', err)
       return { ok: false, error: 'Error al obtener el historial de turnos.' }
@@ -190,7 +213,7 @@ export function registerHistoryHandlers(): void {
   // --------------------------------------------------------------------------
   // GET_HISTORY_SHIFT_DETAIL — detalle completo de un turno (solo admin)
   // --------------------------------------------------------------------------
-  ipcMain.handle(IPC.GET_HISTORY_SHIFT_DETAIL, (_event, payload: unknown): IpcResult<HistoryShiftDetail> => {
+  ipcMain.handle(IPC.GET_HISTORY_SHIFT_DETAIL, async (_event, payload: unknown): Promise<IpcResult<HistoryShiftDetail>> => {
     const parsed = getHistoryShiftDetailSchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:get-history-shift-detail] Payload inválido', parsed.error)
@@ -207,7 +230,18 @@ export function registerHistoryHandlers(): void {
       const db = getDb()
 
       const shift = db.select().from(shifts).where(eq(shifts.id, shiftId)).all()[0]
-      if (!shift) return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
+      if (!shift) {
+        // PC sin SQLite del local: intentar Firestore
+        if (isFirebaseAvailable()) {
+          try {
+            const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId)
+            if (remoteDetail) return { ok: true, data: remoteDetail }
+          } catch (fbErr) {
+            log.warn('[ipc:get-history-shift-detail] Firestore no disponible', fbErr)
+          }
+        }
+        return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
+      }
 
       const cashierRow = db.select({ name: users.name }).from(users).where(eq(users.id, shift.userId)).all()[0]
       const cashierName = cashierRow?.name ?? shift.userId
