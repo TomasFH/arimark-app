@@ -161,6 +161,10 @@ export const IPC = {
   // Carga masiva del catálogo a la balanza (solo admin, balanza conectada)
   KRETZ_SYNC_CATALOG: 'ipc:kretz-sync-catalog',
   KRETZ_SYNC_PROGRESS: 'ipc:kretz-sync-progress',  // push main → renderer
+
+  // Preferencias de UI (zoom, etc.) — persisten entre sesiones
+  GET_UI_SETTINGS: 'ipc:get-ui-settings',
+  SET_UI_SETTINGS: 'ipc:set-ui-settings',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

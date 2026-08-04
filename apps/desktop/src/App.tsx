@@ -22,6 +22,15 @@ import type { InitStatus, SessionInfo, ShiftInfo, StoreRow } from './types/hw-ap
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
+/** Wrapper que anima la entrada de cada pantalla con fade + slide sutil. */
+function Page({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="animate-page-enter flex flex-col flex-1 min-h-0 overflow-hidden">
+      {children}
+    </div>
+  )
+}
+
 type AppState =
   | { screen: 'loading' }
   | { screen: 'license-error'; reason: InitStatus['licenseReason'] & string; message: string }
@@ -311,62 +320,72 @@ export default function App() {
       <DevBanner />
 
       {state.screen === 'loading' && (
-        <div className="flex flex-1 items-center justify-center bg-gray-900">
+        <div className="flex flex-1 items-center justify-center bg-zinc-950 animate-fade-in">
           <div className="text-center space-y-4">
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white border-t-transparent" />
-            <p className="text-gray-300 text-sm">Iniciando…</p>
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300" />
+            <p className="text-zinc-500 text-sm">Iniciando…</p>
           </div>
         </div>
       )}
 
       {state.screen === 'license-error' && (
-        <LicenseErrorScreen reason={state.reason} message={state.message} />
+        <Page>
+          <LicenseErrorScreen reason={state.reason} message={state.message} />
+        </Page>
       )}
 
       {state.screen === 'activation' && (
-        <ActivationScreen licenseKey={state.licenseKey} onActivated={handleActivated} />
+        <Page>
+          <ActivationScreen licenseKey={state.licenseKey} onActivated={handleActivated} />
+        </Page>
       )}
 
       {state.screen === 'login' && (
-        <LoginScreen
-          businessName={state.initStatus.businessName}
-          onLogin={handleLogin}
-        />
+        <Page>
+          <LoginScreen
+            businessName={state.initStatus.businessName}
+            onLogin={handleLogin}
+          />
+        </Page>
       )}
 
       {state.screen === 'store-picker' && (
-        <StorePickerScreen
-          stores={state.stores}
-          intent={state.intent}
-          onSelect={async (storeId) => {
-            await handleSelectStore(state.partialSession, storeId, state.initStatus, state.intent)
-          }}
-          onLogout={() => {
-            if (state.intent === 'cashier') {
-              // Volver al hub admin sin cerrar sesión
-              const session = state.partialSession as SessionInfo
-              setState({ screen: 'admin-hub', session, initStatus: state.initStatus })
-            } else {
-              setState({ screen: 'login', initStatus: state.initStatus })
-            }
-          }}
-        />
+        <Page>
+          <StorePickerScreen
+            stores={state.stores}
+            intent={state.intent}
+            onSelect={async (storeId) => {
+              await handleSelectStore(state.partialSession, storeId, state.initStatus, state.intent)
+            }}
+            onLogout={() => {
+              if (state.intent === 'cashier') {
+                const session = state.partialSession as SessionInfo
+                setState({ screen: 'admin-hub', session, initStatus: state.initStatus })
+              } else {
+                setState({ screen: 'login', initStatus: state.initStatus })
+              }
+            }}
+          />
+        </Page>
       )}
 
       {state.screen === 'shift-required' && (
-        <OpenShiftScreen
-          onShiftOpened={handleShiftOpened}
-          onCancel={
-            state.session.role === 'admin'
-              ? handleReturnToAdminHub
-              : handleGoBackFromShiftRequired
-          }
-          cancelLabel={state.session.role === 'admin' ? '← Volver al hub' : '← Cambiar local'}
-          storeId={state.session.storeId}
-          userId={state.session.userId}
-        />
+        <Page>
+          <OpenShiftScreen
+            onShiftOpened={handleShiftOpened}
+            onCancel={
+              state.session.role === 'admin'
+                ? handleReturnToAdminHub
+                : handleGoBackFromShiftRequired
+            }
+            cancelLabel={state.session.role === 'admin' ? '← Volver al hub' : '← Cambiar local'}
+            storeId={state.session.storeId}
+            userId={state.session.userId}
+          />
+        </Page>
       )}
 
+      {/* CashierScreen permanece montado (oculto) para preservar el carrito */}
       {bgCashierState && (
         <div className={state.screen !== 'cashier' ? 'hidden' : 'contents'}>
           <CashierScreen
@@ -384,147 +403,158 @@ export default function App() {
       )}
 
       {state.screen === 'close-shift' && (
-        <CloseShiftScreen
-          onConfirmed={() => void handleShiftClosed()}
-          onCancel={() => {
-            const session = state.session
-            const initStatus = state.initStatus
-            // Para volver a caja necesitamos el ShiftInfo; lo recuperamos del main.
-            void window.hw.getActiveShift().then(r => {
-              if (r.ok && r.data) {
-                setState({ screen: 'cashier', session, shift: r.data, initStatus })
-              } else {
-                setState({ screen: 'shift-required', session, initStatus })
-              }
-            })
-          }}
-        />
+        <Page>
+          <CloseShiftScreen
+            onConfirmed={() => void handleShiftClosed()}
+            onCancel={() => {
+              const session = state.session
+              const initStatus = state.initStatus
+              void window.hw.getActiveShift().then(r => {
+                if (r.ok && r.data) {
+                  setState({ screen: 'cashier', session, shift: r.data, initStatus })
+                } else {
+                  setState({ screen: 'shift-required', session, initStatus })
+                }
+              })
+            }}
+          />
+        </Page>
       )}
 
       {state.screen === 'admin-hub' && (
-        <AdminHubScreen
-          session={state.session}
-          initStatus={state.initStatus}
-          onGoToAdminPanel={handleAdminGoToPanel}
-          onGoToCashier={() => void handleAdminGoToCashier()}
-          onGoToCashierManagement={handleGoToCashierManagement}
-          onGoToStoreManagement={handleGoToStoreManagement}
-          onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
-          onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
-          onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
-          onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
-          onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
-          onGoToEmployees={handleGoToEmployees}
-          onGoToStockCounts={handleGoToStockCounts}
-          onLogout={handleLogout}
-        />
+        <Page>
+          <AdminHubScreen
+            session={state.session}
+            initStatus={state.initStatus}
+            onGoToAdminPanel={handleAdminGoToPanel}
+            onGoToCashier={() => void handleAdminGoToCashier()}
+            onGoToCashierManagement={handleGoToCashierManagement}
+            onGoToStoreManagement={handleGoToStoreManagement}
+            onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
+            onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
+            onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
+            onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
+            onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
+            onGoToEmployees={handleGoToEmployees}
+            onGoToStockCounts={handleGoToStockCounts}
+            onLogout={handleLogout}
+          />
+        </Page>
       )}
 
       {state.screen === 'admin' && (
-        <AdminScreen
-          session={state.session}
-          onLogout={handleLogout}
-          onReturnToHub={handleReturnToAdminHub}
-        />
+        <Page>
+          <AdminScreen
+            session={state.session}
+            onLogout={handleLogout}
+            onReturnToHub={handleReturnToAdminHub}
+          />
+        </Page>
       )}
 
       {state.screen === 'cashier-management' && (
-        <CashierManagementScreen
-          onBack={handleReturnToAdminHub}
-        />
+        <Page>
+          <CashierManagementScreen onBack={handleReturnToAdminHub} />
+        </Page>
       )}
 
       {state.screen === 'store-management' && (
-        <StoreManagementScreen
-          onBack={handleReturnToAdminHub}
-        />
+        <Page>
+          <StoreManagementScreen onBack={handleReturnToAdminHub} />
+        </Page>
       )}
 
       {state.screen === 'debts' && (
-        <DebtsScreen
-          isAdmin={state.session.role === 'admin'}
-          onBack={() => {
-            if (state.fromCashier) {
-              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
-            } else {
-              handleReturnToAdminHub()
-            }
-          }}
-        />
+        <Page>
+          <DebtsScreen
+            isAdmin={state.session.role === 'admin'}
+            onBack={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
+          />
+        </Page>
       )}
 
       {state.screen === 'special-customers' && (
-        <SpecialCustomersScreen
-          isAdmin={state.session.role === 'admin'}
-          onBack={() => {
-            if (state.fromCashier) {
-              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
-            } else {
-              handleReturnToAdminHub()
-            }
-          }}
-        />
+        <Page>
+          <SpecialCustomersScreen
+            isAdmin={state.session.role === 'admin'}
+            onBack={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
+          />
+        </Page>
       )}
 
       {state.screen === 'orders' && (
-        <OrdersScreen
-          isAdmin={state.session.role === 'admin'}
-          currentShiftId={state.fromCashier?.id ?? null}
-          onBack={() => {
-            if (state.fromCashier) {
-              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
-            } else {
-              handleReturnToAdminHub()
-            }
-          }}
-        />
+        <Page>
+          <OrdersScreen
+            isAdmin={state.session.role === 'admin'}
+            currentShiftId={state.fromCashier?.id ?? null}
+            onBack={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
+          />
+        </Page>
       )}
 
       {state.screen === 'history' && (
-        <HistoryScreen
-          onBack={handleReturnToAdminHub}
-        />
+        <Page>
+          <HistoryScreen onBack={handleReturnToAdminHub} />
+        </Page>
       )}
 
       {state.screen === 'providers' && (
-        <ProvidersScreen
-          onBack={handleReturnToAdminHub}
-        />
+        <Page>
+          <ProvidersScreen onBack={handleReturnToAdminHub} />
+        </Page>
       )}
 
       {state.screen === 'employees' && (
-        <EmployeesScreen
-          onBack={handleReturnToAdminHub}
-        />
+        <Page>
+          <EmployeesScreen onBack={handleReturnToAdminHub} />
+        </Page>
       )}
 
       {state.screen === 'stock-counts' && (
-        <StockCountHistoryScreen
-          onBack={handleReturnToAdminHub}
-        />
+        <Page>
+          <StockCountHistoryScreen onBack={handleReturnToAdminHub} />
+        </Page>
       )}
 
       {/* Modal de aviso de inactividad — overlay global */}
       {showInactivityWarning && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl border border-amber-500/40 w-full max-w-sm p-6 shadow-2xl space-y-4 text-center">
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-overlay-fade">
+          <div className="bg-zinc-900 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 shadow-2xl space-y-4 text-center animate-modal-enter">
             <div className="text-4xl">⏰</div>
             <h2 className="text-lg font-bold text-white">¿Seguís trabajando?</h2>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-zinc-400">
               No hubo actividad en la caja por un tiempo. Si no respondés, el turno se cerrará
               automáticamente para proteger los registros.
             </p>
-            <div className="text-3xl font-mono font-bold text-amber-400">{countdownDisplay}</div>
+            <div className="text-3xl font-mono font-bold text-zinc-200">{countdownDisplay}</div>
             <div className="flex flex-col gap-2 pt-1">
               <button
                 onClick={() => void handleDismissInactivity()}
-                className="w-full py-3 rounded-xl bg-green-700 hover:bg-green-600 font-semibold text-white transition-colors"
+                className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 font-semibold text-white transition-colors"
               >
                 Seguir trabajando
               </button>
               <button
                 onClick={handleGoToCloseShift}
-                className="w-full py-3 rounded-xl bg-red-700 hover:bg-red-600 font-semibold text-white transition-colors"
+                className="w-full py-3 rounded-xl border border-zinc-700 hover:bg-zinc-800 font-semibold text-zinc-300 transition-colors"
               >
                 Cerrar turno ahora
               </button>

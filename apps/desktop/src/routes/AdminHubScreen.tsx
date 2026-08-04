@@ -1,9 +1,9 @@
 /**
- * Pantalla de entrada para el administrador.
- * Permite elegir entre el panel de administración y el modo cajera de emergencia.
+ * Hub de administración — punto de entrada del rol admin.
+ * Grid de 2 columnas con accesos directos a cada módulo.
  */
-import { useState } from 'react'
-import type { SessionInfo, InitStatus } from '../types/hw-api'
+import { useState, useEffect, useRef } from 'react'
+import type { SessionInfo, InitStatus, UiSettings } from '../types/hw-api'
 import AttendanceModal from './AttendanceModal'
 import StockCountModal from './StockCountModal'
 
@@ -24,10 +24,153 @@ interface Props {
   onLogout: () => void
 }
 
-export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToStoreManagement, onGoToDebts, onGoToSpecialCustomers, onGoToOrders, onGoToHistory, onGoToProviders, onGoToEmployees, onGoToStockCounts, onLogout }: Props) {
+interface TileProps {
+  icon: string
+  accent: string
+  label: string
+  description: string
+  onClick: () => void
+  muted?: boolean
+}
+
+function Tile({ icon, accent, label, description, onClick, muted }: TileProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex items-center gap-3 rounded-xl border p-3.5 text-left transition-all active:scale-[0.98] ${
+        muted
+          ? 'border-zinc-800/60 bg-zinc-900/40 opacity-60 hover:opacity-80 hover:bg-zinc-900 hover:border-zinc-800'
+          : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800/80 hover:border-zinc-700'
+      }`}
+    >
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl ${accent}`}>
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-zinc-100 truncate">{label}</p>
+        <p className="mt-0.5 text-xs text-zinc-500 truncate">{description}</p>
+      </div>
+      <svg
+        className="h-3.5 w-3.5 shrink-0 text-zinc-700 transition-colors group-hover:text-zinc-400"
+        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+      </svg>
+    </button>
+  )
+}
+
+interface SubOption {
+  icon: string
+  label: string
+  description: string
+  onClick: () => void
+}
+
+interface GroupTileProps {
+  icon: string
+  accent: string
+  label: string
+  description: string
+  options: SubOption[]
+  expanded: boolean
+  onToggle: () => void
+}
+
+function GroupTile({ icon, accent, label, description, options, expanded, onToggle }: GroupTileProps) {
+  return (
+    <div className={`rounded-xl border transition-all duration-150 ${
+      expanded ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-800 bg-zinc-900'
+    }`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="group flex w-full items-center gap-3 rounded-xl p-3.5 text-left transition-all active:scale-[0.98] hover:bg-zinc-800/40"
+      >
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl ${accent}`}>
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-zinc-100 truncate">{label}</p>
+          <p className="mt-0.5 text-xs text-zinc-500 truncate">{description}</p>
+        </div>
+        <svg
+          className={`h-3.5 w-3.5 shrink-0 text-zinc-600 transition-transform duration-150 group-hover:text-zinc-400 ${
+            expanded ? 'rotate-90' : ''
+          }`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-zinc-800 px-3 pb-3 pt-2 flex flex-col gap-1.5">
+          {options.map(opt => (
+            <button
+              key={opt.label}
+              type="button"
+              onClick={opt.onClick}
+              className="group flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 text-left transition-all hover:bg-zinc-800 hover:border-zinc-700 active:scale-[0.98]"
+            >
+              <span className="text-base shrink-0">{opt.icon}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-zinc-200 truncate">{opt.label}</p>
+                <p className="text-[10px] text-zinc-500 truncate">{opt.description}</p>
+              </div>
+              <svg
+                className="ml-auto h-3 w-3 shrink-0 text-zinc-700 group-hover:text-zinc-400 transition-colors"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function AdminHubScreen({
+  initStatus,
+  onGoToAdminPanel,
+  onGoToCashier,
+  onGoToCashierManagement,
+  onGoToStoreManagement,
+  onGoToDebts,
+  onGoToSpecialCustomers,
+  onGoToOrders,
+  onGoToHistory,
+  onGoToProviders,
+  onGoToEmployees,
+  onGoToStockCounts,
+  onLogout,
+}: Props) {
   const [showAttendance, setShowAttendance] = useState(false)
   const [showStockCount, setShowStockCount] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [expandedGroup, setExpandedGroup] = useState<'employees' | 'stock' | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [uiSettings, setUiSettings] = useState<UiSettings>({ zoomFactor: 1.0 })
+  const settingsBtnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    void window.hw.getUiSettings().then(r => {
+      if (r.ok) setUiSettings(r.data)
+    })
+  }, [])
+
+  async function handleSetZoom(factor: number): Promise<void> {
+    const clamped = Math.max(0.6, Math.min(2.0, Math.round(factor * 100) / 100))
+    const r = await window.hw.setUiSettings({ zoomFactor: clamped })
+    if (r.ok) setUiSettings(r.data)
+  }
+
+  function toggleGroup(g: 'employees' | 'stock') {
+    setExpandedGroup(v => (v === g ? null : g))
+  }
 
   async function handleRefreshRemote(): Promise<void> {
     if (refreshing) return
@@ -40,262 +183,204 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white">
+    <div className="flex h-screen flex-col bg-zinc-950 text-zinc-100">
+
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-        <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wider">Administrador</p>
-          <h1 className="text-base font-semibold text-white">{initStatus.businessName}</h1>
+      <header className="relative flex items-center justify-between border-b border-zinc-800 bg-zinc-900/50 px-6 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-base">
+            🥩
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-zinc-100 truncate">{initStatus.businessName}</p>
+            <p className="text-[10px] text-zinc-600 uppercase tracking-wider">Administrador</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
             onClick={() => void handleRefreshRemote()}
             disabled={refreshing}
+            className="text-xs text-zinc-600 hover:text-zinc-300 transition-colors disabled:opacity-40"
             title="Actualizar datos remotos"
-            className="text-sm text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
           >
-            {refreshing ? 'Actualizando…' : '↺ Actualizar'}
+            {refreshing ? '…' : '↺'}
           </button>
+
+          {/* Ajustes de la aplicación */}
           <button
+            ref={settingsBtnRef}
+            type="button"
+            onClick={() => setShowSettings(v => !v)}
+            title="Ajustes de la aplicación"
+            className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+              showSettings
+                ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
+                : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+            }`}
+          >
+            Ajustes
+          </button>
+
+          <button
+            type="button"
             onClick={onLogout}
-            className="text-sm text-gray-400 hover:text-white transition-colors"
+            className="rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 transition-colors"
           >
             Cerrar sesión
           </button>
         </div>
+
+        {/* Panel de ajustes flotante */}
+        {showSettings && (
+          <>
+            {/* Backdrop invisible para cerrar al hacer clic afuera */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowSettings(false)}
+            />
+            <div className="absolute right-4 top-full z-50 mt-1.5 w-72 rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+              <div className="border-b border-zinc-800 px-4 py-3">
+                <p className="text-sm font-semibold text-zinc-100">Ajustes de la aplicación</p>
+                <p className="mt-0.5 text-[10px] text-zinc-500">Las preferencias se guardan automáticamente</p>
+              </div>
+
+              <div className="p-4 space-y-4">
+                {/* Zoom */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-300">Tamaño de pantalla</p>
+                      <p className="text-[10px] text-zinc-600 mt-0.5">También: Ctrl+= / Ctrl+−</p>
+                    </div>
+                    <span className="font-mono text-sm font-semibold text-zinc-100 tabular-nums">
+                      {Math.round(uiSettings.zoomFactor * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSetZoom(uiSettings.zoomFactor - 0.1)}
+                      disabled={uiSettings.zoomFactor <= 0.6}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-700 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed text-base font-bold"
+                      title="Reducir tamaño"
+                    >
+                      −
+                    </button>
+                    {/* Barra de progreso visual */}
+                    <div className="relative flex-1 h-1.5 rounded-full bg-zinc-800">
+                      <div
+                        className="absolute inset-y-0 left-0 rounded-full bg-zinc-400 transition-all duration-150"
+                        style={{ width: `${((uiSettings.zoomFactor - 0.6) / (2.0 - 0.6)) * 100}%` }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleSetZoom(uiSettings.zoomFactor + 0.1)}
+                      disabled={uiSettings.zoomFactor >= 2.0}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-700 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed text-base font-bold"
+                      title="Aumentar tamaño"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {uiSettings.zoomFactor !== 1.0 && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSetZoom(1.0)}
+                      className="mt-2 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                    >
+                      Restablecer al 100% (Ctrl+0)
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </header>
 
-      {/* Opciones principales */}
+      {/* Grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="flex items-center justify-center min-h-full px-6">
-          <div className="w-full max-w-xl space-y-4 py-8">
-          <p className="text-center text-gray-400 text-sm mb-8">¿Qué querés hacer?</p>
+        <div className="mx-auto w-full max-w-5xl px-8 py-5 space-y-4">
 
-          {/* Panel de administración */}
+          {/* Primary action */}
           <button
-            onClick={onGoToAdminPanel}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-red-600/20 flex items-center justify-center text-3xl">
-              ⚙️
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Panel de administración</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Gestionar productos, precios y disponibilidad por local
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Modo cajera de emergencia */}
-          <button
+            type="button"
             onClick={onGoToCashier}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+            className="group flex w-full items-center gap-4 rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-left transition-all hover:border-emerald-700/50 hover:bg-emerald-950/30 active:scale-[0.98]"
           >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-amber-600/20 flex items-center justify-center text-3xl">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600/20 text-xl">
               🛒
             </div>
-            <div>
-              <p className="text-base font-semibold text-white">Operar como cajera</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Acceder al punto de venta en caso de emergencia
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Gestión de cajeras */}
-          <button
-            onClick={onGoToCashierManagement}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-blue-600/20 flex items-center justify-center text-3xl">
-              👥
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Gestión de cajeras</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Crear, activar y desactivar cuentas de cajeras
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Gestión de locales */}
-          <button
-            onClick={onGoToStoreManagement}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-teal-600/20 flex items-center justify-center text-3xl">
-              🏪
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Gestión de locales</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Ver locales registrados y agregar nuevos
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Fiados y deudas */}
-          <button
-            onClick={onGoToDebts}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-amber-600/20 flex items-center justify-center text-3xl">
-              📒
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Fiados / Cuentas corrientes</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Ver deudas pendientes, registrar pagos y cancelar deudas
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Clientes especiales */}
-          <button
-            onClick={onGoToSpecialCustomers}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-purple-600/20 flex items-center justify-center text-3xl">
-              👤
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Clientes especiales</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Ver y anotar precios acordados por cliente
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Pedidos */}
-          <button
-            onClick={onGoToOrders}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-emerald-600/20 flex items-center justify-center text-3xl">
-              📦
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Pedidos</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Ver y gestionar todos los pedidos del local
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Historial */}
-          <button
-            onClick={onGoToHistory}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-sky-600/20 flex items-center justify-center text-3xl">
-              📊
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Historial completo</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Ventas, gastos, fiados y señas de todos los turnos
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Proveedores */}
-          <button
-            onClick={onGoToProviders}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-orange-600/20 flex items-center justify-center text-3xl">
-              🚚
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white">Proveedores</p>
-              <p className="text-sm text-gray-400 mt-0.5">
-                Deuda combinada entre locales, ABM de proveedores
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl">›</div>
-          </button>
-
-          {/* Empleados */}
-          <button
-            onClick={onGoToEmployees}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-lime-600/20 flex items-center justify-center text-3xl">
-              👷
-            </div>
             <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-white">Empleados</p>
-              <p className="text-sm text-gray-400 mt-0.5 truncate">
-                Alta, sueldo, archivo y liquidación semanal
-              </p>
+              <p className="text-sm font-semibold text-emerald-300">Operar como cajera</p>
+              <p className="mt-0.5 text-xs text-emerald-600">Acceder al punto de venta</p>
             </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
+            <svg className="h-4 w-4 shrink-0 text-emerald-700 group-hover:text-emerald-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m9 18 6-6-6-6" />
+            </svg>
           </button>
 
-          {/* Asistencia — pausada (posible retiro futuro) */}
-          <button
-            type="button"
-            onClick={() => setShowAttendance(true)}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800/60 hover:bg-gray-700 border border-gray-800 hover:border-gray-600 p-6 transition-all text-left opacity-70"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-teal-600/20 flex items-center justify-center text-3xl">
-              ✓
+          {/* Section: Configuración */}
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
+              Configuración
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Tile icon="⚙️" accent="bg-red-600/15" label="Panel de administración" description="Productos, precios y disponibilidad" onClick={onGoToAdminPanel} />
+              <Tile icon="🏪" accent="bg-teal-600/15" label="Gestión de locales" description="Locales registrados en el sistema" onClick={onGoToStoreManagement} />
+              <GroupTile
+                icon="👥"
+                accent="bg-blue-600/15"
+                label="Empleados"
+                description="Cajeras y carniceros — cuentas, sueldos y liquidación"
+                expanded={expandedGroup === 'employees'}
+                onToggle={() => toggleGroup('employees')}
+                options={[
+                  { icon: '💳', label: 'Cajeras', description: 'Cuentas, locales y accesos', onClick: onGoToCashierManagement },
+                  { icon: '👷', label: 'Carniceros', description: 'Alta, sueldo y liquidación semanal', onClick: onGoToEmployees },
+                ]}
+              />
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-white">Asistencia <span className="text-xs font-normal text-gray-500">(pausado)</span></p>
-              <p className="text-sm text-gray-500 mt-0.5 truncate">
-                Disponible pero no prioritario en operación
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
-          </button>
+          </div>
 
-          {/* Conteo de stock */}
-          <button
-            type="button"
-            onClick={() => setShowStockCount(true)}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-cyan-600/20 flex items-center justify-center text-3xl">
-              ⚖️
+          {/* Section: Operación */}
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
+              Operación
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Tile icon="📒" accent="bg-amber-600/15" label="Fiados" description="Deudas, cobros y cuentas corrientes" onClick={onGoToDebts} />
+              <Tile icon="👤" accent="bg-purple-600/15" label="Clientes especiales" description="Precios acordados por cliente" onClick={onGoToSpecialCustomers} />
+              <Tile icon="📦" accent="bg-emerald-600/15" label="Pedidos" description="Gestionar pedidos del local" onClick={onGoToOrders} />
+              <Tile icon="🚚" accent="bg-orange-600/15" label="Proveedores" description="Deuda combinada entre locales" onClick={onGoToProviders} />
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-white">Nuevo conteo de stock</p>
-              <p className="text-sm text-gray-400 mt-0.5 truncate">
-                Registrar inventario del día (dominical u ocasional)
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
-          </button>
+          </div>
 
-          {/* Historial conteos */}
-          <button
-            type="button"
-            onClick={onGoToStockCounts}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-slate-600/20 flex items-center justify-center text-3xl">
-              📦
+          {/* Section: Análisis */}
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
+              Análisis
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Tile icon="📊" accent="bg-sky-600/15" label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
+              <Tile icon="✓" accent="bg-teal-600/15" label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} muted />
+              <GroupTile
+                icon="⚖️"
+                accent="bg-cyan-600/15"
+                label="Stock"
+                description="Conteos de inventario e historial"
+                expanded={expandedGroup === 'stock'}
+                onToggle={() => toggleGroup('stock')}
+                options={[
+                  { icon: '📋', label: 'Nuevo conteo', description: 'Registrar inventario del día', onClick: () => setShowStockCount(true) },
+                  { icon: '📦', label: 'Historial de conteos', description: 'Conteos de stock pasados', onClick: onGoToStockCounts },
+                ]}
+              />
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-white">Historial de conteos</p>
-              <p className="text-sm text-gray-400 mt-0.5 truncate">
-                Ver conteos pasados por local y fecha
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
-          </button>
-        </div>
+          </div>
+
         </div>
       </div>
 

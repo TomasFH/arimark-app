@@ -36,9 +36,9 @@ function nowTime(): string {
 function StatusDot({ status }: { status: 'connected' | 'disconnected' | 'error' | 'unknown' }) {
   const colors = {
     connected: 'bg-green-400',
-    disconnected: 'bg-gray-500',
+    disconnected: 'bg-zinc-500',
     error: 'bg-red-500 animate-pulse',
-    unknown: 'bg-gray-600',
+    unknown: 'bg-zinc-600',
   }
   const labels = {
     connected: 'Conectado',
@@ -49,7 +49,7 @@ function StatusDot({ status }: { status: 'connected' | 'disconnected' | 'error' 
   return (
     <span className="flex items-center gap-1.5">
       <span className={`inline-block h-2 w-2 rounded-full ${colors[status]}`} />
-      <span className="text-xs text-gray-400">{labels[status]}</span>
+      <span className="text-xs text-zinc-400">{labels[status]}</span>
     </span>
   )
 }
@@ -145,27 +145,27 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
   return (
     <div className="space-y-3">
       {/* Estado en tiempo real */}
-      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Estado en vivo</p>
+      <div className="rounded-lg bg-zinc-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Estado en vivo</p>
         <div className="grid gap-2">
-          <div className="rounded bg-gray-900/60 p-2 space-y-1">
-            <p className="text-[10px] font-semibold text-gray-400">Balanza KRETZ</p>
+          <div className="rounded bg-zinc-900/60 p-2 space-y-1">
+            <p className="text-[10px] font-semibold text-zinc-400">Balanza KRETZ</p>
             <StatusDot status={hwStatus.scale} />
-            <p className="text-[10px] text-gray-600">Puerto: {config.kretzPort || 'mock'}</p>
+            <p className="text-[10px] text-zinc-600">Puerto: {config.kretzPort || 'mock'}</p>
           </div>
         </div>
       </div>
 
       {/* Detección automática de la balanza */}
-      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Detectar balanza</p>
-        <p className="text-[10px] text-gray-600 leading-relaxed">
+      <div className="rounded-lg bg-zinc-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Detectar balanza</p>
+        <p className="text-[10px] text-zinc-600 leading-relaxed">
           Sondea todos los puertos COM y se conecta al que responda. Cerrá iTegra antes de detectar.
         </p>
         <button
           onClick={handleDetect}
           disabled={detecting}
-          className="w-full rounded border border-sky-700 bg-sky-900/40 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-900/60 disabled:opacity-40"
+          className="w-full rounded border border-zinc-700 bg-zinc-800/60 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
         >
           {detecting ? 'Detectando…' : 'Detectar balanza automáticamente'}
         </button>
@@ -177,17 +177,17 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
       </div>
 
       {/* Configuración de hardware */}
-      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Configurar hardware</p>
+      <div className="rounded-lg bg-zinc-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Configurar hardware</p>
 
         <div>
-          <label className="text-[10px] text-gray-500">Puerto KRETZ (ej. COM8; vacío = mock)</label>
+          <label className="text-[10px] text-zinc-500">Puerto KRETZ (ej. COM8; vacío = mock)</label>
           <input
             type="text"
             value={editPort}
             onChange={e => setEditPort(e.target.value)}
             placeholder="COM8"
-            className="mt-0.5 w-full rounded bg-gray-900 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+            className="mt-0.5 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
         </div>
         {saveMsg && (
@@ -199,7 +199,7 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
         <button
           onClick={handleSave}
           disabled={saving}
-          className="w-full rounded border border-yellow-700 bg-yellow-900/40 py-1.5 text-xs font-semibold text-yellow-300 hover:bg-yellow-900/60 disabled:opacity-40"
+          className="w-full rounded border border-zinc-700 bg-zinc-800/60 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
         >
           {saving ? 'Guardando…' : 'Guardar y reiniciar para aplicar'}
         </button>
@@ -220,23 +220,23 @@ function EventLog({ entries }: { entries: LogEntry[] }) {
   }, [entries])
 
   const levelColors: Record<LogEntry['level'], string> = {
-    info: 'text-gray-400',
+    info: 'text-zinc-400',
     warn: 'text-yellow-400',
     error: 'text-red-400',
   }
 
   return (
-    <div className="rounded-lg bg-gray-800/60 p-2 space-y-1">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">
+    <div className="rounded-lg bg-zinc-800/60 p-2 space-y-1">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500 mb-1">
         Log de eventos ({entries.length})
       </p>
       <div className="h-28 overflow-y-auto space-y-0.5 font-mono">
         {entries.length === 0 && (
-          <p className="text-[10px] text-gray-600 italic">Sin eventos aún…</p>
+          <p className="text-[10px] text-zinc-600 italic">Sin eventos aún…</p>
         )}
         {entries.map(e => (
           <div key={e.id} className="flex gap-1.5 text-[10px]">
-            <span className="shrink-0 text-gray-600">{e.time}</span>
+            <span className="shrink-0 text-zinc-600">{e.time}</span>
             <span className={`${levelColors[e.level]}`}>{e.message}</span>
           </div>
         ))}
@@ -277,9 +277,9 @@ function SalesTab({ onLog, onDataChanged }: { onLog: (entry: Omit<LogEntry, 'id'
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg bg-gray-800/60 p-3 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Ventas ficticias</p>
-        <p className="text-[10px] text-gray-500 leading-relaxed">
+      <div className="rounded-lg bg-zinc-800/60 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Ventas ficticias</p>
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
           Genera ventas confirmadas en el turno actual usando el catálogo real. Sirve para probar
           la lista de ventas, el balance en efectivo y el cierre de caja. Solo en modo dev.
         </p>
@@ -298,12 +298,12 @@ function SalesTab({ onLog, onDataChanged }: { onLog: (entry: Omit<LogEntry, 'id'
             inputMode="numeric"
             value={count}
             onChange={e => setCount(e.target.value.replace(/[^0-9]/g, ''))}
-            className="w-16 rounded bg-gray-900 px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:ring-1 focus:ring-yellow-500"
+            className="w-16 rounded bg-zinc-900 px-2 py-1.5 text-xs text-white text-center focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
           <button
             onClick={() => void generate(parsedCount)}
             disabled={busy}
-            className="flex-1 rounded border border-yellow-700 bg-yellow-900/40 py-1.5 text-xs font-semibold text-yellow-300 hover:bg-yellow-900/60 disabled:opacity-40"
+            className="flex-1 rounded border border-zinc-700 bg-zinc-800/60 py-1.5 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           >
             {busy ? 'Generando…' : `Generar ${parsedCount} ventas`}
           </button>
@@ -363,8 +363,8 @@ export default function DevToolsPanel({ onDataChanged }: { onDataChanged?: () =>
               onClick={() => setTab('hardware')}
               className={`flex-1 rounded py-1 text-[10px] font-semibold transition-colors ${
                 tab === 'hardware'
-                  ? isSandbox ? 'bg-yellow-700 text-white' : 'bg-orange-700 text-white'
-                  : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                  ? 'bg-zinc-700 text-zinc-100'
+                  : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
               }`}
             >
               Hardware
@@ -373,8 +373,8 @@ export default function DevToolsPanel({ onDataChanged }: { onDataChanged?: () =>
               onClick={() => setTab('plus')}
               className={`flex-1 rounded py-1 text-[10px] font-semibold transition-colors ${
                 tab === 'plus'
-                  ? isSandbox ? 'bg-yellow-700 text-white' : 'bg-orange-700 text-white'
-                  : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                  ? 'bg-zinc-700 text-zinc-100'
+                  : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
               }`}
             >
               PLUs
@@ -383,8 +383,8 @@ export default function DevToolsPanel({ onDataChanged }: { onDataChanged?: () =>
               onClick={() => setTab('sales')}
               className={`flex-1 rounded py-1 text-[10px] font-semibold transition-colors ${
                 tab === 'sales'
-                  ? isSandbox ? 'bg-yellow-700 text-white' : 'bg-orange-700 text-white'
-                  : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                  ? 'bg-zinc-700 text-zinc-100'
+                  : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
               }`}
             >
               Ventas

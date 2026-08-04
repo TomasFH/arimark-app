@@ -9,6 +9,7 @@
  *  - Carga masiva del catálogo a la balanza KRETZ
  */
 import { useEffect, useState, useCallback } from 'react'
+import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import KretzSyncModal from '../components/KretzSyncModal'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
@@ -178,52 +179,48 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   }).length
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white">
+    <div className="flex flex-col h-screen bg-zinc-950 text-white">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-        <div className="flex items-center gap-3">
-          <button onClick={onReturnToHub} className="text-gray-400 hover:text-white transition-colors text-sm">
-            ← Volver
-          </button>
-          <div>
-            <h1 className="text-lg font-semibold">Administración — Productos</h1>
-            {stores.length > 1 && (
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-gray-400">Local:</span>
-                <select
-                  value={selectedStoreId}
-                  onChange={e => {
-                    const next = e.target.value
-                    if (bulkMode && pendingChanges > 0) {
-                      setPendingStoreId(next)
-                    } else {
-                      setBulkMode(false)
-                      setBulkDraft(new Map())
-                      setSelectedStoreId(next)
-                    }
-                  }}
-                  className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
-                >
-                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-            )}
-            {stores.length === 1 && <p className="text-xs text-gray-400 mt-0.5">{stores[0]?.name}</p>}
-          </div>
+      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+        <BackButton onClick={onReturnToHub} />
+        <div className="min-w-0 flex-1">
+          <h1 className="text-sm font-semibold text-zinc-100 truncate">Administración — Productos</h1>
+          {stores.length > 1 && (
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] text-zinc-500 shrink-0">Local:</span>
+              <select
+                value={selectedStoreId}
+                onChange={e => {
+                  const next = e.target.value
+                  if (bulkMode && pendingChanges > 0) {
+                    setPendingStoreId(next)
+                  } else {
+                    setBulkMode(false)
+                    setBulkDraft(new Map())
+                    setSelectedStoreId(next)
+                  }
+                }}
+                className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-zinc-300"
+              >
+                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+          {stores.length === 1 && <p className="text-[10px] text-zinc-500 mt-0.5">{stores[0]?.name}</p>}
         </div>
-        <button onClick={onLogout} className="text-sm text-gray-400 hover:text-white transition-colors">
+        <button onClick={onLogout} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-200 transition-colors">
           Cerrar sesión
         </button>
       </header>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-800">
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-zinc-800">
         <input
           type="text"
           placeholder="Buscar por nombre o PLU…"
           value={filterText}
           onChange={e => setFilterText(e.target.value)}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-red-500"
         />
 
         {bulkMode ? (
@@ -231,14 +228,14 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
             <button
               onClick={() => { setBulkMode(false); setBulkDraft(new Map()) }}
               disabled={bulkSaving}
-              className="border border-gray-700 hover:border-gray-500 text-gray-400 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="border border-zinc-700 hover:border-zinc-500 text-zinc-400 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               onClick={() => void handleBulkSave()}
               disabled={bulkSaving || pendingChanges === 0}
-              className="bg-amber-600 hover:bg-amber-700 disabled:bg-gray-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              className="bg-amber-600 hover:bg-amber-700 disabled:bg-zinc-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
             >
               {bulkSaving
                 ? 'Guardando…'
@@ -251,21 +248,21 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
           <>
             <button
               onClick={() => { setBulkMode(true); setBulkDraft(new Map()) }}
-              className="border border-gray-700 hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               title="Editar varios precios de una vez"
             >
               Editar precios
             </button>
             <button
               onClick={() => setShowSync(true)}
-              className="border border-gray-700 hover:border-gray-500 text-gray-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               title="Enviar el catálogo del local a la balanza conectada por USB"
             >
               Cargar en balanza
             </button>
             <button
               onClick={() => setShowCreate(true)}
-              className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >
               + Nuevo producto
             </button>
@@ -274,13 +271,13 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       </div>
 
       {bulkMode && (
-        <div className="mx-6 mt-3 bg-amber-900/30 border border-amber-800/60 text-amber-300 rounded-lg px-4 py-2 text-xs">
+        <div className="mx-6 mt-3 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-2 text-xs text-amber-400/90">
           Modo edición masiva activo — modificá los precios en la tabla y guardá todos los cambios de una vez.
         </div>
       )}
 
       {error && (
-        <div className="mx-6 mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-2 text-sm">
+        <div className="mx-6 mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-2 text-sm text-red-400/90">
           {error}
         </div>
       )}
@@ -288,17 +285,17 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       {/* Tabla */}
       <div className="flex-1 overflow-auto px-6 py-3">
         {loading ? (
-          <div className="flex items-center justify-center h-40">
-            <div className="w-7 h-7 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="flex items-center justify-center h-40">
+            <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : filtered.length === 0 ? (
-          <p className="text-center text-gray-500 mt-16 text-sm">
+          <p className="text-center text-zinc-500 mt-16 text-sm">
             {filterText ? 'Sin resultados para esa búsqueda.' : 'No hay productos cargados.'}
           </p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-800">
+              <tr className="text-zinc-400 text-left border-b border-zinc-800">
                 <th className="pb-2 pr-3 font-medium w-12">PLU</th>
                 <th className="pb-2 pr-3 font-medium">Nombre</th>
                 <th className="pb-2 pr-3 font-medium">Categoría</th>
@@ -317,23 +314,23 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                 return (
                   <tr
                     key={p.id}
-                    className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors ${isChanged ? 'bg-amber-900/10' : ''}`}
+                    className={`border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors ${isChanged ? 'bg-amber-900/10' : ''}`}
                   >
-                    <td className="py-2 pr-3 tabular-nums text-gray-400">
-                      {p.pluNumber ?? <span className="text-gray-600">—</span>}
+                    <td className="py-2 pr-3 tabular-nums text-zinc-400">
+                      {p.pluNumber ?? <span className="text-zinc-600">—</span>}
                     </td>
                     <td className="py-2 pr-3 font-medium min-w-0">
                       <span className="truncate block max-w-xs" title={p.name}>{p.name}</span>
                     </td>
-                    <td className="py-2 pr-3 text-gray-400">{CATEGORY_LABELS[p.category]}</td>
-                    <td className="py-2 pr-3 text-gray-400">{p.unit === 'kg' ? 'kg' : 'unidad'}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{CATEGORY_LABELS[p.category]}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{p.unit === 'kg' ? 'kg' : 'unidad'}</td>
 
                     <td className="py-1 pr-3 text-right">
                       {bulkMode ? (
                         <NumericInput
                           value={draftRaw ?? (p.price != null ? formatNumericInputValue(String(p.price)) : '')}
                           onChange={v => handleBulkDraftChange(p.id, v)}
-                          className={`w-28 bg-gray-800 border rounded px-2 py-1 text-sm text-white text-right focus:outline-none focus:ring-1 ${isChanged ? 'border-amber-500 focus:ring-amber-500' : 'border-gray-600 focus:ring-red-500'}`}
+                          className={`w-28 bg-zinc-800 border rounded px-2 py-1 text-sm text-white text-right focus:outline-none focus:ring-1 ${isChanged ? 'border-amber-500 focus:ring-amber-500' : 'border-zinc-600 focus:ring-red-500'}`}
                           placeholder="—"
                         />
                       ) : (
@@ -343,11 +340,11 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                             className="text-white hover:text-red-400 transition-colors tabular-nums"
                             title="Cambiar precio"
                           >
-                            {p.price != null ? fmtARS(p.price) : <span className="text-gray-500 text-xs">Sin precio</span>}
+                            {p.price != null ? fmtARS(p.price) : <span className="text-zinc-500 text-xs">Sin precio</span>}
                           </button>
                           <button
                             onClick={() => setHistoryProduct(p)}
-                            className="text-gray-600 hover:text-gray-400 text-xs transition-colors"
+                            className="text-zinc-600 hover:text-zinc-400 text-xs transition-colors"
                             title="Ver historial de precios"
                           >
                             ↓
@@ -364,14 +361,14 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => setEditProduct(p)}
-                            className="text-gray-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+                            className="text-zinc-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-zinc-700 transition-colors"
                           >
                             Editar
                           </button>
                           <button
                             type="button"
                             onClick={() => setDeleteProduct(p)}
-                            className="text-xs px-2 py-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-950/40 transition-colors"
+                            className="text-xs px-2 py-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-950/40 transition-colors"
                             title="Quitar del catálogo y liberar el PLU"
                           >
                             Eliminar
@@ -439,7 +436,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
   return (
     <button
       onClick={onChange}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-green-600' : 'bg-gray-600'}`}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-green-600' : 'bg-zinc-600'}`}
       role="switch"
       aria-checked={checked}
     >
@@ -557,24 +554,24 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved }: Produc
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-5">{isEdit ? 'Editar producto' : 'Nuevo producto'}</h2>
         <div className="space-y-4">
           <Field label="Nombre">
             <input type="text" value={name} onChange={e => setName(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
               placeholder="Nombre del producto" autoFocus />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Categoría">
               <select value={category} onChange={e => setCategory(e.target.value as AdminProductRow['category'])}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500">
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500">
                 {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </Field>
             <Field label="Unidad">
               <select value={unit} onChange={e => setUnit(e.target.value as 'kg' | 'unit')}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500">
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500">
                 <option value="kg">kg (pesable)</option>
                 <option value="unit">Unidad</option>
               </select>
@@ -583,13 +580,13 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved }: Produc
           <Field label="Número de PLU (1–999, opcional)">
             <input type="text" inputMode="numeric" value={pluRaw}
               onChange={e => setPluRaw(e.target.value.replace(/\D/g, '').slice(0, 3))}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
               placeholder="Sin asignar" />
           </Field>
           {!isEdit && (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2 min-w-0">
-                <p className="text-xs font-medium text-gray-400 shrink-0">
+                <p className="text-xs font-medium text-zinc-400 shrink-0">
                   Precio inicial ($/{unitLabel}, opcional)
                 </p>
                 {stores.length > 1 && (
@@ -600,7 +597,7 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved }: Produc
                       onChange={e => handleToggleSamePrice(e.target.checked)}
                       className="shrink-0 accent-red-500"
                     />
-                    <span className="text-xs text-gray-300 truncate" title="Usar el mismo precio en todos los locales">
+                    <span className="text-xs text-zinc-300 truncate" title="Usar el mismo precio en todos los locales">
                       Mismo precio en todos
                     </span>
                   </label>
@@ -609,17 +606,17 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved }: Produc
 
               {(samePriceAll || stores.length <= 1) ? (
                 <NumericInput value={sharedPriceRaw} onChange={setSharedPriceRaw}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
                   placeholder="Dejar en blanco si no tiene precio aún" />
               ) : (
-                <div className="rounded-lg border border-gray-700 bg-gray-800/40 divide-y divide-gray-700/80">
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 divide-y divide-zinc-700/80">
                   {stores.map(s => (
                     <div key={s.id} className="flex items-center gap-2 min-w-0 px-3 py-2">
-                      <span className="min-w-0 flex-1 truncate text-sm text-gray-200" title={s.name}>{s.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-200" title={s.name}>{s.name}</span>
                       <NumericInput
                         value={perStorePriceRaw[s.id] ?? ''}
                         onChange={v => setPerStorePriceRaw(prev => ({ ...prev, [s.id]: v }))}
-                        className="w-28 shrink-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-right focus:outline-none focus:ring-1 focus:ring-red-500"
+                        className="w-28 shrink-0 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white text-right focus:outline-none focus:ring-1 focus:ring-red-500"
                         placeholder="—"
                       />
                     </div>
@@ -633,16 +630,16 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved }: Produc
                 </p>
               )}
               {!samePriceAll && stores.length > 1 && (
-                <p className="text-xs text-gray-600">Dejá en blanco los locales sin precio por ahora.</p>
+                <p className="text-xs text-zinc-600">Dejá en blanco los locales sin precio por ahora.</p>
               )}
             </div>
           )}
         </div>
-        {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}
+        {error && <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/90">{error}</div>}
         <div className="flex gap-3 mt-6">
-          <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
+          <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
           <button onClick={() => void handleSave()} disabled={saving}
-            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
+            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
         </div>
@@ -684,26 +681,26 @@ function PriceModal({ product, storeId, onClose, onSaved }: PriceModalProps) {
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1">Cambiar precio</h2>
-        <p className="text-sm text-gray-400 mb-5">{product.name}</p>
+        <p className="text-sm text-zinc-400 mb-5">{product.name}</p>
         <Field label={`Precio ($/${product.unit === 'kg' ? 'kg' : 'unidad'})`}>
           <NumericInput value={priceRaw} onChange={setPriceRaw}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
             placeholder="0" autoFocus />
         </Field>
-        {product.price != null && <p className="text-xs text-gray-500 mt-1">Precio actual: {fmtARS(product.price)}</p>}
+        {product.price != null && <p className="text-xs text-zinc-500 mt-1">Precio actual: {fmtARS(product.price)}</p>}
         {priceOverLimit && (
           <p className="text-xs text-amber-400 mt-2">
             El precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — este producto no podrá cargarse en la balanza.
           </p>
         )}
-        <p className="text-xs text-gray-600 mt-2">Dejar en blanco o poner 0 para quitar el precio.</p>
-        {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}
+        <p className="text-xs text-zinc-600 mt-2">Dejar en blanco o poner 0 para quitar el precio.</p>
+        {error && <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/90">{error}</div>}
         <div className="flex gap-3 mt-6">
-          <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
+          <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
           <button onClick={() => void handleSave()} disabled={saving}
-            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
+            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
             {saving ? 'Guardando…' : 'Confirmar'}
           </button>
         </div>
@@ -735,27 +732,27 @@ function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1">Historial de precios</h2>
-        <p className="text-sm text-gray-400 mb-4">{product.name}</p>
+        <p className="text-sm text-zinc-400 mb-4">{product.name}</p>
 
         {loading ? (
           <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : history.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-6">Sin historial de precios para este local.</p>
+          <p className="text-sm text-zinc-500 text-center py-6">Sin historial de precios para este local.</p>
         ) : (
           <div className="space-y-2 max-h-80 overflow-auto">
             {history.map(h => (
-              <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-green-700 bg-green-900/20' : 'border-gray-700 bg-gray-800/30'}`}>
+              <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-emerald-900/50 bg-emerald-950/30' : 'border-zinc-800 bg-zinc-800/30'}`}>
                 <div className="flex items-center justify-between">
                   <span className="font-semibold tabular-nums">{fmtARS(h.price)}</span>
                   {h.validTo == null
-                    ? <span className="text-xs text-green-400 font-medium">Vigente</span>
-                    : <span className="text-xs text-gray-500">Hasta {fmtDate(h.validTo)}</span>}
+                    ? <span className="text-xs text-emerald-400/80 font-medium">Vigente</span>
+                    : <span className="text-xs text-zinc-500">Hasta {fmtDate(h.validTo)}</span>}
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-zinc-500 mt-0.5">
                   Desde {fmtDate(h.validFrom)} · Por {h.createdBy}
                 </p>
               </div>
@@ -763,7 +760,7 @@ function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps
           </div>
         )}
 
-        <button onClick={onClose} className="w-full mt-5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors">
+        <button onClick={onClose} className="w-full mt-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
           Cerrar
         </button>
       </div>
@@ -777,9 +774,11 @@ function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps
 
 function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      {children}
+      <div className="animate-modal-enter w-full flex justify-center">
+        {children}
+      </div>
     </div>
   )
 }
@@ -787,7 +786,7 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs text-gray-400 mb-1">{label}</label>
+      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
       {children}
     </div>
   )
@@ -807,16 +806,16 @@ interface DeleteProductModalProps {
 function DeleteProductModal({ product, deleting, onConfirm, onCancel }: DeleteProductModalProps) {
   return (
     <ModalOverlay onClose={onCancel}>
-      <div className="bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-2">Eliminar producto</h2>
-        <p className="text-sm text-gray-400 mb-1">
+        <p className="text-sm text-zinc-400 mb-1">
           ¿Eliminar{' '}
-          <span className="text-gray-200 font-medium truncate inline-block max-w-full align-bottom" title={product.name}>
+          <span className="text-zinc-200 font-medium truncate inline-block max-w-full align-bottom" title={product.name}>
             {product.name}
           </span>
           ?
         </p>
-        <p className="text-xs text-gray-500 mb-5">
+        <p className="text-xs text-zinc-500 mb-5">
           Desaparece del catálogo y libera el PLU {product.pluNumber ?? '—'}.
           Podés volver a crearlo con el mismo número.
         </p>
@@ -825,7 +824,7 @@ function DeleteProductModal({ product, deleting, onConfirm, onCancel }: DeletePr
             type="button"
             onClick={onCancel}
             disabled={deleting}
-            className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors"
+            className="flex-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors"
           >
             Cancelar
           </button>
@@ -833,7 +832,7 @@ function DeleteProductModal({ product, deleting, onConfirm, onCancel }: DeletePr
             type="button"
             onClick={onConfirm}
             disabled={deleting}
-            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
+            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
           >
             {deleting ? 'Eliminando…' : 'Eliminar'}
           </button>
@@ -857,9 +856,9 @@ interface UnsavedChangesModalProps {
 function UnsavedChangesModal({ pendingChanges, onSave, onDiscard, onCancel }: UnsavedChangesModalProps) {
   return (
     <ModalOverlay onClose={onCancel}>
-      <div className="bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-2">Cambios sin guardar</h2>
-        <p className="text-sm text-gray-400 mb-5">
+        <p className="text-sm text-zinc-400 mb-5">
           Tenés {pendingChanges} cambio{pendingChanges !== 1 ? 's' : ''} de precio sin guardar en este local.
           ¿Qué querés hacer antes de cambiar de local?
         </p>
@@ -869,11 +868,11 @@ function UnsavedChangesModal({ pendingChanges, onSave, onDiscard, onCancel }: Un
             Guardar cambios y continuar
           </button>
           <button onClick={onDiscard}
-            className="w-full bg-gray-800 hover:bg-red-900/40 text-gray-300 hover:text-red-300 text-sm font-medium py-2 rounded-lg transition-colors">
+            className="w-full bg-zinc-800 hover:bg-red-900/40 text-zinc-300 hover:text-red-300 text-sm font-medium py-2 rounded-lg transition-colors">
             Descartar cambios y continuar
           </button>
           <button onClick={onCancel}
-            className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 rounded-lg transition-colors">
+            className="w-full text-zinc-500 hover:text-zinc-300 text-sm py-2 rounded-lg transition-colors">
             Cancelar (quedarme en este local)
           </button>
         </div>

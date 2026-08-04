@@ -146,11 +146,11 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <div className="flex flex-col bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh]">
-        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-gray-700 px-5 py-3">
+      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh]">
+        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-white truncate">Conteo de stock</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5 truncate" title={dateLabel}>
+            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={dateLabel}>
               {dateLabel} · catálogo del local
             </p>
           </div>
@@ -158,7 +158,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="shrink-0 rounded-md p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors disabled:opacity-50"
+            className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors disabled:opacity-50"
             aria-label="Cerrar"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -174,11 +174,11 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
         {successId ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
             <p className="text-emerald-300 font-medium">Conteo guardado</p>
-            <p className="text-xs text-gray-500">Quedó registrado para {dateLabel}.</p>
+            <p className="text-xs text-zinc-500">Quedó registrado para {dateLabel}.</p>
             <button
               type="button"
               onClick={onClose}
-              className="mt-2 rounded-lg px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white"
+              className="mt-2 rounded-lg px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white"
             >
               Cerrar
             </button>
@@ -187,7 +187,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
           <>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
               {!loading && rows.length > 0 && (
-                <div className="sticky top-0 z-10 pb-2 bg-gray-900/95 backdrop-blur-sm">
+                <div className="sticky top-0 z-10 pb-2 bg-zinc-900/95 backdrop-blur-sm">
                   <input
                     type="text"
                     value={search}
@@ -195,10 +195,10 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                     maxLength={100}
                     placeholder="Buscar producto o PLU…"
                     disabled={saving}
-                    className="w-full rounded-lg bg-gray-950 border border-gray-700 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+                    className="w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                   />
                   {searchNorm && (
-                    <p className="text-[10px] text-gray-500 mt-1">
+                    <p className="text-[10px] text-zinc-500 mt-1">
                       {filteredRows.length} de {rows.length} productos
                     </p>
                   )}
@@ -206,31 +206,31 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
               )}
 
               {loading && (
-                <p className="text-sm text-gray-500 text-center py-8">Cargando productos…</p>
+                <p className="text-sm text-zinc-500 text-center py-8">Cargando productos…</p>
               )}
 
               {!loading && rows.length === 0 && !error && (
-                <p className="text-sm text-gray-500 text-center py-8">No hay productos en el catálogo.</p>
+                <p className="text-sm text-zinc-500 text-center py-8">No hay productos en el catálogo.</p>
               )}
 
               {!loading && filteredRows.length === 0 && rows.length > 0 && (
-                <p className="text-sm text-gray-500 text-center py-6">Ningún producto coincide con la búsqueda.</p>
+                <p className="text-sm text-zinc-500 text-center py-6">Ningún producto coincide con la búsqueda.</p>
               )}
 
               {!loading &&
                 filteredRows.map(row => (
                   <div
                     key={row.product.id}
-                    className="rounded-xl border border-gray-800 bg-gray-950/50 px-3 py-2.5 space-y-2"
+                    className="rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-2.5 space-y-2"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="shrink-0 text-[10px] text-gray-500 tabular-nums w-8">
+                      <span className="shrink-0 text-[10px] text-zinc-500 tabular-nums w-8">
                         {row.product.pluNumber}
                       </span>
                       <p className="min-w-0 flex-1 text-sm text-white truncate" title={row.product.name}>
                         {row.product.name}
                       </p>
-                      <span className="shrink-0 text-[10px] text-gray-600 uppercase">
+                      <span className="shrink-0 text-[10px] text-zinc-600 uppercase">
                         {row.product.unit === 'kg' ? 'kg' : 'unid.'}
                       </span>
                     </div>
@@ -239,7 +239,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                         <>
                           {row.product.unit === 'kg' ? (
                             <div className="col-span-1">
-                              <label className="block text-[10px] text-gray-500 mb-0.5">Kg</label>
+                              <label className="block text-[10px] text-zinc-500 mb-0.5">Kg</label>
                               <DecimalInput
                                 value={row.kgText}
                                 onChange={v => updateRow(row.product.id, { kgText: v })}
@@ -247,30 +247,30 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                                 weightMode
                                 disabled={saving}
                                 placeholder="0,000"
-                                className="w-full rounded-lg bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+                                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                               />
                             </div>
                           ) : (
                             <div className="col-span-1">
-                              <label className="block text-[10px] text-gray-500 mb-0.5">Unidades</label>
+                              <label className="block text-[10px] text-zinc-500 mb-0.5">Unidades</label>
                               <NumericInput
                                 value={row.unitsText}
                                 onChange={v => updateRow(row.product.id, { unitsText: v })}
                                 disabled={saving}
                                 placeholder="0"
-                                className="w-full rounded-lg bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+                                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                               />
                             </div>
                           )}
                           <div className="col-span-1 sm:col-span-2">
-                            <label className="block text-[10px] text-gray-500 mb-0.5">Nota (opcional)</label>
+                            <label className="block text-[10px] text-zinc-500 mb-0.5">Nota (opcional)</label>
                             <input
                               type="text"
                               value={row.notes}
                               maxLength={500}
                               disabled={saving}
                               onChange={e => updateRow(row.product.id, { notes: e.target.value })}
-                              className="w-full rounded-lg bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+                              className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                               placeholder="—"
                             />
                           </div>
@@ -287,12 +287,12 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-gray-700 px-5 py-3">
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-700 px-5 py-3">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={saving}
-                className="shrink-0 rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -300,7 +300,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={saving || loading || rows.length === 0}
-                className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
               >
                 {saving ? 'Guardando…' : 'Guardar conteo'}
               </button>

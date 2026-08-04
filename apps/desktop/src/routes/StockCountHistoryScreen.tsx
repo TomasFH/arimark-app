@@ -3,6 +3,7 @@
  * Lista filtrable + detalle de ítems.
  */
 import { useEffect, useState } from 'react'
+import BackButton from '../components/BackButton'
 import { formatKg, toLocalDate, toLocalDateTime } from '../lib/datetime'
 import type { StockCountDetail, StockCountRow, StoreRow } from '../types/hw-api'
 import StockCountModal from './StockCountModal'
@@ -67,36 +68,29 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white">
-      <header className="flex items-center gap-3 px-4 py-4 border-b border-gray-800">
-        <button
-          type="button"
-          onClick={onBack}
-          className="shrink-0 text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-800 text-lg"
-          title="Volver"
-        >
-          ←
-        </button>
+    <div className="flex flex-col h-screen bg-zinc-950 text-white">
+      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+        <BackButton onClick={onBack} />
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">Conteos de stock</h1>
-          <p className="text-xs text-gray-500 truncate">Historial por local y fecha</p>
+          <h1 className="text-sm font-semibold text-zinc-100 truncate">Conteos de stock</h1>
+          <p className="text-[10px] text-zinc-500 truncate">Historial por local y fecha</p>
         </div>
         <button
           type="button"
           onClick={() => setShowNew(true)}
-          className="shrink-0 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium transition-colors"
+          className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium transition-colors"
         >
           + Nuevo conteo
         </button>
       </header>
 
-      <div className="px-4 py-3 border-b border-gray-800 flex flex-wrap gap-2 items-end">
+      <div className="px-4 py-3 border-b border-zinc-800 flex flex-wrap gap-2 items-end">
         <div className="min-w-0">
-          <label className="block text-[10px] text-gray-500 mb-0.5">Local</label>
+          <label className="block text-[10px] text-zinc-500 mb-0.5">Local</label>
           <select
             value={storeFilter}
             onChange={e => setStoreFilter(e.target.value)}
-            className="rounded-lg bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-white"
+            className="rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-white"
           >
             <option value="">Todos</option>
             {stores.map(s => (
@@ -107,43 +101,43 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
           </select>
         </div>
         <div>
-          <label className="block text-[10px] text-gray-500 mb-0.5">Desde</label>
+          <label className="block text-[10px] text-zinc-500 mb-0.5">Desde</label>
           <input
             type="date"
             value={startDate}
             onChange={e => setStartDate(e.target.value)}
-            className="rounded-lg bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-white"
+            className="rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-white"
           />
         </div>
         <div>
-          <label className="block text-[10px] text-gray-500 mb-0.5">Hasta</label>
+          <label className="block text-[10px] text-zinc-500 mb-0.5">Hasta</label>
           <input
             type="date"
             value={endDate}
             onChange={e => setEndDate(e.target.value)}
-            className="rounded-lg bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-white"
+            className="rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-white"
           />
         </div>
         <button
           type="button"
           onClick={() => void loadList()}
-          className="shrink-0 rounded-lg px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-gray-200"
+          className="shrink-0 rounded-lg px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
         >
           Filtrar
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {loading && <p className="text-sm text-gray-500 text-center py-10">Cargando…</p>}
+        {loading && <p className="text-sm text-zinc-500 text-center py-10">Cargando…</p>}
 
         {error && (
-          <div className="rounded-xl bg-red-950/40 border border-red-800/60 p-3">
-            <p className="text-sm text-red-300">{error}</p>
+          <div className="rounded-xl bg-red-950/30 border border-red-900/50 p-3">
+            <p className="text-sm text-red-400/80">{error}</p>
           </div>
         )}
 
         {!loading && list.length === 0 && !error && (
-          <p className="text-sm text-gray-500 text-center py-10">No hay conteos con esos filtros.</p>
+          <p className="text-sm text-zinc-500 text-center py-10">No hay conteos con esos filtros.</p>
         )}
 
         {list.map(row => (
@@ -151,18 +145,18 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
             key={row.id}
             type="button"
             onClick={() => void openDetail(row.id)}
-            className="w-full text-left flex items-center gap-2 min-w-0 rounded-xl border border-gray-800 bg-gray-900 hover:border-gray-600 px-4 py-3 transition-colors"
+            className="w-full text-left flex items-center gap-2 min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 hover:border-zinc-600 px-4 py-3 transition-colors"
           >
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium truncate" title={row.storeName}>
                 {toLocalDate(`${row.countDate}T12:00:00.000Z`)} · {row.storeName}
               </p>
-              <p className="text-xs text-gray-500 truncate" title={row.recordedByName}>
+              <p className="text-xs text-zinc-500 truncate" title={row.recordedByName}>
                 {row.itemCount} ítem{row.itemCount !== 1 ? 's' : ''} · {row.recordedByName} ·{' '}
                 {toLocalDateTime(row.createdAt)}
               </p>
             </div>
-            <span className="shrink-0 text-gray-600">›</span>
+            <span className="shrink-0 text-zinc-600">›</span>
           </button>
         ))}
       </div>
@@ -174,12 +168,12 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
             if (e.target === e.currentTarget) setDetail(null)
           }}
         >
-          <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-gray-700 bg-gray-900 shadow-2xl">
-            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-700">
+          <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-zinc-700">
               <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-bold truncate">Detalle del conteo</h2>
                 {detail && (
-                  <p className="text-[10px] text-gray-500 truncate" title={detail.storeName}>
+                  <p className="text-[10px] text-zinc-500 truncate" title={detail.storeName}>
                     {toLocalDate(`${detail.countDate}T12:00:00.000Z`)} · {detail.storeName}
                   </p>
                 )}
@@ -187,30 +181,30 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
               <button
                 type="button"
                 onClick={() => setDetail(null)}
-                className="shrink-0 text-gray-400 hover:text-white px-2"
+                className="shrink-0 text-zinc-400 hover:text-white px-2"
               >
                 ✕
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
-              {detailLoading && <p className="text-sm text-gray-500 py-6 text-center">Cargando…</p>}
+              {detailLoading && <p className="text-sm text-zinc-500 py-6 text-center">Cargando…</p>}
               {detail?.items.map(item => (
                 <div
                   key={item.id}
-                  className="flex items-start gap-2 min-w-0 rounded-lg border border-gray-800 px-3 py-2"
+                  className="flex items-start gap-2 min-w-0 rounded-lg border border-zinc-800 px-3 py-2"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-white truncate" title={item.productName}>
-                      <span className="text-gray-500 tabular-nums mr-1.5">{item.productId}</span>
+                      <span className="text-zinc-500 tabular-nums mr-1.5">{item.productId}</span>
                       {item.productName}
                     </p>
                     {item.notes && (
-                      <p className="text-[11px] text-gray-500 truncate" title={item.notes}>
+                      <p className="text-[11px] text-zinc-500 truncate" title={item.notes}>
                         {item.notes}
                       </p>
                     )}
                   </div>
-                  <div className="shrink-0 text-right text-xs tabular-nums text-gray-300">
+                  <div className="shrink-0 text-right text-xs tabular-nums text-zinc-300">
                     {item.quantityKg != null && <p>{gramsToKgLabel(item.quantityKg)}</p>}
                     {item.quantityUnits != null && <p>{item.quantityUnits} u.</p>}
                   </div>

@@ -15,18 +15,19 @@ export default function LicenseErrorScreen({ reason, message }: Props) {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-gray-900 p-6">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl text-center space-y-6">
-        <div className="flex justify-center">
-          <span className="text-6xl">🔒</span>
+    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-950 p-6 gap-8">
+      <div className="text-center space-y-3">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-950/40 text-4xl shadow-xl border border-red-900/30">
+          🔒
         </div>
-
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{titles[reason]}</h1>
-          <p className="mt-2 text-gray-600">{message}</p>
+          <h1 className="text-2xl font-bold text-zinc-100">{titles[reason]}</h1>
+          <p className="mt-1 text-sm text-zinc-400">{message}</p>
         </div>
+      </div>
 
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-800">
+      <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-7 shadow-2xl space-y-5">
+        <div className="rounded-xl border border-red-900/40 bg-red-950/25 px-4 py-3 text-sm text-red-300">
           Para resolver este problema, contactar al soporte técnico.
         </div>
 
@@ -34,12 +35,12 @@ export default function LicenseErrorScreen({ reason, message }: Props) {
           href={SUPPORT_URL}
           target="_blank"
           rel="noreferrer"
-          className="block w-full rounded-lg bg-green-600 px-4 py-3 text-center font-semibold text-white hover:bg-green-700 transition-colors"
+          className="flex h-12 w-full items-center justify-center rounded-xl bg-emerald-600 font-semibold text-white transition-all hover:bg-emerald-500 active:scale-[0.98]"
         >
           Contactar soporte técnico
         </a>
 
-        <p className="text-xs text-gray-400">
+        <p className="text-center text-xs text-zinc-600">
           No cerrar la aplicación — tomar captura de pantalla de este mensaje.
         </p>
       </div>

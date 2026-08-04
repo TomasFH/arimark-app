@@ -137,26 +137,26 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget && !loading) onClose() }}
     >
-      <div className="relative w-full max-w-md rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-gray-800 px-6 py-4">
+        <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
           {step === 'confirm' && (
             <button
               onClick={() => setStep('pick-customer')}
               disabled={loading}
-              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 disabled:opacity-40"
+              className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
               ←
             </button>
           )}
           <div className="flex-1">
-            <h2 className="text-sm font-semibold text-gray-300">Cobro diferido (fiado)</h2>
-            <p className="text-2xl font-bold text-amber-400">{formatARS(total)}</p>
+            <h2 className="text-sm font-semibold text-zinc-300">Cobro diferido (fiado)</h2>
+            <p className="text-2xl font-bold font-mono text-zinc-100">{formatARS(total)}</p>
           </div>
           <button
             onClick={onClose}
             disabled={loading}
-            className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 disabled:opacity-40"
+            className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           >
             ✕
           </button>
@@ -166,7 +166,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
           {/* ── PASO 1: elegir cliente ── */}
           {step === 'pick-customer' && (
             <div className="space-y-4">
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-zinc-400">
                 Buscá al cliente o escribí su nombre si no está registrado.
               </p>
               <CustomerSearchCreate
@@ -181,26 +181,26 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
           {step === 'confirm' && (
             <div className="space-y-4">
               {/* Resumen del cliente */}
-              <div className="rounded-xl border border-amber-700/50 bg-amber-900/20 px-4 py-3">
-                <p className="text-xs text-amber-400/70 mb-0.5">
+              <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 px-4 py-3">
+                <p className="text-xs text-zinc-400/70 mb-0.5">
                   {selectedCustomer ? 'Cliente registrado' : 'Cliente nuevo (se creará al confirmar)'}
                 </p>
-                <p className="text-base font-semibold text-amber-300">{customerLabel}</p>
+                <p className="text-base font-semibold text-zinc-100">{customerLabel}</p>
                 {selectedCustomer?.phone && (
-                  <p className="text-xs text-amber-400/60 mt-0.5">{formatPhoneInput(selectedCustomer.phone)}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{formatPhoneInput(selectedCustomer.phone)}</p>
                 )}
                 {pendingNewCustomer?.phone && (
-                  <p className="text-xs text-amber-400/60 mt-0.5">{formatPhoneInput(pendingNewCustomer.phone)}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{formatPhoneInput(pendingNewCustomer.phone)}</p>
                 )}
               </div>
 
               {/* Monto que paga ahora */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1">
-                  ¿Cuánto paga ahora? <span className="text-gray-600">(0 = no paga nada)</span>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  ¿Cuánto paga ahora? <span className="text-zinc-600">(0 = no paga nada)</span>
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
                   <NumericInput
                     value={initialPaymentRaw}
                     onChange={v => {
@@ -209,11 +209,11 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                     }}
                     onFocus={e => e.target.select()}
                     placeholder="0"
-                    className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-7 pr-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2 text-sm text-white focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
                 {initialPayment > 0 && initialPayment < total && (
-                  <p className="text-xs text-amber-400/80 mt-1">
+                  <p className="text-xs text-zinc-400/80 mt-1">
                     Queda pendiente: <span className="font-semibold">{formatARS(debtAmount)}</span>
                   </p>
                 )}
@@ -221,13 +221,13 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
 
               {/* Medio de pago del monto inicial — solo si paga algo */}
               {initialPayment > 0 && (
-                <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-3 space-y-2.5">
+                <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-3 space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-gray-400 font-medium">Medio de pago</p>
+                    <p className="text-xs text-zinc-400 font-medium">Medio de pago</p>
                     <button
                       type="button"
                       onClick={() => setPayMode(m => m === 'single' ? 'split' : 'single')}
-                      className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                      className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
                     >
                       {payMode === 'single' ? 'Dividir pago' : 'Un solo medio'}
                     </button>
@@ -242,8 +242,8 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                           onClick={() => setSingleMethod(m)}
                           className={`flex flex-col items-center gap-0.5 rounded-lg border px-1 py-2 text-xs transition-colors ${
                             singleMethod === m
-                              ? 'border-amber-500 bg-amber-900/30 text-amber-300'
-                              : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                              ? 'border-zinc-500 bg-zinc-700/40 text-zinc-100'
+                              : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
                           }`}
                         >
                           <span className="text-base">{METHOD_ICONS[m]}</span>
@@ -262,26 +262,26 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                             onChange={e => setSplitRows(prev => prev.map(r =>
                               r.id === row.id ? { ...r, method: e.target.value as PaymentMethod } : r
                             ))}
-                            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white focus:border-zinc-500 focus:outline-none"
                           >
                             {METHODS.map(m => (
                               <option key={m} value={m}>{METHOD_ICONS[m]} {PAYMENT_LABELS[m]}</option>
                             ))}
                           </select>
                           <div className="relative w-28">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span>
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">$</span>
                             <NumericInput
                               value={row.amountRaw}
                               onChange={v => setSplitRows(prev => prev.map(r =>
                                 r.id === row.id ? { ...r, amountRaw: v } : r
                               ))}
                               placeholder="0"
-                              className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-5 pr-2 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-5 pr-2 py-1.5 text-xs text-white focus:border-zinc-500 focus:outline-none"
                             />
                           </div>
                           {splitRows.length > 2 && (
                             <button type="button" onClick={() => setSplitRows(prev => prev.filter(r => r.id !== row.id))}
-                              className="text-gray-600 hover:text-red-400 text-xs">✕</button>
+                              className="text-zinc-600 hover:text-red-400 text-xs">✕</button>
                           )}
                           {idx === splitRows.length - 1 && splitRows.length < 4 && (
                             <button type="button"
@@ -289,13 +289,13 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                                 ...prev,
                                 { id: String(Date.now()), method: 'debit', amountRaw: '' }
                               ])}
-                              className="text-amber-500 hover:text-amber-400 text-xs whitespace-nowrap">+ fila</button>
+                              className="text-zinc-400 hover:text-zinc-200 text-xs whitespace-nowrap">+ fila</button>
                           )}
                         </div>
                       ))}
                       <div className="flex items-center justify-between text-xs pt-1">
-                        <span className="text-gray-500">Total ingresado</span>
-                        <span className={`font-semibold ${Math.abs(splitTotal() - initialPayment) > 1 ? 'text-red-400' : 'text-green-400'}`}>
+                        <span className="text-zinc-500">Total ingresado</span>
+                        <span className={`font-semibold ${Math.abs(splitTotal() - initialPayment) > 1 ? 'text-red-400' : 'text-emerald-400'}`}>
                           {formatARS(splitTotal())} / {formatARS(initialPayment)}
                         </span>
                       </div>
@@ -306,23 +306,23 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
 
               {/* Fecha de pago acordada */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1">
-                  Fecha acordada de pago <span className="text-gray-600">(opcional)</span>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Fecha acordada de pago <span className="text-zinc-600">(opcional)</span>
                 </label>
                 <input
                   type="date"
                   value={dueDate}
                   min={todayIso}
                   onChange={e => { setDueDate(e.target.value); setDueDateError('') }}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none [color-scheme:dark]"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white focus:border-zinc-500 focus:outline-none [color-scheme:dark]"
                 />
                 {dueDateError && <p className="text-xs text-red-400 mt-1">{dueDateError}</p>}
               </div>
 
               {/* Notas */}
               <div>
-                <label className="block text-xs text-gray-400 mb-1">
-                  Notas <span className="text-gray-600">(opcional)</span>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Notas <span className="text-zinc-600">(opcional)</span>
                 </label>
                 <textarea
                   value={notes}
@@ -330,7 +330,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
                   placeholder="ej. paga el viernes, lleva solo la mitad…"
                   rows={2}
                   maxLength={500}
-                  className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+                  className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                 />
               </div>
 
@@ -343,7 +343,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
               <button
                 onClick={handleConfirm}
                 disabled={loading || debtAmount <= 0}
-                className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40 flex items-center justify-center gap-2"
+                className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 {loading && (
                   <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">

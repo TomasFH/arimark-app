@@ -13,6 +13,7 @@ if (process.env['APP_ENV'] === 'production') {
   loadDotenv({ path: path.resolve(process.cwd(), '.env.production'), override: false })
 }
 import { registerAllHandlers } from './ipc/index'
+import { applyInitialZoom, hookZoomShortcuts } from './ipc/uiSettings.handler'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 import { loadBusinessConfig } from './businessConfig'
 import { getDbPath, getDb } from './db/client'
@@ -48,7 +49,11 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
   })
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    win.show()
+    applyInitialZoom()
+  })
+  hookZoomShortcuts(win.webContents)
 
   const devServerUrl = process.env['VITE_DEV_SERVER_URL']
   if (isDev && devServerUrl) {

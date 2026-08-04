@@ -117,11 +117,11 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <div className="flex flex-col bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh]">
-        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-gray-700 px-5 py-3">
+      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh]">
+        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-white truncate">Pago a empleado</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5 truncate" title={weekLabel}>
+            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={weekLabel}>
               Semana {weekLabel} · baja efectivo de caja
             </p>
           </div>
@@ -129,7 +129,7 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="shrink-0 rounded-md p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors disabled:opacity-50"
+            className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors disabled:opacity-50"
             aria-label="Cerrar"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -145,7 +145,7 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
         {done ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
             <p className="text-emerald-300 font-medium">Pago registrado</p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-zinc-500">
               Se descontó de la caja como gasto.
             </p>
             <button
@@ -160,7 +160,7 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
           <>
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {loading && (
-                <p className="text-sm text-gray-500 text-center py-6">Cargando…</p>
+                <p className="text-sm text-zinc-500 text-center py-6">Cargando…</p>
               )}
 
               {error && (
@@ -170,19 +170,19 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
               )}
 
               {!loading && employees.length === 0 && (
-                <p className="text-sm text-gray-500 text-center py-6">
+                <p className="text-sm text-zinc-500 text-center py-6">
                   No hay empleados activos.
                 </p>
               )}
 
               {!loading && employees.length > 0 && (
-                <label className="block text-xs text-gray-400">
+                <label className="block text-xs text-zinc-400">
                   Empleado
                   <select
                     value={selectedId ?? ''}
                     onChange={e => setSelectedId(e.target.value || null)}
                     disabled={saving}
-                    className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-700 px-3 py-2 text-sm text-white"
+                    className="mt-1 w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-white"
                   >
                     <option value="">Elegí un empleado…</option>
                     {employees.map(e => (
@@ -195,20 +195,20 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
               {selected && (
                 <>
                   {loadingSummary && (
-                    <p className="text-xs text-gray-500">Cargando liquidación de la semana…</p>
+                    <p className="text-xs text-zinc-500">Cargando liquidación de la semana…</p>
                   )}
                   {summary && (
-                    <div className="rounded-xl border border-gray-800 bg-gray-950/60 px-3 py-2 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 grid grid-cols-3 gap-2 text-center">
                       <div>
-                        <p className="text-[10px] text-gray-500">Sueldo</p>
-                        <p className="text-xs text-gray-200 tabular-nums">{formatARS(summary.weeklyWage)}</p>
+                        <p className="text-[10px] text-zinc-500">Sueldo</p>
+                        <p className="text-xs text-zinc-200 tabular-nums">{formatARS(summary.weeklyWage)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-gray-500">Vales</p>
+                        <p className="text-[10px] text-zinc-500">Vales</p>
                         <p className="text-xs text-amber-300 tabular-nums">{formatARS(summary.totalVales)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-gray-500">Neto ref.</p>
+                        <p className="text-[10px] text-zinc-500">Neto ref.</p>
                         <p className="text-xs text-emerald-300 tabular-nums font-medium">
                           {formatARS(summary.netToPay)}
                         </p>
@@ -216,7 +216,7 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
                     </div>
                   )}
 
-                  <label className="block text-xs text-gray-400">
+                  <label className="block text-xs text-zinc-400">
                     Monto a pagar (efectivo)
                     <NumericInput
                       value={amountText}
@@ -226,11 +226,11 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
                       }}
                       disabled={saving}
                       placeholder="0"
-                      className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-700 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+                      className="mt-1 w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                     />
                   </label>
 
-                  <label className="block text-xs text-gray-400">
+                  <label className="block text-xs text-zinc-400">
                     Nota (opcional)
                     <input
                       type="text"
@@ -239,11 +239,11 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
                       maxLength={300}
                       disabled={saving}
                       placeholder="Ej. pago parcial, ajuste…"
-                      className="mt-1 w-full rounded-lg bg-gray-950 border border-gray-700 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+                      className="mt-1 w-full rounded-lg bg-zinc-950 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                     />
                   </label>
 
-                  <p className="text-[10px] text-gray-600">
+                  <p className="text-[10px] text-zinc-600">
                     El neto es referencia. Pagá el monto que indicó el admin; se registra como gasto
                     “Pago: {selected.name}”.
                   </p>
@@ -251,12 +251,12 @@ export default function EmployeePayModal({ onClose, onPaid }: Props) {
               )}
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-gray-700 px-5 py-3">
+            <div className="flex justify-end gap-2 border-t border-zinc-700 px-5 py-3">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={saving}
-                className="shrink-0 rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>

@@ -1,3 +1,139 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * Scrollbars — finas y oscuras, integradas con el tema zinc.
+ * Reemplaza la barra clara nativa de Windows que rompía la estética.
+ * ------------------------------------------------------------------------- */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.zinc.700') transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: theme('colors.zinc.700');
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: theme('colors.zinc.600');
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Animaciones de navegación y UI
+ * Principios:
+ *  - Duración corta (180–260 ms): la app se siente rápida, no lenta.
+ *  - Easing "spring out": cubic-bezier(0.22, 1, 0.36, 1) — arranca rápido
+ *    y desacelera con suavidad, como un elemento que "se asienta".
+ *  - Desplazamiento mínimo (6–10 px): suficiente para dar dirección,
+ *    sin dominar la atención del usuario.
+ * ------------------------------------------------------------------------- */
+
+/* ── Entrada de pantalla completa ─────────────────────────────────────────── */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-enter {
+  animation: page-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Overlay de modal (fondo) ─────────────────────────────────────────────── */
+@keyframes overlay-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-overlay-fade {
+  animation: overlay-fade 0.18s ease-out both;
+}
+
+/* ── Card de modal (contenido) ────────────────────────────────────────────── */
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-modal-enter {
+  animation: modal-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Fade genérico ────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out both;
+}
+
+/* ── Shake para errores de formulario ─────────────────────────────────────── */
+@keyframes shake {
+  0%,  100% { transform: translateX(0); }
+  15%       { transform: translateX(-5px); }
+  35%       { transform: translateX(5px); }
+  55%       { transform: translateX(-3px); }
+  75%       { transform: translateX(3px); }
+}
+
+.animate-shake {
+  animation: shake 0.38s ease-out both;
+}
+
+/* ── Entrada de ítem en lista (para AdminHub tiles, etc.) ─────────────────── */
+@keyframes item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-item-enter {
+  animation: item-enter 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Pulse suave para estados de carga ────────────────────────────────────── */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}

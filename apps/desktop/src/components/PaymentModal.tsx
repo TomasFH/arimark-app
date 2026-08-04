@@ -176,13 +176,13 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
   const balanceColor =
     Math.abs(remaining) < 1
-      ? 'border-green-700/50 bg-green-900/20 text-green-300'
+      ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-300'
       : remaining > 0
-        ? 'border-amber-700/50 bg-amber-900/20 text-amber-300'
+        ? 'border-zinc-700 bg-zinc-800/30 text-zinc-300'
         : 'border-red-700/50 bg-red-900/20 text-red-300'
 
   const balanceValueColor =
-    Math.abs(remaining) < 1 ? 'text-green-400' : remaining > 0 ? 'text-amber-400' : 'text-red-400'
+    Math.abs(remaining) < 1 ? 'text-emerald-400' : remaining > 0 ? 'text-zinc-300' : 'text-red-400'
 
   // ── Header title ──────────────────────────────────────────────────────────
 
@@ -203,34 +203,34 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="relative w-full max-w-md rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-gray-800 px-6 py-4">
+        <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
           {mode !== 'single' && (
             <button
               onClick={() => setMode('single')}
-              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800"
+              className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
               title="Volver"
             >
               ←
             </button>
           )}
           <div className="flex-1">
-            <h2 className="text-sm font-semibold text-gray-300">{headerTitle}</h2>
-            <p className="text-2xl font-bold text-amber-400">{formatARS(total)}</p>
+            <h2 className="text-sm font-semibold text-zinc-300">{headerTitle}</h2>
+            <p className="text-2xl font-bold font-mono text-zinc-100">{formatARS(total)}</p>
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800"
+            className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
           >
             ✕
           </button>
         </div>
 
         {/* Notas opcionales — visibles en todos los modos de cobro */}
-        <div className="border-b border-gray-800 px-6 py-3">
-          <label htmlFor="sale-notes" className="block text-[10px] text-gray-500 mb-1">
-            Notas de la venta <span className="text-gray-600">(opcional)</span>
+        <div className="border-b border-zinc-800 px-6 py-3">
+          <label htmlFor="sale-notes" className="block text-[10px] text-zinc-500 mb-1">
+            Notas de la venta <span className="text-zinc-600">(opcional)</span>
           </label>
           <textarea
             id="sale-notes"
@@ -239,7 +239,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
             placeholder="ej. precio especial a familiar, pedido para retirar…"
             rows={2}
             maxLength={500}
-            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
           />
         </div>
 
@@ -251,7 +251,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => handleSingleMethod('cash')}
-                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-gray-700 bg-gray-800 p-5 text-center transition-all hover:border-green-500 hover:bg-green-500/10"
+                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-zinc-700 bg-zinc-800 p-5 text-center transition-all hover:border-zinc-500 hover:bg-zinc-700/30"
                 >
                   <span className="text-3xl">💵</span>
                   <span className="text-sm font-semibold text-white">Efectivo</span>
@@ -259,7 +259,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
                 <button
                   onClick={() => handleSingleMethod('debit')}
-                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-gray-700 bg-gray-800 p-5 text-center transition-all hover:border-blue-500 hover:bg-blue-500/10"
+                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-zinc-700 bg-zinc-800 p-5 text-center transition-all hover:border-zinc-500 hover:bg-zinc-700/30"
                 >
                   <span className="text-3xl">💳</span>
                   <span className="text-sm font-semibold text-white">Débito</span>
@@ -267,7 +267,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
                 <button
                   onClick={() => handleSingleMethod('wallet')}
-                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-gray-700 bg-gray-800 p-5 text-center transition-all hover:border-purple-500 hover:bg-purple-500/10"
+                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-zinc-700 bg-zinc-800 p-5 text-center transition-all hover:border-zinc-500 hover:bg-zinc-700/30"
                 >
                   <span className="text-3xl">📱</span>
                   <span className="text-sm font-semibold text-white">Billetera Virtual</span>
@@ -275,25 +275,25 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
                 <button
                   onClick={() => handleSingleMethod('credit')}
-                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-orange-800/60 bg-orange-950/40 p-5 text-center transition-all hover:border-orange-500 hover:bg-orange-500/10"
+                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-red-900/60 bg-red-950/40 p-5 text-center transition-all hover:border-red-700 hover:bg-red-950/60"
                 >
                   <span className="text-3xl">🏦</span>
-                  <span className="text-sm font-semibold text-orange-300">Crédito</span>
-                  <span className="text-[10px] text-orange-500/80 leading-tight">uso excepcional</span>
+                  <span className="text-sm font-semibold text-red-400">Crédito</span>
+                  <span className="text-[10px] text-red-500/80 leading-tight">uso excepcional</span>
                 </button>
               </div>
 
               <div className="mt-5 flex items-center justify-between">
                 <button
                   onClick={() => setMode('split')}
-                  className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors"
+                  className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition-colors"
                 >
                   Dividir en varios medios de pago
                 </button>
                 {onFiado && (
                   <button
                     onClick={onFiado}
-                    className="text-xs text-amber-600 hover:text-amber-400 border border-amber-800/60 rounded-lg px-3 py-1.5 hover:bg-amber-900/20 transition-colors font-medium"
+                    className="text-xs text-zinc-300 hover:text-zinc-100 border border-zinc-700 rounded-lg px-3 py-1.5 hover:bg-zinc-800 transition-colors font-medium"
                     title="El cliente se lleva la mercadería y paga después"
                   >
                     📒 Fiado
@@ -308,29 +308,29 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm text-gray-300">
+                  <label className="text-sm text-zinc-300">
                     ¿Con cuánto paga el cliente?
                   </label>
                   <button
                     type="button"
                     onClick={() => setClientCash(formatIntegerWithDots(String(Math.round(total))))}
-                    className="text-xs text-amber-500 hover:text-amber-300 border border-amber-700/50 rounded px-2 py-0.5 hover:bg-amber-900/20 transition-colors"
+                    className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded px-2 py-0.5 hover:bg-zinc-800 transition-colors"
                   >
                     Paga justo · {formatARS(total)}
                   </button>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
                   <NumericInput
                     value={clientCash}
                     onChange={setClientCash}
                     placeholder="Monto recibido"
                     autoFocus
-                    className="w-full rounded-xl bg-gray-800 pl-8 pr-4 py-3 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-500 border border-gray-700"
+                    className="w-full rounded-xl bg-zinc-800 pl-8 pr-4 py-3 text-lg text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-500 border border-zinc-700"
                   />
                 </div>
                 {clientCash === '' && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-zinc-500">
                     Ingresá el monto que entrega el cliente para calcular el vuelto, o usá el botón si paga con el monto exacto.
                   </p>
                 )}
@@ -354,7 +354,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
               <button
                 onClick={handleCashConfirm}
                 disabled={cashInsufficient || clientCash === ''}
-                className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40"
+                className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40"
               >
                 Confirmar cobro · {formatARS(total)}
               </button>
@@ -364,26 +364,26 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
           {/* ── MODO CONFIRMACIÓN DIGITAL (débito / billetera virtual) ── */}
           {mode === 'digital-confirm' && pendingMethod && (
             <div className="space-y-5">
-              <div className="rounded-xl border border-gray-700 bg-gray-800 p-5 text-center space-y-2">
+              <div className="rounded-xl border border-zinc-700 bg-zinc-800 p-5 text-center space-y-2">
                 <p className="text-4xl">{METHOD_ICONS[pendingMethod]}</p>
                 <p className="text-base font-semibold text-white">{METHOD_LABELS[pendingMethod]}</p>
-                <p className="text-3xl font-bold text-amber-400">{formatARS(total)}</p>
+                <p className="text-3xl font-bold font-mono text-zinc-100">{formatARS(total)}</p>
               </div>
 
-              <p className="text-xs text-gray-500 text-center">
+              <p className="text-xs text-zinc-500 text-center">
                 Confirmá que el cliente pagó {formatARS(total)} con {METHOD_LABELS[pendingMethod]}.
               </p>
 
               <button
                 onClick={handleDigitalConfirm}
-                className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400"
+                className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500"
               >
                 Confirmar cobro · {formatARS(total)}
               </button>
 
               <button
                 onClick={() => setMode('single')}
-                className="w-full rounded-lg bg-gray-700 py-2.5 text-sm text-gray-300 transition-colors hover:bg-gray-600"
+                className="w-full rounded-lg bg-zinc-700 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-600"
               >
                 ← Cambiar medio de pago
               </button>
@@ -394,7 +394,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
           {mode === 'credit-detail' && (
             <div className="space-y-5">
               <div>
-                <p className="text-sm text-gray-300 mb-3">¿En cuántas cuotas?</p>
+                <p className="text-sm text-zinc-300 mb-3">¿En cuántas cuotas?</p>
 
                 {/* Opciones rápidas */}
                 <div className="grid grid-cols-3 gap-2 mb-3">
@@ -404,8 +404,8 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                       onClick={() => handleCreditPreset(n)}
                       className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
                         installments === n
-                          ? 'bg-orange-500 text-white'
-                          : 'bg-gray-800 border border-gray-700 text-gray-300 hover:border-orange-500 hover:bg-orange-500/10'
+                          ? 'bg-zinc-700 text-zinc-100'
+                          : 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:bg-zinc-700/30'
                       }`}
                     >
                       {n === 1 ? 'Contado' : `${n}×`}
@@ -419,27 +419,27 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                     value={installmentsRaw}
                     onChange={setInstallmentsRaw}
                     placeholder="Otro número de cuotas…"
-                    className="w-full rounded-xl bg-gray-800 border border-gray-700 px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-500"
                   />
                 </div>
               </div>
 
               {/* Desglose por cuota */}
               {installmentsValid && installments > 1 && (
-                <div className="rounded-xl border border-orange-700/40 bg-orange-900/20 p-4 space-y-1">
+                <div className="rounded-xl border border-zinc-700 bg-zinc-800/30 p-4 space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span className="text-orange-300">Total</span>
+                    <span className="text-zinc-400">Total</span>
                     <span className="font-semibold text-white">{formatARS(total)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-orange-300">{installments} cuotas de</span>
-                    <span className="font-bold text-orange-300">{formatARS(perInstallment)}</span>
+                    <span className="text-zinc-400">{installments} cuotas de</span>
+                    <span className="font-bold text-zinc-200">{formatARS(perInstallment)}</span>
                   </div>
                 </div>
               )}
 
               {installmentsValid && installments === 1 && (
-                <p className="text-xs text-gray-500 text-center">
+                <p className="text-xs text-zinc-500 text-center">
                   Crédito en 1 pago (contado con tarjeta).
                 </p>
               )}
@@ -447,7 +447,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
               <button
                 onClick={handleCreditConfirm}
                 disabled={!installmentsValid}
-                className="w-full rounded-xl bg-orange-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-orange-400 disabled:opacity-40"
+                className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40"
               >
                 {installmentsValid && installments > 1
                   ? `Confirmar · ${installments} cuotas de ${formatARS(perInstallment)}`
@@ -456,7 +456,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
               <button
                 onClick={() => setMode('single')}
-                className="w-full rounded-lg bg-gray-700 py-2.5 text-sm text-gray-300 transition-colors hover:bg-gray-600"
+                className="w-full rounded-lg bg-zinc-700 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-600"
               >
                 ← Cambiar medio de pago
               </button>
@@ -489,7 +489,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                           // Al cambiar de crédito a otro método, limpiar cuotas
                           updateRow(row.id, { method: next, installments: undefined })
                         }}
-                        className="rounded-lg bg-gray-800 border border-gray-700 px-2 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0 flex-[1.4]"
+                        className="rounded-lg bg-zinc-800 border border-zinc-700 px-2 py-2.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-zinc-500 min-w-0 flex-[1.4]"
                       >
                         <option value="debit">💳 Débito</option>
                         <option value="wallet">📱 Billetera Virtual</option>
@@ -503,14 +503,14 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                       </select>
 
                       <div className="relative flex-1 min-w-0">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
                         <NumericInput
                           value={row.amount}
                           onChange={amount => updateRow(row.id, { amount })}
                           onFocus={() => setFocusedRowId(row.id)}
                           onBlur={() => setFocusedRowId(null)}
                           placeholder="0"
-                          className="w-full rounded-lg bg-gray-800 border border-gray-700 pl-7 pr-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          className="w-full rounded-lg bg-zinc-800 border border-zinc-700 pl-7 pr-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                         />
                       </div>
 
@@ -518,7 +518,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                         <button
                           type="button"
                           onClick={() => fillRowRemainder(row.id)}
-                          className="shrink-0 rounded-lg border border-amber-700/60 bg-amber-900/30 px-2 py-1.5 text-[11px] font-semibold text-amber-300 hover:bg-amber-900/60 hover:text-amber-200 transition-colors whitespace-nowrap"
+                          className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-2 py-1.5 text-[11px] font-semibold text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors whitespace-nowrap"
                           title="Completar con el monto restante"
                         >
                           ← {formatARS(rowRem)}
@@ -528,7 +528,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                       {rows.length > 2 && (
                         <button
                           onClick={() => removeRow(row.id)}
-                          className="shrink-0 text-gray-600 hover:text-red-400 px-1 text-sm"
+                          className="shrink-0 text-zinc-600 hover:text-red-400 px-1 text-sm"
                           title="Eliminar fila"
                         >
                           ✕
@@ -538,8 +538,8 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
                     {/* Selector de cuotas inline — solo para filas de crédito */}
                     {isCreditRow && (
-                      <div className="ml-1 flex flex-wrap items-center gap-1.5 pl-1 border-l-2 border-orange-800/40">
-                        <span className="text-[11px] text-orange-400/80 shrink-0">Cuotas:</span>
+                      <div className="ml-1 flex flex-wrap items-center gap-1.5 pl-1 border-l-2 border-zinc-700">
+                        <span className="text-[11px] text-zinc-500 shrink-0">Cuotas:</span>
                         {CREDIT_PRESET_INSTALLMENTS.map(n => (
                           <button
                             key={n}
@@ -547,15 +547,15 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                             onClick={() => updateRow(row.id, { installments: n })}
                             className={`rounded px-2 py-0.5 text-[11px] font-semibold transition-colors ${
                               rowInstallments === n
-                                ? 'bg-orange-500 text-white'
-                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
+                                ? 'bg-zinc-700 text-zinc-100'
+                                : 'bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white'
                             }`}
                           >
                             {n === 1 ? '1×' : `${n}×`}
                           </button>
                         ))}
                         {perInstallment !== null && (
-                          <span className="text-[11px] text-orange-300 ml-1">
+                          <span className="text-[11px] text-zinc-400 ml-1">
                             = {formatARS(perInstallment)}/cuota
                           </span>
                         )}
@@ -567,7 +567,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
               <button
                 onClick={addRow}
-                className="text-xs text-amber-500 hover:text-amber-400 transition-colors flex items-center gap-1 pt-0.5"
+                className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1 pt-0.5"
               >
                 + Agregar otro medio de pago
               </button>
@@ -588,7 +588,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                   </span>
                 </div>
                 {focusedRowId !== null && !totalCovered && (
-                  <p className="mt-1 text-[10px] text-gray-500">
+                  <p className="mt-1 text-[10px] text-zinc-500">
                     Saldo pendiente para este campo — se actualiza al confirmar el monto
                   </p>
                 )}
@@ -597,7 +597,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
               <button
                 onClick={handleSplitConfirm}
                 disabled={!splitValid}
-                className="w-full rounded-xl bg-amber-500 py-3.5 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40"
+                className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40"
               >
                 Confirmar cobro · {formatARS(total)}
               </button>

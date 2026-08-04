@@ -56,30 +56,30 @@ function PluResultCard({ plu }: { plu: PluRow }) {
     : '—'
 
   return (
-    <div className="rounded-lg border border-gray-700 bg-gray-800/60 p-3 text-xs space-y-1">
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800/60 p-3 text-xs space-y-1">
       <div className="flex justify-between">
-        <span className="text-gray-400">PLU</span>
+        <span className="text-zinc-400">PLU</span>
         <span className="font-mono text-white">{parseInt(plu.number, 10)}</span>
       </div>
       <div className="flex justify-between">
-        <span className="text-gray-400">Nombre</span>
+        <span className="text-zinc-400">Nombre</span>
         <span className="text-white">{plu.name || '—'}</span>
       </div>
       <div className="flex justify-between">
-        <span className="text-gray-400">Código artículo</span>
+        <span className="text-zinc-400">Código artículo</span>
         <span className="font-mono text-white">{plu.code || '—'}</span>
       </div>
       <div className="flex justify-between">
-        <span className="text-gray-400">Precio</span>
-        <span className="font-semibold text-amber-400">{formattedPrice}</span>
+        <span className="text-zinc-400">Precio</span>
+        <span className="font-semibold text-zinc-200">{formattedPrice}</span>
       </div>
       <div className="flex justify-between">
-        <span className="text-gray-400 text-[10px]">Precio raw (diagnóstico)</span>
-        <span className="font-mono text-[10px] text-gray-500">{plu.price}</span>
+        <span className="text-zinc-400 text-[10px]">Precio raw (diagnóstico)</span>
+        <span className="font-mono text-[10px] text-zinc-500">{plu.price}</span>
       </div>
       <div className="flex justify-between">
-        <span className="text-gray-400">Tipo</span>
-        <span className={plu.type === 'pesable' ? 'text-blue-300' : 'text-gray-300'}>
+        <span className="text-zinc-400">Tipo</span>
+        <span className={plu.type === 'pesable' ? 'text-zinc-300' : 'text-zinc-300'}>
           {plu.type === 'pesable' ? 'Pesable (P)' : 'Normal (N)'}
         </span>
       </div>
@@ -305,40 +305,40 @@ export default function PluManagerPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold text-white">Gestión de PLUs</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-zinc-500 mt-0.5">
             Crea o modifica productos directamente en la balanza KRETZ.
           </p>
         </div>
         {pluCount !== null && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-zinc-400">
             {pluCount} PLU{pluCount !== 1 ? 's' : ''} en balanza
           </span>
         )}
       </div>
 
       {/* Conexión */}
-      <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4 space-y-3">
+      <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-gray-300">Estado de conexión</p>
+          <p className="text-sm font-medium text-zinc-300">Estado de conexión</p>
           <StatusBadge linked={linked} />
         </div>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-zinc-500">
           Conectá la balanza por USB (COM8). El punto verde en la pestaña Hardware solo indica que el
           puerto serial está abierto; acá se prueba que la balanza responda al protocolo R30.
         </p>
         <button
           onClick={handleTestLink}
           disabled={testingLink}
-          className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-600 disabled:opacity-50 transition-colors"
+          className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600 disabled:opacity-50 transition-colors"
         >
           {testingLink ? 'Verificando…' : 'Verificar conexión'}
         </button>
       </div>
 
       {/* Buscador */}
-      <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4 space-y-3">
-        <p className="text-sm font-medium text-gray-300">Buscar PLU existente</p>
-        <p className="text-xs text-gray-500">
+      <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4 space-y-3">
+        <p className="text-sm font-medium text-zinc-300">Buscar PLU existente</p>
+        <p className="text-xs text-zinc-500">
           Si el producto ya existe, se carga en el formulario para que lo edites.
         </p>
         <div className="flex gap-2">
@@ -348,12 +348,12 @@ export default function PluManagerPanel() {
             onChange={e => setSearchNumber(e.target.value.replace(/\D/g, '').slice(0, 6))}
             placeholder="Nº de PLU (ej. 1)"
             inputMode="numeric"
-            className="flex-1 rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
           <button
             onClick={handleSearch}
             disabled={searching || !searchNumber.trim()}
-            className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 transition-colors"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
           >
             {searching ? 'Buscando…' : 'Buscar'}
           </button>
@@ -379,15 +379,15 @@ export default function PluManagerPanel() {
           </div>
         )}
         {searchResult === null && (
-          <p className="text-xs text-gray-500 italic">PLU no encontrado en la balanza.</p>
+          <p className="text-xs text-zinc-500 italic">PLU no encontrado en la balanza.</p>
         )}
       </div>
 
       {/* Formulario */}
-      <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-4 space-y-4">
+      <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4 space-y-4">
         <div>
-          <p className="text-sm font-medium text-gray-300">Crear / actualizar PLU</p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-sm font-medium text-zinc-300">Crear / actualizar PLU</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
             Si el número ya existe en la balanza, se sobreescribe.
           </p>
         </div>
@@ -395,56 +395,56 @@ export default function PluManagerPanel() {
         <div className="grid grid-cols-2 gap-3">
           {/* Número */}
           <div className="col-span-1">
-            <label className="text-xs text-gray-400">Número de PLU *</label>
+            <label className="text-xs text-zinc-400">Número de PLU *</label>
             <input
               type="text"
               value={pluNumber}
               onChange={e => setPluNumber(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="ej. 1"
               inputMode="numeric"
-              className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="mt-1 w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
           </div>
 
           {/* Código artículo */}
           <div className="col-span-1">
-            <label className="text-xs text-gray-400">Código artículo (5 díg.)</label>
+            <label className="text-xs text-zinc-400">Código artículo (5 díg.)</label>
             <input
               type="text"
               value={pluCode}
               onChange={e => setPluCode(e.target.value.replace(/\D/g, '').slice(0, 5))}
               placeholder="00001"
               inputMode="numeric"
-              className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="mt-1 w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
           </div>
 
           {/* Nombre */}
           <div className="col-span-2">
-            <label className="text-xs text-gray-400">Nombre del producto * (máx. 26 caracteres)</label>
+            <label className="text-xs text-zinc-400">Nombre del producto * (máx. 26 caracteres)</label>
             <input
               type="text"
               value={pluName}
               onChange={e => setPluName(e.target.value.slice(0, 26))}
               placeholder="ej. ASADO"
-              className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="mt-1 w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
-            <p className="mt-0.5 text-right text-[10px] text-gray-600">{pluName.length}/26</p>
+            <p className="mt-0.5 text-right text-[10px] text-zinc-600">{pluName.length}/26</p>
           </div>
 
           {/* Precio */}
           <div className="col-span-1">
-            <label className="text-xs text-gray-400">
+            <label className="text-xs text-zinc-400">
               Precio {pesable ? '$/kg' : '$'} * — pesos enteros (hasta $99.999)
             </label>
             <NumericInput
               value={pluPrice}
               onChange={setPluPrice}
               placeholder="8500"
-              className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="mt-1 w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
             {pluPrice && parseNumericInput(pluPrice) !== null && (
-              <p className="mt-0.5 text-[10px] text-gray-500">
+              <p className="mt-0.5 text-[10px] text-zinc-500">
                 {formatPesoPreview(pluPrice)}
               </p>
             )}
@@ -452,18 +452,18 @@ export default function PluManagerPanel() {
 
           {/* Dígitos precio — refleja la configuración de la balanza */}
           <div className="col-span-1">
-            <label className="text-xs text-gray-400">
+            <label className="text-xs text-zinc-400">
               Formato de precio
             </label>
             <select
               value={priceDigits}
               onChange={e => setPriceDigits(Number(e.target.value) as 6 | 7)}
-              className="mt-1 w-full rounded-lg bg-gray-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="mt-1 w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-zinc-500"
             >
               <option value={6}>iTegra compatible: 135 bytes — recomendado</option>
               <option value={7}>138 bytes — diagnóstico</option>
             </select>
-            <p className="mt-0.5 text-[10px] text-gray-600">
+            <p className="mt-0.5 text-[10px] text-zinc-600">
               La lectura de iTegra mostró campo de 6 dígitos con 1 decimal: $21.000 {'->'} 210000.
             </p>
           </div>
@@ -475,13 +475,13 @@ export default function PluManagerPanel() {
                 type="checkbox"
                 checked={pesable}
                 onChange={e => setPesable(e.target.checked)}
-                className="h-4 w-4 accent-amber-500"
+                className="h-4 w-4 accent-emerald-500"
               />
-              <span className="text-sm text-gray-300">
+              <span className="text-sm text-zinc-300">
                 Pesable (se vende por kg)
               </span>
             </label>
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-zinc-600">
               Desmarcá para productos de precio fijo (por unidad).
             </span>
           </div>
@@ -505,13 +505,13 @@ export default function PluManagerPanel() {
         <button
           onClick={handleSendPlu}
           disabled={sending || linked === false}
-          className="w-full rounded-xl bg-amber-500 py-3 text-sm font-bold text-white hover:bg-amber-400 disabled:opacity-40 transition-colors"
+          className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-40 transition-colors"
         >
           {sending ? 'Enviando a la balanza…' : 'Guardar PLU en balanza'}
         </button>
 
         {linked === false && (
-          <p className="text-center text-xs text-gray-500">
+          <p className="text-center text-xs text-zinc-500">
             Verificá la conexión con la balanza primero.
           </p>
         )}
@@ -519,9 +519,9 @@ export default function PluManagerPanel() {
 
       {deleteCandidate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-red-900/60 bg-gray-950 p-5 shadow-2xl">
+          <div className="w-full max-w-sm rounded-2xl border border-red-900/60 bg-zinc-950 p-5 shadow-2xl">
             <p className="text-sm font-semibold text-white">Confirmar borrado de PLU</p>
-            <p className="mt-2 text-xs leading-relaxed text-gray-400">
+            <p className="mt-2 text-xs leading-relaxed text-zinc-400">
               Vas a borrar el PLU{' '}
               <span className="font-mono text-red-300">{parseInt(deleteCandidate.number, 10)}</span>
               {' '}({deleteCandidate.name || 'sin nombre'}) de la balanza.
@@ -533,7 +533,7 @@ export default function PluManagerPanel() {
               <button
                 onClick={() => setDeleteCandidate(null)}
                 disabled={deleting}
-                className="flex-1 rounded-lg bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+                className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
               >
                 Cancelar
               </button>

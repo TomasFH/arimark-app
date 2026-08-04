@@ -76,7 +76,7 @@ export default function ShiftSalesModal({ onClose }: Props) {
   const cancelledCount = (sales ?? []).filter(s => s.status === 'cancelled').length
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-gray-900 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">

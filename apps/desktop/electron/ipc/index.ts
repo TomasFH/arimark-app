@@ -26,6 +26,7 @@ import { registerValesHandlers } from './vales.handler'
 import { registerSalaryHandlers } from './salary.handler'
 import { registerStockCountHandlers } from './stockCount.handler'
 import { registerRefreshHandlers } from './refresh.handler'
+import { registerUiSettingsHandlers } from './uiSettings.handler'
 import type { HardwareManager } from '../hardware/hardwareManager'
 
 export function registerAllHandlers(manager: HardwareManager): void {
@@ -56,6 +57,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerSalaryHandlers()
   registerStockCountHandlers()
   registerRefreshHandlers()
+  registerUiSettingsHandlers()
 
   // Herramientas de desarrollo — nunca en producción.
   if ((process.env['APP_ENV'] ?? 'dev') !== 'production') {

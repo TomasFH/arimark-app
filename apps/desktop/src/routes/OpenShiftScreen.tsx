@@ -140,11 +140,11 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   const isAutoDetected = detectedShiftType !== null && !showManual
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-gray-900 px-4">
+    <div className="flex flex-1 items-center justify-center bg-zinc-900 px-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-white">Abrir turno</h1>
-          <p className="mt-1 text-sm text-gray-400">Ingresá el efectivo inicial antes de comenzar</p>
+          <p className="mt-1 text-sm text-zinc-400">Ingresá el efectivo inicial antes de comenzar</p>
         </div>
 
         {/* Banner de autodetección */}
@@ -168,19 +168,19 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-xl bg-gray-800 p-6 shadow-lg">
+        <form onSubmit={handleSubmit} className="space-y-4 rounded-xl bg-zinc-800 p-6 shadow-lg">
           {/* Selector de turno — solo si no hay autodetección o se eligió manualmente */}
           {(!isAutoDetected) && (
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-300">Turno</label>
+              <label className="block text-sm font-medium text-zinc-300">Turno</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setShiftType('morning')}
                   className={`rounded-lg py-3 text-sm font-semibold transition-colors ${
                     shiftType === 'morning'
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
                   }`}
                 >
                   🌅 Mañana
@@ -190,8 +190,8 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                   onClick={() => setShiftType('evening')}
                   className={`rounded-lg py-3 text-sm font-semibold transition-colors ${
                     shiftType === 'evening'
-                      ? 'bg-indigo-500 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
                   }`}
                 >
                   🌙 Tarde
@@ -203,9 +203,9 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
           {/* Turno confirmado por autodetección (solo lectura) */}
           {isAutoDetected && (
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-300">Turno</label>
+              <label className="block text-sm font-medium text-zinc-300">Turno</label>
               <div className={`rounded-lg py-3 text-sm font-semibold text-center ${
-                detectedShiftType === 'morning' ? 'bg-amber-500 text-white' : 'bg-indigo-500 text-white'
+                detectedShiftType === 'morning' ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-700 text-zinc-100'
               }`}>
                 {detectedShiftType === 'morning' ? '🌅 Mañana' : '🌙 Tarde'}
               </div>
@@ -214,18 +214,18 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
 
           {/* Efectivo inicial */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-300">
+            <label className="block text-sm font-medium text-zinc-300">
               Efectivo inicial en caja
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">
                 $
               </span>
               <NumericInput
                 value={openingCash}
                 onChange={setOpeningCash}
                 placeholder="0"
-                className="w-full rounded-lg bg-gray-700 pl-8 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full rounded-lg bg-zinc-700 pl-8 pr-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500"
                 required
               />
             </div>
@@ -238,7 +238,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-amber-500 py-3 font-semibold text-white transition-colors hover:bg-amber-400 disabled:opacity-50"
+            className="w-full rounded-lg bg-emerald-600 py-3 font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
           >
             {loading ? 'Abriendo turno…' : isAutoDetected ? 'Confirmar y abrir turno' : 'Abrir turno'}
           </button>
@@ -246,7 +246,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
             <button
               type="button"
               onClick={onCancel}
-              className="w-full rounded-lg bg-gray-700 py-2.5 text-sm text-gray-300 transition-colors hover:bg-gray-600"
+              className="w-full rounded-lg bg-zinc-700 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-600"
             >
               {cancelLabel}
             </button>

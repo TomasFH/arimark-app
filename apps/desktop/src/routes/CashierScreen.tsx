@@ -11,9 +11,8 @@ import ValesModal from './ValesModal'
 import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import DebtModal from '../components/DebtModal'
-import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, ShiftSaleRow } from '../types/hw-api'
+import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
-import { summarizePaymentMethods } from '../lib/paymentMethod'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
 import { buildItemFromBarcode } from '../lib/barcodeItem'
@@ -27,19 +26,142 @@ interface Props {
   onViewDebts?: () => void
   onViewSpecialCustomers?: () => void
   onViewOrders?: () => void
-  /** Cuando false, la pantalla está montada pero en segundo plano (scanner desactivado). */
   isActive?: boolean
 }
 
-/** Producto genérico usado cuando el PLU no está mapeado a un producto real. */
 const FALLBACK_PRODUCT_ID = '00000000-0000-0000-0001-000000000099'
 
-/** Ítem en la venta en curso, con un id local para interacciones de UI. */
 interface CartItem extends SaleItemDraft {
   localId: string
 }
 
-export default function CashierScreen({ session, shift, onLogout, onCloseShift, onReturnToHub, onViewDebts, onViewSpecialCustomers, onViewOrders, isActive = true }: Props) {
+// ---------------------------------------------------------------------------
+// Inline SVG icons (Heroicons outline 1.5px stroke)
+// ---------------------------------------------------------------------------
+
+const IconMenu = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+  </svg>
+)
+
+const IconCart = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+  </svg>
+)
+
+const IconBanknote = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+  </svg>
+)
+
+const IconReceipt = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0c1.1.128 1.907 1.077 1.907 2.185Z" />
+  </svg>
+)
+
+const IconClock = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+)
+
+const IconGear = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </svg>
+)
+
+const IconX = () => (
+  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+  </svg>
+)
+
+const IconSearch = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+  </svg>
+)
+
+// ---------------------------------------------------------------------------
+// Sidebar button
+// ---------------------------------------------------------------------------
+
+interface SidebarBtnProps {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  active?: boolean
+  danger?: boolean
+}
+
+function SidebarBtn({ icon, label, onClick, active, danger }: SidebarBtnProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex flex-col items-center justify-center gap-1 py-3 rounded-lg transition-all active:scale-95 select-none ${
+        danger
+          ? 'text-red-500 hover:bg-red-950/40 hover:text-red-400'
+          : active
+            ? 'bg-zinc-800 text-zinc-100'
+            : 'text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300'
+      }`}
+    >
+      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
+      <span className="text-[9px] font-medium tracking-wide leading-none">{label}</span>
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Menu overlay action
+// ---------------------------------------------------------------------------
+
+interface MenuActionProps {
+  emoji: string
+  label: string
+  onClick: () => void
+  danger?: boolean
+  muted?: boolean
+}
+
+function MenuAction({ emoji, label, onClick, danger, muted }: MenuActionProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-zinc-800/80 active:bg-zinc-800 ${
+        danger ? 'text-red-400 hover:text-red-300' : muted ? 'text-zinc-600 hover:text-zinc-400' : 'text-zinc-300 hover:text-zinc-100'
+      }`}
+    >
+      <span className="text-base shrink-0 w-5 text-center">{emoji}</span>
+      {label}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export default function CashierScreen({
+  session,
+  shift,
+  onLogout,
+  onCloseShift,
+  onReturnToHub,
+  onViewDebts,
+  onViewSpecialCustomers,
+  onViewOrders,
+  isActive = true,
+}: Props) {
+  // ── Existing state ─────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showAttendanceModal, setShowAttendanceModal] = useState(false)
@@ -57,24 +179,27 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
-  // Balance en tiempo real
   const [cashInHand, setCashInHand] = useState<number | null>(null)
-  // Ventas del turno (columna en vivo)
-  const [shiftSales, setShiftSales] = useState<ShiftSaleRow[]>([])
-  // Feedback visual cuando el lector captura un escaneo global
   const [scanFlash, setScanFlash] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [storeName, setStoreName] = useState<string | null>(null)
   const scanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Cargar catálogo (PLU → producto/precio) para resolver los escaneos.
+  // ── New UI state ───────────────────────────────────────────────────────────
+  const [showManualPanel, setShowManualPanel] = useState(false)
+  const [showMenuPanel, setShowMenuPanel] = useState(false)
+  const [heroInput, setHeroInput] = useState('')
+  const [heroError, setHeroError] = useState('')
+  const heroInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Effects ────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     window.hw.getProducts().then(res => {
       if (res.ok) setProducts(res.data)
     })
   }, [])
 
-  // Nombre del local activo (session o shift).
   useEffect(() => {
     const storeId = session.storeId ?? shift.storeId
     if (!storeId) return
@@ -85,16 +210,9 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     })
   }, [session.storeId, shift.storeId])
 
-  // Cargar balance + ventas y refrescar cada 30 segundos
   function refreshBalance(): void {
     void window.hw.getShiftSummary().then(r => {
       if (r.ok) setCashInHand(r.data.cashInHand)
-    })
-  }
-
-  function refreshSales(): void {
-    void window.hw.getShiftSales().then(r => {
-      if (r.ok) setShiftSales(r.data)
     })
   }
 
@@ -119,7 +237,6 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         }
       }
       refreshBalance()
-      refreshSales()
     } finally {
       setRefreshing(false)
     }
@@ -127,23 +244,17 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
 
   useEffect(() => {
     refreshBalance()
-    refreshSales()
-    const interval = setInterval(() => {
-      refreshBalance()
-      refreshSales()
-    }, 30_000)
+    const interval = setInterval(refreshBalance, 30_000)
     return () => clearInterval(interval)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Refrescar balance cuando la pantalla vuelve a ser visible (ej: regreso desde pedidos con seña)
   useEffect(() => {
-    if (isActive) {
-      refreshBalance()
-      refreshSales()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (isActive) refreshBalance()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive])
+
+  // ── Cart logic ─────────────────────────────────────────────────────────────
 
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0)
   const hasManualItems = cart.some(item => item.manualEntry)
@@ -154,23 +265,15 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     setLastSaleId(null)
   }, [])
 
-  // ── Lector USB: captura global de códigos de barras ────────────────────
-  // Se desactiva automáticamente cuando hay un modal abierto (el usuario puede
-  // estar escribiendo en campos propios del modal).
   const anyModalOpen = showPaymentModal || showProductsModal
 
   const handleGlobalScan = useCallback((digits: string) => {
     const parsed = parseKretzBarcode(digits)
-    if (!parsed) {
-      // Código capturado pero no es formato KRETZ → ignorar silenciosamente
-      return
-    }
+    if (!parsed) return
     const plu = parseInt(parsed.pluNumber, 10)
     const product = products.find(p => p.pluNumber === plu)
     const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
     addItem(item)
-
-    // Flash visual en la barra de estado
     if (scanFlashTimerRef.current) clearTimeout(scanFlashTimerRef.current)
     setScanFlash(item.productName)
     scanFlashTimerRef.current = setTimeout(() => setScanFlash(null), 2000)
@@ -188,21 +291,55 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     setLastSaleId(null)
   }
 
+  // ── Hero input handlers ────────────────────────────────────────────────────
+
+  function handleHeroChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const digits = e.target.value.replace(/\D/g, '')
+    setHeroInput(digits)
+    setHeroError('')
+    if (digits.length === 13) {
+      const parsed = parseKretzBarcode(digits)
+      if (parsed) {
+        const plu = parseInt(parsed.pluNumber, 10)
+        const product = products.find(p => p.pluNumber === plu)
+        const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
+        addItem(item)
+        setHeroInput('')
+        setTimeout(() => heroInputRef.current?.focus(), 0)
+      }
+    }
+  }
+
+  function handleHeroSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!heroInput.trim()) return
+    const parsed = parseKretzBarcode(heroInput.trim())
+    if (parsed) {
+      const plu = parseInt(parsed.pluNumber, 10)
+      const product = products.find(p => p.pluNumber === plu)
+      const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
+      addItem(item)
+      setHeroInput('')
+      setTimeout(() => heroInputRef.current?.focus(), 0)
+    } else {
+      setHeroError('Código inválido — verificá que sea el ticket de la balanza (13 dígitos, prefijo 20).')
+    }
+  }
+
+  // ── Sale handlers ──────────────────────────────────────────────────────────
+
   async function handleConfirmSale(payments: SalePaymentPayload[], notes?: string) {
     if (cart.length === 0) {
       setError('Agregá al menos un producto antes de confirmar.')
       return
     }
-
     setLoading(true)
     setError('')
     setShowPaymentModal(false)
-
     try {
       const result = await window.hw.createSale({
         items: cart.map(item => ({
           productId: item.productId ?? FALLBACK_PRODUCT_ID,
-          // Para productos por unidad la cantidad es entera; por kg va con decimales.
           quantity: item.unit === 'unit' ? Math.round(item.weightKg) : item.weightKg,
           unitPrice: item.unitPrice,
           subtotal: item.subtotal,
@@ -211,16 +348,13 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         manualEntry: hasManualItems,
         notes,
       })
-
       if (!result.ok) {
         setError(result.error ?? 'Error al procesar la venta.')
         return
       }
-
       setLastSaleId(result.data.saleId)
       setCart([])
-      refreshBalance() // actualizar balance después de cada venta
-      refreshSales()   // actualizar lista de ventas del turno
+      refreshBalance()
     } catch {
       setError('Error de comunicación. Reintentar.')
     } finally {
@@ -256,10 +390,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     if (cart.length === 0) return
     setDebtLoading(true)
     setDebtError(null)
-
     try {
-      // 1. Crear la venta. Si el cliente pagó algo ahora, se registran esos pagos
-      //    para que el cierre de caja los cuente correctamente.
       const saleResult = await window.hw.createSale({
         items: cart.map(item => ({
           productId: item.productId ?? FALLBACK_PRODUCT_ID,
@@ -273,13 +404,10 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         manualEntry: hasManualItems,
         notes: payload.notes,
       })
-
       if (!saleResult.ok) {
         setDebtError(saleResult.error ?? 'Error al registrar la venta.')
         return
       }
-
-      // 2. Crear el evento de deuda en el ledger
       const debtResult = await window.hw.createDebt({
         saleId: saleResult.data.saleId,
         customerId: payload.customerId,
@@ -288,16 +416,13 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         dueDate: payload.dueDate ? new Date(payload.dueDate).toISOString() : undefined,
         notes: payload.notes,
       })
-
       if (!debtResult.ok) {
         setDebtError(debtResult.error ?? 'Error al registrar la deuda.')
         return
       }
-
       setShowDebtModal(false)
       setCart([])
       refreshBalance()
-      refreshSales()
     } catch {
       setDebtError('Error de comunicación. Reintentar.')
     } finally {
@@ -305,340 +430,365 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
     }
   }
 
-  const shiftLabel = shift.shiftType === 'morning' ? '🌅 Mañana' : '🌙 Tarde'
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  const shiftLabel = shift.shiftType === 'morning' ? 'Mañana' : 'Tarde'
+
+  function closeMenu() { setShowMenuPanel(false) }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-1 flex-col bg-gray-950 text-white">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-gray-800 bg-gray-900 px-6 py-3">
-        <div className="flex items-center gap-4 min-w-0">
+    <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
+
+      {/* ━━━ SIDEBAR ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <nav className="flex w-16 flex-none flex-col items-center border-r border-zinc-800 bg-zinc-900 py-2 gap-0.5 z-10">
+        <SidebarBtn icon={<IconMenu />} label="Menú" onClick={() => setShowMenuPanel(v => !v)} active={showMenuPanel} />
+
+        <div className="my-1.5 w-8 h-px bg-zinc-800 shrink-0" />
+
+        <SidebarBtn icon={<IconCart />} label="Venta" onClick={() => {}} active={!showMenuPanel} />
+        <SidebarBtn icon={<IconBanknote />} label="Vales" onClick={() => setShowValesModal(true)} />
+        <SidebarBtn icon={<IconReceipt />} label="Gastos" onClick={() => setShowExpenseModal(true)} />
+        <SidebarBtn icon={<IconClock />} label="Turno" onClick={() => setShowSalesModal(true)} />
+
+        <div className="flex-1" />
+
+        <SidebarBtn icon={<IconGear />} label="Ajustes" onClick={() => setShowMenuPanel(v => !v)} />
+
+        {/* Brand mark */}
+        <div className="my-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80">
+          <span className="text-sm">🥩</span>
+        </div>
+      </nav>
+
+      {/* ━━━ MAIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+
+        {/* Status bar */}
+        <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-5 py-2 shrink-0">
           {storeName && (
-            <span
-              className="text-sm font-semibold text-white truncate max-w-[12rem]"
-              title={storeName}
-            >
+            <span className="text-sm font-semibold text-zinc-100 truncate max-w-[12rem]" title={storeName}>
               {storeName}
             </span>
           )}
-          <span className="text-sm font-semibold text-amber-400 shrink-0">{shiftLabel}</span>
-          <span className="text-xs text-gray-500 shrink-0">Turno abierto</span>
-          {/* Balance estimado en caja */}
+          <span className="text-xs text-zinc-500 shrink-0">{shiftLabel}</span>
           {cashInHand !== null && (
-            <span className="text-xs text-emerald-400 font-medium">
-              💵 {formatARS(cashInHand)} en caja
+            <span className="font-mono text-xs text-emerald-400 shrink-0" title="Efectivo estimado en caja">
+              {formatARS(cashInHand)} en caja
             </span>
           )}
-          {/* Indicador del lector USB */}
-          {scanFlash ? (
-            <span className="flex items-center gap-1.5 rounded-md bg-green-900/40 px-2 py-1 text-[11px] text-green-300 animate-pulse">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-              {scanFlash}
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-[11px] text-gray-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-gray-600" />
-              Lector listo
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowProductsModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-600 hover:text-white transition-colors"
-          >
-            📋 Productos
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAttendanceModal(true)}
-            title="Asistencia (pausado)"
-            className="rounded-md border border-gray-800 px-3 py-1.5 text-xs text-gray-600 hover:border-gray-600 hover:text-gray-400 transition-colors opacity-60"
-          >
-            ✓ Asistencia
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowValesModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-sky-600 hover:text-sky-300 transition-colors"
-          >
-            💵 Vales
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowEmployeePayModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-emerald-600 hover:text-emerald-300 transition-colors"
-          >
-            💰 Pago
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowStockCountModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-cyan-600 hover:text-cyan-300 transition-colors"
-          >
-            ⚖️ Conteo
-          </button>
-          <button
-            onClick={() => setShowExpenseModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-orange-600 hover:text-orange-300 transition-colors"
-          >
-            💸 Gasto
-          </button>
-          <button
-            onClick={() => setShowExpenseListModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-amber-600 hover:text-amber-300 transition-colors"
-          >
-            📋 Ver gastos
-          </button>
-          {onViewDebts && (
-            <button
-              onClick={onViewDebts}
-              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-amber-600 hover:text-amber-300 transition-colors"
-            >
-              📒 Fiados
-            </button>
-          )}
-          {onViewSpecialCustomers && (
-            <button
-              onClick={onViewSpecialCustomers}
-              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-purple-600 hover:text-purple-300 transition-colors"
-            >
-              👤 Clientes
-            </button>
-          )}
-          {onViewOrders && (
-            <button
-              onClick={onViewOrders}
-              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-emerald-600 hover:text-emerald-300 transition-colors"
-            >
-              📦 Pedidos
-            </button>
-          )}
-          <span className="text-sm text-gray-400">
-            {session.role === 'cashier' ? 'Cajera' : 'Admin'}
-          </span>
-          {onReturnToHub && (
-            <button
-              onClick={onReturnToHub}
-              className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-600 hover:text-white transition-colors"
-            >
-              ← Panel admin
-            </button>
-          )}
+          <div className="flex-1" />
           <button
             type="button"
             onClick={() => void handleRefreshRemote()}
             disabled={refreshing}
-            title="Actualizar datos remotos"
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:border-gray-600 hover:text-gray-300 transition-colors disabled:opacity-50"
+            title="Actualizar catálogo y datos remotos"
+            className="rounded-md px-2 py-1 text-xs text-zinc-600 hover:text-zinc-300 transition-colors disabled:opacity-40"
           >
             {refreshing ? '…' : '↺'}
           </button>
           <button
+            type="button"
             onClick={onCloseShift}
-            className="rounded-md bg-red-700 px-3 py-1.5 text-xs text-white hover:bg-red-600 transition-colors"
+            className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-1.5 text-xs text-red-400 hover:border-red-700/70 hover:text-red-300 transition-colors"
           >
             Cerrar caja
           </button>
-          <button
-            onClick={onLogout}
-            className="rounded-md bg-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-600"
-          >
-            Salir
-          </button>
-        </div>
-      </header>
+        </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Columna izquierda: escaneo de productos + herramientas dev */}
-        <div className="flex w-80 flex-col border-r border-gray-800 bg-gray-900">
-          <div className="border-b border-gray-800 px-4 py-3">
-            <h2 className="text-sm font-semibold text-gray-200">Escanear productos</h2>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Apuntá el lector al código del ticket. Si no hay lector, usá el campo de abajo.
-            </p>
-          </div>
+        {/* Body */}
+        <div className="flex-1 overflow-hidden">
+          <div className="flex h-full w-full gap-5 px-6 py-5">
 
-          <div className="flex-1 overflow-y-auto">
-            <ScanInput onAddItem={addItem} products={products} />
-          </div>
+            {/* ━━━ LEFT COLUMN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            <div className="flex flex-1 flex-col min-w-0 gap-4">
 
-          <DevToolsPanel onDataChanged={() => { refreshBalance(); refreshSales() }} />
-        </div>
+              {/* Page title */}
+              <h1 className="text-base font-semibold text-zinc-100 shrink-0">Área de Venta</h1>
 
-        {/* Columna central: venta en curso + acción de cobro */}
-        <div className="flex flex-1 flex-col">
-          <div className="flex items-center justify-between border-b border-gray-800 px-6 py-3">
-            <h2 className="text-sm font-semibold text-gray-200">
-              Venta en curso{cart.length > 0 ? ` — ${cart.length} ítem${cart.length !== 1 ? 's' : ''}` : ''}
-            </h2>
-            {cart.length > 0 && (
-              <button onClick={clearCart} className="text-xs text-gray-500 hover:text-red-400">
-                Vaciar
-              </button>
-            )}
-          </div>
+              {/* Hero scan input + manual toggle */}
+              <div className="shrink-0 flex gap-2">
+                <form onSubmit={handleHeroSubmit} className="flex-1 min-w-0">
+                  <div className={`flex h-14 items-center gap-3 rounded-xl border bg-zinc-900 px-4 transition-colors focus-within:border-zinc-600 ${heroError ? 'border-red-900/70' : 'border-zinc-800'}`}>
+                    <span className="shrink-0 text-zinc-600"><IconSearch /></span>
+                    <input
+                      ref={heroInputRef}
+                      type="text"
+                      inputMode="numeric"
+                      value={heroInput}
+                      onChange={handleHeroChange}
+                      placeholder="Escanea o busca PLU/Producto…"
+                      data-barcode-input="true"
+                      autoFocus
+                      className="min-w-0 flex-1 bg-transparent text-base text-zinc-100 placeholder-zinc-600 focus:outline-none"
+                    />
+                    {scanFlash ? (
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-emerald-400 animate-pulse">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        <span className="max-w-[8rem] truncate">{scanFlash}</span>
+                      </span>
+                    ) : (
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-600">
+                        <span className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
+                        Lector listo
+                      </span>
+                    )}
+                  </div>
+                  {heroError && (
+                    <p className="mt-1.5 px-1 text-xs text-red-400">{heroError}</p>
+                  )}
+                </form>
 
-          <div className="flex-1 overflow-y-auto p-6">
-            {cart.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-2">
-                <p className="text-4xl">🛒</p>
-                <p className="text-sm">Escaneá un producto para empezar la venta</p>
+                {/* Manual PLU button — mismo alto que el hero input */}
+                <button
+                  type="button"
+                  onClick={() => setShowManualPanel(v => !v)}
+                  title="Ingresar producto manualmente por PLU y precio"
+                  className={`h-14 shrink-0 rounded-xl border px-4 text-sm font-medium transition-all active:scale-95 ${
+                    showManualPanel
+                      ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5 3 12l3.75 4.5m6.75-9L17.25 12l-3.75 4.5M11.25 3l-1.5 18" />
+                    </svg>
+                    <span>Manual</span>
+                  </span>
+                </button>
               </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-800 text-xs text-gray-500">
-                    <th className="pb-2 text-left">PLU</th>
-                    <th className="pb-2 text-left">Producto</th>
-                    <th className="pb-2 text-right">Peso / Cant.</th>
-                    <th className="pb-2 text-right">Precio</th>
-                    <th className="pb-2 w-6"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cart.map(item => (
-                    <tr key={item.localId} className="border-b border-gray-800/50">
-                      <td className="py-2 text-gray-400 pr-2">{item.pluNumber}</td>
-                      <td className="py-2 text-gray-200">
-                        <span className="flex items-center gap-1 flex-wrap">
-                          {item.productName}
+
+              {/* Manual PLU panel */}
+              {showManualPanel && (
+                <div className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-900">
+                  <ScanInput onAddItem={addItem} products={products} />
+                </div>
+              )}
+
+              {/* Cart section header */}
+              <div className="flex items-center justify-between shrink-0">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                  {cart.length > 0
+                    ? `${cart.length} producto${cart.length !== 1 ? 's' : ''} en la venta`
+                    : 'Sin productos'}
+                </span>
+                {cart.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearCart}
+                    className="text-[11px] text-zinc-600 hover:text-red-400 transition-colors"
+                  >
+                    Vaciar
+                  </button>
+                )}
+              </div>
+
+              {/* Cart items */}
+              <div className="flex-1 overflow-y-auto space-y-0.5 min-h-0">
+                {cart.length === 0 ? (
+                  <div className="flex h-48 flex-col items-center justify-center gap-3 text-zinc-700">
+                    <svg className="h-10 w-10 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+                    </svg>
+                    <div className="text-center space-y-1">
+                      <p className="text-sm text-zinc-600">Escaneá un producto para empezar</p>
+                      <p className="text-xs text-zinc-700">
+                        Sin lector o balanza → usá el botón{' '}
+                        <span className="font-medium text-zinc-500">Manual</span>{' '}
+                        para ingresar PLU y precio
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  cart.map(item => (
+                    <div
+                      key={item.localId}
+                      className="group flex items-center gap-3 rounded-lg px-3 py-3 hover:bg-zinc-900/80 transition-colors"
+                    >
+                      {/* PLU badge */}
+                      {item.pluNumber ? (
+                        <span className="w-9 shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-zinc-500 tabular-nums">
+                          {item.pluNumber}
+                        </span>
+                      ) : (
+                        <span className="w-9 shrink-0" />
+                      )}
+
+                      {/* Product info */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate text-sm text-zinc-200" title={item.productName}>
+                            {item.productName}
+                          </span>
                           {item.manualEntry && (
-                            <span className="rounded bg-orange-900/50 px-1 py-0.5 text-[9px] text-orange-300">
+                            <span className="shrink-0 rounded bg-orange-900/50 px-1 py-0.5 text-[9px] text-orange-300">
                               manual
                             </span>
                           )}
                           {item.priceDiscrepancy && (
                             <span
-                              className="rounded bg-red-900/60 px-1 py-0.5 text-[9px] text-red-300 cursor-help"
-                              title="El precio del código de barras no coincide con el precio registrado en el catálogo. Verificar el precio en la balanza."
+                              className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[9px] text-red-300 cursor-help"
+                              title="El precio del ticket no coincide con el catálogo. Verificar la balanza."
                             >
                               ⚠ precio
                             </span>
                           )}
-                        </span>
-                      </td>
-                      <td className="py-2 text-right text-gray-400 text-xs">
-                        {item.unit === 'unit'
-                          ? `${Math.round(item.weightKg)} u.`
-                          : formatKg(item.weightKg)}
-                      </td>
-                      <td className="py-2 text-right font-semibold text-white">{formatARS(item.subtotal)}</td>
-                      <td className="py-2 text-right">
-                        <button
-                          onClick={() => removeItem(item.localId)}
-                          className="text-[11px] text-gray-600 hover:text-red-400"
-                          title="Quitar"
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={3} className="pt-3 text-right text-sm font-bold text-gray-200">
-                      Total
-                    </td>
-                    <td className="pt-3 text-right text-xl font-bold text-amber-400" colSpan={2}>
-                      {formatARS(cartTotal)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
-          </div>
-
-          {/* Feedback + botón confirmar */}
-          <div className="border-t border-gray-800 px-6 py-4 space-y-3">
-            {error && (
-              <p className="rounded-lg bg-red-900/40 px-4 py-2.5 text-xs text-red-300">{error}</p>
-            )}
-            {lastSaleId && (
-              <p className="rounded-lg bg-green-900/40 px-4 py-2.5 text-xs text-green-300">
-                ✓ Venta confirmada
-              </p>
-            )}
-            <button
-              onClick={openPaymentModal}
-              disabled={loading || cart.length === 0}
-              className="w-full rounded-xl bg-amber-500 py-4 font-bold text-white text-sm transition-colors hover:bg-amber-400 disabled:opacity-40"
-            >
-              {loading ? 'Procesando…' : `Confirmar venta · ${formatARS(cartTotal)}`}
-            </button>
-          </div>
-        </div>
-
-        {/* Columna derecha: ventas del turno en vivo (como el cuaderno) */}
-        <div className="flex w-96 flex-col border-l border-gray-800 bg-gray-900">
-          <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-200">Ventas del turno</h2>
-              <p className="text-[11px] text-gray-500">
-                {shiftSales.length} venta{shiftSales.length !== 1 ? 's' : ''} · {formatARS(shiftSales.reduce((s, v) => s + v.total, 0))}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowSalesModal(true)}
-              disabled={shiftSales.length === 0}
-              className="rounded-md border border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-400 hover:border-gray-600 hover:text-white transition-colors disabled:opacity-40"
-            >
-              Ver todo
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {shiftSales.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-2 px-4 text-center">
-                <p className="text-3xl">🧾</p>
-                <p className="text-xs">Las ventas confirmadas aparecerán acá</p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-gray-800/60">
-                {shiftSales.map(sale => (
-                  <li key={sale.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 tabular-nums">
-                          {new Date(sale.createdAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                        <span className="text-[11px] text-gray-400 truncate">
-                          {sale.items.length} ítem{sale.items.length !== 1 ? 's' : ''} · {summarizePaymentMethods(sale.paymentMethods)}
-                        </span>
+                        </div>
+                        <p className="mt-0.5 font-mono text-[11px] text-zinc-500 tabular-nums">
+                          {item.unit === 'unit'
+                            ? `${Math.round(item.weightKg)} u. × ${formatARS(item.unitPrice)}/u.`
+                            : `${formatKg(item.weightKg)} @ ${formatARS(item.unitPrice)}/kg`}
+                        </p>
                       </div>
-                      {sale.cashAmount > 0 && sale.digitalAmount > 0 && (
-                        <p className="text-[10px] text-gray-600">
-                          <span className="text-emerald-500">{formatARS(sale.cashAmount)} efvo</span>
-                          {' + '}
-                          <span className="text-sky-500">
-                            {formatARS(sale.digitalAmount)} {
-                              sale.paymentMethods.filter(m => m !== 'cash').length === 1
-                                ? sale.paymentMethods.filter(m => m !== 'cash').map(m =>
-                                    m === 'debit' ? 'déb' : m === 'wallet' ? 'bill.' : 'cred.'
-                                  ).join('')
-                                : 'dig'
-                            }
-                          </span>
-                        </p>
-                      )}
-                      {sale.cashAmount === 0 && sale.digitalAmount > 0 && (
-                        <p className="text-[10px] text-sky-600">
-                          {sale.paymentMethods.filter(m => m !== 'cash').map(m =>
-                            m === 'debit' ? 'Débito' : m === 'wallet' ? 'Bill. Virtual' : 'Crédito'
-                          ).join(' + ')}
-                        </p>
-                      )}
+
+                      {/* Subtotal */}
+                      <span className="shrink-0 font-mono text-sm font-semibold text-zinc-100 tabular-nums">
+                        {formatARS(item.subtotal)}
+                      </span>
+
+                      {/* Remove */}
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.localId)}
+                        className="shrink-0 flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-zinc-700 opacity-0 transition-all hover:bg-red-950/40 hover:text-red-400 group-hover:opacity-100"
+                        title="Eliminar"
+                      >
+                        <IconX />
+                        <span>Eliminar</span>
+                      </button>
                     </div>
-                    <span className="text-sm font-semibold text-white shrink-0">{formatARS(sale.total)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* ━━━ RIGHT COLUMN — CHECKOUT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+            <div className="w-80 flex-none flex flex-col gap-4">
+              <div className="flex flex-col flex-1 rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-xl">
+
+                {/* Panel header */}
+                <div className="border-b border-zinc-800 px-5 py-4 shrink-0">
+                  <h2 className="text-sm font-semibold text-zinc-100">Total de la Venta</h2>
+                </div>
+
+                {/* Summary rows */}
+                <div className="flex-1 space-y-2 px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-500">Subtotal</span>
+                    <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-500">Descuento</span>
+                    <span className="font-mono text-sm text-zinc-600 tabular-nums">$0</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-400 font-medium">Total</span>
+                    <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartTotal)}</span>
+                  </div>
+                </div>
+
+                {/* Big total + cobrar */}
+                <div className="shrink-0 space-y-4 border-t border-zinc-800 px-5 pb-5 pt-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600 mb-1.5">
+                      TOTAL
+                    </p>
+                    <p className="font-mono text-5xl font-bold leading-none text-zinc-100 tabular-nums">
+                      {formatARS(cartTotal)}
+                    </p>
+                  </div>
+
+                  {error && (
+                    <div className="rounded-lg border border-red-900/40 bg-red-950/30 px-3 py-2">
+                      <p className="text-xs text-red-300">{error}</p>
+                    </div>
+                  )}
+                  {lastSaleId && (
+                    <div className="rounded-lg border border-emerald-900/40 bg-emerald-950/30 px-3 py-2">
+                      <p className="text-xs text-emerald-300">✓ Venta confirmada</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={openPaymentModal}
+                    disabled={loading || cart.length === 0}
+                    className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {loading ? (
+                      'Procesando…'
+                    ) : (
+                      <>
+                        <span>Cobrar y Finalizar</span>
+                        <kbd className="rounded bg-emerald-600/60 px-1.5 py-0.5 font-mono text-xs opacity-80">
+                          Enter
+                        </kbd>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* DevTools — en modo dev queda abajo del panel */}
+              <DevToolsPanel onDataChanged={refreshBalance} />
+            </div>
+
           </div>
         </div>
       </div>
 
-      {/* Modal de cobro */}
+      {/* ━━━ MENU OVERLAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {showMenuPanel && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={closeMenu}
+          />
+          {/* Panel */}
+          <div className="fixed left-16 top-0 z-50 flex h-full w-64 flex-col border-r border-zinc-800 bg-zinc-900 shadow-2xl">
+            <div className="shrink-0 border-b border-zinc-800 px-4 py-4">
+              <p className="text-sm font-semibold text-zinc-100">Opciones</p>
+              {storeName && (
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {storeName} · Turno {shiftLabel}
+                </p>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-1.5">
+              <MenuAction emoji="📋" label="Lista de productos" onClick={() => { setShowProductsModal(true); closeMenu() }} />
+              {onViewOrders && (
+                <MenuAction emoji="📦" label="Pedidos" onClick={() => { onViewOrders(); closeMenu() }} />
+              )}
+              {onViewDebts && (
+                <MenuAction emoji="📒" label="Fiados" onClick={() => { onViewDebts(); closeMenu() }} />
+              )}
+              {onViewSpecialCustomers && (
+                <MenuAction emoji="👤" label="Clientes especiales" onClick={() => { onViewSpecialCustomers(); closeMenu() }} />
+              )}
+              <MenuAction emoji="⚖️" label="Conteo de stock" onClick={() => { setShowStockCountModal(true); closeMenu() }} />
+              <MenuAction emoji="💰" label="Pago a empleado" onClick={() => { setShowEmployeePayModal(true); closeMenu() }} />
+              <MenuAction emoji="📋" label="Ver gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
+              <MenuAction emoji="↺" label={refreshing ? 'Actualizando…' : 'Actualizar datos'} onClick={() => { void handleRefreshRemote(); closeMenu() }} muted={refreshing} />
+              <MenuAction emoji="✓" label="Asistencia (pausado)" onClick={() => { setShowAttendanceModal(true); closeMenu() }} muted />
+            </div>
+
+            <div className="shrink-0 border-t border-zinc-800 py-1.5">
+              {onReturnToHub && (
+                <MenuAction emoji="←" label="Volver al hub admin" onClick={() => { onReturnToHub(); closeMenu() }} />
+              )}
+              <MenuAction emoji="⏹" label="Cerrar caja" onClick={() => { onCloseShift(); closeMenu() }} danger />
+              <MenuAction emoji="→" label="Cerrar sesión" onClick={() => { onLogout(); closeMenu() }} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ━━━ MODALS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+
       {showPaymentModal && cart.length > 0 && (
         <PaymentModal
           total={cartTotal}
@@ -648,7 +798,6 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         />
       )}
 
-      {/* Modal de fiado */}
       {showDebtModal && cart.length > 0 && (
         <DebtModal
           total={cartTotal}
@@ -659,7 +808,6 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         />
       )}
 
-      {/* Modal de lista de productos */}
       {showProductsModal && (
         <ProductsListModal onClose={() => setShowProductsModal(false)} />
       )}
@@ -671,14 +819,14 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
       {showValesModal && (
         <ValesModal
           onClose={() => setShowValesModal(false)}
-          onSaved={() => refreshBalance()}
+          onSaved={refreshBalance}
         />
       )}
 
       {showEmployeePayModal && (
         <EmployeePayModal
           onClose={() => setShowEmployeePayModal(false)}
-          onPaid={() => refreshBalance()}
+          onPaid={refreshBalance}
         />
       )}
 
@@ -686,10 +834,9 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         <StockCountModal onClose={() => setShowStockCountModal(false)} />
       )}
 
-      {/* Modal de registro de gastos */}
       {showExpenseModal && (
         <ExpenseModal
-          onSaved={() => refreshBalance()}
+          onSaved={refreshBalance}
           onRegistered={() => setShowExpenseModal(false)}
           onCancel={() => setShowExpenseModal(false)}
         />
@@ -699,10 +846,10 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         <ExpenseListModal onClose={() => setShowExpenseListModal(false)} />
       )}
 
-      {/* Vista ampliada de ventas del turno */}
       {showSalesModal && (
-        <ShiftSalesModal onClose={() => { setShowSalesModal(false); refreshSales() }} />
+        <ShiftSalesModal onClose={() => setShowSalesModal(false)} />
       )}
+
     </div>
   )
 }

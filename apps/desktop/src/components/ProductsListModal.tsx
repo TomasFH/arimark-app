@@ -69,7 +69,7 @@ export default function ProductsListModal({ onClose }: Props) {
   })
 
   function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <span className="text-gray-700 ml-1">↕</span>
+    if (sortKey !== col) return <span className="text-zinc-700 ml-1">↕</span>
     return <span className="text-orange-400 ml-1">{sortAsc ? '↑' : '↓'}</span>
   }
 
@@ -78,18 +78,18 @@ export default function ProductsListModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="flex flex-col bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh]">
-        <div className="flex items-center justify-between border-b border-gray-700 px-5 py-3">
+      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh]">
+        <div className="flex items-center justify-between border-b border-zinc-700 px-5 py-3">
           <div>
             <h2 className="text-sm font-bold text-white">Catálogo de productos</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5">
+            <p className="text-[10px] text-zinc-500 mt-0.5">
               {sorted.length} producto{sorted.length !== 1 ? 's' : ''} · precios ref. Enero 2026
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
             aria-label="Cerrar"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -98,72 +98,72 @@ export default function ProductsListModal({ onClose }: Props) {
           </button>
         </div>
 
-        <div className="px-5 py-2 border-b border-gray-800">
+        <div className="px-5 py-2 border-b border-zinc-800">
           <input
             ref={searchRef}
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Buscar por nombre, PLU o categoría…"
-            className="w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
           />
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {loading && (
-            <p className="py-8 text-center text-xs text-gray-500">Cargando catálogo…</p>
+            <p className="py-8 text-center text-xs text-zinc-500">Cargando catálogo…</p>
           )}
           {!loading && error && (
             <p className="py-8 text-center text-xs text-red-400">{error}</p>
           )}
           {!loading && !error && sorted.length === 0 && (
-            <p className="py-8 text-center text-xs text-gray-500">
+            <p className="py-8 text-center text-xs text-zinc-500">
               {search ? 'Sin resultados para esa búsqueda.' : 'No hay productos con PLU asignado.'}
             </p>
           )}
           {!loading && !error && sorted.length > 0 && (
             <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
+              <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-800">
                 <tr>
                   <th
-                    className="px-5 py-2 text-left font-semibold text-gray-400 cursor-pointer hover:text-white select-none w-14"
+                    className="px-5 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none w-14"
                     onClick={() => handleSort('pluNumber')}
                   >
                     PLU <SortIcon col="pluNumber" />
                   </th>
                   <th
-                    className="px-3 py-2 text-left font-semibold text-gray-400 cursor-pointer hover:text-white select-none"
+                    className="px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none"
                     onClick={() => handleSort('name')}
                   >
                     Producto <SortIcon col="name" />
                   </th>
                   <th
-                    className="px-3 py-2 text-right font-semibold text-gray-400 cursor-pointer hover:text-white select-none w-24"
+                    className="px-3 py-2 text-right font-semibold text-zinc-400 cursor-pointer hover:text-white select-none w-24"
                     onClick={() => handleSort('price')}
                   >
                     Precio <SortIcon col="price" />
                   </th>
                   <th
-                    className="px-3 py-2 text-left font-semibold text-gray-400 cursor-pointer hover:text-white select-none"
+                    className="px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none"
                     onClick={() => handleSort('category')}
                   >
                     Cat. <SortIcon col="category" />
                   </th>
-                  <th className="px-5 py-2 text-right font-semibold text-gray-400 w-20">
+                  <th className="px-5 py-2 text-right font-semibold text-zinc-400 w-20">
                     Unidad
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map(p => (
-                  <tr key={p.id} className="border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors">
+                  <tr key={p.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
                     <td className="px-5 py-2 font-bold text-orange-400">{p.pluNumber}</td>
                     <td className="px-3 py-2 text-white">{p.name}</td>
                     <td className="px-3 py-2 text-right text-amber-300 font-medium">
                       {p.price != null ? formatARS(p.price) : '—'}
                     </td>
-                    <td className="px-3 py-2 text-gray-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                    <td className="px-5 py-2 text-right text-gray-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
+                    <td className="px-3 py-2 text-zinc-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                    <td className="px-5 py-2 text-right text-zinc-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
                   </tr>
                 ))}
               </tbody>
@@ -171,8 +171,8 @@ export default function ProductsListModal({ onClose }: Props) {
           )}
         </div>
 
-        <div className="border-t border-gray-800 px-5 py-2">
-          <p className="text-[10px] text-gray-600">
+        <div className="border-t border-zinc-800 px-5 py-2">
+          <p className="text-[10px] text-zinc-600">
             Precios de referencia cargados en la app. La balanza KRETZ puede tener valores distintos — sincronizar desde el panel de PLUs.
           </p>
         </div>

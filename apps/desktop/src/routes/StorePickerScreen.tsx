@@ -30,11 +30,11 @@ export default function StorePickerScreen({ stores, intent, onSelect, onLogout }
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-gray-900 p-6">
+    <div className="flex flex-1 items-center justify-center bg-zinc-900 p-6">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold text-white">¿En qué local trabajás hoy?</h1>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-zinc-400">
             {isCashierMode
               ? 'Seleccioná el local donde vas a abrir la caja.'
               : 'Seleccioná el local donde vas a operar en este turno.'}
@@ -47,11 +47,11 @@ export default function StorePickerScreen({ stores, intent, onSelect, onLogout }
               key={store.id}
               disabled={loading}
               onClick={() => void handleSelect(store.id)}
-              className="w-full rounded-xl bg-gray-800 border border-gray-700 hover:border-blue-500 hover:bg-gray-700 text-left px-5 py-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 hover:border-blue-500 hover:bg-zinc-700 text-left px-5 py-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <p className="font-semibold text-white">{store.name}</p>
               {store.address && (
-                <p className="text-sm text-gray-400 mt-0.5 truncate" title={store.address}>
+                <p className="text-sm text-zinc-400 mt-0.5 truncate" title={store.address}>
                   {store.address}
                 </p>
               )}
@@ -64,13 +64,13 @@ export default function StorePickerScreen({ stores, intent, onSelect, onLogout }
         )}
 
         {loading && (
-          <p className="text-center text-sm text-gray-400 animate-pulse">Conectando…</p>
+          <p className="text-center text-sm text-zinc-400 animate-pulse">Conectando…</p>
         )}
 
         <button
           onClick={onLogout}
           disabled={loading}
-          className="w-full text-sm text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40 pt-2"
+          className="w-full text-sm text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40 pt-2"
         >
           {isCashierMode ? '← Volver al hub' : '← Volver al login'}
         </button>

@@ -32,6 +32,13 @@ export interface AppInfo {
 }
 
 // ---------------------------------------------------------------------------
+// UI settings — preferencias de la aplicación, persisten entre sesiones
+// ---------------------------------------------------------------------------
+export interface UiSettings {
+  zoomFactor: number
+}
+
+// ---------------------------------------------------------------------------
 // Init status — resultado del arranque del proceso main
 // ---------------------------------------------------------------------------
 
@@ -1385,6 +1392,10 @@ export interface HwApi {
 
   /** Registra callback de progreso durante la carga masiva. Devuelve función para desuscribir. */
   onKretzSyncProgress: (cb: (progress: KretzSyncProgress) => void) => () => void
+
+  // ---- Preferencias de UI ----
+  getUiSettings: () => Promise<IpcResult<UiSettings>>
+  setUiSettings: (payload: UiSettings) => Promise<IpcResult<UiSettings>>
 }
 
 declare global {

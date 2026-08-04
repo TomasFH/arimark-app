@@ -162,11 +162,11 @@ export default function SalaryPaymentModal({ onClose }: Props) {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="flex flex-col bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh]">
-        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-gray-700 px-5 py-3">
+      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh]">
+        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-white truncate">Liquidación semanal</h2>
-            <p className="text-[10px] text-gray-500 mt-0.5 truncate" title={weekLabel}>
+            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={weekLabel}>
               Semana {weekLabel} · se reinicia cada lunes
             </p>
           </div>
@@ -175,14 +175,14 @@ export default function SalaryPaymentModal({ onClose }: Props) {
               type="button"
               onClick={() => void load()}
               disabled={loading}
-              className="rounded-md px-2 py-1.5 text-xs text-red-400 hover:bg-gray-800 hover:text-red-300 transition-colors disabled:opacity-40"
+              className="rounded-md px-2 py-1.5 text-xs text-red-400 hover:bg-zinc-800 hover:text-red-300 transition-colors disabled:opacity-40"
             >
               Actualizar
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
               aria-label="Cerrar"
             >
               <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -204,12 +204,12 @@ export default function SalaryPaymentModal({ onClose }: Props) {
               onChange={e => setFilterText(e.target.value)}
               maxLength={100}
               placeholder="Buscar empleado…"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-red-500"
             />
           )}
 
           {loading && (
-            <p className="text-sm text-gray-500 text-center py-8">Cargando…</p>
+            <p className="text-sm text-zinc-500 text-center py-8">Cargando…</p>
           )}
 
           {error && (
@@ -220,27 +220,27 @@ export default function SalaryPaymentModal({ onClose }: Props) {
 
           {!loading && !error && rows.length === 0 && (
             <div className="text-center py-8 space-y-1">
-              <p className="text-sm text-gray-500">No hay empleados con sueldo semanal &gt; 0.</p>
-              <p className="text-xs text-gray-600">Configuralo en Empleados.</p>
+              <p className="text-sm text-zinc-500">No hay empleados con sueldo semanal &gt; 0.</p>
+              <p className="text-xs text-zinc-600">Configuralo en Empleados.</p>
             </div>
           )}
 
           {!loading && rows.length > 0 && filteredRows.length === 0 && (
-            <p className="text-sm text-gray-500 text-center py-6">Ningún empleado coincide con la búsqueda.</p>
+            <p className="text-sm text-zinc-500 text-center py-6">Ningún empleado coincide con la búsqueda.</p>
           )}
 
           {!loading && filteredRows.length > 0 && (
-            <div className="rounded-lg border border-gray-800 bg-gray-950/80 px-3 py-2 grid grid-cols-3 gap-2 text-center mb-2">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 grid grid-cols-3 gap-2 text-center mb-2">
               <div>
-                <p className="text-[10px] text-gray-500">Bruto total</p>
-                <p className="text-xs text-gray-200 tabular-nums">{formatARS(totalGross)}</p>
+                <p className="text-[10px] text-zinc-500">Bruto total</p>
+                <p className="text-xs text-zinc-200 tabular-nums">{formatARS(totalGross)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-gray-500">Vales total</p>
-                <p className="text-xs text-amber-300 tabular-nums">{formatARS(totalVales)}</p>
+                <p className="text-[10px] text-zinc-500">Vales total</p>
+                <p className="text-xs text-zinc-200 tabular-nums">{formatARS(totalVales)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-gray-500">A pagar</p>
+                <p className="text-[10px] text-zinc-500">A pagar</p>
                 <p className="text-xs text-emerald-300 tabular-nums font-medium">{formatARS(totalNet)}</p>
               </div>
             </div>
@@ -252,7 +252,7 @@ export default function SalaryPaymentModal({ onClose }: Props) {
               return (
                 <div
                   key={employee.id}
-                  className="rounded-xl border border-gray-800 bg-gray-950/60 px-3 py-3 space-y-2"
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-3 space-y-2"
                 >
                   <p className="text-sm font-medium text-white truncate" title={employee.name}>
                     {employee.name}
@@ -265,15 +265,15 @@ export default function SalaryPaymentModal({ onClose }: Props) {
                   {summary && (
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
-                        <p className="text-[10px] text-gray-500">Sueldo</p>
-                        <p className="text-xs text-gray-200 tabular-nums">{formatARS(summary.weeklyWage)}</p>
+                        <p className="text-[10px] text-zinc-500">Sueldo</p>
+                        <p className="text-xs text-zinc-200 tabular-nums">{formatARS(summary.weeklyWage)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-gray-500">Vales</p>
-                        <p className="text-xs text-amber-300 tabular-nums">{formatARS(summary.totalVales)}</p>
+                        <p className="text-[10px] text-zinc-500">Vales</p>
+                        <p className="text-xs text-zinc-200 tabular-nums">{formatARS(summary.totalVales)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-gray-500">Neto</p>
+                        <p className="text-[10px] text-zinc-500">Neto</p>
                         <p className="text-xs text-emerald-300 tabular-nums font-medium">
                           {formatARS(summary.netToPay)}
                         </p>
@@ -282,18 +282,18 @@ export default function SalaryPaymentModal({ onClose }: Props) {
                   )}
 
                   {vales.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t border-gray-800/80">
+                    <div className="space-y-1 pt-1 border-t border-zinc-800/80">
                       {vales.map(v => (
                         <div key={v.id} className="flex items-start gap-2 min-w-0 text-[11px]">
                           <div className="min-w-0 flex-1">
-                            <p className="text-gray-400 truncate" title={v.description ?? 'Vale'}>
+                            <p className="text-zinc-400 truncate" title={v.description ?? 'Vale'}>
                               {v.description?.trim() || 'Vale'}
                             </p>
-                            <p className="text-gray-600 truncate" title={toLocalDateTime(v.paidAt)}>
+                            <p className="text-zinc-600 truncate" title={toLocalDateTime(v.paidAt)}>
                               {toLocalDateTime(v.paidAt)}
                             </p>
                           </div>
-                          <span className="shrink-0 text-amber-300/90 tabular-nums">
+                          <span className="shrink-0 text-zinc-300 tabular-nums">
                             {formatARS(v.amount)}
                           </span>
                         </div>
@@ -304,16 +304,16 @@ export default function SalaryPaymentModal({ onClose }: Props) {
               )
             })}
 
-          <p className="text-[10px] text-gray-600 pt-1">
+          <p className="text-[10px] text-zinc-600 pt-1">
             Solo esta semana (lun–dom). El pago en efectivo lo hace la cajera; no se registra un pago de salario en la app.
           </p>
         </div>
 
-        <div className="flex justify-end border-t border-gray-700 px-5 py-3">
+        <div className="flex justify-end border-t border-zinc-700 px-5 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            className="shrink-0 rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
           >
             Cerrar
           </button>

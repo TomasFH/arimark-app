@@ -18,6 +18,7 @@
  * validar con los dueños antes de implementar.
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import BackButton from '../components/BackButton'
 import type {
   SpecialCustomerRow,
   SpecialCustomerPriceRow,
@@ -67,26 +68,26 @@ function ProductTypeahead({ products, excludeIds, onSelect }: ProductTypeaheadPr
         onChange={e => setQuery(e.target.value)}
         placeholder="Buscar por nombre o PLU..."
         autoFocus
-        className="w-full rounded-lg border border-amber-700/60 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
       />
       {matches.length === 0 ? (
-        <p className="text-xs text-gray-600 px-1 py-2 italic">
+        <p className="text-xs text-zinc-600 px-1 py-2 italic">
           {query ? 'Sin coincidencias.' : 'Sin productos disponibles.'}
         </p>
       ) : (
-        <ul className="max-h-44 overflow-y-auto rounded-lg border border-gray-700 divide-y divide-gray-800">
+        <ul className="max-h-44 overflow-y-auto rounded-lg border border-zinc-700 divide-y divide-zinc-800">
           {matches.map(p => (
             <li key={p.id}>
               <button
                 type="button"
                 onClick={() => { onSelect(p); setQuery('') }}
-                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-800 transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-zinc-800 transition-colors"
               >
                 <span className="text-sm text-white">{p.name}</span>
-                <span className="text-xs text-gray-500 shrink-0 ml-2">
+                <span className="text-xs text-zinc-500 shrink-0 ml-2">
                   PLU {p.pluNumber}
                   {p.price != null && (
-                    <span className="ml-2 text-gray-400">{formatARS(p.price)}</span>
+                    <span className="ml-2 text-zinc-400">{formatARS(p.price)}</span>
                   )}
                 </span>
               </button>
@@ -157,23 +158,23 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
         Precios especiales
       </p>
 
       {entries.length === 0 && (
-        <p className="text-xs text-gray-600 italic">Sin precios especiales agregados.</p>
+        <p className="text-xs text-zinc-600 italic">Sin precios especiales agregados.</p>
       )}
 
       {entries.map(entry => (
-        <div key={entry.productId} className="rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-2 space-y-1.5">
+        <div key={entry.productId} className="rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <span className="text-sm font-medium text-white">{entry.productName}</span>
-              <span className="ml-2 text-xs text-gray-500">PLU {entry.pluNumber}</span>
+              <span className="ml-2 text-xs text-zinc-500">PLU {entry.pluNumber}</span>
               {entry.originalPrice != null && (
-                <span className="ml-2 text-xs text-gray-500">
-                  Precio lista: <span className="text-gray-400">{formatARS(entry.originalPrice)}</span>
+                <span className="ml-2 text-xs text-zinc-500">
+                  Precio lista: <span className="text-zinc-400">{formatARS(entry.originalPrice)}</span>
                 </span>
               )}
             </div>
@@ -181,7 +182,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
               <button
                 type="button"
                 onClick={() => handleRemove(entry.productId)}
-                className="shrink-0 text-gray-600 hover:text-red-400 text-xs transition-colors"
+                className="shrink-0 text-zinc-600 hover:text-red-400 text-xs transition-colors"
               >
                 ✕
               </button>
@@ -189,16 +190,16 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
           </div>
           <div className="flex gap-2">
             <div className="relative w-36 shrink-0">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">$</span>
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">$</span>
               {isAdmin ? (
                 <NumericInput
                   value={entry.specialPriceRaw}
                   onChange={raw => handlePriceChange(entry.productId, raw)}
                   placeholder="Precio especial"
-                  className="w-full rounded-lg border border-amber-700/60 bg-gray-800 pl-6 pr-2 py-1.5 text-sm text-white focus:border-amber-500 focus:outline-none"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-6 pr-2 py-1.5 text-sm text-white focus:border-zinc-500 focus:outline-none"
                 />
               ) : (
-                <span className="pl-6 py-1.5 text-sm text-amber-400 font-semibold">
+                <span className="pl-6 py-1.5 text-sm text-zinc-300 font-semibold">
                   {formatARS(parseNumericInput(entry.specialPriceRaw) ?? 0)}
                 </span>
               )}
@@ -210,11 +211,11 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
                 onChange={e => handleNotesChange(entry.productId, e.target.value)}
                 placeholder="Nota (opcional)"
                 maxLength={120}
-                className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
               />
             ) : (
               entry.notes && (
-                <span className="flex-1 text-xs text-gray-400 py-1.5">{entry.notes}</span>
+                <span className="flex-1 text-xs text-zinc-400 py-1.5">{entry.notes}</span>
               )
             )}
           </div>
@@ -223,7 +224,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
 
       {isAdmin && (
         showSearch ? (
-          <div className="rounded-lg border border-dashed border-amber-700/40 p-3 space-y-2">
+          <div className="rounded-lg border border-dashed border-zinc-700/40 p-3 space-y-2">
             <ProductTypeahead
               products={products}
               excludeIds={excludedIds}
@@ -232,7 +233,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
             <button
               type="button"
               onClick={() => setShowSearch(false)}
-              className="text-xs text-gray-500 hover:text-gray-300"
+              className="text-xs text-zinc-500 hover:text-zinc-300"
             >
               Cancelar
             </button>
@@ -241,7 +242,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
           <button
             type="button"
             onClick={() => setShowSearch(true)}
-            className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+            className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             + Agregar producto
           </button>
@@ -314,7 +315,7 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
 
   if (editing) {
     return (
-      <div className="rounded-xl border border-amber-700/50 bg-gray-900 p-4 space-y-4">
+      <div className="rounded-xl border border-zinc-700/50 bg-zinc-900 p-4 space-y-4">
         <div className="space-y-2">
           <input
             type="text"
@@ -322,7 +323,7 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
             onChange={e => setEditName(e.target.value)}
             placeholder="Nombre *"
             autoFocus
-            className="w-full rounded-lg border border-amber-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white focus:border-zinc-500 focus:outline-none"
           />
           <textarea
             value={editNotes}
@@ -330,18 +331,18 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
             rows={2}
             placeholder="Notas generales (opcional)"
             maxLength={300}
-            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
           />
           {/* Selector de local */}
           {stores.length > 0 && (
             <div className="space-y-1">
-              <p className="text-xs text-gray-500">Local del cliente</p>
+              <p className="text-xs text-zinc-500">Local del cliente</p>
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => setEditStoreId(null)}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                    editStoreId === null ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                    editStoreId === null ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                   }`}
                 >
                   Todos los locales
@@ -353,7 +354,7 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
                     onClick={() => setEditStoreId(s.id)}
                     title={s.name}
                     className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors truncate max-w-[140px] ${
-                      editStoreId === s.id ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      editStoreId === s.id ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                     }`}
                   >
                     {s.name}
@@ -372,11 +373,11 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2">
           <button onClick={handleSave} disabled={saving}
-            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-50">
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50">
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
           <button onClick={() => setEditing(false)}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:text-white">
+            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:text-white">
             Cancelar
           </button>
         </div>
@@ -386,34 +387,34 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
 
   // Modo vista
   return (
-    <div className="rounded-xl border border-gray-700 bg-gray-900 overflow-hidden">
+    <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden">
       {/* Cabecera siempre visible — click para expandir/colapsar */}
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-gray-800/50 transition-colors"
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-zinc-800/50 transition-colors"
       >
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white">{customer.name}</p>
-          {customer.notes && <p className="text-xs text-gray-400 mt-0.5 truncate" title={customer.notes}>{customer.notes}</p>}
+          {customer.notes && <p className="text-xs text-zinc-400 mt-0.5 truncate" title={customer.notes}>{customer.notes}</p>}
           <div className="flex items-center gap-2 flex-wrap mt-0.5">
             {/* Badge de local asignado */}
             {customer.storeId !== null ? (
-              <span className="text-xs bg-amber-900/30 text-amber-400/80 border border-amber-700/30 px-1.5 py-0.5 rounded-full truncate max-w-[120px]"
+              <span className="text-xs bg-zinc-800/60 text-zinc-300 border border-zinc-700/30 px-1.5 py-0.5 rounded-full truncate max-w-[120px]"
                 title={stores.find(s => s.id === customer.storeId)?.name ?? customer.storeId}>
                 {stores.find(s => s.id === customer.storeId)?.name ?? 'Local desconocido'}
               </span>
             ) : (
-              <span className="text-xs bg-gray-800 text-gray-500 border border-gray-700 px-1.5 py-0.5 rounded-full">
+              <span className="text-xs bg-zinc-800 text-zinc-500 border border-zinc-700 px-1.5 py-0.5 rounded-full">
                 Todos los locales
               </span>
             )}
             {updatedDate && (
-              <span className="text-xs text-gray-600">Modificado: {updatedDate}</span>
+              <span className="text-xs text-zinc-600">Modificado: {updatedDate}</span>
             )}
           </div>
           {!expanded && prices.length > 0 && (
-            <p className="text-xs text-gray-600 mt-0.5">
+            <p className="text-xs text-zinc-600 mt-0.5">
               {prices.length} precio{prices.length > 1 ? 's' : ''} especial{prices.length > 1 ? 'es' : ''} · tocá para ver
             </p>
           )}
@@ -424,7 +425,7 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
               <span
                 role="button"
                 onClick={e => { e.stopPropagation(); startEdit() }}
-                className="text-gray-500 hover:text-amber-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-amber-600 transition-colors"
+                className="text-zinc-500 hover:text-zinc-300 text-xs px-1.5 py-0.5 rounded border border-zinc-700 hover:border-zinc-500 transition-colors"
               >
                 ✏️
               </span>
@@ -435,7 +436,7 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
                     Confirmar
                   </button>
                   <button onClick={() => setConfirmDelete(false)}
-                    className="text-xs text-gray-500 hover:text-gray-300 px-1">
+                    className="text-xs text-zinc-500 hover:text-zinc-300 px-1">
                     ✕
                   </button>
                 </div>
@@ -443,22 +444,22 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
                 <span
                   role="button"
                   onClick={e => { e.stopPropagation(); setConfirmDelete(true) }}
-                  className="text-gray-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-gray-700 hover:border-red-700 transition-colors"
+                  className="text-zinc-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-zinc-700 hover:border-red-700 transition-colors"
                 >
                   🗑
                 </span>
               )}
             </>
           )}
-          <span className="text-gray-600 text-xs">{expanded ? '▲' : '▼'}</span>
+          <span className="text-zinc-600 text-xs">{expanded ? '▲' : '▼'}</span>
         </div>
       </button>
 
       {/* Detalle de precios — se muestra solo cuando expanded */}
       {expanded && (
-        <div className="border-t border-gray-800 px-4 py-2">
+        <div className="border-t border-zinc-800 px-4 py-2">
           {prices.length === 0 ? (
-            <p className="text-xs text-gray-600 italic py-1">Sin precios especiales registrados.</p>
+            <p className="text-xs text-zinc-600 italic py-1">Sin precios especiales registrados.</p>
           ) : (
             <div className="space-y-1.5 py-1">
               {prices.map(p => {
@@ -468,15 +469,15 @@ function SpecialCustomerCard({ customer, prices, products, stores, isAdmin, onSa
                   <div key={p.productId} className="flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
                       <span className="text-white">{p.productName}</span>
-                      <span className="ml-1.5 text-gray-600">PLU {prod?.pluNumber ?? '?'}</span>
+                      <span className="ml-1.5 text-zinc-600">PLU {prod?.pluNumber ?? '?'}</span>
                       {prod?.price != null && (
-                        <span className="ml-1.5 text-gray-500">lista: {formatARS(prod.price)}</span>
+                        <span className="ml-1.5 text-zinc-500">lista: {formatARS(prod.price)}</span>
                       )}
-                      {p.notes && <span className="ml-1.5 text-gray-500">— {p.notes}</span>}
+                      {p.notes && <span className="ml-1.5 text-zinc-500">— {p.notes}</span>}
                     </div>
                     <div className="shrink-0 text-right">
-                      <span className="font-semibold text-amber-400">{formatARS(p.specialPrice)}</span>
-                      <span className="ml-2 text-gray-600">{modDate}</span>
+                      <span className="font-semibold text-zinc-300">{formatARS(p.specialPrice)}</span>
+                      <span className="ml-2 text-zinc-600">{modDate}</span>
                     </div>
                   </div>
                 )
@@ -625,17 +626,13 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   }, [])
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-gray-950 text-white">
+    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-4">
-        {onBack && (
-          <button onClick={onBack} className="rounded-lg p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors">
-            ←
-          </button>
-        )}
+      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+        {onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold text-white">Clientes especiales</h1>
-          <p className="text-xs text-gray-500">
+          <h1 className="text-sm font-semibold text-zinc-100">Clientes especiales</h1>
+          <p className="text-[10px] text-zinc-500">
             Precios de referencia · {isAdmin ? 'modo admin' : 'solo lectura'}
           </p>
         </div>
@@ -649,7 +646,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
         {isAdmin && (
           <button
             onClick={() => { setShowCreate(v => !v); setCreateError(null); setNewEntries([]) }}
-            className="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 transition-colors"
+            className="shrink-0 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
           >
             {showCreate ? 'Cancelar' : '+ Nuevo cliente'}
           </button>
@@ -657,17 +654,17 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
       </header>
 
       {/* Info banner */}
-      <div className="mx-6 mt-4 rounded-lg border border-blue-800/40 bg-blue-900/10 px-4 py-2.5">
-        <p className="text-xs text-blue-300/80">
-          Esta sección es informativa. Los precios especiales <strong>no modifican</strong> el carrito automáticamente.
+      <div className="mx-6 mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-2.5">
+        <p className="text-xs text-zinc-500">
+          Esta sección es informativa. Los precios especiales <strong className="text-zinc-400">no modifican</strong> el carrito automáticamente.
           La cajera los aplica manualmente según el acuerdo con el cliente.
         </p>
       </div>
 
       {/* Formulario de creación */}
       {showCreate && isAdmin && (
-        <div className="mx-6 mt-4 rounded-xl border border-amber-700/50 bg-amber-900/10 p-4 space-y-4">
-          <p className="text-sm font-semibold text-amber-300">Nuevo cliente especial</p>
+        <div className="mx-6 mt-4 rounded-xl border border-zinc-700 bg-zinc-900 p-4 space-y-4">
+          <p className="text-sm font-semibold text-zinc-200">Nuevo cliente especial</p>
           <div className="space-y-2">
             <input
               type="text"
@@ -676,7 +673,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               placeholder="Nombre *"
               autoFocus
               onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
             <textarea
               value={newNotes}
@@ -684,18 +681,18 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               rows={2}
               placeholder="Notas generales (opcional)"
               maxLength={300}
-              className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+              className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
             {/* Selector de local */}
             {availableStores.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs text-gray-500">Asignar a local</p>
+                <p className="text-xs text-zinc-500">Asignar a local</p>
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => setNewStoreId(null)}
                     className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                      newStoreId === null ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      newStoreId === null ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                     }`}
                   >
                     Todos los locales
@@ -707,7 +704,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
                       onClick={() => setNewStoreId(s.id)}
                       title={s.name}
                       className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors truncate max-w-[140px] ${
-                        newStoreId === s.id ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                        newStoreId === s.id ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                       }`}
                     >
                       {s.name}
@@ -728,13 +725,13 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
             <button
               onClick={handleCreate}
               disabled={creating}
-              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-50"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
             >
               {creating ? 'Guardando…' : 'Crear'}
             </button>
             <button
               onClick={() => { setShowCreate(false); setNewName(''); setNewNotes(''); setNewStoreId(null); setNewEntries([]); setCreateError(null) }}
-              className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:text-white"
+              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:text-white"
             >
               Cancelar
             </button>
@@ -748,16 +745,16 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
           type="text"
           onChange={handleSearchChange}
           placeholder="Filtrar por nombre..."
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
         />
       </div>
 
       {/* Lista */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-        {loading && <p className="text-center text-gray-500 py-8">Cargando…</p>}
+        {loading && <p className="text-center text-zinc-500 py-8">Cargando…</p>}
         {error && <p className="text-center text-red-400 py-8">{error}</p>}
         {!loading && !error && filtered.length === 0 && (
-          <p className="text-center text-gray-600 py-8 italic">
+          <p className="text-center text-zinc-600 py-8 italic">
             {customers.length === 0
               ? 'No hay clientes especiales registrados.'
               : 'Ningún cliente coincide con la búsqueda.'}

@@ -190,6 +190,10 @@ const hw: HwApi = {
     ipcRenderer.on(IPC.KRETZ_SYNC_PROGRESS, listener)
     return () => ipcRenderer.removeListener(IPC.KRETZ_SYNC_PROGRESS, listener)
   },
+
+  // Preferencias de UI
+  getUiSettings: () => ipcRenderer.invoke(IPC.GET_UI_SETTINGS),
+  setUiSettings: (payload) => ipcRenderer.invoke(IPC.SET_UI_SETTINGS, payload),
 }
 
 contextBridge.exposeInMainWorld('hw', hw)

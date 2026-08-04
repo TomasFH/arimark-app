@@ -6,6 +6,7 @@
  * Accesible desde el panel de cajera (botón "📒 Fiados") y desde el Admin Hub.
  */
 import { useState, useEffect, useCallback } from 'react'
+import BackButton from '../components/BackButton'
 import { formatARS, formatRelativeDate } from '../lib/datetime'
 import type { CustomerDebtSummary, DebtEventRow, StoreRow } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
@@ -25,15 +26,15 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
     reopened: 'Deuda reabierta',
   }
   const eventColors: Record<DebtEventRow['eventType'], string> = {
-    created: 'text-amber-400',
-    partial_payment: 'text-blue-400',
-    paid: 'text-green-400',
-    cancelled: 'text-gray-500',
-    reopened: 'text-orange-400',
+    created: 'text-zinc-400',
+    partial_payment: 'text-zinc-300',
+    paid: 'text-emerald-400/80',
+    cancelled: 'text-zinc-600',
+    reopened: 'text-zinc-400',
   }
 
   return (
-    <ul className="divide-y divide-gray-800/50 text-xs mt-2">
+    <ul className="divide-y divide-zinc-800/50 text-xs mt-2">
       {[...events].reverse().map(e => (
         <li key={e.id} className="flex items-start justify-between gap-2 py-2">
           <div className="flex-1 min-w-0">
@@ -41,18 +42,18 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
               {eventLabels[e.eventType]}
             </span>
             {e.notes && (
-              <span className="ml-1.5 text-gray-500 truncate">— {e.notes}</span>
+              <span className="ml-1.5 text-zinc-500 truncate">— {e.notes}</span>
             )}
             {e.dueDate && (
               <span className="ml-1.5 text-amber-600/70">
                 · vence {formatRelativeDate(e.dueDate)}
               </span>
             )}
-            <span className="block text-gray-600 text-[10px]">
+            <span className="block text-zinc-600 text-[10px]">
               {new Date(e.createdAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
             </span>
           </div>
-          <span className={`shrink-0 font-semibold ${e.amount > 0 ? 'text-red-400' : 'text-green-400'}`}>
+          <span className={`shrink-0 font-semibold font-mono ${e.amount > 0 ? 'text-red-400/70' : 'text-emerald-400/70'}`}>
             {e.amount > 0 ? '+' : ''}{formatARS(Math.abs(e.amount))}
           </span>
         </li>
@@ -82,20 +83,20 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
   const isDue = nextDueDate && new Date(nextDueDate) <= new Date()
 
   return (
-    <div className={`rounded-xl border ${isDue ? 'border-red-700/60 bg-red-950/20' : 'border-gray-700 bg-gray-900'} overflow-hidden`}>
+    <div className={`rounded-xl border ${isDue ? 'border-red-900/50 bg-red-950/20' : 'border-zinc-700 bg-zinc-900'} overflow-hidden`}>
       {/* Cabecera */}
       <div className="flex items-start gap-3 px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-white text-sm">{summary.customerName}</span>
             {isDue && (
-              <span className="text-[10px] bg-red-800/60 text-red-300 rounded px-1.5 py-0.5 shrink-0">
+              <span className="text-[10px] bg-red-950/60 text-red-400/80 border border-red-900/40 rounded px-1.5 py-0.5 shrink-0">
                 Vencida
               </span>
             )}
           </div>
           {(summary.customerDni || summary.customerPhone) && (
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-zinc-500 mt-0.5">
               {[summary.customerDni, summary.customerPhone].filter(Boolean).join(' · ')}
             </p>
           )}
@@ -106,8 +107,8 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
           )}
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-lg font-bold text-amber-400">{formatARS(summary.balance)}</p>
-          <p className="text-[10px] text-gray-600">saldo pendiente</p>
+          <p className="text-lg font-bold text-zinc-100 font-mono">{formatARS(summary.balance)}</p>
+          <p className="text-[10px] text-zinc-600">saldo pendiente</p>
         </div>
       </div>
 
@@ -121,13 +122,13 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
         </button>
         <button
           onClick={onCancel}
-          className="flex-1 rounded-lg bg-gray-800 border border-gray-700 py-1.5 text-xs font-semibold text-gray-400 hover:text-red-400 hover:border-red-800/60 transition-colors"
+          className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 py-1.5 text-xs font-semibold text-zinc-400 hover:text-red-400 hover:border-red-800/60 transition-colors"
         >
           Cancelar deuda
         </button>
         <button
           onClick={() => setExpanded(p => !p)}
-          className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
           title={expanded ? 'Ocultar historial' : 'Ver historial'}
         >
           {expanded ? '▲' : '▼'}
@@ -136,8 +137,8 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
 
       {/* Ledger expandible */}
       {expanded && (
-        <div className="border-t border-gray-800 px-4 pb-3">
-          <p className="text-[10px] text-gray-600 mt-2 mb-1">Historial de eventos</p>
+        <div className="border-t border-zinc-800 px-4 pb-3">
+          <p className="text-[10px] text-zinc-600 mt-2 mb-1">Historial de eventos</p>
           <DebtLedger events={summary.events} />
         </div>
       )}
@@ -169,22 +170,22 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget && !loading) onClose() }}
     >
-      <div className="w-full max-w-sm rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl p-6 space-y-4">
+      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-6 space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-gray-300">Registrar pago</h3>
+          <h3 className="text-sm font-semibold text-zinc-300">Registrar pago</h3>
           <p className="text-lg font-bold text-white">{summary.customerName}</p>
-          <p className="text-xs text-gray-500">Saldo: {formatARS(summary.balance)}</p>
+          <p className="text-xs text-zinc-500">Saldo: {formatARS(summary.balance)}</p>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Monto cobrado</label>
+          <label className="block text-xs text-zinc-400 mb-1">Monto cobrado</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
             <NumericInput
               value={amountRaw}
               onChange={setAmountRaw}
               autoFocus
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 pl-7 pr-3 py-2.5 text-white focus:border-amber-500 focus:outline-none"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2.5 text-white focus:border-amber-500 focus:outline-none"
             />
           </div>
           <button
@@ -196,20 +197,20 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Notas <span className="text-gray-600">(opcional)</span></label>
+          <label className="block text-xs text-zinc-400 mb-1">Notas <span className="text-zinc-600">(opcional)</span></label>
           <input
             type="text"
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="ej. pagó mitad en efectivo…"
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
           />
         </div>
 
         {error && <p className="text-xs text-red-400 bg-red-900/20 border border-red-800/50 rounded px-3 py-2">{error}</p>}
 
         <div className="flex gap-2">
-          <button onClick={onClose} disabled={loading} className="flex-1 rounded-lg bg-gray-800 border border-gray-700 py-2.5 text-sm text-gray-400 hover:text-white transition-colors">
+          <button onClick={onClose} disabled={loading} className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-white transition-colors">
             Cancelar
           </button>
           <button
@@ -315,20 +316,13 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
     : debts
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-gray-950 text-white">
+    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-6 py-4">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="rounded-lg p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
-          >
-            ←
-          </button>
-        )}
+      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+        {onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-white">📒 Fiados / Cuentas corrientes</h1>
-          <p className="text-xs text-gray-500">
+          <h1 className="text-sm font-semibold text-zinc-100">Fiados / Cuentas corrientes</h1>
+          <p className="text-xs text-zinc-500">
             {debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
           </p>
         </div>
@@ -342,7 +336,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
         <button
           onClick={loadDebts}
           disabled={loadingList}
-          className="shrink-0 text-xs text-gray-500 hover:text-gray-300 border border-gray-700 rounded-lg px-3 py-1.5 transition-colors"
+          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
         >
           {loadingList ? '...' : '↺ Actualizar'}
         </button>
@@ -350,9 +344,9 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
 
       {/* Alerta de vencimientos */}
       {dueSoonDebts.length > 0 && (
-        <div className="border-b border-red-800/60 bg-red-950/30 px-6 py-3">
-          <p className="text-xs font-semibold text-red-400">
-            ⚠️ {dueSoonDebts.length} deuda{dueSoonDebts.length > 1 ? 's' : ''} vencida{dueSoonDebts.length > 1 ? 's' : ''}: {dueSoonDebts.map(d => d.customerName).join(', ')}
+        <div className="border-b border-zinc-800 bg-zinc-900/50 px-6 py-2.5">
+          <p className="text-xs text-zinc-500">
+            {dueSoonDebts.length} deuda{dueSoonDebts.length > 1 ? 's' : ''} vencida{dueSoonDebts.length > 1 ? 's' : ''}: {dueSoonDebts.map(d => d.customerName).join(', ')}
           </p>
         </div>
       )}
@@ -365,7 +359,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Filtrar por nombre de cliente..."
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
           />
         </div>
       )}
@@ -373,7 +367,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto p-6 space-y-3">
         {loadingList && (
-          <p className="text-sm text-gray-500 text-center mt-12">Cargando...</p>
+          <p className="text-sm text-zinc-500 text-center mt-12">Cargando...</p>
         )}
         {listError && (
           <p className="text-sm text-red-400 text-center mt-12">{listError}</p>
@@ -381,11 +375,11 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
         {!loadingList && !listError && debts.length === 0 && (
           <div className="text-center mt-12 space-y-2">
             <p className="text-4xl">✅</p>
-            <p className="text-sm text-gray-400">No hay deudas pendientes.</p>
+            <p className="text-sm text-zinc-400">No hay deudas pendientes.</p>
           </div>
         )}
         {!loadingList && !listError && debts.length > 0 && filteredDebts.length === 0 && (
-          <p className="text-sm text-gray-500 text-center mt-8">
+          <p className="text-sm text-zinc-500 text-center mt-8">
             Ningún cliente coincide con "<span className="text-white">{search}</span>".
           </p>
         )}
@@ -416,20 +410,20 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={e => { if (e.target === e.currentTarget && !cancelLoading) setCancelTarget(null) }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-6 space-y-4">
             <h3 className="text-sm font-semibold text-red-400">Cancelar deuda</h3>
-            <p className="text-sm text-gray-300">
+            <p className="text-sm text-zinc-300">
               ¿Cancelar la deuda de <strong>{cancelTarget.customerName}</strong> por{' '}
               <strong className="text-amber-400">{formatARS(cancelTarget.balance)}</strong>?
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-zinc-500">
               El saldo quedará en cero. La acción quedará registrada en el historial y no borrará los eventos anteriores.
             </p>
 
             {!cancelConfirm ? (
               <button
                 onClick={() => setCancelConfirm(true)}
-                className="w-full rounded-lg bg-red-800/40 border border-red-700/60 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-800/60 transition-colors"
+                className="w-full rounded-lg bg-red-950/40 border border-red-900/50 py-2.5 text-sm font-semibold text-red-400/80 hover:bg-red-950/60 transition-colors"
               >
                 Cancelar la deuda
               </button>
@@ -440,7 +434,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
                   <button
                     onClick={() => setCancelConfirm(false)}
                     disabled={cancelLoading}
-                    className="flex-1 rounded-lg bg-gray-800 border border-gray-700 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
+                    className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-white transition-colors"
                   >
                     No, volver
                   </button>
@@ -460,7 +454,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
             <button
               onClick={() => setCancelTarget(null)}
               disabled={cancelLoading}
-              className="w-full text-xs text-gray-600 hover:text-gray-400 transition-colors"
+              className="w-full text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
             >
               Volver sin cancelar
             </button>

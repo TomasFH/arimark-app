@@ -112,6 +112,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
   const [manualError, setManualError] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const pluInputRef = useRef<HTMLInputElement>(null)
+  const weightInputRef = useRef<HTMLInputElement>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -187,7 +188,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
-    setTimeout(() => priceInputRef.current?.focus(), 50)
+    setTimeout(() => weightInputRef.current?.focus(), 50)
   }
 
   function handlePluChange(v: string) {
@@ -371,16 +372,16 @@ export default function ScanInput({ onAddItem, products }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="border-t border-gray-800 px-3 py-2 space-y-2">
+    <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
       {/* Tabs — ambas opciones son alternativas/emergencia cuando no hay lector USB */}
-      <div className="flex rounded-md overflow-hidden border border-gray-700 text-[10px] font-semibold">
+      <div className="flex rounded-md overflow-hidden border border-zinc-700 text-[10px] font-semibold">
         <button
           type="button"
           onClick={() => handleTabChange('scan')}
           className={`flex-1 py-1 transition-colors ${
             tab === 'scan'
-              ? 'bg-amber-600 text-white'
-              : 'bg-gray-900 text-gray-400 hover:text-gray-200'
+              ? 'bg-zinc-700 text-zinc-100'
+              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
           }`}
         >
           📱 Código manual
@@ -390,8 +391,8 @@ export default function ScanInput({ onAddItem, products }: Props) {
           onClick={() => handleTabChange('manual')}
           className={`flex-1 py-1 transition-colors ${
             tab === 'manual'
-              ? 'bg-orange-600 text-white'
-              : 'bg-gray-900 text-gray-400 hover:text-gray-200'
+              ? 'bg-zinc-700 text-zinc-100'
+              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
           }`}
         >
           ⚡ PLU + precio
@@ -407,7 +408,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
       {/* ── Pestaña Código manual (alternativa sin lector USB) ───────── */}
       {tab === 'scan' && (
         <form onSubmit={handleBarcodeSubmit} className="space-y-2">
-          <p className="text-[10px] text-gray-500 leading-snug">
+          <p className="text-[10px] text-zinc-500 leading-snug">
             Ingresá el código del ticket (13 dígitos). Con el lector USB no hace falta.
           </p>
           <input
@@ -418,10 +419,10 @@ export default function ScanInput({ onAddItem, products }: Props) {
             onChange={handleBarcodeChange}
             placeholder="2001060000012"
             data-barcode-input="true"
-            className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
           />
           {barcodePreview && (
-            <p className="text-[10px] text-green-400 truncate">
+            <p className="text-[10px] text-emerald-400/80 truncate">
               PLU {barcodePreview.plu}{barcodePreview.name ? ` — ${barcodePreview.name}` : ''} · {formatARS(barcodePreview.total)}
             </p>
           )}
@@ -431,7 +432,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
           <button
             type="submit"
             disabled={!barcode.trim()}
-            className="w-full rounded-md bg-amber-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
+            className="w-full rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
           >
             Agregar a la venta
           </button>
@@ -441,13 +442,13 @@ export default function ScanInput({ onAddItem, products }: Props) {
       {/* ── Pestaña PLU + precio (emergencia) ────────────────────────── */}
       {tab === 'manual' && (
         <form onSubmit={handleManualSubmit} className="space-y-2">
-          <p className="text-[10px] text-gray-500 leading-snug">
+          <p className="text-[10px] text-zinc-500 leading-snug">
             Emergencia: ingresá el PLU y los datos del producto.
           </p>
 
           {/* PLU con autocomplete — acepta número PLU o nombre del producto */}
           <div className="relative">
-            <label className="block text-[9px] text-gray-500 mb-0.5">PLU o nombre</label>
+            <label className="block text-[9px] text-zinc-500 mb-0.5">PLU o nombre</label>
             <input
               ref={pluInputRef}
               type="text"
@@ -457,21 +458,21 @@ export default function ScanInput({ onAddItem, products }: Props) {
               onFocus={() => pluRaw.trim() && setShowSuggestions(true)}
               placeholder="ej. 5 o 'vacío'"
               autoComplete="off"
-              className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
             />
             {showSuggestions && suggestions.length > 0 && (
-              <ul className="absolute bottom-full mb-1 left-0 right-0 z-20 rounded-md border border-gray-700 bg-gray-900 shadow-xl overflow-hidden">
+              <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-xl">
                 {suggestions.map(p => (
                   <li key={p.id}>
                     <button
                       type="button"
                       onMouseDown={() => pickSuggestion(p)}
-                      className="w-full px-2 py-1.5 text-left hover:bg-gray-800 transition-colors"
+                      className="w-full px-2 py-1.5 text-left hover:bg-zinc-800 transition-colors"
                     >
-                      <span className="text-[10px] font-bold text-orange-400 mr-1">{p.pluNumber}</span>
-                      <span className="text-[10px] text-gray-200 truncate">{p.name}</span>
+                      <span className="text-[10px] font-bold text-zinc-500 mr-1">{p.pluNumber}</span>
+                      <span className="text-[10px] text-zinc-200 truncate">{p.name}</span>
                       {p.price != null && (
-                        <span className="text-[10px] text-amber-400 ml-1">
+                        <span className="text-[10px] text-zinc-400 ml-1">
                           {formatARS(p.price)}/{p.unit === 'unit' ? 'u.' : 'kg'}
                         </span>
                       )}
@@ -485,51 +486,52 @@ export default function ScanInput({ onAddItem, products }: Props) {
           {/* Info del producto */}
           {pluNum !== null && matchedProduct && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="text-[10px] text-blue-400 truncate">
+              <p className="text-[10px] text-zinc-300 truncate">
                 {matchedProduct.name} · {CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}
                 {refPrice && (
-                  <span className="text-amber-500"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
+                  <span className="text-zinc-400"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
                 )}
               </p>
               <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold ${
-                isUnit ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
+                isUnit ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-800 text-zinc-400'
               }`}>
                 {isUnit ? 'Por unidad' : 'Por kg'}
               </span>
             </div>
           )}
           {pluNum !== null && !matchedProduct && pluRaw.trim() && (
-            <p className="text-[10px] text-yellow-500">PLU {pluNum} — no encontrado en el catálogo</p>
+            <p className="text-[10px] text-zinc-500">PLU {pluNum} — no encontrado en el catálogo</p>
           )}
 
           {/* ── Campos: productos por unidad ── */}
           {isUnit ? (
             <div className="space-y-2">
               <div>
-                <label className="block text-[9px] text-gray-500 mb-0.5">Cantidad</label>
+                <label className="block text-[9px] text-zinc-500 mb-0.5">Cantidad</label>
                 <NumericInput
                   value={weightRaw}
                   onChange={handleUnitQuantityChange}
                   placeholder="ej. 2"
-                  className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                  ref={weightInputRef}
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                 />
               </div>
 
               {/* Precio calculado (solo lectura, sin precio especial) */}
               {!specialPrice && autoPrice !== null && (
-                <div className="rounded-md bg-gray-800/60 px-2 py-1.5 flex justify-between items-center">
-                  <span className="text-[10px] text-gray-400">Precio total</span>
-                  <span className="text-xs font-semibold text-amber-400">{formatARS(autoPrice)}</span>
+                <div className="rounded-md bg-zinc-800/60 px-2 py-1.5 flex justify-between items-center">
+                  <span className="text-[10px] text-zinc-400">Precio total</span>
+                  <span className="text-xs font-semibold text-zinc-300">{formatARS(autoPrice)}</span>
                 </div>
               )}
 
               {/* Campo de precio por unidad con precio especial */}
               {specialPrice && (
                 <div>
-                  <label className="block text-[9px] text-gray-500 mb-0.5">
+                  <label className="block text-[9px] text-zinc-500 mb-0.5">
                     Precio por unidad ($)
                     {refPrice && (
-                      <span className="ml-1 text-amber-600">· Lista: {formatARS(refPrice)}/u.</span>
+                      <span className="ml-1 text-zinc-500">· Lista: {formatARS(refPrice)}/u.</span>
                     )}
                   </label>
                   <DecimalInput
@@ -537,7 +539,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
                     value={priceRaw}
                     onChange={v => { setPriceRaw(v); setManualError('') }}
                     placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
-                    className="w-full rounded-md border border-orange-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                    className="w-full rounded-md border border-orange-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                   />
                   {priceRaw && parseNumericInput(weightRaw) && parseDecimalInput(priceRaw) && (
                     <p className="mt-0.5 text-[9px] text-orange-300">
@@ -552,21 +554,22 @@ export default function ScanInput({ onAddItem, products }: Props) {
             <div className="space-y-1.5">
               <div className="flex gap-2">
                 <div className="w-24 shrink-0">
-                  <label className="block text-[9px] text-gray-500 mb-0.5">Peso (kg)</label>
+                  <label className="block text-[9px] text-zinc-500 mb-0.5">Peso (kg)</label>
                   <DecimalInput
                     value={weightRaw}
                     onChange={handleKgWeightChange}
                     maxDecimals={3}
                     weightMode
+                    ref={weightInputRef}
                     placeholder="ej. 0,490"
-                    className="w-full rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-[9px] text-gray-500 mb-0.5">
+                  <label className="block text-[9px] text-zinc-500 mb-0.5">
                     Precio total ($)
                     {refPrice && !specialPrice && (
-                      <span className="ml-1 text-amber-600">· {formatARS(refPrice)}/kg</span>
+                      <span className="ml-1 text-zinc-500">· {formatARS(refPrice)}/kg</span>
                     )}
                   </label>
                   <DecimalInput
@@ -574,15 +577,15 @@ export default function ScanInput({ onAddItem, products }: Props) {
                     value={priceRaw}
                     onChange={handleKgPriceChange}
                     placeholder="ej. 7.350"
-                    className={`w-full rounded-md border bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none ${
-                      specialPrice ? 'border-orange-700 focus:border-orange-500' : 'border-gray-700 focus:border-orange-500'
+                    className={`w-full rounded-md border bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none ${
+                      specialPrice ? 'border-zinc-600 focus:border-zinc-500' : 'border-zinc-700 focus:border-zinc-500'
                     }`}
                   />
                 </div>
               </div>
               {/* Aviso cuando el producto existe pero no tiene precio en el catálogo */}
               {matchedProduct && !refPrice && !specialPrice && (
-                <p className="text-[10px] text-yellow-500 leading-snug">
+                <p className="text-[10px] text-zinc-500 leading-snug">
                   Sin precio de lista — ingresá el precio total manualmente.
                 </p>
               )}
@@ -597,15 +600,15 @@ export default function ScanInput({ onAddItem, products }: Props) {
                   type="checkbox"
                   checked={specialPrice}
                   onChange={e => handleSpecialPriceToggle(e.target.checked)}
-                  className="accent-orange-500 h-3.5 w-3.5 shrink-0"
+                  className="accent-zinc-500 h-3.5 w-3.5 shrink-0"
                 />
-                <span className="text-[10px] text-gray-300">Precio especial</span>
-                <span className="text-[9px] text-gray-600">
+                <span className="text-[10px] text-zinc-300">Precio especial</span>
+                <span className="text-[9px] text-zinc-600">
                   {isUnit ? '(fuera de lista por unidad)' : '(desvincula peso y precio)'}
                 </span>
               </label>
               {specialPrice && (
-                <p className="rounded bg-orange-900/40 px-2 py-1.5 text-[10px] text-orange-300 leading-snug">
+                <p className="rounded bg-zinc-800/60 px-2 py-1.5 text-[10px] text-zinc-400 leading-snug">
                   ⚠ Precio fuera de lista. Confirmá que no es un error antes de agregar.
                 </p>
               )}
@@ -620,7 +623,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
             const implied = refPrice ? w * refPrice : null
             const match = implied !== null && Math.abs(implied - p) < 1
             return (
-              <p className={`text-[10px] ${match ? 'text-green-400' : 'text-amber-400'}`}>
+              <p className={`text-[10px] ${match ? 'text-emerald-400/70' : 'text-zinc-300'}`}>
                 {formatKg(w)} · {formatARS(p)} {match ? '✓' : ''}
               </p>
             )
@@ -633,7 +636,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="w-full rounded-md bg-orange-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-40"
+            className="w-full rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
           >
             Agregar a la venta
           </button>

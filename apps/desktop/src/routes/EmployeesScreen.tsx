@@ -3,6 +3,7 @@
  * ABM: crear, editar nombre/sueldo semanal, archivar y restaurar.
  */
 import { useEffect, useState } from 'react'
+import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import { formatARS } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
@@ -60,19 +61,12 @@ export default function EmployeesScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-white">
-      <header className="flex items-center gap-3 px-4 py-4 border-b border-gray-800">
-        <button
-          type="button"
-          onClick={onBack}
-          className="shrink-0 text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-800 text-lg"
-          title="Volver"
-        >
-          ←
-        </button>
+    <div className="flex flex-col h-screen bg-zinc-950 text-white">
+      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+        <BackButton onClick={onBack} />
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">Empleados</h1>
-          <p className="text-xs text-gray-500 truncate">
+          <h1 className="text-sm font-semibold text-zinc-100 truncate">Empleados</h1>
+          <p className="text-[10px] text-zinc-500 truncate">
             {showArchived ? 'Archivados — restaurar para volver a usarlos' : 'Alta, sueldos, archivo y liquidación semanal'}
           </p>
         </div>
@@ -80,7 +74,7 @@ export default function EmployeesScreen({ onBack }: Props) {
           <button
             type="button"
             onClick={() => setShowLiquidation(true)}
-            className="shrink-0 px-3 py-2 rounded-lg border border-gray-700 text-xs text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+            className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
             title="Sueldo menos vales de la semana"
           >
             Liquidación
@@ -89,7 +83,7 @@ export default function EmployeesScreen({ onBack }: Props) {
         <button
           type="button"
           onClick={() => setShowArchived(v => !v)}
-          className="shrink-0 px-3 py-2 rounded-lg border border-gray-700 text-xs text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
         >
           {showArchived ? 'Ver activos' : 'Ver archivados'}
         </button>
@@ -97,7 +91,7 @@ export default function EmployeesScreen({ onBack }: Props) {
           <button
             type="button"
             onClick={() => setModal({ type: 'create' })}
-            className="shrink-0 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium transition-colors"
+            className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium transition-colors"
           >
             + Nuevo
           </button>
@@ -107,17 +101,17 @@ export default function EmployeesScreen({ onBack }: Props) {
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex justify-center items-center py-16">
-            <p className="text-gray-500 text-sm">Cargando empleados…</p>
+            <p className="text-zinc-500 text-sm">Cargando empleados…</p>
           </div>
         )}
 
         {error && !loading && (
-          <div className="mx-4 mt-4 p-4 rounded-xl bg-red-950/40 border border-red-800/60">
-            <p className="text-red-300 text-sm">{error}</p>
+          <div className="mx-4 mt-4 p-4 rounded-xl bg-red-950/30 border border-red-900/50">
+            <p className="text-red-400/80 text-sm">{error}</p>
             <button
               type="button"
               onClick={() => void load()}
-              className="mt-2 text-xs text-blue-400 hover:underline"
+              className="mt-2 text-xs text-zinc-500 hover:text-zinc-300"
             >
               Reintentar
             </button>
@@ -128,11 +122,11 @@ export default function EmployeesScreen({ onBack }: Props) {
           <div className="p-4 space-y-2">
             {list.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-gray-500 text-sm">
+                <p className="text-zinc-500 text-sm">
                   {showArchived ? 'No hay empleados archivados.' : 'No hay empleados activos.'}
                 </p>
                 {!showArchived && (
-                  <p className="text-gray-600 text-xs mt-1">
+                  <p className="text-zinc-600 text-xs mt-1">
                     Creá uno con “+ Nuevo” para registrar asistencia y vales.
                   </p>
                 )}
@@ -142,16 +136,16 @@ export default function EmployeesScreen({ onBack }: Props) {
             {list.map(emp => (
               <div
                 key={emp.id}
-                className="flex items-center gap-2 min-w-0 rounded-xl border border-gray-800 bg-gray-900 px-4 py-3"
+                className="flex items-center gap-2 min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-medium truncate" title={emp.name}>
                     {emp.name}
                   </p>
-                  <p className="text-xs text-gray-400 tabular-nums">
+                  <p className="text-xs text-zinc-400 tabular-nums">
                     Sueldo semanal: {formatARS(emp.weeklyWage)}
                     {!emp.active && (
-                      <span className="ml-2 text-amber-500/90">· Archivado</span>
+                      <span className="ml-2 text-zinc-500">· Archivado</span>
                     )}
                   </p>
                 </div>
@@ -160,7 +154,7 @@ export default function EmployeesScreen({ onBack }: Props) {
                     type="button"
                     disabled={restoringId === emp.id}
                     onClick={() => void handleUnarchive(emp)}
-                    className="shrink-0 text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded-lg hover:bg-gray-800 disabled:opacity-50"
+                    className="shrink-0 text-xs text-zinc-300 hover:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {restoringId === emp.id ? 'Restaurando…' : 'Restaurar'}
                   </button>
@@ -169,14 +163,14 @@ export default function EmployeesScreen({ onBack }: Props) {
                     <button
                       type="button"
                       onClick={() => setModal({ type: 'edit', employee: emp })}
-                      className="shrink-0 text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded-lg hover:bg-gray-800"
+                      className="shrink-0 text-xs text-zinc-300 hover:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-800"
                     >
                       Editar
                     </button>
                     <button
                       type="button"
                       onClick={() => setModal({ type: 'archive', employee: emp })}
-                      className="shrink-0 text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg hover:bg-gray-800"
+                      className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-lg hover:bg-zinc-800"
                     >
                       Archivar
                     </button>
@@ -286,21 +280,21 @@ function EmployeeFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
       <form
         onSubmit={e => void handleSubmit(e)}
-        className="w-full max-w-md rounded-2xl bg-gray-900 border border-gray-700 p-5 space-y-4"
+        className="w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4"
       >
         <h2 className="text-lg font-semibold">{title}</h2>
 
         <div>
-          <label className="block text-sm text-gray-300 mb-1">Nombre</label>
+          <label className="block text-sm text-zinc-300 mb-1">Nombre</label>
           <input
             type="text"
             value={name}
             maxLength={100}
             onChange={e => setName(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="Nombre del carnicero"
             autoFocus
             required
@@ -308,17 +302,17 @@ function EmployeeFormModal({
         </div>
 
         <div>
-          <label className="block text-sm text-gray-300 mb-1">Sueldo semanal ($)</label>
+          <label className="block text-sm text-zinc-300 mb-1">Sueldo semanal ($)</label>
           <NumericInput
             value={wage}
             onChange={setWage}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="0"
           />
         </div>
 
         {formError && (
-          <p className="text-sm text-red-300">{formError}</p>
+          <p className="text-sm text-red-400/80">{formError}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-1">
@@ -326,14 +320,14 @@ function EmployeeFormModal({
             type="button"
             onClick={onCancel}
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
+            className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700"
           >
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
@@ -355,10 +349,10 @@ function ArchiveConfirmModal({
   const [busy, setBusy] = useState(false)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-gray-900 border border-gray-700 p-5 space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
+      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4">
         <h2 className="text-lg font-semibold">Archivar empleado</h2>
-        <p className="text-sm text-gray-300">
+        <p className="text-sm text-zinc-300">
           ¿Archivar a{' '}
           <span className="font-medium text-white" title={name}>{name}</span>?
           Dejará de aparecer en listas activas (asistencia/vales). Podés restaurarlo desde “Ver archivados”.
@@ -368,7 +362,7 @@ function ArchiveConfirmModal({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="px-4 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800"
+            className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800"
           >
             Cancelar
           </button>
@@ -379,7 +373,7 @@ function ArchiveConfirmModal({
               setBusy(true)
               void onConfirm().finally(() => setBusy(false))
             }}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700"
           >
             {busy ? 'Archivando…' : 'Archivar'}
           </button>

@@ -5,6 +5,7 @@
  * Admin: igual + eliminación permanente.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
@@ -36,10 +37,10 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 }
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
-  pending: 'bg-amber-900/40 text-amber-300 border-amber-800/60',
-  ready: 'bg-blue-900/40 text-blue-300 border-blue-800/60',
-  delivered: 'bg-emerald-900/40 text-emerald-300 border-emerald-800/60',
-  cancelled: 'bg-gray-800/60 text-gray-400 border-gray-700/60',
+  pending: 'bg-amber-950/50 text-amber-400/80 border-amber-900/40',
+  ready: 'bg-zinc-800/70 text-zinc-300 border-zinc-700/60',
+  delivered: 'bg-emerald-950/50 text-emerald-400/70 border-emerald-900/40',
+  cancelled: 'bg-zinc-800/40 text-zinc-500 border-zinc-700/40',
 }
 
 type FilterStatus = 'active' | 'all'
@@ -109,12 +110,12 @@ interface ConfirmModalProps {
 
 function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-blue-600 hover:bg-blue-700', onConfirm, onCancel }: ConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+      <div className="bg-zinc-900 rounded-2xl border border-zinc-800 w-full max-w-sm p-6 space-y-4 overflow-hidden animate-modal-enter">
         <h2 className="text-base font-semibold text-white break-words">{title}</h2>
-        <div className="text-sm text-gray-400 break-words">{message}</div>
+        <div className="text-sm text-zinc-400 break-words">{message}</div>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors">
+          <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors">
             Cancelar
           </button>
           <button onClick={onConfirm} className={`flex-1 py-2 rounded-xl font-semibold transition-colors text-white ${confirmClassName}`}>
@@ -396,24 +397,20 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const formIsValid = form.customerName.trim() && form.items.trim() && form.pickupDate
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-gray-950 text-white overflow-hidden">
+    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white overflow-hidden">
       {/* Header */}
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 shrink-0">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-gray-800 transition-colors text-gray-400 hover:text-white shrink-0"
-          title="Volver"
-        >←</button>
+      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+        <BackButton onClick={onBack} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-base font-semibold text-white">Pedidos</h1>
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <h1 className="text-sm font-semibold text-zinc-100">Pedidos</h1>
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
             {urgentTodayCount > 0 && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-800/60">
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-950/60 text-red-400/80 border border-red-900/40">
                 {urgentTodayCount} hoy
               </span>
             )}
             {urgentTomorrowCount > 0 && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-800/60">
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">
                 {urgentTomorrowCount} mañana
               </span>
             )}
@@ -428,21 +425,21 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
         )}
         <button
           onClick={openCreate}
-          className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold transition-colors shrink-0"
+          className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold transition-colors shrink-0"
         >
           + Nuevo pedido
         </button>
       </header>
 
       {/* Filters */}
-      <div className="px-4 py-2 border-b border-gray-800/60 shrink-0 space-y-2">
+      <div className="px-4 py-2 border-b border-zinc-800/60 shrink-0 space-y-2">
         <div className="flex gap-2">
           {(['active', 'all'] as const).map(s => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filterStatus === s ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                filterStatus === s ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800/60 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
               }`}
             >
               {s === 'active' ? 'Activos' : 'Últimos 30 días'}
@@ -454,16 +451,16 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar por nombre, teléfono o descripción…"
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
         />
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-        {loading && <p className="text-gray-500 text-sm text-center py-8 animate-pulse">Cargando pedidos…</p>}
+        {loading && <p className="text-zinc-500 text-sm text-center py-8 animate-pulse">Cargando pedidos…</p>}
         {error && <p className="text-red-400 text-sm text-center py-8">{error}</p>}
         {!loading && !error && filteredOrders.length === 0 && (
-          <p className="text-gray-500 text-sm text-center py-8">No hay pedidos.</p>
+          <p className="text-zinc-500 text-sm text-center py-8">No hay pedidos.</p>
         )}
         {filteredOrders.map(order => (
           <OrderCard
@@ -482,12 +479,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       {/* Create / Edit form modal */}
       {(showCreate || editingOrder) && (
         <div className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg bg-gray-900 rounded-t-2xl sm:rounded-2xl border border-gray-800 max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+          <div className="w-full sm:max-w-lg bg-zinc-900 rounded-t-2xl sm:rounded-2xl border border-zinc-800 max-h-[92vh] overflow-y-auto">
+            <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
               <h2 className="text-base font-semibold">
                 {editingOrder ? 'Editar pedido' : 'Nuevo pedido'}
               </h2>
-              <button onClick={closeForm} className="text-gray-400 hover:text-white text-xl">×</button>
+              <button onClick={closeForm} className="text-zinc-400 hover:text-white text-xl">×</button>
             </div>
 
             <div className="px-5 py-4 space-y-4">
@@ -499,7 +496,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   onChange={e => setForm(f => ({ ...f, priority: e.target.checked }))}
                   className="w-4 h-4 accent-orange-500"
                 />
-                <span className="text-sm font-medium text-orange-400">⚡ Pedido prioritario / importante</span>
+                <span className="text-sm font-medium text-zinc-400">⚡ Pedido prioritario / importante</span>
               </label>
 
               <Field label="Nombre del cliente *">
@@ -509,7 +506,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
                   placeholder="Ej: Restaurante El Sol"
                   maxLength={100}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                 />
               </Field>
 
@@ -521,7 +518,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   onChange={e => setForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) }))}
                   placeholder="+54 9 11 1234-5678"
                   maxLength={30}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                 />
               </Field>
 
@@ -532,7 +529,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   placeholder="Ej: 2 kg de asado, 1 pollo entero…"
                   rows={3}
                   maxLength={500}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
                 />
               </Field>
 
@@ -542,13 +539,13 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   value={form.pickupDate}
                   min={todayDateStr()}
                   onChange={e => setForm(f => ({ ...f, pickupDate: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                 />
               </Field>
 
               {/* Horario de retiro */}
               <div className="space-y-2">
-                <label className="text-xs text-gray-400">Horario de retiro (opcional)</label>
+                <label className="text-xs text-zinc-400">Horario de retiro (opcional)</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['morning', 'afternoon', 'specific'] as OrderTimeSlot[]).map(slot => (
                     <button
@@ -558,7 +555,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                       className={`py-2 rounded-lg text-xs font-medium transition-colors border ${
                         form.timeSlot === slot
                           ? 'bg-blue-600 border-blue-500 text-white'
-                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
                       }`}
                     >
                       {TIME_SLOT_LABELS[slot]}
@@ -570,15 +567,15 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                     type="time"
                     value={form.pickupTime}
                     onChange={e => setForm(f => ({ ...f, pickupTime: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                   />
                 )}
               </div>
 
               {/* Seña multi-método */}
-              <div className="space-y-3 bg-gray-800/50 rounded-xl p-4 border border-gray-700/60">
+              <div className="space-y-3 bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/60">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-gray-300">Seña (opcional)</p>
+                  <p className="text-sm font-medium text-zinc-300">Seña (opcional)</p>
                   {totalDeposit > 0 && (
                     <span className="text-sm font-semibold text-blue-300">{formatARS(totalDeposit)} total</span>
                   )}
@@ -586,12 +583,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                 <div className="space-y-2">
                   {(['cash', 'debit', 'wallet', 'credit'] as DepositMethod[]).map(m => (
                     <div key={m} className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 w-28 shrink-0">{DEPOSIT_METHOD_LABELS[m]}</span>
+                      <span className="text-xs text-zinc-400 w-28 shrink-0">{DEPOSIT_METHOD_LABELS[m]}</span>
                       <NumericInput
                         value={getDepositRaw(m)}
                         onChange={v => setDepositForMethod(m, v)}
                         placeholder="0"
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                       />
                     </div>
                   ))}
@@ -605,7 +602,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   placeholder="Observaciones del pedido…"
                   rows={2}
                   maxLength={300}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
                 />
               </Field>
 
@@ -615,7 +612,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                 <button
                   onClick={closeForm}
                   disabled={saving}
-                  className="flex-1 py-3 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-40"
+                  className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
                 >
                   Cancelar
                 </button>
@@ -665,19 +662,19 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                     ⚠ Este pedido tenía una seña de <strong>${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong>.
                   </p>
                   {currentShiftId ? (
-                    <label className="flex items-start gap-2 cursor-pointer select-none bg-gray-800 rounded-lg p-3">
+                    <label className="flex items-start gap-2 cursor-pointer select-none bg-zinc-800 rounded-lg p-3">
                       <input
                         type="checkbox"
                         checked={registerRefund}
                         onChange={e => setRegisterRefund(e.target.checked)}
                         className="mt-0.5 shrink-0 accent-emerald-500"
                       />
-                      <span className="text-xs text-gray-300">
+                      <span className="text-xs text-zinc-300">
                         Registrar devolución de <strong className="text-white">${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong> como gasto de este turno
                       </span>
                     </label>
                   ) : (
-                    <p className="text-xs text-gray-400 bg-gray-800 rounded-lg p-3">
+                    <p className="text-xs text-zinc-400 bg-zinc-800 rounded-lg p-3">
                       No hay turno activo. Si se devuelve la seña, recordá registrarla manualmente como gasto en el próximo turno (categoría: <em>Devolución de seña</em>).
                     </p>
                   )}
@@ -694,31 +691,31 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
 
       {/* Modal de confirmación de seña antes de guardar */}
       {showDepositConfirm && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+          <div className="bg-zinc-900 rounded-2xl border border-zinc-800 w-full max-w-sm p-6 space-y-4">
             <h2 className="text-base font-semibold text-white">
               {editingOrder ? 'Confirmar cambios en el pedido' : 'Confirmar pedido con seña'}
             </h2>
 
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-400">Cliente</span>
+                <span className="text-zinc-400">Cliente</span>
                 <span className="text-white font-medium truncate ml-4">{form.customerName.trim()}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Retiro</span>
+                <span className="text-zinc-400">Retiro</span>
                 <span className="text-white">{form.pickupDate}</span>
               </div>
-              <div className="border-t border-gray-700 pt-2 space-y-1">
-                <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Seña</p>
+              <div className="border-t border-zinc-700 pt-2 space-y-1">
+                <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Seña</p>
                 {form.depositPayments.map(p => (
                   <div key={p.method} className="flex justify-between">
-                    <span className="text-gray-400">{DEPOSIT_METHOD_LABELS[p.method]}</span>
+                    <span className="text-zinc-400">{DEPOSIT_METHOD_LABELS[p.method]}</span>
                     <span className="text-blue-300 font-semibold">{formatARS(p.amount)}</span>
                   </div>
                 ))}
-                <div className="flex justify-between border-t border-gray-700 pt-1">
-                  <span className="text-gray-300 font-semibold">Total seña</span>
+                <div className="flex justify-between border-t border-zinc-700 pt-1">
+                  <span className="text-zinc-300 font-semibold">Total seña</span>
                   <span className="text-blue-300 font-bold">{formatARS(depositTotal(form.depositPayments))}</span>
                 </div>
               </div>
@@ -727,7 +724,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDepositConfirm(false)}
-                className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors text-sm"
+                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm"
               >
                 Volver
               </button>
@@ -806,16 +803,16 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
       id={`order-${order.id}`}
       className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-900/40' : ''} ${
         order.status === 'cancelled'
-          ? 'border-gray-800 bg-gray-900/30 opacity-60'
+          ? 'border-zinc-800 bg-zinc-900/30 opacity-60'
           : overdue
-          ? 'border-red-800/60 bg-red-950/20'
+          ? 'border-red-900/50 bg-red-950/20'
           : today
-          ? 'border-orange-800/60 bg-orange-950/20'
+          ? 'border-amber-900/50 bg-amber-950/20'
           : tomorrow
-          ? 'border-amber-800/60 bg-amber-950/20'
+          ? 'border-zinc-700/60 bg-zinc-900/50'
           : order.priority
-          ? 'border-orange-700/60 bg-orange-950/10'
-          : 'border-gray-800 bg-gray-900'
+          ? 'border-zinc-700/50 bg-zinc-900/50'
+          : 'border-zinc-800 bg-zinc-900'
       }`}
     >
       {/* Row principal */}
@@ -826,57 +823,57 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             {order.priority && (
-              <span className="text-[10px] font-bold text-orange-400" title="Prioritario">⚡</span>
+              <span className="text-[10px] text-zinc-500" title="Prioritario">⚡</span>
             )}
             <span className="font-medium text-white truncate max-w-[200px]" title={order.customerName}>
               {order.customerName}
             </span>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLORS[order.status]}`}>
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_COLORS[order.status]}`}>
               {STATUS_LABELS[order.status]}
             </span>
             {overdue && order.status !== 'cancelled' && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 border border-red-800/60">Vencido</span>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-950/60 text-red-400/80 border border-red-900/40">Vencido</span>
             )}
             {!overdue && today && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-900/60 text-orange-300 border border-orange-800/60">Hoy</span>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">Hoy</span>
             )}
             {!overdue && tomorrow && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-300 border border-amber-800/60">Mañana</span>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-800/60 text-zinc-400 border border-zinc-700/50">Mañana</span>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-0.5 truncate" title={order.items}>
+          <p className="text-xs text-zinc-400 mt-0.5 truncate" title={order.items}>
             {order.items}
           </p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-xs text-gray-400">{formattedDate}</p>
-          {timeSlotLabel() && <p className="text-[10px] text-gray-500">{timeSlotLabel()}</p>}
+          <p className="text-xs text-zinc-400">{formattedDate}</p>
+          {timeSlotLabel() && <p className="text-[10px] text-zinc-500">{timeSlotLabel()}</p>}
           {order.depositAmount > 0 && (
-            <p className="text-xs text-blue-400">{formatARS(order.depositAmount)} seña</p>
+            <p className="text-xs text-zinc-400">{formatARS(order.depositAmount)} seña</p>
           )}
         </div>
-        <span className="text-gray-600 shrink-0">{expanded ? '▲' : '▼'}</span>
+        <span className="text-zinc-600 shrink-0">{expanded ? '▲' : '▼'}</span>
       </div>
 
       {/* Detalle expandido */}
       {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-gray-800/60 pt-3">
+        <div className="px-4 pb-4 space-y-3 border-t border-zinc-800/60 pt-3">
           {order.phone && (
-            <p className="text-xs text-gray-400">Tel: <span className="text-gray-200">{order.phone}</span></p>
+            <p className="text-xs text-zinc-400">Tel: <span className="text-zinc-200">{order.phone}</span></p>
           )}
           {order.notes && (
-            <p className="text-xs text-gray-400 break-words">
-              Notas: <span className="text-gray-200">{order.notes}</span>
+            <p className="text-xs text-zinc-400 break-words">
+              Notas: <span className="text-zinc-200">{order.notes}</span>
             </p>
           )}
           {order.updatedBy && (
-            <p className="text-[10px] text-gray-600">
+            <p className="text-[10px] text-zinc-600">
               Última modificación: {order.updatedBy}
             </p>
           )}
           {depositPayments.length > 0 && (
-            <div className="text-xs text-gray-400 space-y-0.5">
-              <p className="font-medium text-gray-300">Seña: {formatARS(order.depositAmount)}</p>
+            <div className="text-xs text-zinc-400 space-y-0.5">
+              <p className="font-medium text-zinc-300">Seña: {formatARS(order.depositAmount)}</p>
               {depositPayments.map(p => (
                 <p key={p.method}>{DEPOSIT_METHOD_LABELS[p.method]}: {formatARS(p.amount)}</p>
               ))}
@@ -916,10 +913,10 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
 
           {/* Acciones de edición/cancelación — cajera y admin */}
           {order.status !== 'cancelled' && (
-            <div className="flex gap-2 pt-1 border-t border-gray-800/40">
+            <div className="flex gap-2 pt-1 border-t border-zinc-800/40">
               <button
                 onClick={onEdit}
-                className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs font-medium transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-medium transition-colors"
               >
                 Editar
               </button>
@@ -932,7 +929,7 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
               {isAdmin && onHardDelete && (
                 <button
                   onClick={onHardDelete}
-                  className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-red-950 text-xs font-medium text-gray-500 hover:text-red-400 transition-colors"
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-red-950 text-xs font-medium text-zinc-500 hover:text-red-400 transition-colors"
                   title="Eliminar permanentemente"
                 >
                   🗑 Eliminar
@@ -941,10 +938,10 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
             </div>
           )}
           {order.status === 'cancelled' && isAdmin && onHardDelete && (
-            <div className="pt-1 border-t border-gray-800/40">
+            <div className="pt-1 border-t border-zinc-800/40">
               <button
                 onClick={onHardDelete}
-                className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-red-950 text-xs font-medium text-gray-500 hover:text-red-400 transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-red-950 text-xs font-medium text-zinc-500 hover:text-red-400 transition-colors"
                 title="Eliminar permanentemente"
               >
                 🗑 Eliminar permanentemente
@@ -960,7 +957,7 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-xs text-gray-400">{label}</label>
+      <label className="text-xs text-zinc-400">{label}</label>
       {children}
     </div>
   )

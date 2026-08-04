@@ -273,7 +273,7 @@ function ProviderFormModal({ title, initialName = '', onSave, onCancel }: Provid
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-gray-900 rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
         <h2 className="text-lg font-semibold">{title}</h2>
 
@@ -719,7 +719,7 @@ function ConfirmArchiveModal({ providerName, hasDebt, debtAmount, onConfirm, onC
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-gray-900 rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
         <h2 className="text-lg font-semibold text-red-400">Archivar proveedor</h2>
 
