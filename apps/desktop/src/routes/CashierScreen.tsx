@@ -6,6 +6,7 @@ import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
 import ExpenseListModal from './ExpenseListModal'
 import AttendanceModal from './AttendanceModal'
+import EmployeePayModal from './EmployeePayModal'
 import ValesModal from './ValesModal'
 import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
@@ -43,6 +44,7 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showAttendanceModal, setShowAttendanceModal] = useState(false)
   const [showValesModal, setShowValesModal] = useState(false)
+  const [showEmployeePayModal, setShowEmployeePayModal] = useState(false)
   const [showStockCountModal, setShowStockCountModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
@@ -349,7 +351,8 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
           <button
             type="button"
             onClick={() => setShowAttendanceModal(true)}
-            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-lime-600 hover:text-lime-300 transition-colors"
+            title="Asistencia (pausado)"
+            className="rounded-md border border-gray-800 px-3 py-1.5 text-xs text-gray-600 hover:border-gray-600 hover:text-gray-400 transition-colors opacity-60"
           >
             ✓ Asistencia
           </button>
@@ -359,6 +362,13 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
             className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-sky-600 hover:text-sky-300 transition-colors"
           >
             💵 Vales
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowEmployeePayModal(true)}
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-emerald-600 hover:text-emerald-300 transition-colors"
+          >
+            💰 Pago
           </button>
           <button
             type="button"
@@ -662,6 +672,13 @@ export default function CashierScreen({ session, shift, onLogout, onCloseShift, 
         <ValesModal
           onClose={() => setShowValesModal(false)}
           onSaved={() => refreshBalance()}
+        />
+      )}
+
+      {showEmployeePayModal && (
+        <EmployeePayModal
+          onClose={() => setShowEmployeePayModal(false)}
+          onPaid={() => refreshBalance()}
         />
       )}
 

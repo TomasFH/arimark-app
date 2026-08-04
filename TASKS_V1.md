@@ -299,9 +299,22 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 ---
 
+## Notas de producto (ago 2026)
+
+- **Asistencia:** pausada en operación; puede retirarse. UI queda marcada como “(pausado)”.
+- **Vales remotos:** admin móvil (tab Vales) + hub desktop “Vales (remoto)” leen `employeeVales` desde Firestore.
+- **Rol carnicero:** no existe; conteo de stock lo usan admin/cajera de momento.
+- **Pago a empleado (cajera):** botón **💰 Pago** → elige empleado, ve neto de referencia, monto libre → gasto `Pago: {nombre}` (baja caja).
+- **Tickets balanza / barcode “emergencia”:** el bloqueo de AGENTS.md (decodificar ticket KRETZ) **no es prioritario**. En operación real, si el lector no trae datos, ya existe **carga manual** (producto + kg/precio). Eso cubre el caso del local.
+- **App móvil ≠ port del desktop:** hoy es un POS de respaldo (cajera: turno/venta/catálogo) + admin solo lectura (historial/vales). Paridad total con desktop sería un proyecto grande (no hay SQLite/IPC/hardware en el celular).
+- **Locales de cajera (`authorizedStores`):** editable en hub → Gestión de cajeras (crear + botón Locales). En móvil, el selector de local usa esa lista; con 1 solo local salta directo a abrir turno.
+- **Catálogo ago 2026:** fuente `apps/desktop/scripts/catalog-2026-08.json`; PDF `LISTA_PRECIOS.pdf`. Wipe total (pruebas): `pnpm --filter desktop db:wipe:prod` (conserva locales, borra ventas/fiados/etc. y deja solo catálogo nuevo).
+
+---
+
 ## BLOQUE H — Local habitual de carniceros / cajeras (PENDIENTE — no implementar aún)
 
-> **Estado:** Idea acordada (ago 2026). **No implementar** hasta cerrar el checklist de test en local real.
+> **Estado:** Idea acordada (ago 2026). **No implementar** hasta decidir prioridad vs. otras features.
 > Motivo del aplazamiento: no sumar features nuevas antes del testeo en carnicería.
 
 ### Problema

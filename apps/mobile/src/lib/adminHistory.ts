@@ -1,10 +1,11 @@
 /**
- * Lectura admin desde Firestore (turnos y ventas operativos).
+ * Lectura admin desde Firestore (turnos, ventas y vales).
  *
  * Paths:
  *   licenses/{tenantId}/stores/{storeId}
  *   licenses/{tenantId}/shifts/{shiftId}
  *   licenses/{tenantId}/sales/{saleId}
+ *   licenses/{tenantId}/employeeVales/{id}
  *
  * Solo lectura. Los admins no operan el POS desde esta capa.
  */
@@ -56,6 +57,33 @@ export interface AdminSale {
 
 export type PaymentTotals = Record<PaymentMethod, number> & { total: number }
 
+export interface AdminValeItem {
+  productName: string
+  quantity: number
+  unitPrice: number
+  subtotal: number
+}
+
+export interface AdminVale {
+  id: string
+  employeeId: string
+  employeeName: string
+  storeId: string | null
+  shiftId: string | null
+  amount: number
+  description: string | null
+  items: AdminValeItem[]
+  paidAt: string
+  createdAt: string
+}
+
+export interface AdminValeEmployeeTotal {
+  employeeId: string
+  employeeName: string
+  total: number
+  count: number
+}
+
 const EMPTY_TOTALS: PaymentTotals = {
   cash: 0,
   debit: 0,
@@ -75,6 +103,26 @@ export function sumPaymentTotals(sales: AdminSale[]): PaymentTotals {
     }
   }
   return totals
+}
+
+/** Totales de vales agrupados por empleado (puro, testeable). */
+export function sumValesByEmployee(vales: AdminVale[]): AdminValeEmployeeTotal[] {
+  const map = new Map<string, AdminValeEmployeeTotal>()
+  for (const v of vales) {
+    const prev = map.get(v.employeeId)
+    if (prev) {
+      prev.total += v.amount
+      prev.count += 1
+    } else {
+      map.set(v.employeeId, {
+        employeeId: v.employeeId,
+        employeeName: v.employeeName,
+        total: v.amount,
+        count: 1,
+      })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total)
 }
 
 export async function fetchAdminStores(): Promise<AdminStore[]> {
@@ -181,4 +229,72 @@ export async function fetchAdminSalesForShift(shiftId: string): Promise<AdminSal
   }
   sales.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   return sales
+}
+
+/**
+ * Vales del local (más recientes primero).
+ * Docs viejos sin storeId se incluyen solo si su shiftId pertenece al local.
+ */
+export async function fetchAdminVales(storeId: string): Promise<AdminVale[]> {
+  const [valesSnap, shiftsSnap] = await Promise.all([
+    getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'employeeVales')),
+    getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'shifts')),
+  ])
+
+  const storeByShift = new Map<string, string>()
+  for (const d of shiftsSnap.docs) {
+    const data = d.data() as { id?: string; storeId?: string }
+    const sid = data.id ?? d.id
+    if (data.storeId) storeByShift.set(sid, data.storeId)
+  }
+
+  const vales: AdminVale[] = []
+  for (const d of valesSnap.docs) {
+    const data = d.data() as {
+      id?: string
+      employeeId?: string
+      employeeName?: string | null
+      storeId?: string | null
+      shiftId?: string | null
+      amount?: number
+      description?: string | null
+      items?: Array<{
+        productName?: string | null
+        quantity?: number
+        unitPrice?: number
+        subtotal?: number
+      }> | null
+      paidAt?: string
+      createdAt?: string
+      deleted?: boolean
+    }
+    if (data.deleted === true) continue
+
+    const resolvedStoreId =
+      data.storeId
+      ?? (data.shiftId ? storeByShift.get(data.shiftId) ?? null : null)
+    if (resolvedStoreId !== storeId) continue
+
+    const employeeId = data.employeeId ?? ''
+    vales.push({
+      id: data.id ?? d.id,
+      employeeId,
+      employeeName: data.employeeName?.trim() || employeeId || '(sin nombre)',
+      storeId: resolvedStoreId,
+      shiftId: data.shiftId ?? null,
+      amount: data.amount ?? 0,
+      description: data.description ?? null,
+      items: (data.items ?? []).map(i => ({
+        productName: i.productName ?? '(producto)',
+        quantity: i.quantity ?? 0,
+        unitPrice: i.unitPrice ?? 0,
+        subtotal: i.subtotal ?? 0,
+      })),
+      paidAt: data.paidAt ?? data.createdAt ?? '',
+      createdAt: data.createdAt ?? '',
+    })
+  }
+
+  vales.sort((a, b) => b.paidAt.localeCompare(a.paidAt))
+  return vales
 }

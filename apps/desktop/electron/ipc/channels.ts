@@ -41,6 +41,7 @@ export const IPC = {
   // ABM de cajeras (solo admins)
   LIST_CASHIERS: 'ipc:list-cashiers',
   CREATE_CASHIER: 'ipc:create-cashier',
+  UPDATE_CASHIER: 'ipc:update-cashier',
   TOGGLE_CASHIER: 'ipc:toggle-cashier',
   DELETE_CASHIER: 'ipc:delete-cashier',
 
@@ -129,6 +130,7 @@ export const IPC = {
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
   GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',
+  GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)
   SELECT_STORE: 'ipc:select-store',

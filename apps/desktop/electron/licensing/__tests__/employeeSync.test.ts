@@ -261,6 +261,12 @@ describe('employeeSync', () => {
         'employeeVales',
         'vale-1',
       )
+      expect(mockSetDoc.mock.calls[0]?.[1]).toMatchObject({
+        storeId: 'store-001',
+        employeeName: 'Carnicero Uno',
+        amount: 5000,
+        description: 'adelanto',
+      })
       expect(db.select().from(employeeVales).where(isNull(employeeVales.syncedAt)).all()).toHaveLength(0)
     })
   })

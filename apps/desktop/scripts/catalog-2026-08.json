@@ -1,0 +1,830 @@
+{
+  "pricesValidFrom": "2026-08-03T12:00:00.000Z",
+  "note": "Lista de precios del local — ago 2026. Packs = precio del pack (unit). Pieza/ofertas N = $/kg. Hamburguesas carne/pollo mismo precio, productos distintos.",
+  "products": [
+    {
+      "plu": 1,
+      "name": "Asado",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 2,
+      "name": "Tapa de asado",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 3,
+      "name": "Asado americano",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 23000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 4,
+      "name": "Vacío",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 23000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 5,
+      "name": "Matambre",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 21000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 6,
+      "name": "Falda parrillera",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 17000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 7,
+      "name": "Paleta",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 17400,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 8,
+      "name": "Roast beef",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 16900,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 9,
+      "name": "Palomita",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 17300,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 10,
+      "name": "Tortuguita",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 17300,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 11,
+      "name": "Bifes anchos",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 19999,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 12,
+      "name": "Bifes angostos",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 21999,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 13,
+      "name": "Bifes c/lomo",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 24500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 14,
+      "name": "Bife de chorizo",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 24500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 15,
+      "name": "Ojo de bife",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 24500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 16,
+      "name": "Lomo",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 26900,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 17,
+      "name": "Bola de lomo",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 18,
+      "name": "Cuadrada",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 19,
+      "name": "Nalga",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 24000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 20,
+      "name": "Tapa de nalga",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 21,
+      "name": "Peceto",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 25000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 22,
+      "name": "Cuadril",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20999,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 23,
+      "name": "Colita de cuadril",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 23500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 24,
+      "name": "Riñonada",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 23000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 25,
+      "name": "Pastrón",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 19900,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 26,
+      "name": "Osobuco",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 12500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 27,
+      "name": "Espinazo",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 9500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 28,
+      "name": "Carnaza común",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 14000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 29,
+      "name": "Picada común",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 14000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 31,
+      "name": "Milanesa de carne",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 14500,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 32,
+      "name": "Hamburguesas carne",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 14000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 100,
+      "name": "Pollo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 3900,
+      "section": "Pollo"
+    },
+    {
+      "plu": 101,
+      "name": "Pollo de campo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 4300,
+      "section": "Pollo"
+    },
+    {
+      "plu": 102,
+      "name": "Supremas",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 13500,
+      "section": "Pollo"
+    },
+    {
+      "plu": 103,
+      "name": "Pata y muslo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 4500,
+      "section": "Pollo"
+    },
+    {
+      "plu": 104,
+      "name": "Milanesa de pollo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 8900,
+      "section": "Pollo"
+    },
+    {
+      "plu": 105,
+      "name": "Alitas",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 1890,
+      "section": "Pollo"
+    },
+    {
+      "plu": 106,
+      "name": "Menudos",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 500,
+      "section": "Pollo"
+    },
+    {
+      "plu": 107,
+      "name": "Hamburguesas pollo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 14000,
+      "section": "Pollo"
+    },
+    {
+      "plu": 150,
+      "name": "Pechito",
+      "category": "pork",
+      "unit": "kg",
+      "price": 8000,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 151,
+      "name": "Costillitas",
+      "category": "pork",
+      "unit": "kg",
+      "price": 8000,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 152,
+      "name": "Milanesa de cerdo",
+      "category": "pork",
+      "unit": "kg",
+      "price": 8900,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 153,
+      "name": "Paleta de cerdo",
+      "category": "pork",
+      "unit": "kg",
+      "price": 9999,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 154,
+      "name": "Bondiola",
+      "category": "pork",
+      "unit": "kg",
+      "price": 9800,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 155,
+      "name": "Matambrito",
+      "category": "pork",
+      "unit": "kg",
+      "price": 11000,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 156,
+      "name": "Solomillos",
+      "category": "pork",
+      "unit": "kg",
+      "price": 12000,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 157,
+      "name": "Patas",
+      "category": "pork",
+      "unit": "kg",
+      "price": 1960,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 158,
+      "name": "Jamón",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7000,
+      "section": "Cerdo"
+    },
+    {
+      "plu": 200,
+      "name": "Chorizo de cerdo",
+      "category": "other",
+      "unit": "kg",
+      "price": 8000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 201,
+      "name": "Chorizo de carne",
+      "category": "other",
+      "unit": "kg",
+      "price": 9500,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 202,
+      "name": "Chorizo parrillero",
+      "category": "other",
+      "unit": "kg",
+      "price": 9500,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 203,
+      "name": "Chorizo colorado",
+      "category": "other",
+      "unit": "kg",
+      "price": 19000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 204,
+      "name": "Morcilla",
+      "category": "other",
+      "unit": "kg",
+      "price": 6000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 205,
+      "name": "Salchichas parrilleras",
+      "category": "other",
+      "unit": "kg",
+      "price": 13000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 206,
+      "name": "Salchichas viena",
+      "category": "other",
+      "unit": "kg",
+      "price": 11000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 207,
+      "name": "Panceta salada",
+      "category": "other",
+      "unit": "kg",
+      "price": 30000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 250,
+      "name": "Hígado",
+      "category": "other",
+      "unit": "kg",
+      "price": 4600,
+      "section": "Otros"
+    },
+    {
+      "plu": 251,
+      "name": "Mondongo",
+      "category": "other",
+      "unit": "kg",
+      "price": 8200,
+      "section": "Otros"
+    },
+    {
+      "plu": 252,
+      "name": "Lengua",
+      "category": "other",
+      "unit": "kg",
+      "price": 11000,
+      "section": "Otros"
+    },
+    {
+      "plu": 253,
+      "name": "Riñón",
+      "category": "other",
+      "unit": "kg",
+      "price": 5400,
+      "section": "Otros"
+    },
+    {
+      "plu": 254,
+      "name": "Chinchulín",
+      "category": "other",
+      "unit": "kg",
+      "price": 5400,
+      "section": "Otros"
+    },
+    {
+      "plu": 255,
+      "name": "Mollejas",
+      "category": "other",
+      "unit": "kg",
+      "price": 25000,
+      "section": "Otros"
+    },
+    {
+      "plu": 256,
+      "name": "Rabo",
+      "category": "other",
+      "unit": "kg",
+      "price": 8800,
+      "section": "Otros"
+    },
+    {
+      "plu": 257,
+      "name": "Filet de merluza",
+      "category": "other",
+      "unit": "kg",
+      "price": 12000,
+      "section": "Otros"
+    },
+    {
+      "plu": 258,
+      "name": "Huevos media docena",
+      "category": "other",
+      "unit": "unit",
+      "price": 2000,
+      "section": "Otros"
+    },
+    {
+      "plu": 259,
+      "name": "Huevos x12",
+      "category": "other",
+      "unit": "unit",
+      "price": 4000,
+      "section": "Otros"
+    },
+    {
+      "plu": 260,
+      "name": "Maple x30",
+      "category": "other",
+      "unit": "unit",
+      "price": 5500,
+      "section": "Otros"
+    },
+    {
+      "plu": 301,
+      "name": "Asado x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 15000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 302,
+      "name": "Tapa de asado x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 18500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 303,
+      "name": "Vacío x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 21000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 304,
+      "name": "Bifes anchos x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 19000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 305,
+      "name": "Bifes angostos x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 306,
+      "name": "Roast beef x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 15500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 307,
+      "name": "Paleta x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 16000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 308,
+      "name": "Bife de chorizo x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 21500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 309,
+      "name": "Milanesa de carne x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 12000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 310,
+      "name": "Milanesa de cerdo x2kg",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 311,
+      "name": "Milanesa de pollo x2kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 8500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 312,
+      "name": "Falda parrillera x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 10000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 313,
+      "name": "Falda puchero x2kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 10000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 314,
+      "name": "Picada x3kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 10000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 315,
+      "name": "Espinazo x3kg",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 4667,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 320,
+      "name": "Pechito x2kg",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 321,
+      "name": "Costillita x2kg",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 330,
+      "name": "Supremas x2kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 12000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 331,
+      "name": "Supremas x5kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 11000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 332,
+      "name": "Pata y muslo x3kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 3333,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 333,
+      "name": "Pata y muslo x5kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 3300,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 335,
+      "name": "Alitas x3kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 1667,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 336,
+      "name": "Menudo x5kg",
+      "category": "poultry",
+      "unit": "kg",
+      "price": 200,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 340,
+      "name": "Filet de merluza x2kg",
+      "category": "other",
+      "unit": "kg",
+      "price": 10000,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 341,
+      "name": "Bondiola c/3 u. $/kg",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7500,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 401,
+      "name": "Vacío pieza entera",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 402,
+      "name": "Paleta pieza entera",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 15800,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 403,
+      "name": "Roast beef pieza entera",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 14000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 404,
+      "name": "Peceto entero",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 23700,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 405,
+      "name": "Cuadril entero",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 20000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 406,
+      "name": "Bola/cuadrada pieza",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 18000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 407,
+      "name": "2 matambres enteros",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 17000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 408,
+      "name": "3 matambres enteros",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 15000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 409,
+      "name": "2 tapas de nalga",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 18500,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 410,
+      "name": "Pechito pieza entera",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7000,
+      "section": "Ofertas pieza"
+    },
+    {
+      "plu": 411,
+      "name": "Costillita pieza entera",
+      "category": "pork",
+      "unit": "kg",
+      "price": 7000,
+      "section": "Ofertas pieza"
+    }
+  ]
+}

@@ -416,7 +416,14 @@ export interface CashierRow {
 export interface CreateCashierPayload {
   displayName: string
   email: string
-  authorizedStores?: string[]
+  /** Locales autorizados (al menos uno). */
+  authorizedStores: string[]
+}
+
+export interface UpdateCashierPayload {
+  uid: string
+  authorizedStores: string[]
+  displayName?: string
 }
 
 export interface ToggleCashierPayload {
@@ -926,6 +933,30 @@ export interface HistoryShiftRow {
   totalDeposits: number
 }
 
+/** Vale leído desde Firestore (admin remoto / cross-PC). */
+export interface RemoteEmployeeValeRow {
+  id: string
+  employeeId: string
+  employeeName: string
+  storeId: string | null
+  shiftId: string | null
+  amount: number
+  description: string | null
+  items: Array<{
+    productName: string
+    quantity: number
+    unitPrice: number
+    subtotal: number
+  }>
+  paidAt: string
+  createdAt: string
+}
+
+export interface GetRemoteEmployeeValesPayload {
+  /** 'all' o omitido = todos; storeId = filtrar por local. */
+  storeIdFilter?: string
+}
+
 export interface HistorySaleItem {
   productName: string
   quantity: number
@@ -1202,6 +1233,9 @@ export interface HwApi {
   /** Crea una cuenta de cajera en Firebase Auth + perfil en Firestore — solo admin */
   createCashier: (payload: CreateCashierPayload) => Promise<IpcResult<{ uid: string }>>
 
+  /** Actualiza locales autorizados (y opcionalmente nombre) — solo admin */
+  updateCashier: (payload: UpdateCashierPayload) => Promise<IpcResult>
+
   /** Activa o desactiva una cajera en Firestore — solo admin */
   toggleCashier: (payload: ToggleCashierPayload) => Promise<IpcResult>
 
@@ -1332,6 +1366,7 @@ export interface HwApi {
   // ---- Historial completo (Fase 7 — solo admin) ----
   getHistoryShifts: (payload?: GetHistoryShiftsPayload) => Promise<IpcResult<HistoryShiftRow[]>>
   getHistoryShiftDetail: (payload: { shiftId: string }) => Promise<IpcResult<HistoryShiftDetail>>
+  getRemoteEmployeeVales: (payload?: GetRemoteEmployeeValesPayload) => Promise<IpcResult<RemoteEmployeeValeRow[]>>
 
   // ---- Gestión de PLUs ----
   /** Prueba de enlace con la balanza (cmd 0002) */

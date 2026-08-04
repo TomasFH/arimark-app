@@ -71,6 +71,7 @@ const hw: HwApi = {
 
   listCashiers: () => ipcRenderer.invoke(IPC.LIST_CASHIERS),
   createCashier: (payload) => ipcRenderer.invoke(IPC.CREATE_CASHIER, payload),
+  updateCashier: (payload) => ipcRenderer.invoke(IPC.UPDATE_CASHIER, payload),
   toggleCashier: (payload) => ipcRenderer.invoke(IPC.TOGGLE_CASHIER, payload),
   deleteCashier: (payload) => ipcRenderer.invoke(IPC.DELETE_CASHIER, payload),
 
@@ -169,6 +170,7 @@ const hw: HwApi = {
   // Historial completo (Fase 7 — solo admin)
   getHistoryShifts: payload => ipcRenderer.invoke(IPC.GET_HISTORY_SHIFTS, payload),
   getHistoryShiftDetail: payload => ipcRenderer.invoke(IPC.GET_HISTORY_SHIFT_DETAIL, payload),
+  getRemoteEmployeeVales: payload => ipcRenderer.invoke(IPC.GET_REMOTE_EMPLOYEE_VALES, payload),
 
   // Gestión de PLUs (balanza KRETZ)
   kretzTestLink: () => ipcRenderer.invoke(IPC.KRETZ_TEST_LINK),

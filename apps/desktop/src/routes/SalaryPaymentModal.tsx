@@ -1,24 +1,52 @@
 /**
  * Panel informativo admin: liquidación semanal esperada (sueldo − vales).
  * Solo consulta; el pago en efectivo lo hace la cajera fuera de este flujo.
+ *
+ * Los vales se consolidan de SQLite local + Firestore (todos los locales),
+ * filtrados a la semana lun–dom actual, sin doble conteo por id.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   addDaysYmd,
   formatARS,
+  getDisplayTimezone,
   toLocalDate,
+  toLocalDateTime,
   weekStartMondayLocalYmd,
 } from '../lib/datetime'
-import type { EmployeeRow, WeeklyValeSummary } from '../types/hw-api'
+import type { EmployeeRow, RemoteEmployeeValeRow, WeeklyValeSummary } from '../types/hw-api'
+
+function normalize(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
 
 interface Props {
   onClose: () => void
 }
 
+interface ValeLine {
+  id: string
+  amount: number
+  description: string | null
+  paidAt: string
+  storeId: string | null
+}
+
 interface RowState {
   employee: EmployeeRow
   summary: WeeklyValeSummary | null
+  vales: ValeLine[]
   loadError: string | null
+}
+
+function utcToLocalYmd(utc: string): string {
+  if (!utc) return ''
+  return new Date(utc).toLocaleDateString('en-CA', { timeZone: getDisplayTimezone() })
+}
+
+function inWeek(paidAt: string, weekStart: string, weekEnd: string): boolean {
+  const ymd = utcToLocalYmd(paidAt)
+  return ymd !== '' && ymd >= weekStart && ymd <= weekEnd
 }
 
 export default function SalaryPaymentModal({ onClose }: Props) {
@@ -27,6 +55,7 @@ export default function SalaryPaymentModal({ onClose }: Props) {
   const weekLabel = `${toLocalDate(`${weekStart}T12:00:00.000Z`)} – ${toLocalDate(`${weekEnd}T12:00:00.000Z`)}`
 
   const [rows, setRows] = useState<RowState[]>([])
+  const [filterText, setFilterText] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,27 +69,71 @@ export default function SalaryPaymentModal({ onClose }: Props) {
       return
     }
 
+    // Vales de todos los locales (Firestore). Si falla o no hay red, seguimos con local.
+    const remoteRes = await window.hw.getRemoteEmployeeVales({ storeIdFilter: 'all' })
+    const remoteWeek: RemoteEmployeeValeRow[] = remoteRes.ok
+      ? remoteRes.data.filter(v => inWeek(v.paidAt, weekStart, weekEnd))
+      : []
+
     const eligible = empRes.data.filter(e => e.weeklyWage > 0)
     const next: RowState[] = []
 
     for (const employee of eligible) {
-      const sumRes = await window.hw.getWeeklyValeSummary({
-        employeeId: employee.id,
-        weekStart,
-      })
+      const [sumRes, localValesRes] = await Promise.all([
+        window.hw.getWeeklyValeSummary({ employeeId: employee.id, weekStart }),
+        window.hw.listVales({ employeeId: employee.id, weekStart, weekEnd }),
+      ])
+
       if (!sumRes.ok) {
         next.push({
           employee,
           summary: null,
+          vales: [],
           loadError: sumRes.error ?? 'Error al cargar resumen.',
         })
-      } else {
-        next.push({
-          employee,
-          summary: sumRes.data,
-          loadError: null,
+        continue
+      }
+
+      // Merge por id: local + remoto de la semana (sin doble conteo).
+      const byId = new Map<string, ValeLine>()
+      if (localValesRes.ok) {
+        for (const v of localValesRes.data) {
+          if (!inWeek(v.paidAt, weekStart, weekEnd)) continue
+          byId.set(v.id, {
+            id: v.id,
+            amount: v.amount,
+            description: v.description,
+            paidAt: v.paidAt,
+            storeId: null,
+          })
+        }
+      }
+      for (const v of remoteWeek) {
+        if (v.employeeId !== employee.id) continue
+        byId.set(v.id, {
+          id: v.id,
+          amount: v.amount,
+          description: v.description,
+          paidAt: v.paidAt,
+          storeId: v.storeId,
         })
       }
+
+      const vales = [...byId.values()].sort((a, b) => b.paidAt.localeCompare(a.paidAt))
+      const totalVales = vales.reduce((s, v) => s + v.amount, 0)
+      const weeklyWage = sumRes.data.weeklyWage
+      const netToPay = Math.max(0, weeklyWage - totalVales)
+
+      next.push({
+        employee,
+        summary: {
+          ...sumRes.data,
+          totalVales,
+          netToPay,
+        },
+        vales,
+        loadError: null,
+      })
     }
 
     setRows(next)
@@ -72,9 +145,15 @@ export default function SalaryPaymentModal({ onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const totalNet = rows.reduce((sum, r) => sum + (r.summary?.netToPay ?? 0), 0)
-  const totalVales = rows.reduce((sum, r) => sum + (r.summary?.totalVales ?? 0), 0)
-  const totalGross = rows.reduce((sum, r) => sum + (r.summary?.weeklyWage ?? 0), 0)
+  const filteredRows = useMemo(() => {
+    const q = normalize(filterText.trim())
+    if (!q) return rows
+    return rows.filter(r => normalize(r.employee.name).includes(q))
+  }, [rows, filterText])
+
+  const totalNet = filteredRows.reduce((sum, r) => sum + (r.summary?.netToPay ?? 0), 0)
+  const totalVales = filteredRows.reduce((sum, r) => sum + (r.summary?.totalVales ?? 0), 0)
+  const totalGross = filteredRows.reduce((sum, r) => sum + (r.summary?.weeklyWage ?? 0), 0)
 
   return (
     <div
@@ -88,26 +167,47 @@ export default function SalaryPaymentModal({ onClose }: Props) {
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-white truncate">Liquidación semanal</h2>
             <p className="text-[10px] text-gray-500 mt-0.5 truncate" title={weekLabel}>
-              Semana {weekLabel} · solo consulta
+              Semana {weekLabel} · se reinicia cada lunes
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-md p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
-            aria-label="Cerrar"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="rounded-md px-2 py-1.5 text-xs text-red-400 hover:bg-gray-800 hover:text-red-300 transition-colors disabled:opacity-40"
+            >
+              Actualizar
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+              aria-label="Cerrar"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path
+                  fillRule="evenodd"
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+          {!loading && rows.length > 0 && (
+            <input
+              type="text"
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+              maxLength={100}
+              placeholder="Buscar empleado…"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+            />
+          )}
+
           {loading && (
             <p className="text-sm text-gray-500 text-center py-8">Cargando…</p>
           )}
@@ -125,7 +225,11 @@ export default function SalaryPaymentModal({ onClose }: Props) {
             </div>
           )}
 
-          {!loading && rows.length > 0 && (
+          {!loading && rows.length > 0 && filteredRows.length === 0 && (
+            <p className="text-sm text-gray-500 text-center py-6">Ningún empleado coincide con la búsqueda.</p>
+          )}
+
+          {!loading && filteredRows.length > 0 && (
             <div className="rounded-lg border border-gray-800 bg-gray-950/80 px-3 py-2 grid grid-cols-3 gap-2 text-center mb-2">
               <div>
                 <p className="text-[10px] text-gray-500">Bruto total</p>
@@ -143,8 +247,8 @@ export default function SalaryPaymentModal({ onClose }: Props) {
           )}
 
           {!loading &&
-            rows.map(row => {
-              const { employee, summary, loadError } = row
+            filteredRows.map(row => {
+              const { employee, summary, vales, loadError } = row
               return (
                 <div
                   key={employee.id}
@@ -176,13 +280,32 @@ export default function SalaryPaymentModal({ onClose }: Props) {
                       </div>
                     </div>
                   )}
+
+                  {vales.length > 0 && (
+                    <div className="space-y-1 pt-1 border-t border-gray-800/80">
+                      {vales.map(v => (
+                        <div key={v.id} className="flex items-start gap-2 min-w-0 text-[11px]">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-gray-400 truncate" title={v.description ?? 'Vale'}>
+                              {v.description?.trim() || 'Vale'}
+                            </p>
+                            <p className="text-gray-600 truncate" title={toLocalDateTime(v.paidAt)}>
+                              {toLocalDateTime(v.paidAt)}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-amber-300/90 tabular-nums">
+                            {formatARS(v.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })}
 
           <p className="text-[10px] text-gray-600 pt-1">
-            Panel informativo. El pago en efectivo lo hace la cajera según lo que indiques; no se registra
-            un “pago de salario” en la app.
+            Solo esta semana (lun–dom). El pago en efectivo lo hace la cajera; no se registra un pago de salario en la app.
           </p>
         </div>
 

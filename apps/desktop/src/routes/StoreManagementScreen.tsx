@@ -1,8 +1,7 @@
 /**
  * Gestión de locales — solo admin.
- * Lista los locales activos con opciones de crear, editar, archivar y eliminar.
- * Los locales con datos se archivan (soft-delete); solo los vacíos se eliminan.
- * Los archivados se muestran en una sección colapsable al final.
+ * Lista locales activos; al “eliminar”, borra si está vacío o soft-delete (archive)
+ * si tiene datos. Los eliminados se muestran en una sección colapsable.
  */
 import { useState, useEffect } from 'react'
 import type { StoreRow } from '../types/hw-api'
@@ -17,7 +16,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showArchived, setShowArchived] = useState(false)
+  const [showDeleted, setShowDeleted] = useState(false)
 
   // Modal crear / editar
   const [modal, setModal] = useState<{ mode: ModalMode; store?: StoreRow } | null>(null)
@@ -33,14 +32,13 @@ export default function StoreManagementScreen({ onBack }: Props) {
   // Feedback de guardado exitoso (solo para edición, no para creación)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null)
 
-  // Confirmación de eliminación / archivo
+  // Confirmación de eliminación
   const [deleteTarget, setDeleteTarget] = useState<StoreRow | null>(null)
-  const [deleteState, setDeleteState] = useState<'confirm' | 'archive-offer'>('confirm')
   const [actioning, setActioning] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const activeStores = stores.filter(s => !s.archivedAt)
-  const archivedStores = stores.filter(s => s.archivedAt)
+  const deletedStores = stores.filter(s => s.archivedAt)
 
   useEffect(() => {
     void window.hw.getStores({ includeArchived: true }).then(r => {
@@ -109,44 +107,37 @@ export default function StoreManagementScreen({ onBack }: Props) {
 
   function openDeleteConfirm(store: StoreRow) {
     setActionError(null)
-    setDeleteState('confirm')
     setDeleteTarget(store)
   }
 
+  /** Intenta borrar; si el local tiene datos, lo soft-deletea sin preguntar. */
   async function handleDelete() {
     if (!deleteTarget) return
     setActioning(true)
     setActionError(null)
     const r = await window.hw.deleteStore({ id: deleteTarget.id })
-    setActioning(false)
 
     if (r.ok) {
       setStores(prev => prev.filter(s => s.id !== deleteTarget.id))
       setDeleteTarget(null)
+      setActioning(false)
       return
     }
 
-    // Si el motivo es que tiene datos, ofrecer archivar en su lugar
     if ((r as { code?: string }).code === 'STORE_HAS_DATA') {
-      setDeleteState('archive-offer')
-    } else {
-      setActionError(r.error)
+      const ar = await window.hw.archiveStore({ id: deleteTarget.id })
+      setActioning(false)
+      if (!ar.ok) { setActionError(ar.error); return }
+      setStores(prev => prev.map(s => s.id === ar.data.id ? ar.data : s))
+      setDeleteTarget(null)
+      return
     }
-  }
 
-  async function handleArchive() {
-    if (!deleteTarget) return
-    setActioning(true)
-    setActionError(null)
-    const r = await window.hw.archiveStore({ id: deleteTarget.id })
     setActioning(false)
-
-    if (!r.ok) { setActionError(r.error); return }
-    setStores(prev => prev.map(s => s.id === r.data.id ? r.data : s))
-    setDeleteTarget(null)
+    setActionError(r.error)
   }
 
-  async function handleUnarchive(store: StoreRow) {
+  async function handleRestore(store: StoreRow) {
     const r = await window.hw.unarchiveStore({ id: store.id })
     if (!r.ok) { setError(r.error); return }
     setStores(prev => prev.map(s => s.id === r.data.id ? r.data : s))
@@ -234,20 +225,20 @@ export default function StoreManagementScreen({ onBack }: Props) {
               ))}
             </div>
 
-            {/* Sección de archivados */}
-            {archivedStores.length > 0 && (
+            {/* Sección de eliminados (soft-delete / archive interno) */}
+            {deletedStores.length > 0 && (
               <div className="space-y-2">
                 <button
-                  onClick={() => setShowArchived(v => !v)}
+                  onClick={() => setShowDeleted(v => !v)}
                   className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
                 >
-                  <span>{showArchived ? '▾' : '▸'}</span>
-                  <span>Locales archivados ({archivedStores.length})</span>
+                  <span>{showDeleted ? '▾' : '▸'}</span>
+                  <span>Locales eliminados ({deletedStores.length})</span>
                 </button>
 
-                {showArchived && (
+                {showDeleted && (
                   <div className="space-y-2">
-                    {archivedStores.map(store => (
+                    {deletedStores.map(store => (
                       <div
                         key={store.id}
                         className="bg-gray-900/50 border border-gray-800/50 rounded-xl px-5 py-4 flex items-center gap-3 min-w-0 opacity-70"
@@ -255,7 +246,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 min-w-0">
                             <p className="font-medium text-gray-400 truncate" title={store.name}>{store.name}</p>
-                            <span className="shrink-0 text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">Archivado</span>
+                            <span className="shrink-0 text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">Eliminado</span>
                           </div>
                           {store.address && (
                             <p className="text-sm text-gray-500 truncate" title={store.address}>
@@ -271,10 +262,10 @@ export default function StoreManagementScreen({ onBack }: Props) {
                             Editar
                           </button>
                           <button
-                            onClick={() => void handleUnarchive(store)}
+                            onClick={() => void handleRestore(store)}
                             className="px-3 py-1.5 text-xs rounded-lg border border-green-800/60 text-green-400 hover:bg-green-900/20 transition-colors"
                           >
-                            Desarchivar
+                            Restaurar
                           </button>
                         </div>
                       </div>
@@ -395,76 +386,36 @@ export default function StoreManagementScreen({ onBack }: Props) {
         </div>
       )}
 
-      {/* Modal confirmar eliminación / ofrecer archivo */}
+      {/* Modal confirmar eliminación */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-sm p-6 space-y-4">
-            {deleteState === 'confirm' ? (
-              <>
-                <h2 className="text-base font-semibold text-white">¿Eliminar "{deleteTarget.name}"?</h2>
-                <p className="text-sm text-gray-400">
-                  Si el local no tiene datos, se eliminará definitivamente.
-                  Si tiene turnos, pedidos o productos, se ofrecerá archivarlo.
-                </p>
-                {actionError && (
-                  <p className="text-red-400 text-sm bg-red-900/20 rounded-lg p-3">{actionError}</p>
-                )}
-                <div className="flex gap-3 pt-1">
-                  <button
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={actioning}
-                    className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-40"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={() => void handleDelete()}
-                    disabled={actioning}
-                    className="flex-1 py-2 rounded-xl bg-red-700 hover:bg-red-600 font-semibold text-white transition-colors disabled:opacity-40"
-                  >
-                    {actioning ? 'Procesando…' : 'Eliminar'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-start gap-3">
-                  <span className="text-yellow-400 text-xl shrink-0">⚠</span>
-                  <div>
-                    <h2 className="text-base font-semibold text-white">No se puede eliminar</h2>
-                    <p className="text-sm text-gray-400 mt-1">
-                      "{deleteTarget.name}" tiene datos registrados (turnos, ventas o pedidos).
-                      Eliminarlo borraria el historial.
-                    </p>
-                    <p className="text-sm text-gray-300 mt-2 font-medium">
-                      ¿Querés archivarlo en su lugar?
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      El local quedará oculto de las operaciones del día a día pero su historial se conservará.
-                    </p>
-                  </div>
-                </div>
-                {actionError && (
-                  <p className="text-red-400 text-sm bg-red-900/20 rounded-lg p-3">{actionError}</p>
-                )}
-                <div className="flex gap-3 pt-1">
-                  <button
-                    onClick={() => setDeleteTarget(null)}
-                    disabled={actioning}
-                    className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-40"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={() => void handleArchive()}
-                    disabled={actioning}
-                    className="flex-1 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 font-semibold text-white transition-colors disabled:opacity-40"
-                  >
-                    {actioning ? 'Archivando…' : 'Archivar'}
-                  </button>
-                </div>
-              </>
+            <h2 className="text-base font-semibold text-white min-w-0">
+              ¿Eliminar{' '}
+              <span className="truncate inline-block max-w-full align-bottom" title={deleteTarget.name}>
+                "{deleteTarget.name}"
+              </span>
+              ?
+            </h2>
+            {actionError && (
+              <p className="text-red-400 text-sm bg-red-900/20 rounded-lg p-3">{actionError}</p>
             )}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={actioning}
+                className="flex-1 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleDelete()}
+                disabled={actioning}
+                className="flex-1 py-2 rounded-xl bg-red-700 hover:bg-red-600 font-semibold text-white transition-colors disabled:opacity-40"
+              >
+                {actioning ? 'Eliminando…' : 'Eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -175,6 +175,7 @@ export function registerCatalogAdminHandlers(): void {
       const db = getDb()
       const now = new Date().toISOString()
 
+      // Solo activos: los soft-deleted no se listan (y liberan su PLU al eliminarse).
       const productRows = db
         .select({
           id: products.id,
@@ -185,6 +186,7 @@ export function registerCatalogAdminHandlers(): void {
           active: products.active,
         })
         .from(products)
+        .where(eq(products.active, true))
         .orderBy(asc(products.pluNumber), asc(products.name))
         .all()
 
@@ -230,12 +232,12 @@ export function registerCatalogAdminHandlers(): void {
       const db = getDb()
       const { name, category, unit, pluNumber } = parsed.data
 
-      // Verificar PLU único si se proporcionó
+      // PLU único solo entre productos activos (los eliminados liberan el número).
       if (pluNumber !== null) {
         const existing = db
           .select({ id: products.id, name: products.name })
           .from(products)
-          .where(eq(products.pluNumber, pluNumber))
+          .where(and(eq(products.pluNumber, pluNumber), eq(products.active, true)))
           .get()
         if (existing) {
           return { ok: false, error: `El PLU ${pluNumber} ya está en uso por "${existing.name}".`, code: 'PLU_CONFLICT' }
@@ -284,12 +286,12 @@ export function registerCatalogAdminHandlers(): void {
         return { ok: false, error: 'Producto no encontrado.', code: 'NOT_FOUND' }
       }
 
-      // Verificar PLU único si se cambia
+      // PLU único solo entre activos (excluye el propio producto).
       if (pluNumber !== undefined && pluNumber !== null) {
         const conflict = db
           .select({ id: products.id, name: products.name })
           .from(products)
-          .where(and(eq(products.pluNumber, pluNumber)))
+          .where(and(eq(products.pluNumber, pluNumber), eq(products.active, true)))
           .get()
         if (conflict && conflict.id !== id) {
           return { ok: false, error: `El PLU ${pluNumber} ya está en uso por "${conflict.name}".`, code: 'PLU_CONFLICT' }
@@ -299,6 +301,11 @@ export function registerCatalogAdminHandlers(): void {
       const updateData: Record<string, unknown> = { ...fields }
       if (pluNumber !== undefined) {
         updateData['pluNumber'] = pluNumber ?? null
+      }
+      // Soft-delete: ocultar y liberar PLU para que se pueda reutilizar.
+      if (fields.active === false) {
+        updateData['active'] = false
+        updateData['pluNumber'] = null
       }
 
       db.update(products).set(updateData).where(eq(products.id, id)).run()

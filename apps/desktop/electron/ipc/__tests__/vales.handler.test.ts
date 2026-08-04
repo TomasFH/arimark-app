@@ -158,7 +158,10 @@ describe('vales.handler', () => {
       getHandler('ipc:register-vale')(null, { employeeId: EMP_ID, amount: 5000 })
       getHandler('ipc:register-vale')(null, { employeeId: EMP_ID, amount: 3000 })
 
-      const today = new Date().toISOString().slice(0, 10)
+      // Fecha de calendario en AR (el handler usa límites UTC-3).
+      const today = new Date().toLocaleDateString('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+      })
       const res = getHandler('ipc:list-vales')(null, {
         employeeId: EMP_ID,
         weekStart: today,
@@ -176,13 +179,15 @@ describe('vales.handler', () => {
       getHandler('ipc:register-vale')(null, { employeeId: EMP_ID, amount: 20000 })
       getHandler('ipc:register-vale')(null, { employeeId: EMP_ID, amount: 10000 })
 
-      // Lunes de la semana actual (UTC aproximado con la fecha de hoy)
-      const today = new Date()
-      const day = today.getUTCDay() // 0=dom
+      // Lunes de la semana actual en calendario AR.
+      const todayYmd = new Date().toLocaleDateString('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+      })
+      const anchor = new Date(`${todayYmd}T12:00:00.000Z`)
+      const day = anchor.getUTCDay() // 0=dom
       const mondayOffset = day === 0 ? -6 : 1 - day
-      const monday = new Date(today)
-      monday.setUTCDate(today.getUTCDate() + mondayOffset)
-      const weekStart = monday.toISOString().slice(0, 10)
+      anchor.setUTCDate(anchor.getUTCDate() + mondayOffset)
+      const weekStart = anchor.toISOString().slice(0, 10)
 
       const res = getHandler('ipc:get-weekly-vale-summary')(null, {
         employeeId: EMP_ID,

@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import NumericInput from '../components/NumericInput'
 import { formatARS } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
+import SalaryPaymentModal from './SalaryPaymentModal'
 import type { EmployeeRow } from '../types/hw-api'
 
 interface Props {
@@ -24,6 +25,7 @@ export default function EmployeesScreen({ onBack }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalMode>({ type: 'none' })
   const [showArchived, setShowArchived] = useState(false)
+  const [showLiquidation, setShowLiquidation] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
 
   async function load(includeArchived = showArchived) {
@@ -71,9 +73,19 @@ export default function EmployeesScreen({ onBack }: Props) {
         <div className="flex-1 min-w-0">
           <h1 className="text-base font-semibold truncate">Empleados</h1>
           <p className="text-xs text-gray-500 truncate">
-            {showArchived ? 'Archivados — restaurar para volver a usarlos' : 'Carniceros — asistencia, vales y salarios'}
+            {showArchived ? 'Archivados — restaurar para volver a usarlos' : 'Alta, sueldos, archivo y liquidación semanal'}
           </p>
         </div>
+        {!showArchived && (
+          <button
+            type="button"
+            onClick={() => setShowLiquidation(true)}
+            className="shrink-0 px-3 py-2 rounded-lg border border-gray-700 text-xs text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+            title="Sueldo menos vales de la semana"
+          >
+            Liquidación
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowArchived(v => !v)}
@@ -227,6 +239,10 @@ export default function EmployeesScreen({ onBack }: Props) {
             await load()
           }}
         />
+      )}
+
+      {showLiquidation && (
+        <SalaryPaymentModal onClose={() => setShowLiquidation(false)} />
       )}
     </div>
   )

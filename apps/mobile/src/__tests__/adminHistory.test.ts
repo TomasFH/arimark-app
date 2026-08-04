@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { sumPaymentTotals, type AdminSale } from '../lib/adminHistory'
+import {
+  sumPaymentTotals,
+  sumValesByEmployee,
+  type AdminSale,
+  type AdminVale,
+} from '../lib/adminHistory'
 
 function sale(partial: Partial<AdminSale> & { id: string }): AdminSale {
   return {
@@ -53,5 +58,37 @@ describe('sumPaymentTotals', () => {
       credit: 0,
       total: 0,
     })
+  })
+})
+
+function vale(partial: Partial<AdminVale> & { id: string; employeeId: string }): AdminVale {
+  return {
+    employeeName: 'Emp',
+    storeId: 's1',
+    shiftId: null,
+    amount: 0,
+    description: null,
+    items: [],
+    paidAt: '2026-08-03T12:00:00.000Z',
+    createdAt: '2026-08-03T12:00:00.000Z',
+    ...partial,
+  }
+}
+
+describe('sumValesByEmployee', () => {
+  it('agrupa montos y cuenta por empleado', () => {
+    const totals = sumValesByEmployee([
+      vale({ id: '1', employeeId: 'a', employeeName: 'Ana', amount: 1000 }),
+      vale({ id: '2', employeeId: 'b', employeeName: 'Bob', amount: 500 }),
+      vale({ id: '3', employeeId: 'a', employeeName: 'Ana', amount: 2000 }),
+    ])
+    expect(totals).toEqual([
+      { employeeId: 'a', employeeName: 'Ana', total: 3000, count: 2 },
+      { employeeId: 'b', employeeName: 'Bob', total: 500, count: 1 },
+    ])
+  })
+
+  it('retorna vacío si no hay vales', () => {
+    expect(sumValesByEmployee([])).toEqual([])
   })
 })

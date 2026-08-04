@@ -143,7 +143,7 @@ Cómo verificarlo (con `pnpm dev:prod` o build real, **no** `pnpm dev` puro sin 
 
 - [ ] App arranca OK tras migraciones (ver también D1 smoke arriba)
 - [ ] Flujo UI: empleados → asistencia → vale → **consultar** liquidación (sin “confirmar pago”)
-- [ ] _(Pendiente producto)_ Admin remoto / PWA **lista** asistencia-vales — hoy hay **push** a Firestore; **no hay UI remota/PWA** que los muestre aún. No es un fallo del sync de maestros (empleados/locales/catálogo/pedidos sí se ven).
+- [x] Admin remoto / PWA **lista vales** — tab Vales en móvil + “Vales (remoto)” en hub desktop (Firestore). Asistencia remota no se implementa (feature pausada).
 
 ---
 

@@ -73,6 +73,8 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   const [priceProduct, setPriceProduct] = useState<AdminProductRow | null>(null)
   const [showSync, setShowSync] = useState(false)
   const [historyProduct, setHistoryProduct] = useState<AdminProductRow | null>(null)
+  const [deleteProduct, setDeleteProduct] = useState<AdminProductRow | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Edición masiva
   const [bulkMode, setBulkMode] = useState(false)
@@ -120,10 +122,18 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
     else setError(r.error)
   }
 
-  async function handleToggleActive(p: AdminProductRow) {
-    const r = await window.hw.updateProduct({ id: p.id, active: !p.active })
-    if (r.ok) void loadProducts(selectedStoreId)
-    else setError(r.error)
+  /** Soft-delete: oculta el producto y libera su PLU (no borra historial/FK). */
+  async function confirmSoftDelete() {
+    if (!deleteProduct) return
+    setDeleting(true)
+    const r = await window.hw.updateProduct({ id: deleteProduct.id, active: false, pluNumber: null })
+    setDeleting(false)
+    if (r.ok) {
+      setDeleteProduct(null)
+      void loadProducts(selectedStoreId)
+    } else {
+      setError(r.error)
+    }
   }
 
   // ---- Edición masiva ----
@@ -295,7 +305,6 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                 <th className="pb-2 pr-3 font-medium">Unidad</th>
                 <th className="pb-2 pr-3 font-medium text-right">Precio</th>
                 <th className="pb-2 pr-3 font-medium text-center">Disponible</th>
-                <th className="pb-2 font-medium text-center">Activo</th>
                 <th className="pb-2" />
               </tr>
             </thead>
@@ -308,16 +317,17 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                 return (
                   <tr
                     key={p.id}
-                    className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors ${!p.active ? 'opacity-40' : ''} ${isChanged ? 'bg-amber-900/10' : ''}`}
+                    className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors ${isChanged ? 'bg-amber-900/10' : ''}`}
                   >
                     <td className="py-2 pr-3 tabular-nums text-gray-400">
                       {p.pluNumber ?? <span className="text-gray-600">—</span>}
                     </td>
-                    <td className="py-2 pr-3 font-medium">{p.name}</td>
+                    <td className="py-2 pr-3 font-medium min-w-0">
+                      <span className="truncate block max-w-xs" title={p.name}>{p.name}</span>
+                    </td>
                     <td className="py-2 pr-3 text-gray-400">{CATEGORY_LABELS[p.category]}</td>
                     <td className="py-2 pr-3 text-gray-400">{p.unit === 'kg' ? 'kg' : 'unidad'}</td>
 
-                    {/* Precio — inline en modo masivo, botón en modo normal */}
                     <td className="py-1 pr-3 text-right">
                       {bulkMode ? (
                         <NumericInput
@@ -349,17 +359,24 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                     <td className="py-2 pr-3 text-center">
                       <Toggle checked={p.available} onChange={() => void handleToggleAvailability(p)} />
                     </td>
-                    <td className="py-2 pr-3 text-center">
-                      <Toggle checked={p.active} onChange={() => void handleToggleActive(p)} />
-                    </td>
                     <td className="py-2 text-right">
                       {!bulkMode && (
-                        <button
-                          onClick={() => setEditProduct(p)}
-                          className="text-gray-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors"
-                        >
-                          Editar
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEditProduct(p)}
+                            className="text-gray-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteProduct(p)}
+                            className="text-xs px-2 py-1 rounded text-gray-500 hover:text-red-400 hover:bg-red-950/40 transition-colors"
+                            title="Quitar del catálogo y liberar el PLU"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -372,10 +389,10 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
 
       {/* Modales */}
       {showCreate && (
-        <ProductFormModal storeId={selectedStoreId} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); void loadProducts(selectedStoreId) }} />
+        <ProductFormModal storeId={selectedStoreId} stores={stores} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); void loadProducts(selectedStoreId) }} />
       )}
       {editProduct && (
-        <ProductFormModal storeId={selectedStoreId} product={editProduct} onClose={() => setEditProduct(null)} onSaved={() => { setEditProduct(null); void loadProducts(selectedStoreId) }} />
+        <ProductFormModal storeId={selectedStoreId} stores={stores} product={editProduct} onClose={() => setEditProduct(null)} onSaved={() => { setEditProduct(null); void loadProducts(selectedStoreId) }} />
       )}
       {priceProduct && (
         <PriceModal product={priceProduct} storeId={selectedStoreId} onClose={() => setPriceProduct(null)} onSaved={() => { setPriceProduct(null); void loadProducts(selectedStoreId) }} />
@@ -385,6 +402,14 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       )}
       {historyProduct && (
         <PriceHistoryModal product={historyProduct} storeId={selectedStoreId} onClose={() => setHistoryProduct(null)} />
+      )}
+      {deleteProduct && (
+        <DeleteProductModal
+          product={deleteProduct}
+          deleting={deleting}
+          onConfirm={() => void confirmSoftDelete()}
+          onCancel={() => { if (!deleting) setDeleteProduct(null) }}
+        />
       )}
       {pendingStoreId && (
         <UnsavedChangesModal
@@ -429,24 +454,64 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
 
 interface ProductFormModalProps {
   storeId: string
+  stores: StoreRow[]
   product?: AdminProductRow
   onClose: () => void
   onSaved: () => void
 }
 
-function ProductFormModal({ storeId, product, onClose, onSaved }: ProductFormModalProps) {
+function ProductFormModal({ storeId, stores, product, onClose, onSaved }: ProductFormModalProps) {
   const isEdit = Boolean(product)
   const [name, setName] = useState(product?.name ?? '')
   const [category, setCategory] = useState<AdminProductRow['category']>(product?.category ?? 'beef_cut')
   const [unit, setUnit] = useState<'kg' | 'unit'>(product?.unit ?? 'kg')
   const [pluRaw, setPluRaw] = useState(product?.pluNumber != null ? String(product.pluNumber) : '')
-  // Precio solo se muestra en creación (al editar se usa el PriceModal dedicado)
-  const [priceRaw, setPriceRaw] = useState('')
+  // Precio solo en creación: un campo compartido o uno por local
+  const [samePriceAll, setSamePriceAll] = useState(true)
+  const [sharedPriceRaw, setSharedPriceRaw] = useState('')
+  const [perStorePriceRaw, setPerStorePriceRaw] = useState<Record<string, string>>(() =>
+    Object.fromEntries(stores.map(s => [s.id, ''])),
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const priceValue = parseNumericInput(priceRaw)
-  const priceOverLimit = priceValue !== null && priceValue > KRETZ_MAX_PRICE
+  const unitLabel = unit === 'kg' ? 'kg' : 'unidad'
+  const sharedPriceValue = parseNumericInput(sharedPriceRaw)
+  const anyPriceOverLimit = samePriceAll
+    ? (sharedPriceValue !== null && sharedPriceValue > KRETZ_MAX_PRICE)
+    : stores.some(s => {
+        const v = parseNumericInput(perStorePriceRaw[s.id] ?? '')
+        return v !== null && v > KRETZ_MAX_PRICE
+      })
+
+  /** Resuelve la lista (storeId, price) a persistir. Precio vacío / 0 → se omite. */
+  function resolvePriceTargets(): Array<{ storeId: string; price: number }> {
+    if (samePriceAll || stores.length <= 1) {
+      const price = sharedPriceValue
+      if (price === null || price <= 0) return []
+      const ids = stores.length <= 1 ? [storeId] : stores.map(s => s.id)
+      return ids.map(id => ({ storeId: id, price }))
+    }
+    const targets: Array<{ storeId: string; price: number }> = []
+    for (const s of stores) {
+      const price = parseNumericInput(perStorePriceRaw[s.id] ?? '')
+      if (price !== null && price > 0) targets.push({ storeId: s.id, price })
+    }
+    return targets
+  }
+
+  function handleToggleSamePrice(checked: boolean) {
+    setSamePriceAll(checked)
+    if (checked) {
+      // Al unificar: tomar el precio del local actual (o el primero no vacío)
+      const fromCurrent = perStorePriceRaw[storeId] ?? ''
+      const fromAny = stores.map(s => perStorePriceRaw[s.id] ?? '').find(v => v !== '') ?? ''
+      setSharedPriceRaw(fromCurrent || fromAny)
+    } else {
+      // Al pasar a por-local: precargar todos con el precio compartido
+      setPerStorePriceRaw(Object.fromEntries(stores.map(s => [s.id, sharedPriceRaw])))
+    }
+  }
 
   async function handleSave() {
     setError(null)
@@ -473,10 +538,17 @@ function ProductFormModal({ storeId, product, onClose, onSaved }: ProductFormMod
       productId = r.data.id
     }
 
-    // Guardar precio inicial si se especificó (solo en creación)
-    if (!isEdit && priceValue && priceValue > 0 && productId) {
-      const pr = await window.hw.setProductPrice({ productId, storeId, price: priceValue })
-      if (!pr.ok) { setError(pr.error); setSaving(false); return }
+    // Aplicar precios iniciales por local (solo en creación)
+    if (!isEdit && productId) {
+      const targets = resolvePriceTargets()
+      for (const t of targets) {
+        const pr = await window.hw.setProductPrice({ productId, storeId: t.storeId, price: t.price })
+        if (!pr.ok) {
+          setError(`El producto fue creado pero falló al guardar el precio en un local: ${pr.error}`)
+          setSaving(false)
+          return
+        }
+      }
     }
 
     setSaving(false)
@@ -515,16 +587,55 @@ function ProductFormModal({ storeId, product, onClose, onSaved }: ProductFormMod
               placeholder="Sin asignar" />
           </Field>
           {!isEdit && (
-            <Field label={`Precio inicial ($/${unit === 'kg' ? 'kg' : 'unidad'}, opcional)`}>
-              <NumericInput value={priceRaw} onChange={setPriceRaw}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
-                placeholder="Dejar en blanco si no tiene precio aún" />
-              {priceOverLimit && (
-                <p className="text-xs text-amber-400 mt-1">
-                  El precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — este producto no podrá cargarse en la balanza.
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <p className="text-xs font-medium text-gray-400 shrink-0">
+                  Precio inicial ($/{unitLabel}, opcional)
+                </p>
+                {stores.length > 1 && (
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={samePriceAll}
+                      onChange={e => handleToggleSamePrice(e.target.checked)}
+                      className="shrink-0 accent-red-500"
+                    />
+                    <span className="text-xs text-gray-300 truncate" title="Usar el mismo precio en todos los locales">
+                      Mismo precio en todos
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              {(samePriceAll || stores.length <= 1) ? (
+                <NumericInput value={sharedPriceRaw} onChange={setSharedPriceRaw}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                  placeholder="Dejar en blanco si no tiene precio aún" />
+              ) : (
+                <div className="rounded-lg border border-gray-700 bg-gray-800/40 divide-y divide-gray-700/80">
+                  {stores.map(s => (
+                    <div key={s.id} className="flex items-center gap-2 min-w-0 px-3 py-2">
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-200" title={s.name}>{s.name}</span>
+                      <NumericInput
+                        value={perStorePriceRaw[s.id] ?? ''}
+                        onChange={v => setPerStorePriceRaw(prev => ({ ...prev, [s.id]: v }))}
+                        className="w-28 shrink-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white text-right focus:outline-none focus:ring-1 focus:ring-red-500"
+                        placeholder="—"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {anyPriceOverLimit && (
+                <p className="text-xs text-amber-400">
+                  Un precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — ese local no podrá cargar el producto en la balanza.
                 </p>
               )}
-            </Field>
+              {!samePriceAll && stores.length > 1 && (
+                <p className="text-xs text-gray-600">Dejá en blanco los locales sin precio por ahora.</p>
+              )}
+            </div>
           )}
         </div>
         {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}
@@ -679,6 +790,56 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
       {children}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Modal confirmar eliminación de producto
+// ---------------------------------------------------------------------------
+
+interface DeleteProductModalProps {
+  product: AdminProductRow
+  deleting: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function DeleteProductModal({ product, deleting, onConfirm, onCancel }: DeleteProductModalProps) {
+  return (
+    <ModalOverlay onClose={onCancel}>
+      <div className="bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+        <h2 className="text-lg font-semibold mb-2">Eliminar producto</h2>
+        <p className="text-sm text-gray-400 mb-1">
+          ¿Eliminar{' '}
+          <span className="text-gray-200 font-medium truncate inline-block max-w-full align-bottom" title={product.name}>
+            {product.name}
+          </span>
+          ?
+        </p>
+        <p className="text-xs text-gray-500 mb-5">
+          Desaparece del catálogo y libera el PLU {product.pluNumber ?? '—'}.
+          Podés volver a crearlo con el mismo número.
+        </p>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleting}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
+          >
+            {deleting ? 'Eliminando…' : 'Eliminar'}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
   )
 }
 

@@ -26,6 +26,7 @@ vi.mock('../../licensing/firebase', () => ({
 vi.mock('../../licensing/historyFirestore', () => ({
   fetchHistoryShiftsFromFirestore: vi.fn(async () => []),
   fetchHistoryShiftDetailFromFirestore: vi.fn(async () => null),
+  fetchEmployeeValesFromFirestore: vi.fn(async () => []),
   mergeHistoryShiftRows: vi.fn((local: HistoryShiftRow[], remote: HistoryShiftRow[]) => {
     const byId = new Map<string, HistoryShiftRow>()
     for (const r of remote) byId.set(r.id, r)
@@ -41,6 +42,7 @@ import { isFirebaseAvailable } from '../../licensing/firebase'
 import {
   fetchHistoryShiftsFromFirestore,
   fetchHistoryShiftDetailFromFirestore,
+  fetchEmployeeValesFromFirestore,
 } from '../../licensing/historyFirestore'
 import { registerHistoryHandlers } from '../history.handler'
 
@@ -324,6 +326,62 @@ describe('history.handler', () => {
       expect(res.data.summary.cashInHand).toBe(5800)
       expect(res.data.summary.totalRevenue).toBe(5000)
       expect(res.data.summary.totalExpenses).toBe(200)
+    })
+  })
+
+  describe('GET_REMOTE_EMPLOYEE_VALES', () => {
+    it('rechaza cajera con FORBIDDEN', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(
+        CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>,
+      )
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const handler = getHandler('ipc:get-remote-employee-vales')
+      const res = await handler(null, {}) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+
+    it('payload inválido → INVALID_PAYLOAD', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const handler = getHandler('ipc:get-remote-employee-vales')
+      const res = await handler(null, { storeIdFilter: 123 }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('sin Firebase → UNAVAILABLE', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      const handler = getHandler('ipc:get-remote-employee-vales')
+      const res = await handler(null, {}) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('UNAVAILABLE')
+    })
+
+    it('admin con Firebase → lista de vales', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(fetchEmployeeValesFromFirestore).mockResolvedValue([
+        {
+          id: 'vale-1',
+          employeeId: 'emp-1',
+          employeeName: 'Carnicero',
+          storeId: STORE_ID,
+          shiftId: SHIFT_ID,
+          amount: 1500,
+          description: 'adelanto',
+          items: [],
+          paidAt: '2026-08-03T12:00:00.000Z',
+          createdAt: '2026-08-03T12:00:00.000Z',
+        },
+      ])
+      const handler = getHandler('ipc:get-remote-employee-vales')
+      const res = await handler(null, { storeIdFilter: STORE_ID }) as {
+        ok: boolean
+        data: { id: string; amount: number }[]
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data).toHaveLength(1)
+      expect(res.data[0].amount).toBe(1500)
+      expect(fetchEmployeeValesFromFirestore).toHaveBeenCalledWith(STORE_ID)
     })
   })
 })

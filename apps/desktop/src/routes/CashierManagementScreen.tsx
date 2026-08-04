@@ -4,20 +4,16 @@
  * Flujo de creación:
  *  - El admin ingresa nombre, email y locales autorizados. NO ingresa contraseña.
  *  - El sistema crea la cuenta y envía un email automático a la cajera para que
- *    defina su propia contraseña. Esto garantiza privacidad: solo la cajera
- *    conoce su contraseña.
+ *    defina su propia contraseña.
  *
- * Eliminación:
- *  - Soft-delete: el perfil Firestore queda marcado como deleted:true.
- *  - El Auth user de Firebase persiste (requiere Cloud Function para eliminación
- *    física — deuda técnica documentada en AGENTS.md).
- *  - Se pide doble confirmación antes de eliminar para prevenir errores.
+ * Edición:
+ *  - Se pueden cambiar nombre y locales autorizados (authorizedStores en Firestore).
+ *  - Eso define en qué locales aparece el selector (móvil) / pertenece la cajera.
  *
- * === Reglas de Firestore requeridas (si hay PERMISSION_DENIED) ===
- * Ver la documentación en cashiers.handler.ts.
+ * Eliminación: soft-delete (deleted:true). Auth user persiste hasta Cloud Function.
  */
 import { useEffect, useState } from 'react'
-import type { CashierRow } from '../types/hw-api'
+import type { CashierRow, StoreRow } from '../types/hw-api'
 
 interface Props {
   onBack: () => void
@@ -25,20 +21,35 @@ interface Props {
 
 export default function CashierManagementScreen({ onBack }: Props) {
   const [cashiers, setCashiers] = useState<CashierRow[]>([])
+  const [stores, setStores] = useState<StoreRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [editing, setEditing] = useState<CashierRow | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<CashierRow | null>(null)
+
+  const storeNameById = new Map(stores.map(s => [s.id, s.name]))
+
+  function formatStores(ids: string[]): string {
+    if (ids.length === 0) return 'Sin locales asignados'
+    return ids.map(id => storeNameById.get(id) ?? id).join(' · ')
+  }
 
   async function load() {
     setLoading(true)
     setError(null)
-    const cashiersR = await window.hw.listCashiers()
+    const [cashiersR, storesR] = await Promise.all([
+      window.hw.listCashiers(),
+      window.hw.getStores(),
+    ])
     if (cashiersR.ok) {
       setCashiers(cashiersR.data)
     } else {
       setError(cashiersR.error)
+    }
+    if (storesR.ok) {
+      setStores(storesR.data.filter(s => !s.archivedAt))
     }
     setLoading(false)
   }
@@ -62,39 +73,37 @@ export default function CashierManagementScreen({ onBack }: Props) {
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
-      {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className="text-gray-400 hover:text-white transition-colors text-sm">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={onBack} className="shrink-0 text-gray-400 hover:text-white transition-colors text-sm">
             ← Volver
           </button>
-          <div>
-            <h1 className="text-lg font-semibold">Gestión de cajeras</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Crear y administrar cuentas de cajeras</p>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold truncate">Gestión de cajeras</h1>
+            <p className="text-xs text-gray-400 mt-0.5 truncate">
+              Cuentas, locales autorizados y estado
+            </p>
           </div>
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="shrink-0 bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           + Nueva cajera
         </button>
       </header>
 
-      {/* Error — distinguir entre "sin permiso" y error temporal */}
       {error && (
         <div className="mx-6 mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm space-y-1">
           <p className="font-medium">{error}</p>
           {error.includes('Firestore') && (
             <p className="text-xs text-red-400">
               Es necesario configurar las reglas de seguridad de Firestore para que los admins puedan leer y escribir la subcolección de usuarios.
-              Consultá a quien administre el proyecto de Firebase.
             </p>
           )}
         </div>
       )}
 
-      {/* Lista */}
       <div className="flex-1 overflow-auto px-6 py-4">
         {loading ? (
           <div className="flex items-center justify-center h-40">
@@ -110,17 +119,31 @@ export default function CashierManagementScreen({ onBack }: Props) {
             {cashiers.map(c => (
               <div
                 key={c.uid}
-                className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-colors ${c.active ? 'border-gray-700 bg-gray-900/50' : 'border-gray-800 bg-gray-900/20 opacity-60'}`}
+                className={`flex items-center gap-3 min-w-0 rounded-xl border px-4 py-3 transition-colors ${c.active ? 'border-gray-700 bg-gray-900/50' : 'border-gray-800 bg-gray-900/20 opacity-60'}`}
               >
-                <div className="min-w-0">
-                  <p className="font-medium text-sm truncate">{c.displayName}</p>
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">{c.email}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate" title={c.displayName}>{c.displayName}</p>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate" title={c.email}>{c.email}</p>
+                  <p
+                    className={`text-xs mt-1 truncate ${c.authorizedStores.length === 0 ? 'text-amber-400/80' : 'text-gray-500'}`}
+                    title={formatStores(c.authorizedStores)}
+                  >
+                    {formatStores(c.authorizedStores)}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 ml-4 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c.active ? 'bg-green-900/50 text-green-300' : 'bg-gray-800 text-gray-500'}`}>
                     {c.active ? 'Activa' : 'Inactiva'}
                   </span>
                   <button
+                    type="button"
+                    onClick={() => setEditing(c)}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium bg-gray-800 hover:bg-sky-900/40 text-gray-300 hover:text-sky-300 transition-colors"
+                  >
+                    Locales
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleToggle(c)}
                     disabled={toggling === c.uid}
                     className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${c.active ? 'bg-gray-800 hover:bg-amber-900/40 text-gray-300 hover:text-amber-300' : 'bg-gray-800 hover:bg-green-900/40 text-gray-300 hover:text-green-300'}`}
@@ -128,6 +151,7 @@ export default function CashierManagementScreen({ onBack }: Props) {
                     {toggling === c.uid ? '…' : c.active ? 'Desactivar' : 'Reactivar'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setConfirmDelete(c)}
                     className="text-xs px-3 py-1.5 rounded-lg font-medium bg-gray-800 hover:bg-red-900/40 text-gray-500 hover:text-red-400 transition-colors"
                     title="Eliminar cajera"
@@ -142,9 +166,21 @@ export default function CashierManagementScreen({ onBack }: Props) {
       </div>
 
       {showCreate && (
-        <CreateCashierModal
+        <CashierFormModal
+          mode="create"
+          stores={stores}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); void load() }}
+          onSaved={() => { setShowCreate(false); void load() }}
+        />
+      )}
+
+      {editing && (
+        <CashierFormModal
+          mode="edit"
+          cashier={editing}
+          stores={stores}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); void load() }}
         />
       )}
 
@@ -160,35 +196,62 @@ export default function CashierManagementScreen({ onBack }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Modal crear cajera
+// Modal crear / editar cajera (locales)
 // ---------------------------------------------------------------------------
 
-interface CreateCashierModalProps {
+interface CashierFormModalProps {
+  mode: 'create' | 'edit'
+  cashier?: CashierRow
+  stores: StoreRow[]
   onClose: () => void
-  onCreated: () => void
+  onSaved: () => void
 }
 
-function CreateCashierModal({ onClose, onCreated }: CreateCashierModalProps) {
-  const [displayName, setDisplayName] = useState('')
-  const [email, setEmail] = useState('')
+function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFormModalProps) {
+  const [displayName, setDisplayName] = useState(cashier?.displayName ?? '')
+  const [email, setEmail] = useState(cashier?.email ?? '')
+  const [selectedStores, setSelectedStores] = useState<string[]>(cashier?.authorizedStores ?? [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState(false)
 
-  async function handleCreate() {
+  function toggleStore(storeId: string) {
+    setSelectedStores(prev =>
+      prev.includes(storeId) ? prev.filter(id => id !== storeId) : [...prev, storeId],
+    )
+    setError(null)
+  }
+
+  async function handleSubmit() {
     setError(null)
     if (!displayName.trim()) { setError('El nombre es obligatorio.'); return }
-    if (!email.trim()) { setError('El email es obligatorio.'); return }
+    if (mode === 'create' && !email.trim()) { setError('El email es obligatorio.'); return }
+    if (selectedStores.length === 0) {
+      setError('Seleccioná al menos un local.')
+      return
+    }
 
     setSaving(true)
-    const r = await window.hw.createCashier({
+    if (mode === 'create') {
+      const r = await window.hw.createCashier({
+        displayName: displayName.trim(),
+        email: email.trim().toLowerCase(),
+        authorizedStores: selectedStores,
+      })
+      setSaving(false)
+      if (!r.ok) { setError(r.error); return }
+      setCreated(true)
+      return
+    }
+
+    const r = await window.hw.updateCashier({
+      uid: cashier!.uid,
       displayName: displayName.trim(),
-      email: email.trim().toLowerCase(),
+      authorizedStores: selectedStores,
     })
     setSaving(false)
-
     if (!r.ok) { setError(r.error); return }
-    setCreated(true)
+    onSaved()
   }
 
   if (created) {
@@ -198,13 +261,12 @@ function CreateCashierModal({ onClose, onCreated }: CreateCashierModalProps) {
           <div className="text-4xl">✅</div>
           <h2 className="text-lg font-semibold">Cajera creada</h2>
           <p className="text-sm text-gray-400">
-            Se envió un email a <strong className="text-white">{email}</strong> para que la cajera configure su contraseña.
-            Compartile solo su email — ella elegirá su propia contraseña.
+            Se envió un email a <strong className="text-white">{email}</strong> para que configure su contraseña.
           </p>
           <p className="text-xs text-gray-600">
-            Si el email no llega, podés reenviar el link desde la consola de Firebase (Authentication → usuarios).
+            Locales asignados: {selectedStores.map(id => stores.find(s => s.id === id)?.name ?? id).join(', ')}
           </p>
-          <button onClick={onCreated} className="w-full mt-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
+          <button onClick={onSaved} className="w-full mt-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
             Cerrar
           </button>
         </div>
@@ -213,38 +275,108 @@ function CreateCashierModal({ onClose, onCreated }: CreateCashierModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-2">Nueva cajera</h2>
+    <div
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}
+    >
+      <div className="bg-gray-900 rounded-xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-semibold mb-2">
+          {mode === 'create' ? 'Nueva cajera' : 'Editar cajera'}
+        </h2>
         <p className="text-xs text-gray-500 mb-5">
-          La cajera recibirá un email para definir su propia contraseña. No es necesario que el admin la configure.
+          {mode === 'create'
+            ? 'Recibirá un email para definir su contraseña. Asigná en qué locales puede operar.'
+            : 'Cambiá el nombre o los locales autorizados. En el celular, el selector de local usa esta lista.'}
         </p>
 
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Nombre completo</label>
-            <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
-              autoFocus placeholder="Ej: María García"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500" />
+            <input
+              type="text"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              autoFocus
+              maxLength={80}
+              placeholder="Ej: María García"
+              disabled={saving}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+            />
           </div>
+
+          {mode === 'create' && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                maxLength={120}
+                placeholder="cajera@ejemplo.com"
+                disabled={saving}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+              />
+            </div>
+          )}
+
+          {mode === 'edit' && (
+            <p className="text-xs text-gray-500 truncate" title={email}>Email: {email}</p>
+          )}
+
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="cajera@ejemplo.com"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500" />
+            <p className="text-xs text-gray-400 mb-2">Locales autorizados</p>
+            {stores.length === 0 ? (
+              <p className="text-xs text-amber-400">
+                No hay locales activos. Creá locales en Gestión de locales primero.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {stores.map(s => {
+                  const checked = selectedStores.includes(s.id)
+                  return (
+                    <li key={s.id}>
+                      <label className="flex items-center gap-3 min-w-0 rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2.5 cursor-pointer hover:border-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleStore(s.id)}
+                          disabled={saving}
+                          className="shrink-0 rounded border-gray-600"
+                        />
+                        <span className="min-w-0 flex-1 text-sm text-white truncate" title={s.name}>
+                          {s.name}
+                        </span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </div>
         </div>
 
-        {error && <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">{error}</div>}
+        {error && (
+          <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-3 py-2 text-sm">
+            {error}
+          </div>
+        )}
 
         <div className="flex gap-3 mt-5">
-          <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
             Cancelar
           </button>
-          <button onClick={() => void handleCreate()} disabled={saving}
-            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
-            {saving ? 'Creando…' : 'Crear y enviar email'}
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={saving || stores.length === 0}
+            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
+          >
+            {saving ? 'Guardando…' : mode === 'create' ? 'Crear y enviar email' : 'Guardar'}
           </button>
         </div>
       </div>
@@ -271,12 +403,12 @@ function DeleteConfirmModal({ cashier, onConfirm, onCancel }: DeleteConfirmModal
       <div className="bg-gray-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1 text-red-400">Eliminar cajera</h2>
         <p className="text-sm text-gray-300 mb-2">
-          ¿Estás seguro de que querés eliminar a <strong>{cashier.displayName}</strong>?
+          ¿Estás seguro de que querés eliminar a <strong className="truncate inline-block max-w-full align-bottom" title={cashier.displayName}>{cashier.displayName}</strong>?
         </p>
         <p className="text-xs text-gray-500 mb-4">
           La cajera quedará deshabilitada y no podrá volver a ingresar. Sus datos históricos
-          (ventas, turnos) se conservan en la base de datos local. La cuenta de Firebase puede
-          eliminarse físicamente desde Firebase Console si es necesario.
+          (ventas, turnos) se conservan. La cuenta de Firebase puede eliminarse físicamente
+          desde Firebase Console si es necesario.
         </p>
 
         {!confirmed ? (

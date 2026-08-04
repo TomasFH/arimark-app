@@ -24,8 +24,24 @@ import {
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { attendance, employeeVales, salaryPayments, employees } from '../db/schema'
+import { attendance, employeeVales, salaryPayments, employees, shifts } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
+
+function storeIdForShift(shiftId: string | null): string | null {
+  if (!shiftId) return null
+  const row = getDb().select({ storeId: shifts.storeId }).from(shifts).where(eq(shifts.id, shiftId)).get()
+  return row?.storeId ?? null
+}
+
+function parseValeItemsJson(raw: string | null): unknown[] | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
 
 const employeeListeners: Unsubscribe[] = []
 
@@ -252,9 +268,11 @@ export async function pushUnsyncedVales(tenantId: string): Promise<void> {
         id: row.id,
         employeeId: row.employeeId,
         employeeName: employeeNameById(row.employeeId),
+        storeId: storeIdForShift(row.shiftId),
         shiftId: row.shiftId ?? null,
         amount: row.amount,
         description: row.description ?? null,
+        items: parseValeItemsJson(row.items),
         paidAt: row.paidAt,
         recordedBy: row.recordedBy,
         createdAt: row.createdAt,

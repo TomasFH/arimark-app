@@ -1,5 +1,5 @@
 /**
- * Lectura de historial operativo desde Firestore (turnos, ventas, gastos).
+ * Lectura de historial operativo desde Firestore (turnos, ventas, gastos, vales).
  *
  * Usado por el panel admin cuando la PC no tiene (o no tiene completo)
  * el SQLite del local — ej. admin desde casa.
@@ -8,6 +8,7 @@
  *   licenses/{tenantId}/shifts/{shiftId}
  *   licenses/{tenantId}/sales/{saleId}
  *   licenses/{tenantId}/expenses/{expenseId}
+ *   licenses/{tenantId}/employeeVales/{id}
  */
 
 import { getFirestore, collection, getDocs, doc, getDoc } from 'firebase/firestore'
@@ -19,6 +20,7 @@ import type {
   HistoryShiftDetail,
   HistorySaleRow,
   HistoryExpenseRow,
+  RemoteEmployeeValeRow,
   ShiftType,
 } from '../../src/types/hw-api'
 
@@ -287,5 +289,86 @@ export async function fetchHistoryShiftDetailFromFirestore(
   } catch (err) {
     log.error('[historyFirestore] Error al leer detalle de turno', { shiftId, err })
     return null
+  }
+}
+
+/**
+ * Vales desde Firestore, filtrables por local.
+ * Docs sin storeId se resuelven vía shiftId → shifts.storeId.
+ */
+export async function fetchEmployeeValesFromFirestore(
+  storeIdFilter: string | null,
+): Promise<RemoteEmployeeValeRow[]> {
+  if (!isFirebaseAvailable()) return []
+
+  try {
+    const config = getBusinessConfig()
+    const app = getFirebaseApp()
+    const firestore = getFirestore(app)
+    const [valesSnap, shiftsSnap] = await Promise.all([
+      getDocs(collection(firestore, 'licenses', config.tenant_id, 'employeeVales')),
+      getDocs(collection(firestore, 'licenses', config.tenant_id, 'shifts')),
+    ])
+
+    const storeByShift = new Map<string, string>()
+    for (const d of shiftsSnap.docs) {
+      const s = d.data() as { id?: string; storeId?: string }
+      const id = s.id ?? d.id
+      if (s.storeId) storeByShift.set(id, s.storeId)
+    }
+
+    const rows: RemoteEmployeeValeRow[] = []
+    for (const d of valesSnap.docs) {
+      const v = d.data() as {
+        id?: string
+        employeeId?: string
+        employeeName?: string | null
+        storeId?: string | null
+        shiftId?: string | null
+        amount?: number
+        description?: string | null
+        items?: Array<{
+          productName?: string | null
+          quantity?: number
+          unitPrice?: number
+          subtotal?: number
+        }> | null
+        paidAt?: string
+        createdAt?: string
+        deleted?: boolean
+      }
+      if (v.deleted === true) continue
+
+      const storeId =
+        v.storeId
+        ?? (v.shiftId ? storeByShift.get(v.shiftId) ?? null : null)
+
+      if (storeIdFilter && storeId !== storeIdFilter) continue
+
+      const employeeId = v.employeeId ?? ''
+      rows.push({
+        id: v.id ?? d.id,
+        employeeId,
+        employeeName: v.employeeName?.trim() || employeeId || '(sin nombre)',
+        storeId,
+        shiftId: v.shiftId ?? null,
+        amount: v.amount ?? 0,
+        description: v.description ?? null,
+        items: (v.items ?? []).map(i => ({
+          productName: i.productName ?? '(producto)',
+          quantity: i.quantity ?? 0,
+          unitPrice: i.unitPrice ?? 0,
+          subtotal: i.subtotal ?? 0,
+        })),
+        paidAt: v.paidAt ?? v.createdAt ?? '',
+        createdAt: v.createdAt ?? '',
+      })
+    }
+
+    rows.sort((a, b) => b.paidAt.localeCompare(a.paidAt))
+    return rows
+  } catch (err) {
+    log.error('[historyFirestore] Error al leer vales remotos', err)
+    return []
   }
 }

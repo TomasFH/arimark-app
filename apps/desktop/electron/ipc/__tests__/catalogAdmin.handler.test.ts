@@ -198,6 +198,21 @@ describe('catalogAdmin.handler', () => {
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NOT_FOUND')
     })
+
+    it('al soft-delete libera el PLU (pluNumber=null)', () => {
+      const db = makeDb([[{ id: PRODUCT_ID }]])
+      vi.mocked(getDb).mockReturnValue(db)
+      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ run: vi.fn() }) })
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never)
+
+      const result = getHandler('ipc:update-product')({}, {
+        id: PRODUCT_ID, active: false,
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      expect(setMock).toHaveBeenCalledWith(
+        expect.objectContaining({ active: false, pluNumber: null }),
+      )
+    })
   })
 
   // ---- SET_PRODUCT_PRICE ----

@@ -60,10 +60,14 @@ function addDaysUtc(yyyyMmDd: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * Límites UTC para un rango de fechas de calendario en America/Argentina/Buenos_Aires (UTC-3, sin DST).
+ * Evita cortar vales de madrugada/noche local al filtrar con Zulu “puro”.
+ */
 function dayRangeBounds(start: string, end: string): { from: string; to: string } {
   return {
-    from: `${start}T00:00:00.000Z`,
-    to: `${end}T23:59:59.999Z`,
+    from: `${start}T03:00:00.000Z`,
+    to: `${addDaysUtc(end, 1)}T02:59:59.999Z`,
   }
 }
 

@@ -5,7 +5,6 @@
 import { useState } from 'react'
 import type { SessionInfo, InitStatus } from '../types/hw-api'
 import AttendanceModal from './AttendanceModal'
-import SalaryPaymentModal from './SalaryPaymentModal'
 import StockCountModal from './StockCountModal'
 
 interface Props {
@@ -27,7 +26,6 @@ interface Props {
 
 export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCashier, onGoToCashierManagement, onGoToStoreManagement, onGoToDebts, onGoToSpecialCustomers, onGoToOrders, onGoToHistory, onGoToProviders, onGoToEmployees, onGoToStockCounts, onLogout }: Props) {
   const [showAttendance, setShowAttendance] = useState(false)
-  const [showSalary, setShowSalary] = useState(false)
   const [showStockCount, setShowStockCount] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -238,43 +236,25 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
             <div className="min-w-0 flex-1">
               <p className="text-base font-semibold text-white">Empleados</p>
               <p className="text-sm text-gray-400 mt-0.5 truncate">
-                Carniceros: alta, sueldo semanal y archivo
+                Alta, sueldo, archivo y liquidación semanal
               </p>
             </div>
             <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
           </button>
 
-          {/* Asistencia */}
+          {/* Asistencia — pausada (posible retiro futuro) */}
           <button
             type="button"
             onClick={() => setShowAttendance(true)}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
+            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800/60 hover:bg-gray-700 border border-gray-800 hover:border-gray-600 p-6 transition-all text-left opacity-70"
           >
             <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-teal-600/20 flex items-center justify-center text-3xl">
               ✓
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-white">Asistencia</p>
-              <p className="text-sm text-gray-400 mt-0.5 truncate">
-                Marcar presente, ausente, tarde o retiro anticipado
-              </p>
-            </div>
-            <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
-          </button>
-
-          {/* Liquidación semanal (solo consulta) */}
-          <button
-            type="button"
-            onClick={() => setShowSalary(true)}
-            className="w-full group flex items-center gap-5 rounded-2xl bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-500 p-6 transition-all text-left"
-          >
-            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-blue-600/20 flex items-center justify-center text-3xl">
-              💵
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-white">Liquidación semanal</p>
-              <p className="text-sm text-gray-400 mt-0.5 truncate">
-                Consulta: sueldo menos vales (sin registrar pago)
+              <p className="text-base font-semibold text-white">Asistencia <span className="text-xs font-normal text-gray-500">(pausado)</span></p>
+              <p className="text-sm text-gray-500 mt-0.5 truncate">
+                Disponible pero no prioritario en operación
               </p>
             </div>
             <div className="ml-auto text-gray-600 group-hover:text-gray-400 text-xl shrink-0">›</div>
@@ -321,9 +301,6 @@ export default function AdminHubScreen({ initStatus, onGoToAdminPanel, onGoToCas
 
       {showAttendance && (
         <AttendanceModal onClose={() => setShowAttendance(false)} />
-      )}
-      {showSalary && (
-        <SalaryPaymentModal onClose={() => setShowSalary(false)} />
       )}
       {showStockCount && (
         <StockCountModal onClose={() => setShowStockCount(false)} />

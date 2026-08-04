@@ -7,6 +7,8 @@
  *                      temporal internamente y envía email de configuración
  *                      de contraseña para que la cajera la defina ella misma.
  *                      Si el Firestore write falla, hace rollback del Auth user.
+ *                      Requiere al menos un local en authorizedStores.
+ *  - UPDATE_CASHIER  — actualiza displayName y/o authorizedStores en Firestore
  *  - TOGGLE_CASHIER  — activa/desactiva (active: boolean) en Firestore
  *  - DELETE_CASHIER  — soft-delete: marca deleted:true + active:false en
  *                      Firestore. El Auth user persiste hasta que una Cloud
@@ -41,7 +43,14 @@ import type { IpcResult, CashierRow } from '../../src/types/hw-api'
 const createCashierSchema = z.object({
   displayName: z.string().min(2).max(80),
   email: z.string().email(),
-  authorizedStores: z.array(z.string().min(1)).optional(), // ya no es requerido — cualquier cajera puede operar en cualquier local
+  /** Locales en los que la cajera puede operar (móvil y selector). Al menos uno. */
+  authorizedStores: z.array(z.string().min(1)).min(1),
+})
+
+const updateCashierSchema = z.object({
+  uid: z.string().min(1),
+  displayName: z.string().min(2).max(80).optional(),
+  authorizedStores: z.array(z.string().min(1)).min(1),
 })
 
 const toggleCashierSchema = z.object({
@@ -74,6 +83,18 @@ function devCreateCashier(displayName: string, email: string, authorizedStores: 
   _devCashiers.push({ uid, displayName, email, authorizedStores, active: true })
   log.info('[ipc:create-cashier] dev — cajera creada, email de configuración se enviaría:', email)
   return { ok: true, data: { uid } }
+}
+
+function devUpdateCashier(
+  uid: string,
+  authorizedStores: string[],
+  displayName?: string,
+): IpcResult {
+  const cashier = _devCashiers.find(c => c.uid === uid)
+  if (!cashier) return { ok: false, error: 'Cajera no encontrada.', code: 'NOT_FOUND' }
+  cashier.authorizedStores = authorizedStores
+  if (displayName !== undefined) cashier.displayName = displayName
+  return { ok: true, data: undefined }
 }
 
 function devToggleCashier(uid: string, active: boolean): IpcResult {
@@ -221,6 +242,29 @@ async function firebaseCreateCashier(
   }
 }
 
+async function firebaseUpdateCashier(
+  licenseKey: string,
+  uid: string,
+  authorizedStores: string[],
+  displayName?: string,
+): Promise<IpcResult> {
+  const { getFirestore, doc, updateDoc, getDoc } = await import('firebase/firestore')
+  const db = getFirestore(getFirebaseApp())
+  const ref = doc(db, 'licenses', licenseKey, 'users', uid)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) {
+    return { ok: false, error: 'Cajera no encontrada.', code: 'NOT_FOUND' }
+  }
+  const data = snap.data() as { role?: string; deleted?: boolean }
+  if (data.role !== 'cashier' || data.deleted === true) {
+    return { ok: false, error: 'Cajera no encontrada.', code: 'NOT_FOUND' }
+  }
+  const patch: { authorizedStores: string[]; displayName?: string } = { authorizedStores }
+  if (displayName !== undefined) patch.displayName = displayName
+  await updateDoc(ref, patch)
+  return { ok: true, data: undefined }
+}
+
 async function firebaseToggleCashier(licenseKey: string, uid: string, active: boolean): Promise<IpcResult> {
   const { getFirestore, doc, updateDoc } = await import('firebase/firestore')
   const db = getFirestore(getFirebaseApp())
@@ -276,12 +320,12 @@ export function registerCashiersHandlers(): void {
 
     const { displayName, email, authorizedStores } = parsed.data
 
-    if (!isFirebaseAvailable()) return devCreateCashier(displayName, email, authorizedStores ?? [])
+    if (!isFirebaseAvailable()) return devCreateCashier(displayName, email, authorizedStores)
 
     try {
       const { tenant_id } = getBusinessConfig()
-      const result = await firebaseCreateCashier(tenant_id, displayName, email, authorizedStores ?? [])
-      if (result.ok) log.info('[ipc:create-cashier] Cajera creada', { email })
+      const result = await firebaseCreateCashier(tenant_id, displayName, email, authorizedStores)
+      if (result.ok) log.info('[ipc:create-cashier] Cajera creada', { email, authorizedStores })
       return result
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -294,6 +338,36 @@ export function registerCashiersHandlers(): void {
         }
       }
       return { ok: false, error: 'Error al crear la cajera.' }
+    }
+  })
+
+  ipcMain.handle(IPC.UPDATE_CASHIER, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = updateCashierSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.warn('[ipc:update-cashier] Payload inválido', parsed.error.flatten())
+      return { ok: false, error: parsed.error.errors[0]?.message ?? 'Datos inválidos.', code: 'VALIDATION_ERROR' }
+    }
+
+    const { uid, authorizedStores, displayName } = parsed.data
+
+    if (!isFirebaseAvailable()) return devUpdateCashier(uid, authorizedStores, displayName)
+
+    try {
+      const { tenant_id } = getBusinessConfig()
+      const result = await firebaseUpdateCashier(tenant_id, uid, authorizedStores, displayName)
+      if (result.ok) log.info('[ipc:update-cashier]', { uid, authorizedStores })
+      return result
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:update-cashier] Error', msg)
+      if (msg.includes('PERMISSION_DENIED') || msg.includes('Missing or insufficient permissions')) {
+        return {
+          ok: false,
+          error: 'Sin permiso para editar la cajera. Verificar reglas de Firestore (ver AGENTS.md).',
+          code: 'PERMISSION_DENIED',
+        }
+      }
+      return { ok: false, error: 'Error al actualizar la cajera.' }
     }
   })
 

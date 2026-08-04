@@ -13,12 +13,14 @@ import { isFirebaseAvailable } from '../licensing/firebase'
 import {
   fetchHistoryShiftsFromFirestore,
   fetchHistoryShiftDetailFromFirestore,
+  fetchEmployeeValesFromFirestore,
   mergeHistoryShiftRows,
 } from '../licensing/historyFirestore'
 import type {
   IpcResult,
   HistoryShiftRow,
   HistoryShiftDetail,
+  RemoteEmployeeValeRow,
 } from '../../src/types/hw-api'
 
 const getHistoryShiftsSchema = z.object({
@@ -33,6 +35,10 @@ const getHistoryShiftsSchema = z.object({
 const getHistoryShiftDetailSchema = z.object({
   shiftId: z.string().uuid(),
 })
+
+const getRemoteEmployeeValesSchema = z.object({
+  storeIdFilter: z.string().optional(),
+}).optional()
 
 export function registerHistoryHandlers(): void {
   // --------------------------------------------------------------------------
@@ -508,4 +514,43 @@ export function registerHistoryHandlers(): void {
       return { ok: false, error: 'Error al obtener el detalle del turno.' }
     }
   })
+
+  // --------------------------------------------------------------------------
+  // GET_REMOTE_EMPLOYEE_VALES — vales desde Firestore (admin remoto)
+  // --------------------------------------------------------------------------
+  ipcMain.handle(
+    IPC.GET_REMOTE_EMPLOYEE_VALES,
+    async (_event, payload: unknown): Promise<IpcResult<RemoteEmployeeValeRow[]>> => {
+      const parsed = getRemoteEmployeeValesSchema.safeParse(payload ?? {})
+      if (!parsed.success) {
+        log.error('[ipc:get-remote-employee-vales] Payload inválido', parsed.error)
+        return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+      }
+
+      const session = getActiveSession()
+      if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+      if (session.role !== 'admin') {
+        return { ok: false, error: 'Solo los administradores pueden ver vales remotos.', code: 'FORBIDDEN' }
+      }
+
+      if (!isFirebaseAvailable()) {
+        return {
+          ok: false,
+          error: 'Firebase no disponible. Usá modo producción o conéctate a internet.',
+          code: 'UNAVAILABLE',
+        }
+      }
+
+      try {
+        const filter = parsed.data?.storeIdFilter
+        const storeIdFilter =
+          !filter || filter === 'all' ? null : filter
+        const rows = await fetchEmployeeValesFromFirestore(storeIdFilter)
+        return { ok: true, data: rows }
+      } catch (err) {
+        log.error('[ipc:get-remote-employee-vales] Error inesperado', err)
+        return { ok: false, error: 'Error al obtener vales remotos.' }
+      }
+    },
+  )
 }
