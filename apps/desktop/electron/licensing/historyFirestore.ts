@@ -110,7 +110,7 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
 }
 
 /**
- * Lista turnos cerrados desde Firestore con resumen de ventas/gastos.
+ * Lista turnos (abiertos y cerrados) desde Firestore con resumen de ventas/gastos.
  * No incluye señas ni fiados (aún no sincronizados).
  */
 export async function fetchHistoryShiftsFromFirestore(
@@ -131,7 +131,6 @@ export async function fetchHistoryShiftsFromFirestore(
   const shifts: FsShift[] = []
   for (const d of shiftsSnap.docs) {
     const s = d.data() as FsShift
-    if (!s.closedAt) continue
     if (s.source && s.source !== 'desktop') continue
     if (filter.effectiveStoreId && s.storeId !== filter.effectiveStoreId) continue
     if (filter.fromDate && s.startedAt < filter.fromDate) continue
@@ -166,7 +165,7 @@ export async function fetchHistoryShiftsFromFirestore(
       id: s.id,
       shiftType: s.shiftType,
       startedAt: s.startedAt,
-      closedAt: s.closedAt!,
+      closedAt: s.closedAt ?? null,
       cashierName: s.cashierName ?? s.userId,
       salesCount: sv.count,
       totalRevenue: sv.total,
@@ -207,7 +206,6 @@ export async function fetchHistoryShiftDetailFromFirestore(
     if (!shiftSnap.exists()) return null
 
     const shift = { ...(shiftSnap.data() as FsShift), id: shiftId }
-    if (!shift.closedAt) return null
 
     const [salesSnap, expensesSnap] = await Promise.all([
       getDocs(collection(firestore, 'licenses', config.tenant_id, 'sales')),
@@ -259,7 +257,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
         id: shift.id,
         shiftType: shift.shiftType,
         startedAt: shift.startedAt,
-        closedAt: shift.closedAt,
+        closedAt: shift.closedAt ?? null,
         cashierName: shift.cashierName ?? shift.userId,
         openingCash: shift.openingCash,
         closingCash: shift.closingCash,

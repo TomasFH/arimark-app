@@ -125,7 +125,8 @@ export interface ShiftSummary {
   /** Total gastado en efectivo durante el turno */
   totalExpenses: number
   /**
-   * Efectivo estimado en caja = apertura + ventas en efectivo - gastos en efectivo.
+   * Efectivo estimado en caja = apertura + ventas en efectivo + señas en efectivo
+   * + cobranzas de fiado en efectivo − gastos en efectivo.
    * No incluye el efectivo declarado al cerrar.
    */
   cashInHand: number
@@ -133,6 +134,8 @@ export interface ShiftSummary {
   debtsCount: number
   /** Monto total de fiados del turno */
   totalDebts: number
+  /** Cobranzas de fiado en efectivo asociadas a este turno */
+  totalCashDebtPayments: number
   /** Señas cobradas en efectivo en este turno */
   totalCashDeposits: number
   /** Señas cobradas con débito en este turno */
@@ -245,6 +248,13 @@ export interface AdminProductRow {
   price: number | null
   /** Disponibilidad en el local seleccionado (de store_products). */
   available: boolean
+}
+
+export interface CatalogRevisionRow {
+  id: string
+  archivedAt: string
+  updatedAt: string | null
+  productCount: number
 }
 
 export interface StoreRow {
@@ -491,6 +501,8 @@ export interface DebtEventRow {
   amount: number
   dueDate: string | null
   notes: string | null
+  /** Medio de cobro — solo en pagos. Null en alta/cancelación. */
+  paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit' | null
   createdAt: string
   createdBy: string
 }
@@ -519,13 +531,18 @@ export interface CreateDebtPayload {
 export interface AddDebtPaymentPayload {
   customerId: string
   amount: number
+  paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit'
   notes?: string
+  /** Admin: local destino, o 'all' para imputar en los locales con saldo. */
+  storeId?: string
 }
 
 export interface CancelDebtPayload {
   customerId: string
   saleId?: string
   notes?: string
+  /** Admin: local a cancelar, o 'all' para saldar todos los locales. */
+  storeId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -620,6 +637,8 @@ export interface CreateOrderPayload {
   notes?: string
   depositAmount?: number
   depositPayments?: DepositPayment[]
+  /** Solo admin: sobreescribe el local de sesión para asignar el pedido a ese local */
+  storeId?: string
 }
 
 export interface UpdateOrderStatusPayload {
@@ -930,7 +949,8 @@ export interface HistoryShiftRow {
   id: string
   shiftType: ShiftType
   startedAt: string
-  closedAt: string
+  /** Null si el turno sigue abierto. */
+  closedAt: string | null
   cashierName: string
   salesCount: number
   totalRevenue: number
@@ -1021,7 +1041,7 @@ export interface HistoryShiftDetail {
     id: string
     shiftType: ShiftType
     startedAt: string
-    closedAt: string
+    closedAt: string | null
     cashierName: string
     openingCash: number
     closingCash: number | null
@@ -1184,6 +1204,12 @@ export interface HwApi {
   closeShift: (payload: CloseShiftPayload) => Promise<IpcResult>
 
   /**
+   * Cierra un turno abierto (propio o ajeno) sin arqueo. Solo admin.
+   * Sirve para desbloquear el local cuando el turno quedó colgado.
+   */
+  forceCloseOpenShift: (payload: { shiftId: string }) => Promise<IpcResult>
+
+  /**
    * Suscribe un callback al aviso de inactividad (main → renderer push).
    * Retorna función de cleanup para desuscribir.
    */
@@ -1233,6 +1259,12 @@ export interface HwApi {
 
   /** Historial completo de precios de un producto en un local — solo admin */
   getProductPriceHistory: (payload: GetPriceHistoryPayload) => Promise<IpcResult<PriceHistoryRow[]>>
+
+  /** Versiones archivadas del catálogo de un local (snapshots previos a cada publicación) */
+  listCatalogRevisions: (payload: { storeId: string }) => Promise<IpcResult<CatalogRevisionRow[]>>
+
+  /** Restaura un snapshot archivado como catálogo vigente y lo baja a SQLite */
+  restoreCatalogRevision: (payload: { storeId: string; revisionId: string }) => Promise<IpcResult<{ productCount: number }>>
 
   /** Lista cajeras del sistema — solo admin */
   listCashiers: () => Promise<IpcResult<CashierRow[]>>

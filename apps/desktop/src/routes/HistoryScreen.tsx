@@ -1,7 +1,7 @@
 /**
  * Pantalla de historial completo — solo admin.
  *
- * Panel izquierdo: lista de turnos cerrados con filtro por rango de fechas.
+ * Panel izquierdo: lista de turnos (abiertos y cerrados) con filtro por rango de fechas.
  * Panel derecho: detalle completo del turno seleccionado.
  */
 import { useState, useEffect, useCallback } from 'react'
@@ -55,7 +55,12 @@ export default function HistoryScreen({ onBack }: Props) {
     }
     const r = await window.hw.getHistoryShifts(payload)
     if (r.ok) {
-      setShifts([...r.data].sort((a, b) => b.startedAt.localeCompare(a.startedAt)))
+      setShifts([...r.data].sort((a, b) => {
+        const aOpen = a.closedAt ? 0 : 1
+        const bOpen = b.closedAt ? 0 : 1
+        if (aOpen !== bOpen) return bOpen - aOpen
+        return b.startedAt.localeCompare(a.startedAt)
+      }))
     } else {
       setError(r.error)
     }
@@ -185,6 +190,7 @@ export default function HistoryScreen({ onBack }: Props) {
 
 function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; selected: boolean; onClick: () => void }) {
   const date = toLocalDate(shift.startedAt)
+  const isOpen = !shift.closedAt
 
   return (
     <button
@@ -195,7 +201,20 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-white">{date} — {SHIFT_TYPE_LABEL[shift.shiftType]}</p>
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-sm font-medium text-white min-w-0 truncate" title={`${date} — ${SHIFT_TYPE_LABEL[shift.shiftType]}`}>
+              {date} — {SHIFT_TYPE_LABEL[shift.shiftType]}
+            </p>
+            <span
+              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                isOpen
+                  ? 'bg-emerald-950/50 text-emerald-400/80 border border-emerald-900/40'
+                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+              }`}
+            >
+              {isOpen ? 'Abierto' : 'Cerrado'}
+            </span>
+          </div>
           <p className="text-xs text-zinc-400 truncate" title={shift.cashierName}>{shift.cashierName}</p>
         </div>
         <div className="shrink-0 text-right">
@@ -227,6 +246,11 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
           <div>
             <h2 className="text-sm font-semibold text-white">
               {toLocalDate(shift.startedAt)} — Turno {shiftLabel}
+              {!shift.closedAt && (
+                <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-emerald-950/50 text-emerald-400/80 border border-emerald-900/40 align-middle">
+                  Abierto
+                </span>
+              )}
             </h2>
             <p className="text-xs text-zinc-400 mt-0.5">Cajera: {shift.cashierName}</p>
             <p className="text-xs text-zinc-500">{start} → {end}</p>

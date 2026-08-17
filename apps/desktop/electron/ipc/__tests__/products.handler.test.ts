@@ -46,8 +46,10 @@ function makeMockDb(productRows = SAMPLE_PRODUCTS, priceRows = SAMPLE_PRICES) {
 
   const productsChain = {
     from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue({
-        orderBy: vi.fn().mockReturnValue({ all: productsAll }),
+      leftJoin: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          orderBy: vi.fn().mockReturnValue({ all: productsAll }),
+        }),
       }),
     }),
   }

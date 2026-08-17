@@ -23,8 +23,9 @@ vi.mock('../../businessConfig', () => ({
   getBusinessConfig: vi.fn(() => ({ tenant_id: 'test-key', default_store_id: STORE_ID })),
 }))
 
-vi.mock('../../licensing/catalogPublish', () => ({
-  publishCatalog: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../licensing/catalogSync', () => ({
+  syncCatalogWithFirestore: vi.fn().mockResolvedValue(undefined),
+  syncAllStoreCatalogs: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../licensing/mobileSync', () => ({
@@ -50,9 +51,6 @@ vi.mock('../../licensing/employeeSync', () => ({
   ensureEmployeesSynced: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../../licensing/catalogSync', () => ({
-  pullCatalogFromFirestore: vi.fn().mockResolvedValue(undefined),
-}))
 
 vi.mock('../../licensing/orderSync', () => ({
   ensureOrdersSynced: vi.fn().mockResolvedValue(undefined),

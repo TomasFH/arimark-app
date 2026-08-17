@@ -9,17 +9,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, shifts } from '../../db/schema'
-import { isNull, isNotNull } from 'drizzle-orm'
+import { isNull, isNotNull, eq } from 'drizzle-orm'
 
-const { mockSetDoc, mockDoc } = vi.hoisted(() => ({
+const { mockSetDoc, mockDoc, mockGetDocs } = vi.hoisted(() => ({
   mockSetDoc: vi.fn().mockResolvedValue(undefined),
   mockDoc: vi.fn(),
+  mockGetDocs: vi.fn().mockResolvedValue({ docs: [], size: 0 }),
 }))
 
 vi.mock('firebase/firestore', () => ({
   getFirestore: vi.fn(() => ({})),
   doc: (...args: unknown[]) => { mockDoc(...args); return { path: args.join('/') } },
   setDoc: mockSetDoc,
+  collection: vi.fn(() => ({})),
+  query: vi.fn((...args: unknown[]) => args),
+  where: vi.fn((...args: unknown[]) => args),
+  getDocs: mockGetDocs,
 }))
 
 vi.mock('../firebase', () => ({
@@ -37,7 +42,7 @@ vi.mock('../../db/client', () => ({
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { pushUnsyncedShifts } from '../shiftSync'
+import { pushUnsyncedShifts, reconcileStoreShifts } from '../shiftSync'
 
 const TENANT = 'test-tenant'
 
@@ -251,6 +256,79 @@ describe('shiftSync', () => {
       expect(synced.map(s => s.id)).toEqual(['shift-ok'])
       const pending = db.select().from(shifts).where(isNull(shifts.syncedAt)).all()
       expect(pending.map(s => s.id)).toEqual(['shift-fail'])
+    })
+  })
+
+  describe('reconcileStoreShifts', () => {
+    it('aplica closedAt remoto sobre un turno local todavía abierto', async () => {
+      const started = new Date().toISOString()
+      const closed = new Date().toISOString()
+      db.insert(shifts).values({
+        id: 'shift-stale',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: started,
+        openingCash: 0,
+        source: 'desktop',
+        closedAt: null,
+        syncedAt: started,
+      }).run()
+
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [{
+          id: 'shift-stale',
+          data: () => ({
+            id: 'shift-stale',
+            storeId: 'store-001',
+            userId: 'user-001',
+            shiftType: 'morning',
+            startedAt: started,
+            closedAt: closed,
+            openingCash: 0,
+            source: 'desktop',
+          }),
+        }],
+      })
+
+      await reconcileStoreShifts(TENANT, { storeId: 'store-001' })
+
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-stale')).get()
+      expect(row?.closedAt).toBe(closed)
+    })
+
+    it('inserta un turno remoto que no existe en SQLite', async () => {
+      const started = new Date().toISOString()
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [{
+          id: 'shift-remote',
+          data: () => ({
+            id: 'shift-remote',
+            storeId: 'store-001',
+            userId: 'user-001',
+            cashierName: 'Cajera Test',
+            shiftType: 'evening',
+            startedAt: started,
+            closedAt: null,
+            openingCash: 1500,
+            source: 'desktop',
+          }),
+        }],
+      })
+
+      await reconcileStoreShifts(TENANT, { storeId: 'store-001' })
+
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-remote')).get()
+      expect(row?.openingCash).toBe(1500)
+      expect(row?.closedAt).toBeNull()
+    })
+
+    it('no consulta Firestore si Firebase no está disponible', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      await reconcileStoreShifts(TENANT, { storeId: 'store-001' })
+      expect(mockGetDocs).not.toHaveBeenCalled()
     })
   })
 })

@@ -176,6 +176,20 @@
       "when": 1785900000000,
       "tag": "0024_ops_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1786860398839,
+      "tag": "0025_products_updated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1786879068034,
+      "tag": "0026_debt_payment_method",
+      "breakpoints": true
     }
   ]
 }

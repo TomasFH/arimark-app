@@ -7,6 +7,9 @@
  * Responsabilidades:
  *   1. pushUnsyncedShifts — envía filas locales con syncedAt=null a Firestore
  *                           y marca syncedAt tras cada push exitoso.
+ *   2. reconcileStoreShifts — baja turnos remotos y aplica cierres hechos en
+ *                           otra PC/ventana, para no bloquear la caja con un
+ *                           turno que ya se cerró (o para ver uno abierto).
  *
  * Al abrir un turno: syncedAt queda null → se pushea.
  * Al cerrar un turno: el handler debe setear syncedAt=null de nuevo → re-push
@@ -15,12 +18,34 @@
  * No-op completo cuando isFirebaseAvailable() === false (entorno dev).
  */
 
-import { getFirestore, doc, setDoc } from 'firebase/firestore'
+import { getFirestore, doc, setDoc, collection, getDocs, query, where } from 'firebase/firestore'
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { shifts, users } from '../db/schema'
+import { shifts, users, stores } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
+
+interface RemoteShiftDoc {
+  id?: string
+  storeId?: string
+  userId?: string
+  cashierName?: string | null
+  shiftType?: 'morning' | 'evening'
+  startedAt?: string
+  closedAt?: string | null
+  openingCash?: number
+  closingCash?: number | null
+  safeAmount?: number | null
+  deliveredAmount?: number | null
+  deliveredTo?: string | null
+  notes?: string | null
+  source?: 'desktop' | 'mobile'
+}
+
+export interface ReconcileShiftsFilter {
+  storeId?: string
+  userId?: string
+}
 
 /**
  * Busca shifts locales con syncedAt=null y los sube a Firestore.
@@ -72,4 +97,127 @@ export async function pushUnsyncedShifts(tenantId: string): Promise<void> {
   }
 
   log.info('[shiftSync] Shifts pusheados', { count: pending.length })
+}
+
+function ensureUserStub(userId: string, name: string | null | undefined, storeId: string): void {
+  const db = getDb()
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, userId)).get()
+  if (existing) return
+  const now = new Date().toISOString()
+  db.insert(users).values({
+    id: userId,
+    name: name && name.trim() !== '' ? name : 'Cajera',
+    storeId,
+    role: 'cashier',
+    active: true,
+    createdAt: now,
+  }).run()
+}
+
+/**
+ * Baja turnos de Firestore y alinea el SQLite local:
+ *  - Si el remoto está cerrado y el local sigue abierto → cierra el local.
+ *  - Si el remoto existe y no está en SQLite → lo inserta (para poder retomarlo o cerrarlo).
+ *  - Si el local está cerrado y el remoto sigue abierto → marca syncedAt=null para re-pushear el cierre.
+ *
+ * Luego drena el outbox local. No-op en APP_ENV=dev.
+ */
+export async function reconcileStoreShifts(
+  tenantId: string,
+  filter: ReconcileShiftsFilter = {},
+): Promise<void> {
+  if (!isFirebaseAvailable()) return
+
+  try {
+    const app = getFirebaseApp()
+    const firestore = getFirestore(app)
+    const col = collection(firestore, 'licenses', tenantId, 'shifts')
+
+    const snap = filter.storeId
+      ? await getDocs(query(col, where('storeId', '==', filter.storeId)))
+      : filter.userId
+        ? await getDocs(query(col, where('userId', '==', filter.userId)))
+        : await getDocs(col)
+
+    const db = getDb()
+    const now = new Date().toISOString()
+    let applied = 0
+
+    for (const d of snap.docs) {
+      const data = d.data() as RemoteShiftDoc
+      const id = data.id || d.id
+      const storeId = data.storeId
+      const userId = data.userId
+      const shiftType = data.shiftType
+      const startedAt = data.startedAt
+      if (!storeId || !userId || !shiftType || !startedAt) {
+        log.warn('[shiftSync] Documento shift incompleto, omitido', { id })
+        continue
+      }
+      if (shiftType !== 'morning' && shiftType !== 'evening') continue
+
+      const storeRow = db.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).get()
+      if (!storeRow) {
+        log.warn('[shiftSync] Shift remoto omitido: local no está en cache', { id, storeId })
+        continue
+      }
+
+      try {
+        ensureUserStub(userId, data.cashierName, storeId)
+      } catch (err) {
+        log.warn('[shiftSync] No se pudo crear stub de usuario para shift remoto', { id, userId, err })
+        continue
+      }
+
+      const local = db.select().from(shifts).where(eq(shifts.id, id)).get()
+      const remoteClosedAt = data.closedAt ?? null
+      const source = data.source === 'mobile' ? 'mobile' : 'desktop'
+
+      if (!local) {
+        db.insert(shifts).values({
+          id,
+          storeId,
+          userId,
+          shiftType,
+          startedAt,
+          closedAt: remoteClosedAt,
+          openingCash: Number(data.openingCash ?? 0),
+          closingCash: data.closingCash ?? null,
+          safeAmount: data.safeAmount ?? null,
+          deliveredAmount: data.deliveredAmount ?? null,
+          deliveredTo: data.deliveredTo ?? null,
+          notes: data.notes ?? null,
+          source,
+          syncedAt: now,
+        }).run()
+        applied++
+        continue
+      }
+
+      if (remoteClosedAt && !local.closedAt) {
+        db.update(shifts).set({
+          closedAt: remoteClosedAt,
+          closingCash: data.closingCash ?? local.closingCash,
+          safeAmount: data.safeAmount ?? local.safeAmount,
+          deliveredAmount: data.deliveredAmount ?? local.deliveredAmount,
+          deliveredTo: data.deliveredTo ?? local.deliveredTo,
+          notes: data.notes ?? local.notes,
+          syncedAt: now,
+        }).where(eq(shifts.id, id)).run()
+        applied++
+        continue
+      }
+
+      if (local.closedAt && !remoteClosedAt) {
+        db.update(shifts).set({ syncedAt: null }).where(eq(shifts.id, id)).run()
+        applied++
+      }
+    }
+
+    log.info('[shiftSync] Shifts reconciliados desde Firestore', { count: snap.size, applied })
+  } catch (err) {
+    log.error('[shiftSync] Error en reconcileStoreShifts', err)
+  }
+
+  await pushUnsyncedShifts(tenantId)
 }

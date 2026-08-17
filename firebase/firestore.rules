@@ -75,6 +75,11 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey}/catalog/{storeId} {
       allow read, write: if request.auth != null;
+
+      // Snapshots previos a cada publicación (rollback desde el panel admin).
+      match /revisions/{revisionId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
     // -----------------------------------------------------------------------

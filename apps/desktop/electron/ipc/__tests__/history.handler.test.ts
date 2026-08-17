@@ -123,6 +123,27 @@ describe('history.handler', () => {
       expect(res.data[0].cashierName).toBe('Admin')
     })
 
+    it('incluye turnos abiertos (closedAt null) en la lista', async () => {
+      const openId = '00000000-0000-0000-0000-0000000000bb'
+      db.insert(shifts).values({
+        id: openId,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'evening',
+        startedAt: '2026-08-16T11:00:00.000Z',
+        closedAt: null,
+        openingCash: 2000,
+        source: 'desktop',
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shifts')
+      const res = await handler(null) as { ok: boolean; data: Array<{ id: string; closedAt: string | null }> }
+      expect(res.ok).toBe(true)
+      const open = res.data.find(s => s.id === openId)
+      expect(open).toBeDefined()
+      expect(open?.closedAt).toBeNull()
+    })
+
     it('rechaza payload inválido', async () => {
       const handler = getHandler('ipc:get-history-shifts')
       const res = await handler(null, { fromDate: 'no-es-fecha' }) as { ok: boolean }
@@ -275,6 +296,29 @@ describe('history.handler', () => {
       expect(res.data.deposits).toHaveLength(0)
       expect(res.data.summary.salesCount).toBe(0)
       expect(res.data.summary.cashInHand).toBe(1000)
+    })
+
+    it('retorna el detalle de un turno todavía abierto', async () => {
+      const openId = '00000000-0000-0000-0000-0000000000cc'
+      db.insert(shifts).values({
+        id: openId,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'morning',
+        startedAt: '2026-08-16T11:00:00.000Z',
+        closedAt: null,
+        openingCash: 1500,
+        source: 'desktop',
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: openId }) as {
+        ok: boolean
+        data: { shift: { id: string; closedAt: string | null } }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.shift.id).toBe(openId)
+      expect(res.data.shift.closedAt).toBeNull()
     })
 
     it('incluye ventas y gastos del turno en el detalle', async () => {

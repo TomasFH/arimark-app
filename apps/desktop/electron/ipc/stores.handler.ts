@@ -7,8 +7,7 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { stores, users, shifts, orders, storeProducts } from '../db/schema'
 import { getActiveSession, updateActiveStore } from '../activeSession'
-import { publishCatalog } from '../licensing/catalogPublish'
-import { pullCatalogFromFirestore } from '../licensing/catalogSync'
+import { syncCatalogWithFirestore } from '../licensing/catalogSync'
 import { startMobileSyncListener } from '../licensing/mobileSync'
 import {
   startProviderSyncListener,
@@ -113,13 +112,14 @@ export function registerStoresHandlers(): void {
         }).run()
       }
 
-      // Publicar catálogo a Firestore para ambos roles (el guard en catalogPublish.ts evita
-      // que una instancia remote sobrescriba con un catálogo vacío).
+      // Catálogo: publica si esta PC es la vigente; baja solo si SQLite está vacío o Firestore es más nuevo.
       {
         const config = getBusinessConfig()
-        publishCatalog(config.tenant_id, storeId).catch(err =>
-          log.warn('[ipc:select-store] publishCatalog falló (no bloqueante)', err)
-        )
+        try {
+          await syncCatalogWithFirestore(config.tenant_id, storeId)
+        } catch (err) {
+          log.warn('[ipc:select-store] syncCatalogWithFirestore falló (no bloqueante)', err)
+        }
       }
 
       // Para cajeras: iniciar listeners de sincronización adicionales
@@ -155,15 +155,9 @@ export function registerStoresHandlers(): void {
         )
       }
 
-      // Sincronizar catálogo de productos desde Firestore (cubre instancias remote sin productos locales)
+      // Tras catálogo: pedidos / fiados / clientes especiales (precios especiales necesitan productos)
       {
         const config = getBusinessConfig()
-        try {
-          await pullCatalogFromFirestore(config.tenant_id, storeId)
-        } catch (err) {
-          log.warn('[ipc:select-store] pullCatalogFromFirestore falló (no bloqueante)', err)
-        }
-        // Tras catálogo: pedidos / fiados / clientes especiales (precios especiales necesitan productos)
         try {
           await ensureOrdersSynced(config.tenant_id)
         } catch (err) {

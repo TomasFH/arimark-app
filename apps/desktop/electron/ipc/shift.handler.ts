@@ -9,7 +9,7 @@ import { shifts, sales, salePayments, expenses, billDenominations, debtEvents, o
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
-import { pushUnsyncedShifts } from '../licensing/shiftSync'
+import { pushUnsyncedShifts, reconcileStoreShifts } from '../licensing/shiftSync'
 import type { IpcResult, ShiftInfo, ShiftSummary } from '../../src/types/hw-api'
 
 const openShiftSchema = z.object({
@@ -31,12 +31,28 @@ const closeShiftSchema = z.object({
   billDenominations: z.array(billDenominationSchema).optional(),
 })
 
+const forceCloseOpenShiftSchema = z.object({
+  shiftId: z.string().min(1),
+})
+
+/** Reconcilia turnos con Firestore. Nunca bloquea el flujo local si falla. */
+async function syncShiftsSafe(filter: { storeId?: string; userId?: string }): Promise<void> {
+  try {
+    const config = getBusinessConfig()
+    await reconcileStoreShifts(config.tenant_id, filter)
+  } catch (err) {
+    log.warn('[shift] reconcileStoreShifts falló (no bloqueante)', err)
+  }
+}
+
 export function registerShiftHandlers(): void {
-  ipcMain.handle(IPC.GET_ACTIVE_SHIFT, (_event): IpcResult<ShiftInfo | null> => {
+  ipcMain.handle(IPC.GET_ACTIVE_SHIFT, async (_event): Promise<IpcResult<ShiftInfo | null>> => {
     const session = getActiveSession()
     if (!session) {
       return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     }
+
+    await syncShiftsSafe({ storeId: session.storeId, userId: session.userId })
 
     try {
       const db = getDb()
@@ -84,7 +100,7 @@ export function registerShiftHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC.OPEN_SHIFT, (_event, payload: unknown): IpcResult<ShiftInfo> => {
+  ipcMain.handle(IPC.OPEN_SHIFT, async (_event, payload: unknown): Promise<IpcResult<ShiftInfo>> => {
     const parsed = openShiftSchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:open-shift] Payload inválido', parsed.error)
@@ -95,6 +111,8 @@ export function registerShiftHandlers(): void {
     if (!session) {
       return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     }
+
+    await syncShiftsSafe({ storeId: session.storeId })
 
     try {
       const db = getDb()
@@ -111,6 +129,7 @@ export function registerShiftHandlers(): void {
           isNull(shifts.closedAt),
           eq(shifts.source, 'desktop')
         ))
+        .orderBy(desc(shifts.startedAt))
         .limit(1)
         .all()[0]
 
@@ -297,7 +316,18 @@ export function registerShiftHandlers(): void {
       }
       const totalDigitalDeposits = totalDebitDeposits + totalWalletDeposits + totalCreditDeposits
 
-      const cashInHand = shift.openingCash + totalCashSales + totalCashDeposits - totalExpenses
+      // Cobranzas de fiado en efectivo de este turno (amount es negativo en el ledger)
+      const cashDebtRows = db
+        .select({ amount: debtEvents.amount })
+        .from(debtEvents)
+        .where(and(
+          eq(debtEvents.shiftId, session.shiftId),
+          eq(debtEvents.paymentMethod, 'cash'),
+        ))
+        .all()
+      const totalCashDebtPayments = cashDebtRows.reduce((acc, r) => acc + Math.abs(Number(r.amount)), 0)
+
+      const cashInHand = shift.openingCash + totalCashSales + totalCashDeposits + totalCashDebtPayments - totalExpenses
 
       // Fiados del turno: eventos 'created' cuya venta pertenece a este turno
       const [debtStats] = db
@@ -330,6 +360,7 @@ export function registerShiftHandlers(): void {
           cashInHand,
           debtsCount: debtStats?.debtsCount ?? 0,
           totalDebts: Number(debtStats?.totalDebts ?? 0),
+          totalCashDebtPayments,
           totalCashDeposits,
           totalDebitDeposits,
           totalWalletDeposits,
@@ -428,11 +459,13 @@ export function registerShiftHandlers(): void {
   // Retorna el turno abierto del local actual (cualquier usuario), o null si no hay ninguno.
   // Usado por el renderer para pre-verificar el estado del local antes de mostrar el formulario
   // de apertura de turno (evita el parpadeo de carga al hacer click en "Abrir turno").
-  ipcMain.handle(IPC.GET_STORE_OPEN_SHIFT, (_event): IpcResult<{ userId: string; shiftId: string; userName: string } | null> => {
+  ipcMain.handle(IPC.GET_STORE_OPEN_SHIFT, async (_event): Promise<IpcResult<{ userId: string; shiftId: string; userName: string } | null>> => {
     const session = getActiveSession()
     if (!session) {
       return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     }
+
+    await syncShiftsSafe({ storeId: session.storeId })
 
     try {
       const db = getDb()
@@ -444,6 +477,7 @@ export function registerShiftHandlers(): void {
           isNull(shifts.closedAt),
           eq(shifts.source, 'desktop')
         ))
+        .orderBy(desc(shifts.startedAt))
         .limit(1)
         .all()[0]
 
@@ -463,11 +497,13 @@ export function registerShiftHandlers(): void {
   // Retorna el turno abierto del usuario en sesión (cualquier local), o null si no hay ninguno.
   // Usado al post-login para detectar si la cajera tiene un turno sin cerrar y reanudarla
   // directamente, salteando el store picker y la pantalla de apertura de turno.
-  ipcMain.handle(IPC.GET_USER_OPEN_SHIFT, (_event): IpcResult<{ shiftId: string; storeId: string; shiftType: string; openingCash: number } | null> => {
+  ipcMain.handle(IPC.GET_USER_OPEN_SHIFT, async (_event): Promise<IpcResult<{ shiftId: string; storeId: string; shiftType: string; openingCash: number } | null>> => {
     const session = getActiveSession()
     if (!session) {
       return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     }
+
+    await syncShiftsSafe({ userId: session.userId })
 
     try {
       const db = getDb()
@@ -479,6 +515,7 @@ export function registerShiftHandlers(): void {
           isNull(shifts.closedAt),
           eq(shifts.source, 'desktop')
         ))
+        .orderBy(desc(shifts.startedAt))
         .limit(1)
         .all()[0]
 
@@ -496,6 +533,65 @@ export function registerShiftHandlers(): void {
       const message = err instanceof Error ? err.message : String(err)
       log.error('[ipc:get-user-open-shift] Error inesperado', message)
       return { ok: false, error: 'Error al consultar el turno del usuario.' }
+    }
+  })
+
+  // Cierra un turno abierto ajeno (o propio) sin pasar por el arqueo.
+  // Solo admin: desbloquea el local cuando el turno quedó colgado en esta u otra PC.
+  ipcMain.handle(IPC.FORCE_CLOSE_OPEN_SHIFT, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = forceCloseOpenShiftSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:force-close-open-shift] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo un administrador puede cerrar un turno ajeno.', code: 'FORBIDDEN' }
+    }
+
+    try {
+      const db = getDb()
+      const { shiftId } = parsed.data
+      const shift = db.select().from(shifts).where(eq(shifts.id, shiftId)).get()
+      if (!shift) {
+        return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
+      }
+      if (shift.closedAt) {
+        return { ok: true, data: undefined }
+      }
+
+      const now = new Date().toISOString()
+      db.update(shifts)
+        .set({
+          closedAt: now,
+          notes: shift.notes ?? 'Cerrado por administrador',
+          syncedAt: null,
+        })
+        .where(eq(shifts.id, shiftId))
+        .run()
+
+      if (session.shiftId === shiftId) {
+        updateActiveShift(null)
+        stopDaemon()
+      }
+
+      const config = getBusinessConfig()
+      await pushUnsyncedShifts(config.tenant_id)
+
+      log.info('[ipc:force-close-open-shift] Turno cerrado por admin', {
+        shiftId,
+        previousUserId: shift.userId,
+        by: session.userId,
+      })
+      return { ok: true, data: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:force-close-open-shift] Error inesperado', message)
+      return { ok: false, error: 'Error al cerrar el turno.' }
     }
   })
 }

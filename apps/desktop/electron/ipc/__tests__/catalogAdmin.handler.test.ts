@@ -14,6 +14,15 @@ vi.mock('../../activeSession', () => ({ getActiveSession: vi.fn() }))
 
 vi.mock('../../licensing/catalogPublish', () => ({
   publishCatalog: vi.fn().mockResolvedValue(undefined),
+  publishCatalogForAllStores: vi.fn().mockResolvedValue(undefined),
+  listCatalogRevisions: vi.fn().mockResolvedValue([]),
+  restoreCatalogRevision: vi.fn().mockResolvedValue({ productCount: 1 }),
+}))
+
+vi.mock('../../licensing/catalogSync', () => ({
+  pullCatalogFromFirestore: vi.fn().mockResolvedValue(undefined),
+  syncCatalogWithFirestore: vi.fn().mockResolvedValue(undefined),
+  syncAllStoreCatalogs: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../businessConfig', () => ({
@@ -25,6 +34,7 @@ vi.mock('uuid', () => ({ v4: () => 'new-uuid' }))
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
+import { publishCatalog, publishCatalogForAllStores } from '../../licensing/catalogPublish'
 import { registerCatalogAdminHandlers } from '../catalogAdmin.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
@@ -141,7 +151,7 @@ describe('catalogAdmin.handler', () => {
 
   // ---- CREATE_PRODUCT ----
   describe('CREATE_PRODUCT', () => {
-    it('crea un producto válido y retorna el id', () => {
+    it('crea un producto válido, retorna el id y publica el catálogo', async () => {
       // CREATE_PRODUCT: 1 select → check PLU conflict (vacío = no hay conflicto)
       vi.mocked(getDb).mockReturnValue(makeDb([[]]))
       const result = getHandler('ipc:create-product')({}, {
@@ -149,6 +159,8 @@ describe('catalogAdmin.handler', () => {
       }) as { ok: boolean; data: { id: string } }
       expect(result.ok).toBe(true)
       expect(result.data.id).toBe('new-uuid')
+      await Promise.resolve()
+      expect(publishCatalogForAllStores).toHaveBeenCalledWith('TEST-KEY')
     })
 
     it('rechaza payload malformado (nombre vacío)', () => {
@@ -173,13 +185,15 @@ describe('catalogAdmin.handler', () => {
 
   // ---- UPDATE_PRODUCT ----
   describe('UPDATE_PRODUCT', () => {
-    it('actualiza un producto existente', () => {
+    it('actualiza un producto existente y publica el catálogo', async () => {
       // UPDATE_PRODUCT: select 1 → producto existe; (no hay cambio de PLU → no hay select 2)
       vi.mocked(getDb).mockReturnValue(makeDb([[{ id: PRODUCT_ID }]]))
       const result = getHandler('ipc:update-product')({}, {
         id: PRODUCT_ID, name: 'Nuevo nombre',
       }) as { ok: boolean }
       expect(result.ok).toBe(true)
+      await Promise.resolve()
+      expect(publishCatalogForAllStores).toHaveBeenCalledWith('TEST-KEY')
     })
 
     it('rechaza payload malformado (id no es uuid)', () => {
@@ -224,6 +238,8 @@ describe('catalogAdmin.handler', () => {
         productId: PRODUCT_ID, storeId: STORE_ID, price: 20000,
       }) as { ok: boolean }
       expect(result.ok).toBe(true)
+      await Promise.resolve()
+      expect(publishCatalog).toHaveBeenCalledWith('TEST-KEY', STORE_ID)
     })
 
     it('rechaza payload malformado (productId no uuid)', async () => {
@@ -291,6 +307,29 @@ describe('catalogAdmin.handler', () => {
       }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('DB_ERROR')
+    })
+  })
+
+  describe('LIST_CATALOG_REVISIONS', () => {
+    it('rechaza payload malformado', async () => {
+      const result = await getHandler('ipc:list-catalog-revisions')({}, { storeId: '' }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('retorna UNAUTHORIZED si no hay sesión', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const result = await getHandler('ipc:list-catalog-revisions')({}, { storeId: STORE_ID }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('UNAUTHORIZED')
+    })
+  })
+
+  describe('RESTORE_CATALOG_REVISION', () => {
+    it('rechaza payload malformado', async () => {
+      const result = await getHandler('ipc:restore-catalog-revision')({}, { storeId: STORE_ID }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('VALIDATION_ERROR')
     })
   })
 })

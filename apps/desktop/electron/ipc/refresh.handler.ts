@@ -10,9 +10,9 @@ import { IPC } from './channels'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { ensureStoresSynced } from '../licensing/storeSync'
+import { reconcileStoreShifts } from '../licensing/shiftSync'
 import { ensureEmployeesSynced, pushUnsyncedEmployeeOps } from '../licensing/employeeSync'
-import { pullCatalogFromFirestore } from '../licensing/catalogSync'
-import { publishCatalog } from '../licensing/catalogPublish'
+import { syncCatalogWithFirestore, syncAllStoreCatalogs } from '../licensing/catalogSync'
 import { ensureOrdersSynced, pushUnsyncedOrders } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
 import { ensureSpecialCustomersSynced, pushUnsyncedSpecialCustomerOps } from '../licensing/specialCustomerSync'
@@ -44,20 +44,29 @@ export function registerRefreshHandlers(): void {
       }
 
       try {
+        await reconcileStoreShifts(config.tenant_id, { storeId: storeId ?? undefined })
+      } catch (err) {
+        log.warn('[ipc:refresh-remote-data] reconcileStoreShifts falló (no bloqueante)', err)
+      }
+
+      try {
         await ensureEmployeesSynced(config.tenant_id)
       } catch (err) {
         log.warn('[ipc:refresh-remote-data] ensureEmployeesSynced falló (no bloqueante)', err)
       }
 
-      if (storeId) {
+      if (session.role === 'admin') {
         try {
-          await pullCatalogFromFirestore(config.tenant_id, storeId)
+          await syncAllStoreCatalogs(config.tenant_id)
         } catch (err) {
-          log.warn('[ipc:refresh-remote-data] pullCatalogFromFirestore falló (no bloqueante)', err)
+          log.warn('[ipc:refresh-remote-data] syncAllStoreCatalogs falló (no bloqueante)', err)
         }
-        publishCatalog(config.tenant_id, storeId).catch(err =>
-          log.warn('[ipc:refresh-remote-data] publishCatalog falló (no bloqueante)', err),
-        )
+      } else if (storeId) {
+        try {
+          await syncCatalogWithFirestore(config.tenant_id, storeId)
+        } catch (err) {
+          log.warn('[ipc:refresh-remote-data] syncCatalogWithFirestore falló (no bloqueante)', err)
+        }
       }
 
       try {

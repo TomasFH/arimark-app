@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
-import { formatARS } from '../lib/datetime'
+import { formatARS, formatYmd } from '../lib/datetime'
 import { formatPhoneInput } from '../lib/phoneInput'
 import type {
   OrderRow, OrderStatus, DepositMethod, DepositPayment,
@@ -55,6 +55,8 @@ interface FormState {
   priority: boolean
   notes: string
   depositPayments: DepositPayment[]
+  /** Solo admin: local destino del pedido */
+  storeId: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -67,6 +69,7 @@ const EMPTY_FORM: FormState = {
   priority: false,
   notes: '',
   depositPayments: [],
+  storeId: '',
 }
 
 function todayDateStr(): string {
@@ -229,7 +232,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   }, [newOrderId, filteredOrders])
 
   function openCreate() {
-    setForm({ ...EMPTY_FORM, pickupDate: todayDateStr() })
+    // Default del local: la tab activa (si no es 'all' ni vacío) o el primer local disponible
+    const defaultStoreId = (storeIdFilter && storeIdFilter !== 'all')
+      ? storeIdFilter
+      : (availableStores[0]?.id ?? '')
+    setForm({ ...EMPTY_FORM, pickupDate: todayDateStr(), storeId: defaultStoreId })
     setFormError(null)
     setShowCreate(true)
     setEditingOrder(null)
@@ -251,6 +258,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       priority: order.priority,
       notes: order.notes ?? '',
       depositPayments: payments,
+      storeId: order.storeId,
     })
     setFormError(null)
     setEditingOrder(order)
@@ -274,6 +282,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
     if (!customerName) { setFormError('El nombre del cliente es obligatorio.'); return }
     if (!items) { setFormError('Los ítems del pedido son obligatorios.'); return }
     if (!pickupDate) { setFormError('La fecha de retiro es obligatoria.'); return }
+    if (showStoreFilter && !form.storeId) { setFormError('Seleccioná un local para el pedido.'); return }
     if (pickupDate < todayDateStr()) { setFormError('La fecha de retiro no puede ser anterior a hoy.'); return }
     if (form.timeSlot === 'specific' && !form.pickupTime) {
       setFormError('Ingresá el horario específico de retiro.'); return
@@ -328,6 +337,8 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           notes: form.notes.trim() || undefined,
           depositAmount: total > 0 ? total : undefined,
           depositPayments: total > 0 ? form.depositPayments : undefined,
+          // Admin puede especificar un local diferente al de sesión
+          storeId: showStoreFilter && form.storeId ? form.storeId : undefined,
         }
         const r = await window.hw.createOrder(payload)
         if (!r.ok) { setFormError(r.error); setSaving(false); return }
@@ -488,6 +499,22 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
             </div>
 
             <div className="px-5 py-4 space-y-4">
+              {/* Selector de local — solo admin desde hub */}
+              {showStoreFilter && !editingOrder && availableStores.length > 0 && (
+                <Field label="Local *">
+                  <select
+                    value={form.storeId}
+                    onChange={e => setForm(f => ({ ...f, storeId: e.target.value }))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">— Seleccioná un local —</option>
+                    {availableStores.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+
               {/* Prioritario */}
               <label className="flex items-center gap-3 cursor-pointer select-none">
                 <input
@@ -704,7 +731,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-400">Retiro</span>
-                <span className="text-white">{form.pickupDate}</span>
+                <span className="text-white">{formatYmd(form.pickupDate)}</span>
               </div>
               <div className="border-t border-zinc-700 pt-2 space-y-1">
                 <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Seña</p>

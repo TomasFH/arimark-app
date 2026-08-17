@@ -75,6 +75,8 @@ export const products = sqliteTable('products', {
   barcode: text('barcode'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
+  /** Última edición de ficha (nombre/PLU/categoría/unidad). Null = usar createdAt. */
+  updatedAt: text('updated_at'),
 })
 
 // ---------------------------------------------------------------------------
@@ -337,6 +339,12 @@ export const debtEvents = sqliteTable(
     // Fecha acordada de pago — solo se usa en eventos 'created'. UTC ISO 8601.
     dueDate: text('due_date'),
     notes: text('notes'),
+    /** Medio de cobro — solo en eventos de pago (partial_payment / paid). */
+    paymentMethod: text('payment_method', {
+      enum: ['cash', 'debit', 'wallet', 'credit'],
+    }),
+    /** Turno en el que se cobró. Null si el admin cobra sin caja abierta. */
+    shiftId: text('shift_id').references(() => shifts.id),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -346,6 +354,7 @@ export const debtEvents = sqliteTable(
   table => [
     index('idx_debt_events_customer').on(table.customerId, table.createdAt),
     index('idx_debt_events_sale').on(table.saleId, table.createdAt),
+    index('idx_debt_events_shift').on(table.shiftId),
   ]
 )
 

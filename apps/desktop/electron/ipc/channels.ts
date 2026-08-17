@@ -23,6 +23,7 @@ export const IPC = {
   OPEN_SHIFT: 'ipc:open-shift',
   GET_SHIFT_SUMMARY: 'ipc:get-shift-summary',
   CLOSE_SHIFT: 'ipc:close-shift',
+  FORCE_CLOSE_OPEN_SHIFT: 'ipc:force-close-open-shift',
   SHIFT_INACTIVITY_WARNING: 'ipc:shift-inactivity-warning',   // push main → renderer
   DISMISS_INACTIVITY_WARNING: 'ipc:dismiss-inactivity-warning',
 
@@ -37,6 +38,8 @@ export const IPC = {
   SET_PRODUCT_AVAILABILITY: 'ipc:set-product-availability',
   GET_STORES: 'ipc:get-stores',
   GET_PRODUCT_PRICE_HISTORY: 'ipc:get-product-price-history',
+  LIST_CATALOG_REVISIONS: 'ipc:list-catalog-revisions',
+  RESTORE_CATALOG_REVISION: 'ipc:restore-catalog-revision',
 
   // ABM de cajeras (solo admins)
   LIST_CASHIERS: 'ipc:list-cashiers',

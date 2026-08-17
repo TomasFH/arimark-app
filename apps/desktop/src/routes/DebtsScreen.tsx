@@ -13,6 +13,13 @@ import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
 import StoreFilter from '../components/StoreFilter'
 
+const PAYMENT_METHOD_LABELS: Record<NonNullable<DebtEventRow['paymentMethod']>, string> = {
+  cash: 'Efectivo',
+  debit: 'Débito',
+  wallet: 'Billetera Virtual',
+  credit: 'Crédito',
+}
+
 // ---------------------------------------------------------------------------
 // Sub-componente: ledger de eventos de un cliente
 // ---------------------------------------------------------------------------
@@ -41,6 +48,11 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
             <span className={`font-medium ${eventColors[e.eventType]}`}>
               {eventLabels[e.eventType]}
             </span>
+            {e.paymentMethod && (
+              <span className="ml-1.5 text-zinc-500">
+                · {PAYMENT_METHOD_LABELS[e.paymentMethod]}
+              </span>
+            )}
             {e.notes && (
               <span className="ml-1.5 text-zinc-500 truncate">— {e.notes}</span>
             )}
@@ -152,7 +164,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
 
 interface PaymentModalProps {
   summary: CustomerDebtSummary
-  onConfirm: (amount: number, notes?: string) => void
+  onConfirm: (amount: number, paymentMethod: NonNullable<DebtEventRow['paymentMethod']>, notes?: string) => void
   onClose: () => void
   loading: boolean
   error: string | null
@@ -161,9 +173,10 @@ interface PaymentModalProps {
 function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: PaymentModalProps) {
   const [amountRaw, setAmountRaw] = useState(formatIntegerWithDots(String(Math.round(summary.balance))))
   const [notes, setNotes] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<NonNullable<DebtEventRow['paymentMethod']> | null>(null)
 
   const amount = parseNumericInput(amountRaw) ?? 0
-  const isValid = amount > 0 && amount <= summary.balance + 0.01
+  const isValid = amount > 0 && amount <= summary.balance + 0.01 && paymentMethod !== null
 
   return (
     <div
@@ -173,7 +186,7 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
       <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-6 space-y-4">
         <div>
           <h3 className="text-sm font-semibold text-zinc-300">Registrar pago</h3>
-          <p className="text-lg font-bold text-white">{summary.customerName}</p>
+          <p className="text-lg font-bold text-white truncate" title={summary.customerName}>{summary.customerName}</p>
           <p className="text-xs text-zinc-500">Saldo: {formatARS(summary.balance)}</p>
         </div>
 
@@ -185,15 +198,35 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
               value={amountRaw}
               onChange={setAmountRaw}
               autoFocus
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2.5 text-white focus:border-amber-500 focus:outline-none"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2.5 text-white focus:border-zinc-500 focus:outline-none"
             />
           </div>
           <button
             onClick={() => setAmountRaw(formatIntegerWithDots(String(Math.round(summary.balance))))}
-            className="mt-1 text-xs text-amber-500 hover:text-amber-300 transition-colors"
+            className="mt-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             Paga el total · {formatARS(summary.balance)}
           </button>
+        </div>
+
+        <div>
+          <p className="block text-xs text-zinc-400 mb-1.5">Medio de pago *</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['cash', 'debit', 'wallet', 'credit'] as const).map(method => (
+              <button
+                key={method}
+                type="button"
+                onClick={() => setPaymentMethod(method)}
+                className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                  paymentMethod === method
+                    ? 'border-zinc-400 bg-zinc-700 text-white'
+                    : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-white'
+                }`}
+              >
+                {PAYMENT_METHOD_LABELS[method]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div>
@@ -203,7 +236,8 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="ej. pagó mitad en efectivo…"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
+            maxLength={500}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
           />
         </div>
 
@@ -214,9 +248,12 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
             Cancelar
           </button>
           <button
-            onClick={() => onConfirm(amount, notes.trim() || undefined)}
+            onClick={() => {
+              if (!paymentMethod) return
+              onConfirm(amount, paymentMethod, notes.trim() || undefined)
+            }}
             disabled={!isValid || loading}
-            className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-bold text-white hover:bg-green-500 transition-colors disabled:opacity-40"
+            className="flex-1 rounded-lg bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition-colors disabled:opacity-40"
           >
             {loading ? 'Registrando...' : 'Confirmar'}
           </button>
@@ -273,11 +310,21 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
 
   useEffect(() => { loadDebts() }, [loadDebts])
 
-  async function handlePayment(amount: number, notes?: string) {
+  async function handlePayment(
+    amount: number,
+    paymentMethod: NonNullable<DebtEventRow['paymentMethod']>,
+    notes?: string,
+  ) {
     if (!payTarget) return
     setPayLoading(true)
     setPayError(null)
-    const res = await window.hw.addDebtPayment({ customerId: payTarget.customerId, amount, notes })
+    const res = await window.hw.addDebtPayment({
+      customerId: payTarget.customerId,
+      amount,
+      paymentMethod,
+      notes,
+      storeId: isAdmin ? storeIdFilter : undefined,
+    })
     setPayLoading(false)
     if (!res.ok) {
       setPayError(res.error ?? 'Error al registrar el pago.')
@@ -291,7 +338,10 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
     if (!cancelTarget) return
     setCancelLoading(true)
     setCancelError(null)
-    const res = await window.hw.cancelDebt({ customerId: cancelTarget.customerId })
+    const res = await window.hw.cancelDebt({
+      customerId: cancelTarget.customerId,
+      storeId: isAdmin ? storeIdFilter : undefined,
+    })
     setCancelLoading(false)
     if (!res.ok) {
       setCancelError(res.error ?? 'Error al cancelar la deuda.')

@@ -65,6 +65,16 @@ export function todayLocalYmd(): string {
 }
 
 /**
+ * Convierte una fecha de calendario YYYY-MM-DD a dd/mm/aaaa.
+ * No usa timezone: es un día civil, no un instante.
+ */
+export function formatYmd(yyyyMmDd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd)
+  if (!m) return yyyyMmDd
+  return `${m[3]}/${m[2]}/${m[1]}`
+}
+
+/**
  * Suma (o resta) días a una fecha YYYY-MM-DD de calendario (sin timezone).
  */
 export function addDaysYmd(yyyyMmDd: string, days: number): string {

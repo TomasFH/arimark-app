@@ -357,6 +357,78 @@ Hay carniceros (y cajeras) que suelen trabajar en un local, pero a veces van al 
 
 ---
 
+## BLOQUE I — Catálogo en vivo + edición por cajera (PENDIENTE — no implementar aún)
+
+> **Estado:** Decisiones 15–16 ago 2026. **No implementar** hasta que el desarrollador lo pida.
+> El **merge por ítem** del catálogo ya está en código (`catalogSync.ts`). Falta el **listener en vivo** y, aparte, la edición por cajera (más abajo).
+
+### Problema
+Hoy el catálogo se publica a Firestore al guardar (con merge), pero el resto de PCs y el celular **no reciben el cambio en vivo** (hace falta ↺ o re-login). Empleados/locales/pedidos sí tienen `onSnapshot`. Las cajeras no tienen pantalla de catálogo.
+
+### A — Listener en vivo (prioridad; se puede hacer sin la parte B)
+
+**Decisión (16 ago 2026):** el catálogo debe actualizarse en otras PCs/celular **igual que un empleado** (sin depender del ↺), quedando en el **plan gratis de Firebase (Spark)**. Costo objetivo: **$0**. No activar Blaze “por las dudas”.
+
+**Comportamiento**
+- `onSnapshot` del doc `licenses/{tenant}/catalog/{storeId}` (un documento por local, no una lectura por producto).
+- Al llegar un cambio: **merge** con SQLite (altas se unen, gana el dato más nuevo por ítem, bajas globales se propagan) y **republicar** el union si hace falta — **no** pisar con un snapshot incompleto.
+- Aviso IPC al renderer: POS, lista de productos y carga manual **releen** el catálogo.
+- **POS:** no cambiar precio/nombre de ítems **ya en el ticket**. Solo lista / altas nuevas / siguiente escaneo.
+- Celular: el mismo doc; al reconectar o con listener si hay red. Sigue sin panel de edición.
+- El ↺ queda como respaldo (sin internet, listener caído, o para forzar).
+
+**Cuota — no preocuparse de antemano; medir en jornada real**
+Cuando la app esté en uso real (varios días de caja), el desarrollador mira el consumo. Un día típico de esta escala debería ir por **cientos / pocos miles** de lecturas, lejos de las **50.000/día** del Spark. Si un día se llega cerca de ese techo, ahí sí hablar; Spark **no cobra**, corta el sync hasta el día siguiente.
+
+**Cómo ver el consumo (recordárselo al desarrollador al implementar / al primer deploy real):**
+1. [Firebase Console](https://console.firebase.google.com) → proyecto `arimark-7f418` (o el que esté en uso).
+2. Menú **Usage and billing** (o el proyecto → **Usage**). Ahí está el resumen del día: lecturas / escrituras Firestore vs cupo gratis.
+3. Más fino: **Build → Firestore Database → pestaña Usage** (gráfica de reads/writes/deletes por día).
+4. Qué mirar: lecturas de **un día de caja abierto** (no un domingo de pruebas). Si estás en ~1–5 % de 50.000, ignorar. Si un día saltás a decenas de miles, revisar listeners de colecciones grandes (no el catálogo: es 1 doc).
+5. Confirmar que el plan siga en **Spark (no Blaze)** en Configuración del proyecto → **Uso y facturación**. Si aparece Blaze y hay tarjeta, ahí sí puede haber cargo al pasarse del cupo.
+
+**No hacer en A:** activar facturación; listener de ventas/historial completo; sync automático a la KRETZ.
+
+### B — Edición por cajera (mismo bloque, no mezclar con A)
+
+Hoy solo el admin tiene pantalla de catálogo. Las cajeras no pueden ajustar precios ni productos si el admin está ocupado.
+
+**Fuente de verdad tras un guardado confirmado:** se publica (con merge) el local afectado. El resto lo recibe por el listener de A.
+
+**Quién edita**
+- **Admin y cajera** pueden crear productos, editar nombre/categoría/unidad/PLU, y cambiar precios.
+- Edición de catálogo en **PC**. El celular **recibe** la lista actualizada; no tiene panel de edición.
+- Cajera: precio (y “borrar” de lista, ver abajo) solo del **local en el que está operando**.
+- Admin: puede cambiar precios de **cualquier** local.
+
+**Qué es global vs por local**
+- **Global (una sola ficha):** nombre, PLU, categoría, unidad, alta. Baja **global** (liberar PLU) = solo admin.
+- **Por local:** precio vigente y visibilidad (`store_products`). “Borrar” de cajera = ocultar en **ese** local, no `products.active = false`.
+
+**Auditoría (entra en B, no es extra futuro)**
+- Precios: ya hay historial por local (`product_prices` + `createdBy`).
+- Alta / edición de ficha / “quitar de este local” / retiro global: registrar quién, qué y cuándo.
+
+**Fuera de este bloque (anotado para más adelante)**
+- Backup / rollback de catálogo o lote masivo de precios (**FEAT-CAT-03**). **No implementar ahora.**
+- La balanza KRETZ **no** se actualiza sola; sigue “Cargar en balanza”.
+
+### Diseño técnico (cuando se implemente A)
+- Listener `onSnapshot` del doc de catálogo por local (mismo patrón que stores/providers/employees).
+- Reutilizar `syncCatalogWithFirestore` / merge; **no** volver a “Firestore pisa SQLite”.
+- IPC push al renderer para recargar lista sin ↺.
+- Tests: snapshot nuevo aplica merge; PC con lista corta no borra altas locales; UI recibe aviso.
+
+### No hacer
+- Soft-delete global (`active=false`) cuando una cajera “borra” (parte B).
+- Listener que pise un guardado local que **aún no** se publicó.
+- Edición de catálogo en la app móvil.
+- Rollback / backup de precios masivos.
+- Sync automático a la KRETZ.
+- Plan Blaze “por si acaso”.
+
+---
+
 ## Orden recomendado de ejecución
 
 Para maximizar valor entregable en orden:
@@ -367,8 +439,8 @@ Para maximizar valor entregable en orden:
 4. ~~D1–D8~~ ✅ código; **pendiente checklist manual** (`CHECKLIST_TEST_V1.md`)
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
-7. **Ahora:** completar checklist en local real — no abrir H todavía
-8. **Después del testeo:** BLOQUE H (local habitual / visitante)
+7. **Ahora:** completar checklist en local real — no abrir H ni I todavía
+8. **Después del testeo / cuando el desarrollador lo pida:** BLOQUE H (local habitual). BLOQUE I-A (listener catálogo en vivo, Spark $0) y I-B (edición cajera). Al implementar I-A, recordar cómo ver Usage en Firebase Console (instrucciones en el bloque).
 
 ---
 

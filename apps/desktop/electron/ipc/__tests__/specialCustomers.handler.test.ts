@@ -87,7 +87,8 @@ describe('specialCustomers.handler', () => {
       const handler = getHandler('ipc:create-special-customer')
       const res = handler(null, { name: 'Local Uno', storeId: 'store-001' }) as { ok: boolean; data: { storeId: string | null } }
       expect(res.ok).toBe(true)
-      expect(res.data.storeId).toBe('store-001')
+      // storeId del payload se ignora: el cliente es siempre global
+      expect(res.data.storeId).toBeNull()
     })
 
     it('rechaza payload inválido', () => {
@@ -117,9 +118,8 @@ describe('specialCustomers.handler', () => {
       expect(res.data).toHaveLength(0)
     })
 
-    it('devuelve solo los del local activo', () => {
+    it('devuelve todos los clientes especiales, sin filtrar por local', () => {
       const now = new Date().toISOString()
-      // Insertar uno en otro local — no debe aparecer
       db.insert(stores).values({ id: 'store-999', name: 'Otro', address: 'x', createdAt: now }).run()
       db.insert(specialCustomers).values({
         id: SC_ID, storeId: 'store-001', name: 'Carlos', createdAt: now, createdBy: 'user-001',
@@ -131,8 +131,8 @@ describe('specialCustomers.handler', () => {
       const handler = getHandler('ipc:list-special-customers')
       const res = handler(null) as { ok: boolean; data: Array<{ name: string }> }
       expect(res.ok).toBe(true)
-      expect(res.data).toHaveLength(1)
-      expect(res.data[0].name).toBe('Carlos')
+      expect(res.data).toHaveLength(2)
+      expect(res.data.map(c => c.name).sort()).toEqual(['Carlos', 'Otro local'])
     })
 
     it('clientes sin local asignado (storeId null) aparecen en todos los locales', () => {
@@ -148,12 +148,10 @@ describe('specialCustomers.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:list-special-customers')
-      // Admin sin filtro → effectiveStoreId = 'store-001'; cliente universal debe aparecer
       const res = handler(null) as { ok: boolean; data: Array<{ name: string; storeId: string | null }> }
       expect(res.ok).toBe(true)
-      expect(res.data).toHaveLength(1)
-      expect(res.data[0].name).toBe('Universal')
-      expect(res.data[0].storeId).toBeNull()
+      expect(res.data).toHaveLength(2)
+      expect(res.data.map(c => c.name).sort()).toEqual(['Solo otro local', 'Universal'])
     })
 
     it('cajeras también pueden listar (solo lectura)', () => {

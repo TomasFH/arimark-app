@@ -296,7 +296,7 @@ Flujo implementado:
 
 - **Login offline por PIN**: tras el primer login exitoso, la app pide configurar un PIN (4-6 dígitos, hash PBKDF2-SHA256 en IndexedDB). Si `signInWithEmailAndPassword` falla por error de red, se ofrece ingresar con PIN reconstruyendo la sesión desde el perfil cacheado localmente. El PIN es específico del dispositivo.
 - **POS completo en el celular**: flujo completo: login → selector de local (si hay más de uno) → abrir turno → POS (escanear por cámara, entrada manual, cobro multi-medio) → cerrar turno. Ventas guardadas en IndexedDB con UUIDs generados en el dispositivo.
-- **Catálogo publicado por la PC**: al loguear una cajera, la PC publica el catálogo vigente del local a `licenses/{key}/catalog/{storeId}` en Firestore. El celular lo descarga y cachea en IndexedDB. El POS resuelve nombre y precio por PLU desde ese cache (funciona sin internet).
+- **Catálogo publicado por la PC**: al guardar / merge, la PC publica el catálogo del local a `licenses/{key}/catalog/{storeId}`. El celular lo descarga y cachea en IndexedDB. **En vivo (PENDIENTE, BLOQUE I-A):** `onSnapshot` de ese doc, mismo patrón que empleados; sin ↺. Hasta entonces: login, elegir local o ↺. Plan Firebase: **Spark ($0)**; medir lecturas en jornada real (ver TASKS_V1 BLOQUE I).
 - **Motor de sync idempotente**: cuando hay red + sesión Firebase válida, el celular sube turnos/ventas pendientes a `licenses/{key}/sync/{storeId}/shifts/{shiftId}` + subcolección `sales/{saleId}`. IDs UUID = reintentos seguros. Disparo automático: recuperar conexión, confirmar venta, reabrir app.
 - **Importación en la PC**: `mobileSync.ts` escucha con `onSnapshot` la colección de staging; por cada turno nuevo importa atómicamente a SQLite (turno + ventas + ítems + pagos) con `source='mobile'`. Idempotente: shiftId/saleId ya importado se omite. Marca el doc como `importedAt`.
 - **Migración 0006**: columna `source text default 'desktop'` en `shifts`. Los handlers `GET_ACTIVE_SHIFT` / `OPEN_SHIFT` filtran `source='desktop'` para no chocar con turnos móviles.
@@ -359,7 +359,8 @@ Entregado:
 - [x] Eliminación de usuario con doble confirmación; orphaned Firebase Auth users documentados como deuda técnica.
 
 Pendiente de largo plazo:
-- Auditoría de cambios de PLU (quién cambió qué y cuándo).
+- Auditoría de cambios de PLU (quién cambió qué y cuándo) — **supersedido en alcance** por TASKS_V1 BLOQUE I (ago 2026): catálogo en vivo, edición por cajera, “borrar” solo del local, auditoría de ficha + precios. No implementar hasta que el desarrollador lo pida.
+- Backup / rollback de edición masiva de precios: anotado en BLOQUE I, **no ahora**.
 
 **Cierre formal:**
 - [x] `pnpm run test` — suite en verde

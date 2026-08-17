@@ -9,7 +9,7 @@ import { setActiveSession } from '../activeSession'
 import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession, signInAutoDetect } from '../licensing/session'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
-import { publishCatalog } from '../licensing/catalogPublish'
+import { syncCatalogWithFirestore, syncAllStoreCatalogs } from '../licensing/catalogSync'
 import { startMobileSyncListener, stopMobileSyncListener } from '../licensing/mobileSync'
 import {
   startProviderSyncListener,
@@ -178,6 +178,11 @@ export function registerAuthHandlers(): void {
         } catch (err) {
           log.warn('[ipc:login] ensureSpecialCustomersSynced (admin) falló (no bloqueante)', err)
         }
+        try {
+          await syncAllStoreCatalogs(adminConfig.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] syncAllStoreCatalogs (admin) falló (no bloqueante)', err)
+        }
         return {
           ok: true,
           data: {
@@ -290,9 +295,9 @@ export function registerAuthHandlers(): void {
 
       setActiveSession({ userId: profile.uid, storeId, role: 'cashier', shiftId: null, displayName: profile.displayName })
 
-      // Publicar catálogo a Firestore (para que la PWA móvil pueda descargarlo).
-      publishCatalog(config.tenant_id, storeId).catch(err =>
-        log.warn('[ipc:login-cashier] Error publicando catálogo', err)
+      // Publicar o bajar catálogo según qué copia esté vigente.
+      syncCatalogWithFirestore(config.tenant_id, storeId).catch(err =>
+        log.warn('[ipc:login-cashier] syncCatalogWithFirestore falló (no bloqueante)', err)
       )
 
       // Iniciar listener de importación de turnos móviles.
@@ -365,6 +370,12 @@ export function registerAuthHandlers(): void {
     const result = await loginAdmin(config.tenant_id, parsed.data.email, parsed.data.password)
     if (!result.ok) {
       return { ok: false, error: result.error }
+    }
+
+    try {
+      await syncAllStoreCatalogs(config.tenant_id)
+    } catch (err) {
+      log.warn('[ipc:login-admin] syncAllStoreCatalogs falló (no bloqueante)', err)
     }
 
     return {

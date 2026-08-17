@@ -51,13 +51,18 @@ const createDebtSchema = z.object({
 const addPaymentSchema = z.object({
   customerId: z.string().uuid(),
   amount: z.number().positive(),
+  paymentMethod: z.enum(['cash', 'debit', 'wallet', 'credit']),
   notes: z.string().max(500).optional(),
+  /** Admin: local destino, o 'all' para imputar en los locales con saldo. */
+  storeId: z.union([z.string().uuid(), z.literal('all')]).optional(),
 })
 
 const cancelDebtSchema = z.object({
   customerId: z.string().uuid(),
   saleId: z.string().uuid().optional(),
   notes: z.string().max(500).optional(),
+  /** Admin: local a cancelar, o 'all' para saldar todos los locales. */
+  storeId: z.union([z.string().uuid(), z.literal('all')]).optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -74,6 +79,7 @@ export type DebtEventRow = {
   amount: number
   dueDate: string | null
   notes: string | null
+  paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit' | null
   createdAt: string
   createdBy: string
 }
@@ -86,6 +92,25 @@ export type CustomerDebtSummary = {
   balance: number
   lastEventAt: string
   events: DebtEventRow[]
+}
+
+function remainingByStore(events: Array<{ storeId: string; amount: number }>): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const e of events) {
+    map.set(e.storeId, Math.round(((map.get(e.storeId) ?? 0) + e.amount) * 100) / 100)
+  }
+  return map
+}
+
+function resolveLedgerTarget(
+  session: { role: string; storeId: string },
+  payloadStoreId: string | undefined,
+): string | 'all' {
+  if (session.role === 'admin') {
+    if (!payloadStoreId || payloadStoreId === 'all') return 'all'
+    return payloadStoreId
+  }
+  return session.storeId
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +229,7 @@ export function registerDebtHandlers(): void {
           amount: result.debtAmount,
           dueDate: dueDate ?? null,
           notes: notes?.trim() ?? null,
+          paymentMethod: null,
           createdAt: result.now,
           createdBy: session.userId,
         },
@@ -244,6 +270,7 @@ export function registerDebtHandlers(): void {
           amount: debtEvents.amount,
           dueDate: debtEvents.dueDate,
           notes: debtEvents.notes,
+          paymentMethod: debtEvents.paymentMethod,
           createdAt: debtEvents.createdAt,
           createdBy: debtEvents.createdBy,
         })
@@ -294,6 +321,7 @@ export function registerDebtHandlers(): void {
           amount: event.amount,
           dueDate: event.dueDate ?? null,
           notes: event.notes ?? null,
+          paymentMethod: (event.paymentMethod as DebtEventRow['paymentMethod']) ?? null,
           createdAt: event.createdAt,
           createdBy: event.createdBy,
         })
@@ -304,7 +332,24 @@ export function registerDebtHandlers(): void {
       }
 
       // Solo devolver clientes con saldo > 0 (deudas activas)
-      const result = [...summaries.values()].filter(s => s.balance > 0)
+      let result = [...summaries.values()].filter(s => s.balance > 0.01)
+
+      // Vista por local: si el ledger global ya está en 0 (p. ej. cancelación
+      // escrita en otro storeId), no mostrar el cliente en esta pestaña.
+      if (effectiveStoreId !== null && result.length > 0) {
+        const ids = result.map(s => s.customerId)
+        const allForCustomers = db
+          .select({ customerId: debtEvents.customerId, amount: debtEvents.amount })
+          .from(debtEvents)
+          .where(inArray(debtEvents.customerId, ids))
+          .all()
+        const global = new Map<string, number>()
+        for (const e of allForCustomers) {
+          global.set(e.customerId, (global.get(e.customerId) ?? 0) + e.amount)
+        }
+        result = result.filter(s => (global.get(s.customerId) ?? 0) > 0.01)
+      }
+
       result.sort((a, b) => b.lastEventAt.localeCompare(a.lastEventAt))
 
       return { ok: true, data: result }
@@ -358,6 +403,7 @@ export function registerDebtHandlers(): void {
             amount: e.amount,
             dueDate: e.dueDate ?? null,
             notes: e.notes ?? null,
+            paymentMethod: (e.paymentMethod as DebtEventRow['paymentMethod']) ?? null,
             createdAt: e.createdAt,
             createdBy: e.createdBy,
           })),
@@ -380,7 +426,16 @@ export function registerDebtHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { customerId, amount, notes } = parsed.data
+    const { customerId, amount, notes, paymentMethod, storeId: payloadStoreId } = parsed.data
+    const target = resolveLedgerTarget(session, payloadStoreId)
+
+    if (paymentMethod === 'cash' && !session.shiftId && session.role !== 'admin') {
+      return {
+        ok: false,
+        error: 'Para registrar un cobro en efectivo necesitás un turno abierto.',
+        code: 'NO_SHIFT',
+      }
+    }
 
     try {
       const db = getDb()
@@ -388,55 +443,88 @@ export function registerDebtHandlers(): void {
       const customer = db.select().from(customers).where(eq(customers.id, customerId)).get()
       if (!customer) return { ok: false, error: 'Cliente no encontrado.', code: 'NOT_FOUND' }
 
-      // Verificar que el cliente tiene deuda activa
-      const events = db.select({ amount: debtEvents.amount }).from(debtEvents)
-        .where(eq(debtEvents.customerId, customerId)).all()
-      const currentBalance = events.reduce((acc, e) => acc + e.amount, 0)
-      if (currentBalance <= 0) {
+      const events = db
+        .select({ amount: debtEvents.amount, storeId: debtEvents.storeId, createdAt: debtEvents.createdAt })
+        .from(debtEvents)
+        .where(eq(debtEvents.customerId, customerId))
+        .all()
+      const remaining = remainingByStore(events)
+      const globalBalance = [...remaining.values()].reduce((a, b) => a + b, 0)
+
+      if (globalBalance <= 0) {
         return { ok: false, error: 'Este cliente no tiene deuda activa.', code: 'NO_DEBT' }
       }
-      if (amount > currentBalance + 0.01) {
-        return { ok: false, error: `El pago ($${amount}) supera la deuda actual ($${currentBalance}).`, code: 'OVERPAYMENT' }
+
+      const allocations: Array<{ storeId: string; amount: number }> = []
+      if (target === 'all') {
+        if (amount > globalBalance + 0.01) {
+          return { ok: false, error: `El pago ($${amount}) supera la deuda actual ($${globalBalance}).`, code: 'OVERPAYMENT' }
+        }
+        const storeOrder = [...remaining.entries()]
+          .filter(([, bal]) => bal > 0.01)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+        let left = amount
+        for (const [sid, bal] of storeOrder) {
+          if (left < 0.01) break
+          const take = Math.min(left, bal)
+          allocations.push({ storeId: sid, amount: take })
+          left = Math.round((left - take) * 100) / 100
+        }
+      } else {
+        const storeBal = remaining.get(target) ?? 0
+        if (storeBal <= 0.01) {
+          return { ok: false, error: 'Este cliente no tiene deuda activa en este local.', code: 'NO_DEBT' }
+        }
+        if (amount > storeBal + 0.01) {
+          return { ok: false, error: `El pago ($${amount}) supera la deuda de este local ($${storeBal}).`, code: 'OVERPAYMENT' }
+        }
+        allocations.push({ storeId: target, amount })
       }
 
-      const isFullPayment = Math.abs(amount - currentBalance) < 0.01
-      const eventType = isFullPayment ? 'paid' : 'partial_payment'
-
-      const eventId = uuidv4()
       const now = nowUtc()
+      const firstId = uuidv4()
+      const remainingAfter = Math.round((globalBalance - amount) * 100) / 100
+      const eventType = remainingAfter < 0.01 ? 'paid' : 'partial_payment'
 
-      db.insert(debtEvents)
-        .values({
-          id: eventId,
-          customerId,
-          saleId: null,
-          storeId: session.storeId,
-          eventType,
-          amount: -amount, // negativo = reduce la deuda
-          dueDate: null,
-          notes: notes?.trim() ?? null,
-          createdAt: now,
-          createdBy: session.userId,
-          syncedAt: null,
+      db.transaction(() => {
+        allocations.forEach((alloc, i) => {
+          db.insert(debtEvents)
+            .values({
+              id: i === 0 ? firstId : uuidv4(),
+              customerId,
+              saleId: null,
+              storeId: alloc.storeId,
+              eventType,
+              amount: -alloc.amount,
+              dueDate: null,
+              notes: notes?.trim() ?? null,
+              paymentMethod,
+              shiftId: session.shiftId ?? null,
+              createdAt: now,
+              createdBy: session.userId,
+              syncedAt: null,
+            })
+            .run()
         })
-        .run()
+      })
 
       scheduleCustomerDebtPush()
 
-      log.info('[ipc:add-debt-payment] Pago registrado', { customerId, amount, eventType })
+      log.info('[ipc:add-debt-payment] Pago registrado', { customerId, amount, eventType, paymentMethod, target })
 
       return {
         ok: true,
         data: {
-          id: eventId,
+          id: firstId,
           customerId,
           customerName: customer.name,
           saleId: null,
-          storeId: session.storeId,
+          storeId: allocations[0]!.storeId,
           eventType,
           amount: -amount,
           dueDate: null,
           notes: notes?.trim() ?? null,
+          paymentMethod,
           createdAt: now,
           createdBy: session.userId,
         },
@@ -457,7 +545,8 @@ export function registerDebtHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { customerId, saleId, notes } = parsed.data
+    const { customerId, saleId, notes, storeId: payloadStoreId } = parsed.data
+    const target = resolveLedgerTarget(session, payloadStoreId)
 
     try {
       const db = getDb()
@@ -465,32 +554,46 @@ export function registerDebtHandlers(): void {
       const customer = db.select().from(customers).where(eq(customers.id, customerId)).get()
       if (!customer) return { ok: false, error: 'Cliente no encontrado.', code: 'NOT_FOUND' }
 
-      const allEvents = db.select({ amount: debtEvents.amount }).from(debtEvents)
-        .where(eq(debtEvents.customerId, customerId)).all()
-      const currentBalance = allEvents.reduce((acc, e) => acc + e.amount, 0)
-      if (currentBalance <= 0) {
+      const allEvents = db
+        .select({ amount: debtEvents.amount, storeId: debtEvents.storeId })
+        .from(debtEvents)
+        .where(eq(debtEvents.customerId, customerId))
+        .all()
+      const remaining = remainingByStore(allEvents)
+
+      const targets: Array<{ storeId: string; amount: number }> =
+        target === 'all'
+          ? [...remaining.entries()].filter(([, bal]) => bal > 0.01).map(([sid, amount]) => ({ storeId: sid, amount }))
+          : ((remaining.get(target) ?? 0) > 0.01 ? [{ storeId: target, amount: remaining.get(target)! }] : [])
+
+      if (targets.length === 0) {
         return { ok: false, error: 'Este cliente no tiene deuda activa.', code: 'NO_DEBT' }
       }
 
-      db.insert(debtEvents)
-        .values({
-          id: uuidv4(),
-          customerId,
-          saleId: saleId ?? null,
-          storeId: session.storeId,
-          eventType: 'cancelled',
-          amount: -currentBalance, // cancela el saldo total
-          dueDate: null,
-          notes: notes?.trim() ?? 'Deuda cancelada por administrador.',
-          createdAt: nowUtc(),
-          createdBy: session.userId,
-          syncedAt: null,
-        })
-        .run()
+      const now = nowUtc()
+      db.transaction(() => {
+        for (const t of targets) {
+          db.insert(debtEvents)
+            .values({
+              id: uuidv4(),
+              customerId,
+              saleId: saleId ?? null,
+              storeId: t.storeId,
+              eventType: 'cancelled',
+              amount: -t.amount,
+              dueDate: null,
+              notes: notes?.trim() ?? 'Deuda cancelada por administrador.',
+              createdAt: now,
+              createdBy: session.userId,
+              syncedAt: null,
+            })
+            .run()
+        }
+      })
 
       scheduleCustomerDebtPush()
 
-      log.info('[ipc:cancel-debt] Deuda cancelada', { customerId, balance: currentBalance })
+      log.info('[ipc:cancel-debt] Deuda cancelada', { customerId, target, stores: targets.length })
       return { ok: true, data: undefined }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

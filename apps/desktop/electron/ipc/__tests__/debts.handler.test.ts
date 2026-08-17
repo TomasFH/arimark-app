@@ -202,6 +202,30 @@ describe('debts.handler', () => {
       expect(result.ok).toBe(true)
       expect(result.data).toHaveLength(0)
     })
+
+    it('no muestra en un local una deuda ya saldada en el ledger global', () => {
+      const now = new Date().toISOString()
+      const STORE_2 = 'store-002'
+      db.insert(stores).values({ id: STORE_2, name: 'Local 2', createdAt: now }).run()
+      db.insert(customers).values({
+        id: CUST_ID, storeId: STORE_2, name: 'Tomas Holgado',
+        active: true, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values([
+        { id: 'de-g-001', customerId: CUST_ID, saleId: SALE_ID, storeId: STORE_2, eventType: 'created', amount: 28000, createdAt: now, createdBy: 'user-001' },
+        { id: 'de-g-002', customerId: CUST_ID, saleId: null, storeId: 'store-001', eventType: 'cancelled', amount: -28000, createdAt: now, createdBy: 'user-001' },
+      ]).run()
+
+      vi.mocked(getActiveSession).mockReturnValue({
+        userId: 'user-001', storeId: 'store-001', role: 'admin', shiftId: undefined,
+      } as unknown as ReturnType<typeof getActiveSession>)
+
+      const handler = getHandler('ipc:get-debts')
+      const allTab = handler(null, { storeIdFilter: 'all' }) as { ok: boolean; data: unknown[] }
+      const store2Tab = handler(null, { storeIdFilter: STORE_2 }) as { ok: boolean; data: unknown[] }
+      expect(allTab.data).toHaveLength(0)
+      expect(store2Tab.data).toHaveLength(0)
+    })
   })
 
   // ---------------------------------------------------------------------------
@@ -223,26 +247,28 @@ describe('debts.handler', () => {
 
     it('registra pago parcial', () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000 }) as {
-        ok: boolean; data: { eventType: string; amount: number }
+      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as {
+        ok: boolean; data: { eventType: string; amount: number; paymentMethod: string }
       }
       expect(result.ok).toBe(true)
       expect(result.data.eventType).toBe('partial_payment')
       expect(result.data.amount).toBe(-5000)
+      expect(result.data.paymentMethod).toBe('cash')
     })
 
     it('registra pago total y devuelve eventType=paid', () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 20000 }) as {
-        ok: boolean; data: { eventType: string }
+      const result = handler(null, { customerId: CUST_PAY_ID, amount: 20000, paymentMethod: 'debit' }) as {
+        ok: boolean; data: { eventType: string; paymentMethod: string }
       }
       expect(result.ok).toBe(true)
       expect(result.data.eventType).toBe('paid')
+      expect(result.data.paymentMethod).toBe('debit')
     })
 
     it('rechaza pago mayor al saldo', () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 99999 }) as { ok: boolean; code: string }
+      const result = handler(null, { customerId: CUST_PAY_ID, amount: 99999, paymentMethod: 'cash' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('OVERPAYMENT')
     })
@@ -254,9 +280,35 @@ describe('debts.handler', () => {
         active: true, createdAt: now, createdBy: 'user-001',
       }).run()
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_NO_DEBT_ID, amount: 5000 }) as { ok: boolean; code: string }
+      const result = handler(null, { customerId: CUST_NO_DEBT_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NO_DEBT')
+    })
+
+    it('rechaza payload sin medio de pago', () => {
+      const handler = getHandler('ipc:add-debt-payment')
+      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000 }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('asocia el cobro en efectivo al turno activo', () => {
+      const handler = getHandler('ipc:add-debt-payment')
+      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      const row = db.select().from(debtEvents).where(eq(debtEvents.eventType, 'partial_payment')).all()[0]
+      expect(row?.paymentMethod).toBe('cash')
+      expect(row?.shiftId).toBe('shift-001')
+    })
+
+    it('cajera sin turno no puede cobrar en efectivo', () => {
+      vi.mocked(getActiveSession).mockReturnValue({
+        userId: 'user-001', storeId: 'store-001', role: 'cashier', shiftId: null,
+      } as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:add-debt-payment')
+      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SHIFT')
     })
   })
 
@@ -316,6 +368,34 @@ describe('debts.handler', () => {
       const amounts = db.select({ amount: debtEvents.amount }).from(debtEvents)
         .where(eq(debtEvents.customerId, CUST_ID)).all()
       expect(amounts.map(event => event.amount)).toEqual([15000, -15000])
+    })
+
+    it('admin desde Todos cancela el saldo en el local donde vive la deuda', () => {
+      const now = new Date().toISOString()
+      const STORE_2 = 'store-002'
+      db.insert(stores).values({ id: STORE_2, name: 'Local 2', createdAt: now }).run()
+      db.insert(customers).values({
+        id: CUST_ID, storeId: STORE_2, name: 'Tomas Holgado',
+        active: true, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values({
+        id: 'de-cross-001', customerId: CUST_ID, saleId: SALE_ID, storeId: STORE_2,
+        eventType: 'created', amount: 28000, createdAt: now, createdBy: 'user-001',
+      }).run()
+
+      vi.mocked(getActiveSession).mockReturnValue({
+        userId: 'user-001', storeId: 'store-001', role: 'admin', shiftId: undefined,
+      } as unknown as ReturnType<typeof getActiveSession>)
+
+      const cancel = getHandler('ipc:cancel-debt')
+      const cancelled = cancel(null, { customerId: CUST_ID, storeId: 'all' }) as { ok: boolean }
+      expect(cancelled.ok).toBe(true)
+
+      const list = getHandler('ipc:get-debts')
+      const allTab = list(null, { storeIdFilter: 'all' }) as { ok: boolean; data: unknown[] }
+      const store2Tab = list(null, { storeIdFilter: STORE_2 }) as { ok: boolean; data: unknown[] }
+      expect(allTab.data).toHaveLength(0)
+      expect(store2Tab.data).toHaveLength(0)
     })
   })
 

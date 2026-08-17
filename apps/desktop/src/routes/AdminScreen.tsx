@@ -8,7 +8,7 @@
  *  - Historial de precios por producto (auditoría)
  *  - Carga masiva del catálogo a la balanza KRETZ
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import KretzSyncModal from '../components/KretzSyncModal'
@@ -20,6 +20,7 @@ import type {
   UpdateProductPayload,
   PriceHistoryRow,
   SessionInfo,
+  CatalogRevisionRow,
 } from '../types/hw-api'
 
 const CATEGORIES: { value: AdminProductRow['category']; label: string }[] = [
@@ -74,8 +75,10 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   const [priceProduct, setPriceProduct] = useState<AdminProductRow | null>(null)
   const [showSync, setShowSync] = useState(false)
   const [historyProduct, setHistoryProduct] = useState<AdminProductRow | null>(null)
-  const [deleteProduct, setDeleteProduct] = useState<AdminProductRow | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  
+  const [showRevisions, setShowRevisions] = useState(false)
+  const [globalDeleteProduct, setGlobalDeleteProduct] = useState<AdminProductRow | null>(null)
+  const [globalDeleting, setGlobalDeleting] = useState(false)
 
   // Edición masiva
   const [bulkMode, setBulkMode] = useState(false)
@@ -85,6 +88,7 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
 
   // Filtro
   const [filterText, setFilterText] = useState('')
+  const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     window.hw.getStores().then(r => {
@@ -95,14 +99,20 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
     })
   }, [])
 
-  const loadProducts = useCallback(async (storeId: string) => {
+  const loadProducts = useCallback(async (storeId: string, opts?: { silent?: boolean }) => {
     if (!storeId) return
-    setLoading(true)
+    const scrollTop = opts?.silent ? (listRef.current?.scrollTop ?? 0) : null
+    if (!opts?.silent) setLoading(true)
     setError(null)
     const r = await window.hw.getAllProducts(storeId)
     if (r.ok) setProducts(r.data)
     else setError(r.error)
-    setLoading(false)
+    if (!opts?.silent) setLoading(false)
+    if (scrollTop !== null) {
+      requestAnimationFrame(() => {
+        if (listRef.current) listRef.current.scrollTop = scrollTop
+      })
+    }
   }, [])
 
   useEffect(() => {
@@ -118,24 +128,31 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   })
 
   async function handleToggleAvailability(p: AdminProductRow) {
-    const r = await window.hw.setProductAvailability({ productId: p.id, storeId: selectedStoreId, available: !p.available })
-    if (r.ok) void loadProducts(selectedStoreId)
-    else setError(r.error)
+    const next = !p.available
+    setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: next } : x))
+    const r = await window.hw.setProductAvailability({ productId: p.id, storeId: selectedStoreId, available: next })
+    if (!r.ok) {
+      setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: p.available } : x))
+      setError(r.error)
+    }
   }
 
-  /** Soft-delete: oculta el producto y libera su PLU (no borra historial/FK). */
-  async function confirmSoftDelete() {
-    if (!deleteProduct) return
-    setDeleting(true)
-    const r = await window.hw.updateProduct({ id: deleteProduct.id, active: false, pluNumber: null })
-    setDeleting(false)
+  /** Baja global: el producto deja de existir en el catálogo y libera el PLU. */
+  async function confirmGlobalDelete() {
+    if (!globalDeleteProduct) return
+    setGlobalDeleting(true)
+    const r = await window.hw.updateProduct({ id: globalDeleteProduct.id, active: false, pluNumber: null })
+    setGlobalDeleting(false)
     if (r.ok) {
-      setDeleteProduct(null)
-      void loadProducts(selectedStoreId)
+      setGlobalDeleteProduct(null)
+      setEditProduct(null)
+      void loadProducts(selectedStoreId, { silent: true })
     } else {
       setError(r.error)
     }
   }
+
+  
 
   // ---- Edición masiva ----
 
@@ -168,7 +185,7 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
     setBulkMode(false)
     setBulkDraft(new Map())
     if (failed > 0) setError(`${failed} precio(s) no se pudieron guardar.`)
-    void loadProducts(selectedStoreId)
+    void loadProducts(selectedStoreId, { silent: true })
   }
 
   const pendingChanges = [...bulkDraft.entries()].filter(([productId, raw]) => {
@@ -247,6 +264,13 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
         ) : (
           <>
             <button
+              onClick={() => setShowRevisions(true)}
+              className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              title="Restaurar una versión anterior del catálogo publicado"
+            >
+              Versiones
+            </button>
+            <button
               onClick={() => { setBulkMode(true); setBulkDraft(new Map()) }}
               className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               title="Editar varios precios de una vez"
@@ -283,7 +307,7 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       )}
 
       {/* Tabla */}
-      <div className="flex-1 overflow-auto px-6 py-3">
+      <div ref={listRef} className="flex-1 overflow-auto px-6 py-3">
         {loading ? (
                   <div className="flex items-center justify-center h-40">
             <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
@@ -365,14 +389,6 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                           >
                             Editar
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteProduct(p)}
-                            className="text-xs px-2 py-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-950/40 transition-colors"
-                            title="Quitar del catálogo y liberar el PLU"
-                          >
-                            Eliminar
-                          </button>
                         </div>
                       )}
                     </td>
@@ -386,13 +402,20 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
 
       {/* Modales */}
       {showCreate && (
-        <ProductFormModal storeId={selectedStoreId} stores={stores} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); void loadProducts(selectedStoreId) }} />
+        <ProductFormModal storeId={selectedStoreId} stores={stores} onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); void loadProducts(selectedStoreId, { silent: true }) }} />
       )}
       {editProduct && (
-        <ProductFormModal storeId={selectedStoreId} stores={stores} product={editProduct} onClose={() => setEditProduct(null)} onSaved={() => { setEditProduct(null); void loadProducts(selectedStoreId) }} />
+        <ProductFormModal
+          storeId={selectedStoreId}
+          stores={stores}
+          product={editProduct}
+          onClose={() => setEditProduct(null)}
+          onSaved={() => { setEditProduct(null); void loadProducts(selectedStoreId, { silent: true }) }}
+          onRequestGlobalDelete={() => setGlobalDeleteProduct(editProduct)}
+        />
       )}
       {priceProduct && (
-        <PriceModal product={priceProduct} storeId={selectedStoreId} onClose={() => setPriceProduct(null)} onSaved={() => { setPriceProduct(null); void loadProducts(selectedStoreId) }} />
+        <PriceModal product={priceProduct} storeId={selectedStoreId} onClose={() => setPriceProduct(null)} onSaved={() => { setPriceProduct(null); void loadProducts(selectedStoreId, { silent: true }) }} />
       )}
       {showSync && (
         <KretzSyncModal storeId={selectedStoreId} store={stores.find(s => s.id === selectedStoreId)} onClose={() => setShowSync(false)} />
@@ -400,12 +423,20 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       {historyProduct && (
         <PriceHistoryModal product={historyProduct} storeId={selectedStoreId} onClose={() => setHistoryProduct(null)} />
       )}
-      {deleteProduct && (
-        <DeleteProductModal
-          product={deleteProduct}
-          deleting={deleting}
-          onConfirm={() => void confirmSoftDelete()}
-          onCancel={() => { if (!deleting) setDeleteProduct(null) }}
+      {globalDeleteProduct && (
+        <GlobalDeleteProductModal
+          product={globalDeleteProduct}
+          deleting={globalDeleting}
+          onConfirm={() => void confirmGlobalDelete()}
+          onCancel={() => { if (!globalDeleting) setGlobalDeleteProduct(null) }}
+        />
+      )}
+      {showRevisions && selectedStoreId && (
+        <CatalogRevisionsModal
+          storeId={selectedStoreId}
+          storeName={stores.find(s => s.id === selectedStoreId)?.name ?? ''}
+          onClose={() => setShowRevisions(false)}
+          onRestored={() => { setShowRevisions(false); void loadProducts(selectedStoreId, { silent: true }) }}
         />
       )}
       {pendingStoreId && (
@@ -455,9 +486,11 @@ interface ProductFormModalProps {
   product?: AdminProductRow
   onClose: () => void
   onSaved: () => void
+  /** Solo en edición: abre la confirmación de baja global (libera el PLU). */
+  onRequestGlobalDelete?: () => void
 }
 
-function ProductFormModal({ storeId, stores, product, onClose, onSaved }: ProductFormModalProps) {
+function ProductFormModal({ storeId, stores, product, onClose, onSaved, onRequestGlobalDelete }: ProductFormModalProps) {
   const isEdit = Boolean(product)
   const [name, setName] = useState(product?.name ?? '')
   const [category, setCategory] = useState<AdminProductRow['category']>(product?.category ?? 'beef_cut')
@@ -643,6 +676,19 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved }: Produc
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
         </div>
+
+        {isEdit && onRequestGlobalDelete && (
+          <div className="mt-5 pt-4 border-t border-zinc-800">
+            <p className="text-xs text-zinc-600 mb-2">Zona de peligro</p>
+            <button
+              type="button"
+              onClick={onRequestGlobalDelete}
+              className="text-xs text-red-500 hover:text-red-400 hover:bg-red-950/30 px-3 py-1.5 rounded-lg transition-colors border border-red-900/30 w-full"
+            >
+              Quitar del catálogo (libera el PLU en todos los locales)
+            </button>
+          </div>
+        )}
       </div>
     </ModalOverlay>
   )
@@ -768,6 +814,109 @@ function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps
   )
 }
 
+interface CatalogRevisionsModalProps {
+  storeId: string
+  storeName: string
+  onClose: () => void
+  onRestored: () => void
+}
+
+function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: CatalogRevisionsModalProps) {
+  const [rows, setRows] = useState<CatalogRevisionRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.hw.listCatalogRevisions({ storeId }).then(r => {
+      if (r.ok) setRows(r.data)
+      else setError(r.error)
+      setLoading(false)
+    })
+  }, [storeId])
+
+  async function handleRestore(revisionId: string) {
+    setRestoringId(revisionId)
+    setError(null)
+    const r = await window.hw.restoreCatalogRevision({ storeId, revisionId })
+    setRestoringId(null)
+    if (r.ok) onRestored()
+    else setError(r.error)
+  }
+
+  return (
+    <ModalOverlay onClose={onClose}>
+      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+        <h2 className="text-lg font-semibold mb-1">Versiones del catálogo</h2>
+        <p className="text-sm text-zinc-400 mb-4 truncate" title={storeName}>
+          {storeName || 'Local seleccionado'} — se guardan las últimas 10 publicaciones.
+        </p>
+
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-zinc-500 text-center py-6">
+            Todavía no hay versiones. A partir de ahora, cada vez que se publique el catálogo se guarda una copia anterior.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-auto">
+            {rows.map(row => (
+              <div key={row.id} className="rounded-lg border border-zinc-800 bg-zinc-800/30 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-zinc-200 truncate" title={fmtDate(row.archivedAt)}>
+                      {fmtDate(row.archivedAt)}
+                    </p>
+                    <p className="text-xs text-zinc-500">{row.productCount} productos</p>
+                  </div>
+                  {confirmId === row.id ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        disabled={restoringId !== null}
+                        onClick={() => setConfirmId(null)}
+                        className="text-xs text-zinc-400 px-2 py-1 rounded hover:bg-zinc-800"
+                      >
+                        No
+                      </button>
+                      <button
+                        type="button"
+                        disabled={restoringId !== null}
+                        onClick={() => void handleRestore(row.id)}
+                        className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-medium disabled:opacity-50"
+                      >
+                        {restoringId === row.id ? '…' : 'Sí, restaurar'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={restoringId !== null}
+                      onClick={() => setConfirmId(row.id)}
+                      className="shrink-0 text-xs border border-zinc-600 hover:border-zinc-400 text-zinc-300 px-2 py-1 rounded"
+                    >
+                      Restaurar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
+
+        <button onClick={onClose} className="w-full mt-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
+          Cerrar
+        </button>
+      </div>
+    </ModalOverlay>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Helpers de UI
 // ---------------------------------------------------------------------------
@@ -793,31 +942,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ---------------------------------------------------------------------------
-// Modal confirmar eliminación de producto
+// Modal baja global del catálogo (libera el PLU)
 // ---------------------------------------------------------------------------
 
-interface DeleteProductModalProps {
+interface GlobalDeleteProductModalProps {
   product: AdminProductRow
   deleting: boolean
   onConfirm: () => void
   onCancel: () => void
 }
 
-function DeleteProductModal({ product, deleting, onConfirm, onCancel }: DeleteProductModalProps) {
+function GlobalDeleteProductModal({ product, deleting, onConfirm, onCancel }: GlobalDeleteProductModalProps) {
   return (
     <ModalOverlay onClose={onCancel}>
       <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-2">Eliminar producto</h2>
+        <h2 className="text-lg font-semibold mb-2">Quitar del catálogo</h2>
         <p className="text-sm text-zinc-400 mb-1">
-          ¿Eliminar{' '}
+          ¿Quitar{' '}
           <span className="text-zinc-200 font-medium truncate inline-block max-w-full align-bottom" title={product.name}>
             {product.name}
           </span>
-          ?
+          {' '}del catálogo?
+        </p>
+        <p className="text-xs text-amber-400/80 mb-3">
+          Desaparece de todos los locales y libera el PLU {product.pluNumber ?? '—'}.
+          Usalo para productos de prueba o fichas que no deberían existir.
         </p>
         <p className="text-xs text-zinc-500 mb-5">
-          Desaparece del catálogo y libera el PLU {product.pluNumber ?? '—'}.
-          Podés volver a crearlo con el mismo número.
+          Si el producto se vende en otro local, no lo quites: desactivá el toggle Disponible en este local.
         </p>
         <div className="flex gap-3">
           <button
@@ -834,7 +986,7 @@ function DeleteProductModal({ product, deleting, onConfirm, onCancel }: DeletePr
             disabled={deleting}
             className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
           >
-            {deleting ? 'Eliminando…' : 'Eliminar'}
+            {deleting ? 'Quitando…' : 'Quitar y liberar PLU'}
           </button>
         </div>
       </div>

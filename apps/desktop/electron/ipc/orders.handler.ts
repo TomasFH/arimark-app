@@ -38,6 +38,8 @@ const createOrderSchema = z.object({
   notes: z.string().max(300).optional(),
   depositAmount: z.number().min(0).default(0),
   depositPayments: z.array(depositPaymentSchema).optional(),
+  /** Solo admin: sobreescribe el local de sesión para crear el pedido en ese local */
+  storeId: z.string().uuid().optional(),
 })
 
 const updateOrderStatusSchema = z.object({
@@ -136,9 +138,14 @@ export function registerOrderHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { customerName, phone, items, pickupDate, timeSlot, pickupTime, priority, notes, depositAmount, depositPayments } = parsed.data
+    const { customerName, phone, items, pickupDate, timeSlot, pickupTime, priority, notes, depositAmount, depositPayments, storeId: overrideStoreId } = parsed.data
 
-    if (depositAmount > 0 && !session.shiftId) {
+    // Cajeras solo pueden crear pedidos para su propio local.
+    // El admin puede especificar un local diferente al de sesión.
+    const effectiveStoreId = (session.role === 'admin' && overrideStoreId) ? overrideStoreId : session.storeId
+
+    // Seña sin turno: solo se bloquea para cajeras. El admin puede recibir transferencias fuera del horario de caja.
+    if (depositAmount > 0 && !session.shiftId && session.role !== 'admin') {
       return { ok: false, error: 'Se necesita un turno activo para registrar una seña.', code: 'NO_SHIFT' }
     }
     if (depositAmount > 0 && (!depositPayments || depositPayments.length === 0)) {
@@ -152,7 +159,7 @@ export function registerOrderHandlers(): void {
       const db = getDb()
       db.insert(orders).values({
         id,
-        storeId: session.storeId,
+        storeId: effectiveStoreId,
         customerName,
         phone: phone ?? null,
         items,
@@ -303,12 +310,12 @@ export function registerOrderHandlers(): void {
       const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
-      // Bloquear modificación de seña si no hay turno activo
+      // Bloquear modificación de seña si no hay turno activo (solo cajeras)
       const newDepositAmount = 'depositPayments' in updates && updates.depositPayments
         ? updates.depositPayments.reduce((s, p) => s + p.amount, 0)
         : (updates.depositAmount ?? existing.depositAmount)
       const depositIsBeingAdded = newDepositAmount > 0 && ('depositPayments' in updates || updates.depositAmount !== undefined)
-      if (depositIsBeingAdded && !session.shiftId) {
+      if (depositIsBeingAdded && !session.shiftId && session.role !== 'admin') {
         return { ok: false, error: 'Se necesita un turno activo para modificar la seña.', code: 'NO_SHIFT' }
       }
 

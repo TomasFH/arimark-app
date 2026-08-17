@@ -219,6 +219,12 @@ export default function App() {
   async function handleAdminGoToCashier(): Promise<void> {
     if (state.screen !== 'admin-hub') return
 
+    const userShift = await window.hw.getUserOpenShift()
+    if (userShift.ok && userShift.data) {
+      await handleSelectStore(state.session, userShift.data.storeId, state.initStatus, 'cashier')
+      return
+    }
+
     const storesResult = await window.hw.getStores()
     const availableStores = storesResult.ok ? storesResult.data : []
 
@@ -379,6 +385,7 @@ export default function App() {
                 : handleGoBackFromShiftRequired
             }
             cancelLabel={state.session.role === 'admin' ? '← Volver al hub' : '← Cambiar local'}
+            canForceClose={state.session.role === 'admin'}
             storeId={state.session.storeId}
             userId={state.session.userId}
           />

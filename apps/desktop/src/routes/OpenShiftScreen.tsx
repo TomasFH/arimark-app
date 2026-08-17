@@ -10,6 +10,8 @@ interface Props {
   storeId?: string
   /** ID del usuario actual (para comparar con el turno abierto del local). */
   userId?: string
+  /** Permite cerrar un turno ajeno colgado. Solo admin. */
+  canForceClose?: boolean
   /** Label del botón de cancelar. Por defecto "← Cambiar local". */
   cancelLabel?: string
 }
@@ -41,11 +43,14 @@ function detectShiftType(
   return null
 }
 
-export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, userId, cancelLabel = '← Cambiar local' }: Props) {
+export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, userId, canForceClose = false, cancelLabel = '← Cambiar local' }: Props) {
   const [shiftType, setShiftType] = useState<ShiftType>('morning')
   const [openingCash, setOpeningCash] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [blockingShift, setBlockingShift] = useState<{ shiftId: string; userName: string } | null>(null)
+  const [forceClosing, setForceClosing] = useState(false)
+  const [checking, setChecking] = useState(true)
   // Guard síncrono contra spam-click: se setea a true antes del await, sin esperar
   // al re-render de React, para que ningún click adicional dispare un IPC duplicado.
   const submittingRef = useRef(false)
@@ -55,22 +60,33 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   const [detectedLabel, setDetectedLabel] = useState('')
   const [showManual, setShowManual] = useState(false)
 
+  async function checkExistingShift(): Promise<boolean> {
+    setError('')
+    setBlockingShift(null)
+    const ownShift = await window.hw.getActiveShift()
+    if (ownShift.ok && ownShift.data) {
+      onShiftOpened(ownShift.data)
+      return true
+    }
+    const storeShift = await window.hw.getStoreOpenShift()
+    if (storeShift.ok && storeShift.data && storeShift.data.userId !== userId) {
+      const ownerName = storeShift.data.userName
+      setBlockingShift({ shiftId: storeShift.data.shiftId, userName: ownerName })
+      setError(`Ya hay un turno abierto en este local (${ownerName}). Pedile que cierre su turno primero.`)
+    }
+    return false
+  }
+
   // Pre-verificación al montar: evitar parpadeo cuando ya hay un turno abierto.
   useEffect(() => {
-    if (!storeId || !userId) return
+    if (!storeId || !userId) {
+      setChecking(false)
+      return
+    }
     void (async () => {
-      // 1. Verificar si el usuario actual ya tiene un turno abierto → retomar sin mostrar formulario.
-      const ownShift = await window.hw.getActiveShift()
-      if (ownShift.ok && ownShift.data) {
-        onShiftOpened(ownShift.data)
-        return
-      }
-      // 2. Verificar si otro usuario tiene el turno del local abierto → mostrar error inmediatamente.
-      const storeShift = await window.hw.getStoreOpenShift()
-      if (storeShift.ok && storeShift.data && storeShift.data.userId !== userId) {
-        const ownerName = storeShift.data.userName
-        setError(`Ya hay un turno abierto en este local (${ownerName}). Pedile que cierre su turno primero.`)
-      }
+      setChecking(true)
+      const resumed = await checkExistingShift()
+      if (!resumed) setChecking(false)
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, userId])
@@ -122,9 +138,13 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     try {
       const result = await window.hw.openShift({ shiftType, openingCash: cash })
       if (!result.ok) {
-        // El mensaje de error para SHIFT_ALREADY_OPEN ya viene formado desde el backend con el nombre
-        // de la cajera que tiene el turno abierto; usarlo directamente sin hardcodear.
         setError(result.error ?? 'No se pudo abrir el turno.')
+        if (result.code === 'SHIFT_ALREADY_OPEN') {
+          const storeShift = await window.hw.getStoreOpenShift()
+          if (storeShift.ok && storeShift.data) {
+            setBlockingShift({ shiftId: storeShift.data.shiftId, userName: storeShift.data.userName })
+          }
+        }
         return
       }
       // result.data puede tener resumed=true si el handler retomó un turno ya existente.
@@ -232,12 +252,54 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
           </div>
 
           {error && (
-            <p className="rounded-lg bg-red-900/40 px-3 py-2 text-sm text-red-300">{error}</p>
+            <div className="space-y-2">
+              <p className="rounded-lg bg-red-900/40 px-3 py-2 text-sm text-red-300">{error}</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChecking(true)
+                    void checkExistingShift().finally(() => setChecking(false))
+                  }}
+                  disabled={checking || forceClosing}
+                  className="w-full rounded-lg border border-zinc-700 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {checking ? 'Comprobando…' : 'Volver a comprobar'}
+                </button>
+                {canForceClose && blockingShift && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        setForceClosing(true)
+                        setError('')
+                        try {
+                          const r = await window.hw.forceCloseOpenShift({ shiftId: blockingShift.shiftId })
+                          if (!r.ok) {
+                            setError(r.error ?? 'No se pudo cerrar el turno.')
+                            return
+                          }
+                          setBlockingShift(null)
+                        } catch {
+                          setError('Error de comunicación. Reintentar.')
+                        } finally {
+                          setForceClosing(false)
+                        }
+                      })()
+                    }}
+                    disabled={forceClosing || checking}
+                    className="w-full rounded-lg bg-zinc-700 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-600 disabled:opacity-50"
+                  >
+                    {forceClosing ? 'Cerrando turno…' : `Cerrar el turno de ${blockingShift.userName}`}
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !!blockingShift}
             className="w-full rounded-lg bg-emerald-600 py-3 font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
           >
             {loading ? 'Abriendo turno…' : isAutoDetected ? 'Confirmar y abrir turno' : 'Abrir turno'}

@@ -23,9 +23,10 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { products, productPrices, storeProducts, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
-import { publishCatalog } from '../licensing/catalogPublish'
+import { publishCatalog, publishCatalogForAllStores, listCatalogRevisions, restoreCatalogRevision } from '../licensing/catalogPublish'
+import { pullCatalogFromFirestore } from '../licensing/catalogSync'
 import { getBusinessConfig } from '../businessConfig'
-import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow } from '../../src/types/hw-api'
+import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow, CatalogRevisionRow } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación Zod
@@ -60,6 +61,15 @@ const setProductAvailabilitySchema = z.object({
   productId: z.string().min(1),
   storeId: z.string().min(1),
   available: z.boolean(),
+})
+
+const listCatalogRevisionsSchema = z.object({
+  storeId: z.string().min(1),
+})
+
+const restoreCatalogRevisionSchema = z.object({
+  storeId: z.string().min(1),
+  revisionId: z.string().min(1),
 })
 
 // ---------------------------------------------------------------------------
@@ -112,7 +122,16 @@ async function triggerCatalogPublish(storeId: string): Promise<void> {
     const { tenant_id } = getBusinessConfig()
     await publishCatalog(tenant_id, storeId)
   } catch (err) {
-    log.warn('[catalog-admin] No se pudo republicar el catálogo a Firestore:', err)
+    log.warn('[catalog-admin] No se pudo sincronizar el catálogo a Firestore:', err)
+  }
+}
+
+async function triggerCatalogPublishAll(): Promise<void> {
+  try {
+    const { tenant_id } = getBusinessConfig()
+    await publishCatalogForAllStores(tenant_id)
+  } catch (err) {
+    log.warn('[catalog-admin] No se pudo sincronizar el catálogo a Firestore:', err)
   }
 }
 
@@ -245,6 +264,7 @@ export function registerCatalogAdminHandlers(): void {
       }
 
       const id = uuidv4()
+      const now = new Date().toISOString()
       db.insert(products).values({
         id,
         name,
@@ -252,10 +272,12 @@ export function registerCatalogAdminHandlers(): void {
         unit,
         pluNumber: pluNumber ?? undefined,
         active: true,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       }).run()
 
       log.info(`[catalog-admin] Producto creado: ${name} (PLU ${pluNumber ?? '-'})`)
+      void triggerCatalogPublishAll()
       return { ok: true, data: { id } }
     } catch (err) {
       log.error('[ipc:create-product] Error', err)
@@ -298,7 +320,7 @@ export function registerCatalogAdminHandlers(): void {
         }
       }
 
-      const updateData: Record<string, unknown> = { ...fields }
+      const updateData: Record<string, unknown> = { ...fields, updatedAt: new Date().toISOString() }
       if (pluNumber !== undefined) {
         updateData['pluNumber'] = pluNumber ?? null
       }
@@ -310,6 +332,7 @@ export function registerCatalogAdminHandlers(): void {
 
       db.update(products).set(updateData).where(eq(products.id, id)).run()
       log.info(`[catalog-admin] Producto actualizado: ${id}`)
+      void triggerCatalogPublishAll()
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:update-product] Error', err)
@@ -410,6 +433,7 @@ export function registerCatalogAdminHandlers(): void {
       }
 
       log.info(`[catalog-admin] Disponibilidad: producto=${productId} local=${storeId} disponible=${available}`)
+      void triggerCatalogPublish(storeId)
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:set-product-availability] Error', err)
@@ -467,6 +491,50 @@ export function registerCatalogAdminHandlers(): void {
     } catch (err) {
       log.error('[ipc:get-product-price-history] Error', err)
       return { ok: false, error: 'Error al leer el historial de precios.', code: 'DB_ERROR' }
+    }
+  })
+
+  ipcMain.handle(IPC.LIST_CATALOG_REVISIONS, async (_event, payload: unknown): Promise<IpcResult<CatalogRevisionRow[]>> => {
+    const parsed = listCatalogRevisionsSchema.safeParse(payload)
+    if (!parsed.success) {
+      return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
+    }
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
+    }
+    try {
+      const { tenant_id } = getBusinessConfig()
+      const rows = await listCatalogRevisions(tenant_id, parsed.data.storeId)
+      return { ok: true, data: rows }
+    } catch (err) {
+      log.error('[ipc:list-catalog-revisions] Error', err)
+      return { ok: false, error: 'Error al listar versiones del catálogo.' }
+    }
+  })
+
+  ipcMain.handle(IPC.RESTORE_CATALOG_REVISION, async (_event, payload: unknown): Promise<IpcResult<{ productCount: number }>> => {
+    const parsed = restoreCatalogRevisionSchema.safeParse(payload)
+    if (!parsed.success) {
+      return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
+    }
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
+    }
+    try {
+      const { tenant_id } = getBusinessConfig()
+      const result = await restoreCatalogRevision(tenant_id, parsed.data.storeId, parsed.data.revisionId)
+      try {
+        await pullCatalogFromFirestore(tenant_id, parsed.data.storeId)
+      } catch (pullErr) {
+        log.warn('[ipc:restore-catalog-revision] Pull local falló (Firestore ya restaurado)', pullErr)
+      }
+      return { ok: true, data: result }
+    } catch (err) {
+      log.error('[ipc:restore-catalog-revision] Error', err)
+      const message = err instanceof Error ? err.message : 'Error al restaurar el catálogo.'
+      return { ok: false, error: message }
     }
   })
 }

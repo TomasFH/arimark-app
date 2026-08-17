@@ -63,6 +63,20 @@ describe('migrations', () => {
     expect(indexes.length).toBe(1)
   })
 
+    it('tiene products.updated_at (migración 0025)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(products)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('updated_at')
+    })
+
+    it('tiene payment_method y shift_id en debt_events (migración 0026)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(debt_events)').all() as { name: string }[]
+      const names = cols.map(c => c.name)
+      expect(names).toContain('payment_method')
+      expect(names).toContain('shift_id')
+    })
+
   it('tiene el índice idx_debt_events_customer', async () => {
     const { db } = await createInMemoryDb()
     const indexes = db.all(

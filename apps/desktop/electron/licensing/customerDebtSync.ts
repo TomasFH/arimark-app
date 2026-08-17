@@ -16,7 +16,7 @@ import {
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { customers, debtEvents, sales } from '../db/schema'
+import { customers, debtEvents, sales, shifts } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
 
@@ -43,6 +43,8 @@ interface RemoteDebtEventDoc {
   amount: number
   dueDate?: string | null
   notes?: string | null
+  paymentMethod?: 'cash' | 'debit' | 'wallet' | 'credit' | null
+  shiftId?: string | null
   createdAt: string
   createdBy: string
   deleted?: boolean
@@ -119,6 +121,12 @@ function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): voi
     if (!sale) saleId = null
   }
 
+  let shiftId: string | null = data.shiftId ?? null
+  if (shiftId) {
+    const shift = db.select({ id: shifts.id }).from(shifts).where(eq(shifts.id, shiftId)).all()[0]
+    if (!shift) shiftId = null
+  }
+
   db.insert(debtEvents)
     .values({
       id,
@@ -129,6 +137,8 @@ function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): voi
       amount: data.amount,
       dueDate: data.dueDate ?? null,
       notes: data.notes ?? null,
+      paymentMethod: data.paymentMethod ?? null,
+      shiftId,
       createdAt: data.createdAt,
       createdBy: data.createdBy,
       syncedAt: now,
@@ -143,6 +153,8 @@ function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): voi
         amount: data.amount,
         dueDate: data.dueDate ?? null,
         notes: data.notes ?? null,
+        paymentMethod: data.paymentMethod ?? null,
+        shiftId,
         syncedAt: now,
       },
     })
@@ -209,6 +221,8 @@ export async function pushUnsyncedCustomerDebtEvents(tenantId: string): Promise<
         amount: row.amount,
         dueDate: row.dueDate ?? null,
         notes: row.notes ?? null,
+        paymentMethod: row.paymentMethod ?? null,
+        shiftId: row.shiftId ?? null,
         createdAt: row.createdAt,
         createdBy: row.createdBy,
         deleted: false,

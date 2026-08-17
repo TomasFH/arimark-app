@@ -17,6 +17,7 @@ vi.mock('../../licensing/session', () => ({
   loginAdmin: vi.fn(),
   logoutAdmin: vi.fn(),
   getStoredAdminSession: vi.fn(),
+  signInAutoDetect: vi.fn(),
 }))
 
 vi.mock('../../licensing/installation', () => ({
@@ -64,13 +65,19 @@ vi.mock('../../licensing/storeSync', () => ({
   ensureStoresSynced: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../../licensing/catalogPublish', () => ({
-  publishCatalog: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../licensing/catalogSync', () => ({
+  syncCatalogWithFirestore: vi.fn().mockResolvedValue(undefined),
+  syncAllStoreCatalogs: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../licensing/mobileSync', () => ({
   startMobileSyncListener: vi.fn(),
   stopMobileSyncListener: vi.fn(),
+}))
+
+vi.mock('../../secureStorage', () => ({
+  setSecret: vi.fn(),
+  SECRET_KEYS: { ADMIN_SESSION_TOKEN: 'admin-session' },
 }))
 
 vi.mock('../../activeSession', () => ({
@@ -81,6 +88,7 @@ import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { signInWithRole, loginAdmin } from '../../licensing/session'
 import { setActiveSession } from '../../activeSession'
+import { syncAllStoreCatalogs } from '../../licensing/catalogSync'
 import { registerAuthHandlers } from '../auth.handler'
 
 type HandlerFn = (_event: unknown, payload: unknown) => Promise<unknown>
@@ -219,6 +227,7 @@ describe('auth.handler', () => {
       const result = await handler({}, { email: 'admin@test.com', password: 'pw123' }) as { ok: boolean; data: { role: string } }
       expect(result.ok).toBe(true)
       expect(result.data.role).toBe('admin')
+      expect(syncAllStoreCatalogs).toHaveBeenCalledWith('TEST-LIC-001')
     })
 
     it('retorna error con email inválido', async () => {

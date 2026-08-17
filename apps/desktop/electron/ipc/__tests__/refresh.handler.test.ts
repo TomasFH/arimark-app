@@ -26,11 +26,12 @@ vi.mock('../../licensing/employeeSync', () => ({
 }))
 
 vi.mock('../../licensing/catalogSync', () => ({
-  pullCatalogFromFirestore: vi.fn().mockResolvedValue(undefined),
+  syncCatalogWithFirestore: vi.fn().mockResolvedValue(undefined),
+  syncAllStoreCatalogs: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../../licensing/catalogPublish', () => ({
-  publishCatalog: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../licensing/shiftSync', () => ({
+  reconcileStoreShifts: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../licensing/providerSync', () => ({
@@ -57,8 +58,7 @@ import { ipcMain } from 'electron'
 import { getActiveSession } from '../../activeSession'
 import { ensureStoresSynced } from '../../licensing/storeSync'
 import { ensureEmployeesSynced } from '../../licensing/employeeSync'
-import { pullCatalogFromFirestore } from '../../licensing/catalogSync'
-import { publishCatalog } from '../../licensing/catalogPublish'
+import { syncCatalogWithFirestore, syncAllStoreCatalogs } from '../../licensing/catalogSync'
 import { registerRefreshHandlers } from '../refresh.handler'
 import { IPC } from '../channels'
 
@@ -98,11 +98,11 @@ describe('refresh.handler', () => {
     expect(result.data.storeId).toBe('local1')
     expect(ensureStoresSynced).toHaveBeenCalledWith('test-key')
     expect(ensureEmployeesSynced).toHaveBeenCalledWith('test-key')
-    expect(pullCatalogFromFirestore).toHaveBeenCalledWith('test-key', 'local1')
-    expect(publishCatalog).toHaveBeenCalledWith('test-key', 'local1')
+    expect(syncCatalogWithFirestore).toHaveBeenCalledWith('test-key', 'local1')
+    expect(syncAllStoreCatalogs).not.toHaveBeenCalled()
   })
 
-  it('omite pull/publish de catálogo si no hay storeId en sesión', async () => {
+  it('admin sincroniza el catálogo de todos los locales aunque no tenga storeId', async () => {
     vi.mocked(getActiveSession).mockReturnValue({
       userId: 'u1',
       storeId: '',
@@ -114,8 +114,8 @@ describe('refresh.handler', () => {
 
     expect(result.ok).toBe(true)
     expect(result.data.storeId).toBeNull()
-    expect(pullCatalogFromFirestore).not.toHaveBeenCalled()
-    expect(publishCatalog).not.toHaveBeenCalled()
+    expect(syncCatalogWithFirestore).not.toHaveBeenCalled()
+    expect(syncAllStoreCatalogs).toHaveBeenCalledWith('test-key')
     expect(ensureStoresSynced).toHaveBeenCalled()
     expect(ensureEmployeesSynced).toHaveBeenCalled()
   })

@@ -8,7 +8,7 @@
  */
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import { eq, and, or, isNull } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { IPC } from './channels'
@@ -42,14 +42,16 @@ function scheduleSpecialCustomerPush(): void {
 const createSpecialCustomerSchema = z.object({
   name: z.string().min(1).max(100),
   notes: z.string().max(500).optional(),
-  storeId: z.string().min(1).nullable().optional(), // null | undefined = todos los locales
+  /** Ignorado: los clientes especiales son globales. Se acepta por compatibilidad. */
+  storeId: z.string().min(1).nullable().optional(),
 })
 
 const updateSpecialCustomerSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(100).optional(),
   notes: z.string().max(500).optional(),
-  storeId: z.string().min(1).nullable().optional(), // null = todos los locales
+  /** Ignorado: los clientes especiales son globales. */
+  storeId: z.string().min(1).nullable().optional(),
 })
 
 const deleteSpecialCustomerSchema = z.object({
@@ -103,32 +105,13 @@ export type SpecialCustomerPriceRow = {
 
 export function registerSpecialCustomersHandlers() {
   // ── LIST_SPECIAL_CUSTOMERS ───────────────────────────────────────────
-  ipcMain.handle(IPC.LIST_SPECIAL_CUSTOMERS, (_event, payload: unknown): IpcResult<SpecialCustomerRow[]> => {
-    const parsed = z.object({ storeIdFilter: z.string().optional() }).optional().safeParse(payload ?? {})
+  ipcMain.handle(IPC.LIST_SPECIAL_CUSTOMERS, (_event, _payload: unknown): IpcResult<SpecialCustomerRow[]> => {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const filter = parsed.success ? (parsed.data ?? {}) : {}
-    const effectiveStoreId: string | null =
-      session.role === 'admin' && filter.storeIdFilter === 'all'
-        ? null
-        : session.role === 'admin' && filter.storeIdFilter
-          ? filter.storeIdFilter
-          : session.storeId
-
     try {
       const db = getDb()
-      const rows = db
-        .select()
-        .from(specialCustomers)
-        .where(
-          // Si hay un filtro de local activo: incluir clientes de ese local
-          // Y también los clientes sin local asignado (visibles en todos)
-          effectiveStoreId !== null
-            ? or(eq(specialCustomers.storeId, effectiveStoreId), isNull(specialCustomers.storeId))
-            : undefined
-        )
-        .all()
+      const rows = db.select().from(specialCustomers).all()
 
       return {
         ok: true,
@@ -159,16 +142,14 @@ export function registerSpecialCustomersHandlers() {
       return { ok: false, error: 'Datos inválidos.', code: 'INVALID_PAYLOAD' }
     }
 
-    // storeId explícito o null (todos los locales)
-    const assignedStoreId = parsed.data.storeId ?? null
-
+    // Los clientes especiales son globales: siempre storeId null.
     try {
       const db = getDb()
       const id = uuidv4()
       const now = nowUtc()
       db.insert(specialCustomers).values({
         id,
-        storeId: assignedStoreId,
+        storeId: null,
         name: parsed.data.name.trim(),
         notes: parsed.data.notes?.trim() ?? null,
         createdAt: now,
@@ -178,8 +159,8 @@ export function registerSpecialCustomersHandlers() {
 
       scheduleSpecialCustomerPush()
 
-      log.info('[ipc:create-special-customer]', { id, name: parsed.data.name, storeId: assignedStoreId })
-      return { ok: true, data: { id, storeId: assignedStoreId, name: parsed.data.name.trim(), notes: parsed.data.notes?.trim() ?? null, createdAt: now, updatedAt: null } }
+      log.info('[ipc:create-special-customer]', { id, name: parsed.data.name })
+      return { ok: true, data: { id, storeId: null, name: parsed.data.name.trim(), notes: parsed.data.notes?.trim() ?? null, createdAt: now, updatedAt: null } }
     } catch (err) {
       log.error('[ipc:create-special-customer]', err)
       return { ok: false, error: 'Error al crear el cliente especial.' }
@@ -205,8 +186,7 @@ export function registerSpecialCustomersHandlers() {
       }
       if (parsed.data.name !== undefined) updates.name = parsed.data.name.trim()
       if (parsed.data.notes !== undefined) updates.notes = parsed.data.notes.trim() || null
-      // storeId: undefined = no cambiar; null = asignar a todos; string = asignar a local
-      if ('storeId' in parsed.data) updates.storeId = parsed.data.storeId ?? null
+      updates.storeId = null
 
       // Los admins pueden editar cualquier cliente especial (no restricción por local)
       db.update(specialCustomers).set(updates)

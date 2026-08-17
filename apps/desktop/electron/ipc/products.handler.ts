@@ -1,9 +1,9 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log'
-import { and, asc, eq, gt, isNotNull, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, eq, gt, isNotNull, isNull, lte, ne, or } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { products, productPrices } from '../db/schema'
+import { products, productPrices, storeProducts } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import type { IpcResult, ProductRow } from '../../src/types/hw-api'
 
@@ -58,6 +58,8 @@ export function registerProductsHandlers(): void {
       const storeId = getActiveSession()?.storeId ?? DEFAULT_STORE_ID
       const now = new Date().toISOString()
 
+      // LEFT JOIN con store_products para filtrar productos desactivados para este local.
+      // Si no hay fila en store_products, el producto se considera disponible (available = true por defecto).
       const rows = db
         .select({
           id: products.id,
@@ -65,9 +67,25 @@ export function registerProductsHandlers(): void {
           category: products.category,
           unit: products.unit,
           pluNumber: products.pluNumber,
+          available: storeProducts.available,
         })
         .from(products)
-        .where(isNotNull(products.pluNumber))
+        .leftJoin(
+          storeProducts,
+          and(
+            eq(storeProducts.productId, products.id),
+            eq(storeProducts.storeId, storeId),
+          )
+        )
+        .where(
+          and(
+            eq(products.active, true),
+            isNotNull(products.pluNumber),
+            // Excluir solo los explícitamente marcados como no disponibles (available = false).
+            // Nulo (sin fila en store_products) se trata como disponible.
+            or(isNull(storeProducts.available), ne(storeProducts.available, false))
+          )
+        )
         .orderBy(asc(products.pluNumber))
         .all()
 

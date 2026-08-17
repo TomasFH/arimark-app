@@ -134,7 +134,7 @@ describe('orders.handler', () => {
       expect(res.ok).toBe(false)
     })
 
-    it('rechaza seña si no hay turno activo', () => {
+    it('rechaza seña si cajera no tiene turno activo', () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT as unknown as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:create-order')
       const res = handler(null, {
@@ -146,6 +146,37 @@ describe('orders.handler', () => {
       }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('NO_SHIFT')
+    })
+
+    it('admin puede registrar seña sin turno activo', () => {
+      const ADMIN_NO_SHIFT = { userId: USER_ID, storeId: STORE_ID, role: 'admin', shiftId: undefined }
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_NO_SHIFT as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Cliente corporativo',
+        items: 'Media res',
+        pickupDate: '2026-07-25',
+        depositAmount: 5000,
+        depositPayments: [{ method: 'wallet', amount: 5000 }],
+      }) as { ok: boolean; data: { depositAmount: number } }
+      expect(res.ok).toBe(true)
+      expect(res.data.depositAmount).toBe(5000)
+    })
+
+    it('admin puede crear pedido en un local diferente al de sesión', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const STORE_ID_2 = '00000000-0000-0000-0000-000000000099'
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: STORE_ID_2, name: 'Local 2', createdAt: now }).run()
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Cliente B',
+        items: 'Pollo',
+        pickupDate: '2026-07-25',
+        storeId: STORE_ID_2,
+      }) as { ok: boolean; data: { storeId: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.storeId).toBe(STORE_ID_2)
     })
 
     it('rechaza si no hay sesión', () => {

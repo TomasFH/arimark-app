@@ -24,6 +24,9 @@ apps/desktop/config/business.json
 *.sqlite-shm
 *.sqlite-wal
 
+# Dump local de catálogo con precios reales (no versionar)
+apps/desktop/scripts/catalog-backup-*.txt
+
 # Drizzle cache
 **/drizzle/.cache
 

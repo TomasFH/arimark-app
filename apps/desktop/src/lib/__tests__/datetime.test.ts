@@ -6,6 +6,7 @@ import {
   toLocalTime,
   formatARS,
   formatKg,
+  formatYmd,
   setDisplayTimezone,
   startOfDayUtc,
   endOfDayUtc,
@@ -82,6 +83,12 @@ describe('todayLocalYmd', () => {
     const result = todayLocalYmd()
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(result).toBe(new Date().toLocaleDateString('en-CA', { timeZone: TZ }))
+  })
+})
+
+describe('formatYmd', () => {
+  it('convierte YYYY-MM-DD a dd/mm/aaaa', () => {
+    expect(formatYmd('2026-08-16')).toBe('16/08/2026')
   })
 })
 

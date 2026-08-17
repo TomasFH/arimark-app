@@ -238,6 +238,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
             {summary.totalExpenses > 0 && (
               <Row label="Gastos" value={fmt(summary.totalExpenses)} />
             )}
+            {summary.totalCashDebtPayments > 0 && (
+              <Row label="Cobranzas de fiado (efectivo)" value={fmt(summary.totalCashDebtPayments)} />
+            )}
             {summary.debtsCount > 0 && (
               <Row label={`Fiados (${summary.debtsCount})`} value={fmt(summary.totalDebts)} />
             )}
@@ -346,6 +349,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 )}
                 {summary.totalExpenses > 0 && (
                   <Stat label="Gastos" value={fmt(summary.totalExpenses)} />
+                )}
+                {summary.totalCashDebtPayments > 0 && (
+                  <Stat label="Fiados cobrados (efectivo)" value={fmt(summary.totalCashDebtPayments)} />
                 )}
                 {summary.debtsCount > 0 && (
                   <Stat label={`Fiados (${summary.debtsCount})`} value={fmt(summary.totalDebts)} />

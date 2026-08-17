@@ -45,6 +45,8 @@ const hw: HwApi = {
 
   closeShift: payload => ipcRenderer.invoke(IPC.CLOSE_SHIFT, payload),
 
+  forceCloseOpenShift: payload => ipcRenderer.invoke(IPC.FORCE_CLOSE_OPEN_SHIFT, payload),
+
   onShiftInactivityWarning: cb => {
     const listener = () => cb()
     ipcRenderer.on(IPC.SHIFT_INACTIVITY_WARNING, listener)
@@ -68,6 +70,10 @@ const hw: HwApi = {
   setProductAvailability: (payload) => ipcRenderer.invoke(IPC.SET_PRODUCT_AVAILABILITY, payload),
 
   getProductPriceHistory: (payload) => ipcRenderer.invoke(IPC.GET_PRODUCT_PRICE_HISTORY, payload),
+
+  listCatalogRevisions: (payload) => ipcRenderer.invoke(IPC.LIST_CATALOG_REVISIONS, payload),
+
+  restoreCatalogRevision: (payload) => ipcRenderer.invoke(IPC.RESTORE_CATALOG_REVISION, payload),
 
   listCashiers: () => ipcRenderer.invoke(IPC.LIST_CASHIERS),
   createCashier: (payload) => ipcRenderer.invoke(IPC.CREATE_CASHIER, payload),

@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { eq, and, sum, count, isNotNull, gte, lte, asc } from 'drizzle-orm'
+import { eq, and, sum, count, gte, lte, asc } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
@@ -42,7 +42,7 @@ const getRemoteEmployeeValesSchema = z.object({
 
 export function registerHistoryHandlers(): void {
   // --------------------------------------------------------------------------
-  // GET_HISTORY_SHIFTS — lista de turnos cerrados con resumen (solo admin)
+  // GET_HISTORY_SHIFTS — lista de turnos (abiertos y cerrados) con resumen (solo admin)
   // --------------------------------------------------------------------------
   ipcMain.handle(IPC.GET_HISTORY_SHIFTS, async (_event, payload: unknown): Promise<IpcResult<HistoryShiftRow[]>> => {
     const parsed = getHistoryShiftsSchema.safeParse(payload ?? {})
@@ -70,7 +70,6 @@ export function registerHistoryHandlers(): void {
           : filter.storeIdFilter ?? session.storeId
 
       const conditions = [
-        isNotNull(shifts.closedAt),
         eq(shifts.source, 'desktop'),
       ] as ReturnType<typeof eq>[]
       if (effectiveStoreId !== null) conditions.push(eq(shifts.storeId, effectiveStoreId))
@@ -177,21 +176,39 @@ export function registerHistoryHandlers(): void {
         if (r.shiftId) depositsByShift.set(r.shiftId, Number(r.total ?? 0))
       }
 
+      // Cobranzas de fiado en efectivo por turno (amount negativo en ledger)
+      const cashDebtByShift = new Map<string, number>()
+      const cashDebtData = db
+        .select({
+          shiftId: debtEvents.shiftId,
+          total: sum(debtEvents.amount),
+        })
+        .from(debtEvents)
+        .where(eq(debtEvents.paymentMethod, 'cash'))
+        .groupBy(debtEvents.shiftId)
+        .all()
+        .filter(r => r.shiftId && shiftIds.includes(r.shiftId))
+
+      for (const r of cashDebtData) {
+        if (r.shiftId) cashDebtByShift.set(r.shiftId, Math.abs(Number(r.total ?? 0)))
+      }
+
       const localResult: HistoryShiftRow[] = shiftRows.map(s => {
         const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
         const exp = expensesByShift.get(s.id) ?? 0
         const dep = depositsByShift.get(s.id) ?? 0
+        const debtCash = cashDebtByShift.get(s.id) ?? 0
         return {
           id: s.id,
           shiftType: s.shiftType,
           startedAt: s.startedAt,
-          closedAt: s.closedAt!,
+          closedAt: s.closedAt ?? null,
           cashierName: userMap.get(s.userId) ?? s.userId,
           salesCount: sv.count,
           totalRevenue: sv.total,
           totalCashSales: sv.cash,
           totalExpenses: exp,
-          cashInHand: s.openingCash + sv.cash + dep - exp,
+          cashInHand: s.openingCash + sv.cash + dep + debtCash - exp,
           totalDeposits: dep,
         }
       })
@@ -472,7 +489,16 @@ export function registerHistoryHandlers(): void {
       const totalExpenses = historyExpenses.reduce((a, e) => a + e.amount, 0)
       const cashDeposits = historyDeposits.filter(d => d.depositMethod === 'cash').reduce((a, d) => a + d.depositAmount, 0)
       const digitalDeposits = historyDeposits.filter(d => d.depositMethod && d.depositMethod !== 'cash').reduce((a, d) => a + d.depositAmount, 0)
-      const cashInHand = shift.openingCash + totalCashSales + cashDeposits - totalExpenses
+      const cashDebtRows = db
+        .select({ amount: debtEvents.amount })
+        .from(debtEvents)
+        .where(and(
+          eq(debtEvents.shiftId, shiftId),
+          eq(debtEvents.paymentMethod, 'cash'),
+        ))
+        .all()
+      const cashDebtPayments = cashDebtRows.reduce((a, r) => a + Math.abs(Number(r.amount)), 0)
+      const cashInHand = shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments - totalExpenses
 
       return {
         ok: true,
@@ -481,7 +507,7 @@ export function registerHistoryHandlers(): void {
             id: shift.id,
             shiftType: shift.shiftType,
             startedAt: shift.startedAt,
-            closedAt: shift.closedAt!,
+            closedAt: shift.closedAt ?? null,
             cashierName,
             openingCash: shift.openingCash,
             closingCash: shift.closingCash,
