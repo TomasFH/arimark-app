@@ -15,6 +15,21 @@ import {
   setDoc,
 } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
+import {
+  parseDepositPayments,
+  parseOrderPriority,
+  parseTimeSlot,
+  serializeDepositPayments,
+} from './orderMapping'
+import {
+  asIsoTimestamp,
+  calcCustomerBalance as calcCustomerBalanceLedger,
+  calcProviderBalance as calcProviderBalanceLedger,
+  normalizeDebtEventType,
+  providerIdFromName,
+  providerNameKey,
+} from './adminLedger'
+import { formatDisplayDate } from './week'
 
 const firestore = getFirestore(firebaseApp)
 const col = (name: string) =>
@@ -33,11 +48,7 @@ export function formatMoney(n: number): string {
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    })
+    return formatDisplayDate(iso)
   } catch {
     return iso
   }
@@ -62,7 +73,6 @@ export function formatDateTime(iso: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export type OrderStatus = 'pending' | 'ready' | 'delivered' | 'cancelled'
-export type OrderPriority = 'normal' | 'high'
 
 export interface Order {
   id: string
@@ -73,13 +83,14 @@ export interface Order {
   pickupDate: string
   timeSlot: string | null
   pickupTime: string | null
-  priority: OrderPriority
+  priority: boolean
   status: OrderStatus
   depositAmount: number
-  depositPayments: number
+  depositPayments: string | null
   notes: string | null
   deleted: boolean
   createdAt: string
+  createdBy: string
   updatedAt: string
 }
 
@@ -92,7 +103,7 @@ export interface Customer {
   active: boolean
 }
 
-export type DebtEventType = 'debt' | 'partial_payment' | 'paid' | 'cancelled'
+export type DebtEventType = 'created' | 'debt' | 'reopened' | 'partial_payment' | 'paid' | 'cancelled'
 
 export interface CustomerDebtEvent {
   id: string
@@ -104,6 +115,7 @@ export interface CustomerDebtEvent {
   dueDate: string | null
   createdAt: string
   createdBy: string
+  paymentMethod?: 'cash' | 'debit' | 'wallet' | 'credit' | null
 }
 
 export interface Provider {
@@ -122,6 +134,8 @@ export interface ProviderDebtEvent {
   description: string | null
   date: string
   deleted: boolean
+  createdBy?: string
+  createdByName?: string
 }
 
 export interface SpecialCustomer {
@@ -130,6 +144,8 @@ export interface SpecialCustomer {
   notes: string | null
   storeId: string | null
   active: boolean
+  createdAt: string | null
+  updatedAt: string | null
 }
 
 export interface SpecialCustomerPrice {
@@ -138,16 +154,21 @@ export interface SpecialCustomerPrice {
   productId: string
   productName: string
   specialPrice: number
+  notes: string | null
+  updatedAt: string | null
   storeId: string
 }
 
 export interface Employee {
   id: string
   name: string
+  /** Semanal (desktop: weeklyWage). `salary` se conserva como alias de lectura. */
   salary: number
-  storeId: string
+  weeklyWage: number
+  storeId: string | null
   archivedAt: string | null
   deleted: boolean
+  kind: 'butcher' | 'cashier'
 }
 
 export interface EmployeeVale {
@@ -183,6 +204,8 @@ export interface Expense {
   shiftId: string
   category: string
   description: string | null
+  concept: string | null
+  notes: string | null
   amount: number
   providerId: string | null
   providerName: string | null
@@ -192,23 +215,17 @@ export interface Expense {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers de saldo (puros, testeables)
+// Helpers de saldo (reexportados para no romper imports de UI)
 // ---------------------------------------------------------------------------
 
 /** Saldo activo de un cliente: positivo = debe, negativo = a favor. */
 export function calcCustomerBalance(events: CustomerDebtEvent[]): number {
-  return events.reduce((bal, e) => {
-    if (e.eventType === 'debt') return bal + e.amount
-    return bal - e.amount
-  }, 0)
+  return calcCustomerBalanceLedger(events)
 }
 
 /** Saldo activo hacia un proveedor: positivo = le debemos. */
 export function calcProviderBalance(events: ProviderDebtEvent[]): number {
-  return events.reduce((bal, e) => {
-    if (e.type === 'debt') return bal + e.amount
-    return bal - e.amount
-  }, 0)
+  return calcProviderBalanceLedger(events)
 }
 
 // ---------------------------------------------------------------------------
@@ -229,15 +246,16 @@ export async function fetchOrders(storeId?: string): Promise<Order[]> {
       phone: data.phone ?? null,
       items: data.items ?? '',
       pickupDate: data.pickupDate ?? '',
-      timeSlot: data.timeSlot ?? null,
+      timeSlot: parseTimeSlot(data.timeSlot),
       pickupTime: data.pickupTime ?? null,
-      priority: data.priority ?? 'normal',
+      priority: parseOrderPriority(data.priority),
       status: data.status ?? 'pending',
       depositAmount: data.depositAmount ?? 0,
-      depositPayments: data.depositPayments ?? 0,
+      depositPayments: serializeDepositPayments(parseDepositPayments(data.depositPayments) ?? []),
       notes: data.notes ?? null,
       deleted: false,
       createdAt: data.createdAt ?? '',
+      createdBy: data.createdBy ?? '',
       updatedAt: data.updatedAt ?? '',
     })
   }
@@ -287,15 +305,31 @@ export async function fetchCustomers(storeId?: string): Promise<Customer[]> {
   return list
 }
 
-export async function createCustomer(data: Omit<Customer, 'id'>): Promise<string> {
+export async function createCustomer(
+  data: Omit<Customer, 'id'> & { createdBy: string },
+): Promise<string> {
   const id = crypto.randomUUID()
-  await setDoc(docRef('customers', id), { ...data, id })
+  const now = new Date().toISOString()
+  await setDoc(docRef('customers', id), {
+    ...data,
+    id,
+    createdAt: now,
+    createdBy: data.createdBy,
+    deleted: false,
+  })
   return id
 }
 
 // ---------------------------------------------------------------------------
 // CustomerDebtEvents
 // ---------------------------------------------------------------------------
+
+function parseDebtPaymentMethod(
+  raw: unknown,
+): 'cash' | 'debit' | 'wallet' | 'credit' | null {
+  if (raw === 'cash' || raw === 'debit' || raw === 'wallet' || raw === 'credit') return raw
+  return null
+}
 
 export async function fetchCustomerDebtEvents(
   customerId: string,
@@ -309,12 +343,13 @@ export async function fetchCustomerDebtEvents(
       id: data.id ?? d.id,
       customerId,
       storeId: data.storeId ?? '',
-      eventType: data.eventType ?? 'debt',
+      eventType: normalizeDebtEventType(data.eventType),
       amount: data.amount ?? 0,
       notes: data.notes ?? null,
       dueDate: data.dueDate ?? null,
       createdAt: data.createdAt ?? '',
       createdBy: data.createdBy ?? '',
+      paymentMethod: parseDebtPaymentMethod(data.paymentMethod),
     })
   }
   list.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -333,12 +368,13 @@ export async function fetchAllCustomerDebtEvents(
       id: data.id ?? d.id,
       customerId: data.customerId ?? '',
       storeId: data.storeId ?? '',
-      eventType: data.eventType ?? 'debt',
+      eventType: normalizeDebtEventType(data.eventType),
       amount: data.amount ?? 0,
       notes: data.notes ?? null,
       dueDate: data.dueDate ?? null,
       createdAt: data.createdAt ?? '',
       createdBy: data.createdBy ?? '',
+      paymentMethod: parseDebtPaymentMethod(data.paymentMethod),
     })
   }
   return list
@@ -348,7 +384,18 @@ export async function createCustomerDebtEvent(
   data: Omit<CustomerDebtEvent, 'id'>,
 ): Promise<void> {
   const id = crypto.randomUUID()
-  await setDoc(docRef('customerDebtEvents', id), { ...data, id })
+  const eventType = normalizeDebtEventType(data.eventType)
+  const absAmount = Math.abs(data.amount)
+  const amount = eventType === 'created' || eventType === 'reopened'
+    ? absAmount
+    : -absAmount
+  await setDoc(docRef('customerDebtEvents', id), {
+    ...data,
+    id,
+    eventType,
+    amount,
+    deleted: false,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +411,7 @@ export async function fetchProviders(): Promise<Provider[]> {
     list.push({
       id: data.id ?? d.id,
       name: data.name ?? '',
-      archivedAt: data.archivedAt ?? null,
+      archivedAt: asIsoTimestamp(data.archivedAt),
       deleted: false,
     })
   }
@@ -376,7 +423,10 @@ export async function fetchProviderDebtEvents(): Promise<ProviderDebtEvent[]> {
   const snap = await getDocs(col('providerDebtEvents'))
   const list: ProviderDebtEvent[] = []
   for (const d of snap.docs) {
-    const data = d.data() as Partial<ProviderDebtEvent>
+    const data = d.data() as Partial<ProviderDebtEvent> & {
+      createdAt?: string
+      deleted?: boolean
+    }
     if (data.deleted === true) continue
     list.push({
       id: data.id ?? d.id,
@@ -384,17 +434,29 @@ export async function fetchProviderDebtEvents(): Promise<ProviderDebtEvent[]> {
       storeId: data.storeId ?? '',
       type: data.type ?? 'debt',
       amount: data.amount ?? 0,
-      description: data.description ?? null,
-      date: data.date ?? '',
+      description: data.description ?? (data as { notes?: string | null }).notes ?? null,
+      date: data.createdAt ?? data.date ?? '',
       deleted: false,
+      createdBy: (data as { createdBy?: string }).createdBy,
+      createdByName: (data as { createdByName?: string }).createdByName,
     })
   }
   return list
 }
 
-export async function createProvider(name: string): Promise<void> {
-  const id = crypto.randomUUID()
-  await setDoc(docRef('providers', id), { id, name, archivedAt: null, deleted: false })
+export async function createProvider(name: string, createdBy: string): Promise<void> {
+  const trimmed = name.trim()
+  const id = providerIdFromName(trimmed)
+  const now = new Date().toISOString()
+  await setDoc(docRef('providers', id), {
+    id,
+    name: trimmed,
+    nameKey: providerNameKey(trimmed),
+    archivedAt: null,
+    deleted: false,
+    createdAt: now,
+    createdBy,
+  }, { merge: true })
 }
 
 export async function updateProviderName(id: string, name: string): Promise<void> {
@@ -407,102 +469,226 @@ export async function archiveProvider(id: string): Promise<void> {
 
 export async function restoreProvider(id: string): Promise<void> {
   await updateDoc(docRef('providers', id), { archivedAt: null })
+  const snap = await getDocs(col('providerDebtEvents'))
+  for (const d of snap.docs) {
+    const data = d.data() as { providerId?: string; deleted?: boolean }
+    if (data.providerId !== id) continue
+    if (data.deleted !== true) continue
+    await updateDoc(d.ref, { deleted: false, deletedAt: null })
+  }
+}
+
+/**
+ * @deprecated No usar al eliminar. El alta/baja de proveedores es soft-delete
+ * (archiveProvider) y debe conservar el historial. Se deja por si hace falta
+ * una limpieza excepcional a mano.
+ */
+export async function purgeProviderLedger(providerId: string): Promise<void> {
+  const snap = await getDocs(col('providerDebtEvents'))
+  const now = new Date().toISOString()
+  for (const d of snap.docs) {
+    const data = d.data() as { providerId?: string; deleted?: boolean }
+    if (data.providerId !== providerId) continue
+    if (data.deleted === true) continue
+    await updateDoc(d.ref, { deleted: true, deletedAt: now })
+  }
+  await archiveProvider(providerId)
 }
 
 export async function createProviderDebtEvent(
-  data: Omit<ProviderDebtEvent, 'id'>,
+  data: Omit<ProviderDebtEvent, 'id'> & { providerName: string; createdBy: string; createdByName?: string },
 ): Promise<void> {
   const id = crypto.randomUUID()
-  await setDoc(docRef('providerDebtEvents', id), { ...data, id })
+  const now = data.date || new Date().toISOString()
+  await setDoc(docRef('providerDebtEvents', id), {
+    id,
+    providerId: data.providerId,
+    provider: data.providerName,
+    storeId: data.storeId,
+    type: data.type,
+    amount: Math.abs(data.amount),
+    description: data.description,
+    notes: data.description,
+    date: now,
+    createdAt: now,
+    createdBy: data.createdBy,
+    createdByName: data.createdByName ?? null,
+    expenseId: null,
+    shiftId: null,
+    deleted: false,
+  })
 }
 
 // ---------------------------------------------------------------------------
 // SpecialCustomers
 // ---------------------------------------------------------------------------
 
+function mapSpecialCustomerPrice(
+  id: string,
+  raw: Record<string, unknown>,
+): SpecialCustomerPrice | null {
+  const data = raw as Partial<SpecialCustomerPrice> & {
+    deleted?: boolean
+    price?: number
+  }
+  if (data.deleted === true) return null
+  return {
+    id: data.id ?? id,
+    specialCustomerId: data.specialCustomerId ?? '',
+    productId: data.productId ?? '',
+    productName: data.productName ?? '',
+    specialPrice: data.price ?? data.specialPrice ?? 0,
+    notes: data.notes ?? null,
+    updatedAt: data.updatedAt ?? null,
+    storeId: data.storeId ?? '',
+  }
+}
+
 export async function fetchSpecialCustomers(): Promise<SpecialCustomer[]> {
   const snap = await getDocs(col('specialCustomers'))
   const list: SpecialCustomer[] = []
   for (const d of snap.docs) {
-    const data = d.data() as Partial<SpecialCustomer>
+    const data = d.data() as Partial<SpecialCustomer> & { deleted?: boolean }
+    if (data.deleted === true) continue
+    if (!data.name) continue
     list.push({
       id: data.id ?? d.id,
       name: data.name ?? '',
       notes: data.notes ?? null,
       storeId: data.storeId ?? null,
       active: data.active !== false,
+      createdAt: data.createdAt ?? null,
+      updatedAt: data.updatedAt ?? null,
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
   return list
 }
 
+export async function fetchAllSpecialCustomerPrices(): Promise<Record<string, SpecialCustomerPrice[]>> {
+  const snap = await getDocs(col('specialCustomerPrices'))
+  const byCustomer: Record<string, SpecialCustomerPrice[]> = {}
+  for (const d of snap.docs) {
+    const row = mapSpecialCustomerPrice(d.id, d.data() as Record<string, unknown>)
+    if (!row) continue
+    const list = byCustomer[row.specialCustomerId] ?? []
+    list.push(row)
+    byCustomer[row.specialCustomerId] = list
+  }
+  for (const list of Object.values(byCustomer)) {
+    list.sort((a, b) => a.productName.localeCompare(b.productName, 'es'))
+  }
+  return byCustomer
+}
+
 export async function fetchSpecialCustomerPrices(
   specialCustomerId: string,
 ): Promise<SpecialCustomerPrice[]> {
-  const snap = await getDocs(col('specialCustomerPrices'))
-  const list: SpecialCustomerPrice[] = []
-  for (const d of snap.docs) {
-    const data = d.data() as Partial<SpecialCustomerPrice> & { deleted?: boolean }
-    if (data.deleted === true) continue
-    if (data.specialCustomerId !== specialCustomerId) continue
-    list.push({
-      id: data.id ?? d.id,
-      specialCustomerId,
-      productId: data.productId ?? '',
-      productName: data.productName ?? '',
-      specialPrice: data.specialPrice ?? 0,
-      storeId: data.storeId ?? '',
-    })
-  }
-  list.sort((a, b) => a.productName.localeCompare(b.productName, 'es'))
-  return list
+  const all = await fetchAllSpecialCustomerPrices()
+  return all[specialCustomerId] ?? []
 }
 
 export async function createSpecialCustomer(
-  data: Omit<SpecialCustomer, 'id'>,
+  data: { name: string; notes?: string | null; createdBy: string },
 ): Promise<string> {
   const id = crypto.randomUUID()
-  await setDoc(docRef('specialCustomers', id), { ...data, id })
+  const now = new Date().toISOString()
+  await setDoc(docRef('specialCustomers', id), {
+    id,
+    name: data.name,
+    notes: data.notes ?? null,
+    storeId: null,
+    active: true,
+    createdAt: now,
+    createdBy: data.createdBy,
+    updatedAt: null,
+    updatedBy: null,
+    deleted: false,
+  })
   return id
 }
 
 export async function updateSpecialCustomer(
   id: string,
-  data: Partial<Pick<SpecialCustomer, 'name' | 'notes' | 'active'>>,
+  data: Partial<Pick<SpecialCustomer, 'name' | 'notes'>> & { updatedBy?: string },
 ): Promise<void> {
-  await updateDoc(docRef('specialCustomers', id), data)
+  const now = new Date().toISOString()
+  await updateDoc(docRef('specialCustomers', id), {
+    ...data,
+    updatedAt: now,
+  })
 }
 
-export async function createSpecialCustomerPrice(
-  data: Omit<SpecialCustomerPrice, 'id'>,
-): Promise<void> {
-  const id = crypto.randomUUID()
-  await setDoc(docRef('specialCustomerPrices', id), { ...data, id, deleted: false })
+export async function upsertSpecialCustomerPrice(data: {
+  id?: string
+  specialCustomerId: string
+  productId: string
+  productName: string
+  specialPrice: number
+  notes?: string | null
+  updatedBy: string
+}): Promise<void> {
+  const id = data.id ?? crypto.randomUUID()
+  const now = new Date().toISOString()
+  await setDoc(docRef('specialCustomerPrices', id), {
+    id,
+    specialCustomerId: data.specialCustomerId,
+    productId: data.productId,
+    productName: data.productName,
+    price: data.specialPrice,
+    specialPrice: data.specialPrice,
+    storeId: null,
+    notes: data.notes ?? null,
+    updatedAt: now,
+    updatedBy: data.updatedBy,
+    deleted: false,
+  }, { merge: true })
 }
 
 export async function softDeleteSpecialCustomerPrice(id: string): Promise<void> {
-  await updateDoc(docRef('specialCustomerPrices', id), { deleted: true })
+  await updateDoc(docRef('specialCustomerPrices', id), {
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+  })
+}
+
+export async function softDeleteSpecialCustomer(id: string): Promise<void> {
+  const now = new Date().toISOString()
+  const prices = await fetchSpecialCustomerPrices(id)
+  await updateDoc(docRef('specialCustomers', id), { deleted: true, deletedAt: now })
+  for (const p of prices) {
+    await softDeleteSpecialCustomerPrice(p.id)
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Employees
 // ---------------------------------------------------------------------------
 
-export async function fetchEmployees(storeId?: string): Promise<Employee[]> {
+export async function fetchEmployees(): Promise<Employee[]> {
   const snap = await getDocs(col('employees'))
   const list: Employee[] = []
   for (const d of snap.docs) {
-    const data = d.data() as Partial<Employee>
+    const data = d.data() as Partial<Employee> & {
+      weeklyWage?: number
+      active?: boolean
+      deleted?: boolean
+      archivedAt?: string | null
+      createdAt?: string
+    }
     if (data.deleted === true) continue
-    if (storeId && data.storeId !== storeId) continue
+    const weeklyWage = data.weeklyWage ?? data.salary ?? 0
+    const archivedAt = asIsoTimestamp(data.archivedAt)
+    const inactive = data.active === false || Boolean(archivedAt)
     list.push({
       id: data.id ?? d.id,
       name: data.name ?? '',
-      salary: data.salary ?? 0,
-      storeId: data.storeId ?? '',
-      archivedAt: data.archivedAt ?? null,
+      salary: weeklyWage,
+      weeklyWage,
+      storeId: data.storeId ?? null,
+      archivedAt: inactive ? (archivedAt ?? data.createdAt ?? 'inactive') : null,
       deleted: false,
+      kind: data.kind === 'cashier' ? 'cashier' : 'butcher',
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
@@ -533,32 +719,47 @@ export async function fetchEmployeeValesForEmployee(
 }
 
 export async function createEmployee(
-  data: Pick<Employee, 'name' | 'salary' | 'storeId'>,
+  data: { name: string; weeklyWage: number; createdBy: string; kind?: 'butcher' | 'cashier' },
 ): Promise<void> {
   const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  const kind = data.kind === 'cashier' ? 'cashier' : 'butcher'
   await setDoc(docRef('employees', id), {
     id,
     name: data.name,
-    salary: data.salary,
-    storeId: data.storeId,
+    weeklyWage: data.weeklyWage,
+    salary: data.weeklyWage,
+    kind,
+    active: true,
     archivedAt: null,
     deleted: false,
+    createdAt: now,
+    createdBy: data.createdBy,
   })
 }
 
 export async function updateEmployee(
   id: string,
-  data: Partial<Pick<Employee, 'name' | 'salary'>>,
+  data: Partial<{ name: string; weeklyWage: number }>,
 ): Promise<void> {
-  await updateDoc(docRef('employees', id), data)
+  const payload: Record<string, string | number> = {}
+  if (data.name !== undefined) payload.name = data.name
+  if (data.weeklyWage !== undefined) {
+    payload.weeklyWage = data.weeklyWage
+    payload.salary = data.weeklyWage
+  }
+  await updateDoc(docRef('employees', id), payload)
 }
 
 export async function archiveEmployee(id: string): Promise<void> {
-  await updateDoc(docRef('employees', id), { archivedAt: new Date().toISOString() })
+  await updateDoc(docRef('employees', id), {
+    archivedAt: new Date().toISOString(),
+    active: false,
+  })
 }
 
 export async function unarchiveEmployee(id: string): Promise<void> {
-  await updateDoc(docRef('employees', id), { archivedAt: null })
+  await updateDoc(docRef('employees', id), { archivedAt: null, active: true })
 }
 
 // ---------------------------------------------------------------------------
@@ -571,6 +772,7 @@ export async function fetchCashierUsers(): Promise<AdminUser[]> {
   for (const d of snap.docs) {
     const data = d.data() as Partial<AdminUser>
     if (data.role !== 'cashier') continue
+    if ((data as { deleted?: boolean }).deleted === true) continue
     list.push({
       uid: data.uid ?? d.id,
       displayName: data.displayName ?? '',
@@ -588,6 +790,10 @@ export async function updateUserActive(uid: string, active: boolean): Promise<vo
   await updateDoc(docRef('users', uid), { active })
 }
 
+export async function updateUserDisplayName(uid: string, displayName: string): Promise<void> {
+  await updateDoc(docRef('users', uid), { displayName })
+}
+
 export async function updateUserAuthorizedStores(
   uid: string,
   stores: string[],
@@ -603,13 +809,13 @@ export async function fetchAllStores(): Promise<StoreDoc[]> {
   const snap = await getDocs(col('stores'))
   const list: StoreDoc[] = []
   for (const d of snap.docs) {
-    const data = d.data() as Partial<StoreDoc>
+    const data = d.data() as Partial<StoreDoc> & { archivedAt?: unknown }
     list.push({
       id: data.id ?? d.id,
       name: data.name ?? '',
       address: data.address ?? null,
-      archivedAt: data.archivedAt ?? null,
-      createdAt: data.createdAt ?? '',
+      archivedAt: asIsoTimestamp(data.archivedAt),
+      createdAt: asIsoTimestamp(data.createdAt) ?? '',
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
@@ -650,15 +856,22 @@ export async function fetchExpensesForShift(shiftId: string): Promise<Expense[]>
   const snap = await getDocs(col('expenses'))
   const list: Expense[] = []
   for (const d of snap.docs) {
-    const data = d.data() as Partial<Expense>
+    const data = d.data() as Partial<Expense> & {
+      concept?: string | null
+      notes?: string | null
+      deleted?: boolean
+    }
     if (data.deleted === true) continue
     if (data.shiftId !== shiftId) continue
+    const concept = data.concept ?? data.description ?? null
     list.push({
       id: data.id ?? d.id,
       storeId: data.storeId ?? '',
       shiftId: data.shiftId ?? '',
       category: data.category ?? '',
-      description: data.description ?? null,
+      description: concept,
+      concept,
+      notes: data.notes ?? null,
       amount: data.amount ?? 0,
       providerId: data.providerId ?? null,
       providerName: data.providerName ?? null,

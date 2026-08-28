@@ -80,7 +80,7 @@ export function registerAttendanceHandlers(): void {
       const employee = db.select().from(employees).where(eq(employees.id, employeeId)).all()[0]
       if (!employee) return { ok: false, error: 'Empleado no encontrado.', code: 'NOT_FOUND' }
       if (!employee.active) {
-        return { ok: false, error: 'El empleado está archivado.', code: 'CONFLICT' }
+        return { ok: false, error: 'El empleado está eliminado.', code: 'CONFLICT' }
       }
 
       const existing = db.select().from(attendance)

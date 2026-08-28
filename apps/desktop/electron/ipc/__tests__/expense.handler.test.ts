@@ -120,6 +120,22 @@ describe('expense.handler', () => {
       expect(allProviders[0].id).toBe(providerIdFromName('oso'))
     })
 
+    it('reactiva un proveedor archivado al registrar un gasto con el mismo nombre', () => {
+      const pid = providerIdFromName('oso')
+      db.insert(providers).values({
+        id: pid,
+        name: 'Oso',
+        nameKey: 'oso',
+        createdAt: new Date().toISOString(),
+        archivedAt: new Date().toISOString(),
+      }).run()
+
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, { provider: 'Oso', amount: 1500 }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      expect(db.select().from(providers).all()[0]?.archivedAt).toBeNull()
+    })
+
     it('registra gasto con providerId del autocomplete', () => {
       // Pre-insertar proveedor en cache
       const pid = providerIdFromName('proveedor registrado')
@@ -159,6 +175,24 @@ describe('expense.handler', () => {
       const result = handler(null, { concept: 'Otros', amount: 0 }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('acepta monto 0 si hay proveedor y la visita queda como deuda', () => {
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Proveedor Sin Pago',
+        amount: 0,
+        newDebtAmount: 1_000_000,
+      }) as { ok: boolean }
+
+      expect(result.ok).toBe(true)
+
+      const expRow = db.select().from(expenses).all()[0]
+      expect(expRow.amount).toBe(0)
+
+      const debtEvent = db.select().from(providerDebtEvents).all()[0]
+      expect(debtEvent.type).toBe('debt')
+      expect(debtEvent.amount).toBe(1_000_000)
     })
 
     it('rechaza si no hay sesión activa', () => {
@@ -299,6 +333,22 @@ describe('expense.handler', () => {
       expect(result.data.includes('Limpieza')).toBe(true)
     })
 
+    it('excluye conceptos auto-generados de vales y pagos de sueldo', () => {
+      const now = new Date().toISOString()
+      db.insert(expenses).values([
+        { id: 'exp-vale', storeId: 'store-001', shiftId: 'shift-001', concept: 'Vale: Ariel', amount: 5000, createdAt: now, createdBy: 'user-001' },
+        { id: 'exp-pago', storeId: 'store-001', shiftId: 'shift-001', concept: 'Pago: Tomas Holgado', amount: 8000, createdAt: now, createdBy: 'user-001' },
+        { id: 'exp-ok', storeId: 'store-001', shiftId: 'shift-001', concept: 'Servicios', amount: 1000, createdAt: now, createdBy: 'user-001' },
+      ]).run()
+
+      const handler = getHandler('ipc:get-expense-categories')
+      const result = handler(null) as { ok: boolean; data: string[] }
+      expect(result.ok).toBe(true)
+      expect(result.data.some(c => c.startsWith('Vale:'))).toBe(false)
+      expect(result.data.some(c => c.startsWith('Pago:'))).toBe(false)
+      expect(result.data).toContain('Servicios')
+    })
+
     it('retorna error si no hay sesión', () => {
       vi.mocked(getActiveSession).mockReturnValue(null)
       const handler = getHandler('ipc:get-expense-categories')
@@ -342,6 +392,57 @@ describe('expense.handler', () => {
       const result = handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
       expect(result.ok).toBe(true)
       expect(result.data?.balance).toBe(0)
+    })
+
+    it('devuelve saldo a favor (negativo) si solo hay pagos de más', () => {
+      const now = new Date().toISOString()
+      const pid = providerIdFromName('credito x')
+      db.insert(providers).values({ id: pid, name: 'Credito X', nameKey: 'credito x', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-credit-only',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Credito X',
+        type: 'payment',
+        amount: 50000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
+      expect(result.ok).toBe(true)
+      expect(result.data?.balance).toBe(-50000)
+    })
+
+    it('incluye lastEventNotes del último movimiento', () => {
+      const pid = providerIdFromName('Prov Ajuste')
+      const now = new Date().toISOString()
+      db.insert(providers).values({
+        id: pid, name: 'Prov Ajuste', nameKey: 'prov ajuste', createdAt: now,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-adjust-1',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Prov Ajuste',
+        type: 'debt',
+        amount: 10000,
+        createdAt: now,
+        createdBy: 'user-001',
+        notes: 'Ajuste de admin (Admin): dejó la deuda en $ 10.000',
+      }).run()
+
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = handler(null, { providerId: pid }) as {
+        ok: boolean
+        data: { balance: number; lastEventNotes?: string }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data?.balance).toBe(10000)
+      expect(result.data?.lastEventNotes).toBe(
+        'Ajuste de admin (Admin): dejó la deuda en $ 10.000',
+      )
     })
 
     it('rechaza payload inválido — providerId vacío', () => {

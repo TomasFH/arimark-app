@@ -6,6 +6,9 @@ import {
   parseNumericInput,
   formatDecimalInputValue,
   parseDecimalInput,
+  adjustKgInputValue,
+  applyKgDelta,
+  applyUnitsDelta,
   calcCursorPosition,
 } from '../numericInput'
 
@@ -162,6 +165,51 @@ describe('numericInput', () => {
 
     it('retorna null para solo coma', () => {
       expect(parseDecimalInput(',')).toBeNull()
+    })
+  })
+
+  describe('adjustKgInputValue', () => {
+    it('suma 0,1 kg desde vacío', () => {
+      expect(adjustKgInputValue('', 0.1)).toBe('0,1')
+    })
+
+    it('resta no baja de 0 y deja vacío', () => {
+      expect(adjustKgInputValue('0,1', -0.1)).toBe('')
+      expect(adjustKgInputValue('', -0.1)).toBe('')
+    })
+
+    it('acumula con formato es-AR', () => {
+      expect(adjustKgInputValue('0,1', 0.1)).toBe('0,2')
+    })
+  })
+
+  describe('applyKgDelta', () => {
+    it('suma un peso tipeado al total anotado', () => {
+      expect(applyKgDelta('10', '4,6', 1)).toBe('14,6')
+    })
+
+    it('resta un peso tipeado del total anotado', () => {
+      expect(applyKgDelta('10', '2,3', -1)).toBe('7,7')
+    })
+
+    it('no baja de 0', () => {
+      expect(applyKgDelta('1', '2,3', -1)).toBe('')
+    })
+
+    it('rechaza delta vacío o cero', () => {
+      expect(applyKgDelta('10', '', 1)).toBeNull()
+      expect(applyKgDelta('10', '0', 1)).toBeNull()
+    })
+  })
+
+  describe('applyUnitsDelta', () => {
+    it('suma y resta unidades enteras', () => {
+      expect(applyUnitsDelta('30', '4', 1)).toBe('34')
+      expect(applyUnitsDelta('30', '4', -1)).toBe('26')
+    })
+
+    it('no baja de 0', () => {
+      expect(applyUnitsDelta('2', '5', -1)).toBe('')
     })
   })
 })

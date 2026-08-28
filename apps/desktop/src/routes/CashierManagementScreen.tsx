@@ -2,25 +2,24 @@
  * Pantalla de gestión de cajeras (ABM) — solo admins.
  *
  * Flujo de creación:
- *  - El admin ingresa nombre, email y locales autorizados. NO ingresa contraseña.
- *  - El sistema crea la cuenta y envía un email automático a la cajera para que
- *    defina su propia contraseña.
+ *  - El admin ingresa nombre y email. NO ingresa contraseña.
+ *  - El sistema crea la cuenta y envía un email para que defina su contraseña.
+ *  - Puede operar en todos los locales activos (no hay selector de “locales autorizados”).
  *
- * Edición:
- *  - Se pueden cambiar nombre y locales autorizados (authorizedStores en Firestore).
- *  - Eso define en qué locales aparece el selector (móvil) / pertenece la cajera.
- *
- * Eliminación: soft-delete (deleted:true). Auth user persiste hasta Cloud Function.
+ * Edición: solo el nombre. Eliminación: soft-delete (deleted:true).
  */
 import { useEffect, useState } from 'react'
 import BackButton from '../components/BackButton'
 import type { CashierRow, StoreRow } from '../types/hw-api'
 
 interface Props {
-  onBack: () => void
+  onBack?: () => void
+  /** Sin chrome de página (sector dentro de Personal). */
+  embedded?: boolean
+  onCashierCreated?: () => void
 }
 
-export default function CashierManagementScreen({ onBack }: Props) {
+export default function CashierManagementScreen({ onBack, embedded = false, onCashierCreated }: Props) {
   const [cashiers, setCashiers] = useState<CashierRow[]>([])
   const [stores, setStores] = useState<StoreRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -30,12 +29,7 @@ export default function CashierManagementScreen({ onBack }: Props) {
   const [toggling, setToggling] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<CashierRow | null>(null)
 
-  const storeNameById = new Map(stores.map(s => [s.id, s.name]))
-
-  function formatStores(ids: string[]): string {
-    if (ids.length === 0) return 'Sin locales asignados'
-    return ids.map(id => storeNameById.get(id) ?? id).join(' · ')
-  }
+  const activeStoreIds = stores.filter(s => !s.archivedAt).map(s => s.id)
 
   async function load() {
     setLoading(true)
@@ -73,12 +67,16 @@ export default function CashierManagementScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
+    <div className={`flex flex-col ${embedded ? '' : 'h-screen'} bg-zinc-950 text-white`}>
       <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
+        {!embedded && onBack && <BackButton onClick={onBack} />}
         <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-zinc-100 truncate">Gestión de cajeras</h1>
-          <p className="text-[10px] text-zinc-500 mt-0.5">Cuentas, locales autorizados y estado</p>
+          <h1 className="text-sm font-semibold text-zinc-100 truncate">
+            {embedded ? 'Cuentas' : 'Gestión de cajeras'}
+          </h1>
+          <p className="text-[10px] text-zinc-500 mt-0.5">
+            {embedded ? 'Activar, desactivar y alta de login' : 'Cuentas, locales autorizados y estado'}
+          </p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
@@ -99,7 +97,7 @@ export default function CashierManagementScreen({ onBack }: Props) {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto px-6 py-4">
+      <div className={`${embedded ? '' : 'flex-1 overflow-auto'} px-6 py-4`}>
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
@@ -119,12 +117,6 @@ export default function CashierManagementScreen({ onBack }: Props) {
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-sm truncate" title={c.displayName}>{c.displayName}</p>
                   <p className="text-xs text-zinc-400 mt-0.5 truncate" title={c.email}>{c.email}</p>
-                  <p
-                    className={`text-xs mt-1 truncate ${c.authorizedStores.length === 0 ? 'text-amber-400/70' : 'text-zinc-500'}`}
-                    title={formatStores(c.authorizedStores)}
-                  >
-                    {formatStores(c.authorizedStores)}
-                  </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c.active ? 'bg-emerald-950/50 text-emerald-400/80' : 'bg-zinc-800/80 text-zinc-500'}`}>
@@ -135,7 +127,7 @@ export default function CashierManagementScreen({ onBack }: Props) {
                     onClick={() => setEditing(c)}
                     className="text-xs px-3 py-1.5 rounded-lg font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
                   >
-                    Locales
+                    Editar
                   </button>
                   <button
                     type="button"
@@ -164,8 +156,9 @@ export default function CashierManagementScreen({ onBack }: Props) {
         <CashierFormModal
           mode="create"
           stores={stores}
+          defaultStoreIds={activeStoreIds}
           onClose={() => setShowCreate(false)}
-          onSaved={() => { setShowCreate(false); void load() }}
+          onSaved={() => { setShowCreate(false); void load(); onCashierCreated?.() }}
         />
       )}
 
@@ -174,6 +167,7 @@ export default function CashierManagementScreen({ onBack }: Props) {
           mode="edit"
           cashier={editing}
           stores={stores}
+          defaultStoreIds={activeStoreIds}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load() }}
         />
@@ -191,38 +185,36 @@ export default function CashierManagementScreen({ onBack }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Modal crear / editar cajera (locales)
+// Modal crear / editar cajera
 // ---------------------------------------------------------------------------
 
 interface CashierFormModalProps {
   mode: 'create' | 'edit'
   cashier?: CashierRow
   stores: StoreRow[]
+  /** Locales activos: se persisten en Firestore por compatibilidad, sin mostrarlos en la UI. */
+  defaultStoreIds: string[]
   onClose: () => void
   onSaved: () => void
 }
 
-function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFormModalProps) {
+function CashierFormModal({ mode, cashier, stores, defaultStoreIds, onClose, onSaved }: CashierFormModalProps) {
   const [displayName, setDisplayName] = useState(cashier?.displayName ?? '')
   const [email, setEmail] = useState(cashier?.email ?? '')
-  const [selectedStores, setSelectedStores] = useState<string[]>(cashier?.authorizedStores ?? [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState(false)
 
-  function toggleStore(storeId: string) {
-    setSelectedStores(prev =>
-      prev.includes(storeId) ? prev.filter(id => id !== storeId) : [...prev, storeId],
-    )
-    setError(null)
-  }
+  const storeIds = defaultStoreIds.length > 0
+    ? defaultStoreIds
+    : cashier?.authorizedStores ?? []
 
   async function handleSubmit() {
     setError(null)
     if (!displayName.trim()) { setError('El nombre es obligatorio.'); return }
     if (mode === 'create' && !email.trim()) { setError('El email es obligatorio.'); return }
-    if (selectedStores.length === 0) {
-      setError('Seleccioná al menos un local.')
+    if (storeIds.length === 0) {
+      setError('No hay locales activos. Creá un local antes de dar de alta una cajera.')
       return
     }
 
@@ -231,10 +223,15 @@ function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFo
       const r = await window.hw.createCashier({
         displayName: displayName.trim(),
         email: email.trim().toLowerCase(),
-        authorizedStores: selectedStores,
+        authorizedStores: storeIds,
       })
       setSaving(false)
       if (!r.ok) { setError(r.error); return }
+      void window.hw.createEmployee({
+        name: displayName.trim(),
+        weeklyWage: 0,
+        kind: 'cashier',
+      })
       setCreated(true)
       return
     }
@@ -242,7 +239,7 @@ function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFo
     const r = await window.hw.updateCashier({
       uid: cashier!.uid,
       displayName: displayName.trim(),
-      authorizedStores: selectedStores,
+      authorizedStores: storeIds,
     })
     setSaving(false)
     if (!r.ok) { setError(r.error); return }
@@ -259,7 +256,7 @@ function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFo
             Se envió un email a <strong className="text-white">{email}</strong> para que configure su contraseña.
           </p>
           <p className="text-xs text-zinc-600">
-            Locales asignados: {selectedStores.map(id => stores.find(s => s.id === id)?.name ?? id).join(', ')}
+            Va a poder operar en todos los locales activos.
           </p>
           <button onClick={onSaved} className="w-full mt-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
             Cerrar
@@ -280,8 +277,8 @@ function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFo
         </h2>
         <p className="text-xs text-zinc-500 mb-5">
           {mode === 'create'
-            ? 'Recibirá un email para definir su contraseña. Asigná en qué locales puede operar.'
-            : 'Cambiá el nombre o los locales autorizados. En el celular, el selector de local usa esta lista.'}
+            ? 'Recibirá un email para definir su contraseña. Puede operar en todos los locales activos.'
+            : 'Cambiá el nombre. La cajera puede operar en todos los locales activos.'}
         </p>
 
         <div className="space-y-4">
@@ -318,36 +315,11 @@ function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFo
             <p className="text-xs text-zinc-500 truncate" title={email}>Email: {email}</p>
           )}
 
-          <div>
-            <p className="text-xs text-zinc-400 mb-2">Locales autorizados</p>
-            {stores.length === 0 ? (
-              <p className="text-xs text-amber-400">
-                No hay locales activos. Creá locales en Gestión de locales primero.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {stores.map(s => {
-                  const checked = selectedStores.includes(s.id)
-                  return (
-                    <li key={s.id}>
-                      <label className="flex items-center gap-3 min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2.5 cursor-pointer hover:border-zinc-600">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleStore(s.id)}
-                          disabled={saving}
-                          className="shrink-0 rounded border-zinc-600"
-                        />
-                        <span className="min-w-0 flex-1 text-sm text-white truncate" title={s.name}>
-                          {s.name}
-                        </span>
-                      </label>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
+          {stores.filter(s => !s.archivedAt).length === 0 && (
+            <p className="text-xs text-amber-400">
+              No hay locales activos. Creá locales en Gestión de locales primero.
+            </p>
+          )}
         </div>
 
         {error && (
@@ -368,7 +340,7 @@ function CashierFormModal({ mode, cashier, stores, onClose, onSaved }: CashierFo
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={saving || stores.length === 0}
+            disabled={saving || storeIds.length === 0}
             className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
           >
             {saving ? 'Guardando…' : mode === 'create' ? 'Crear y enviar email' : 'Guardar'}
@@ -390,46 +362,33 @@ interface DeleteConfirmModalProps {
 }
 
 function DeleteConfirmModal({ cashier, onConfirm, onCancel }: DeleteConfirmModalProps) {
-  const [confirmed, setConfirmed] = useState(false)
-
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
       onClick={e => { if (e.target === e.currentTarget) onCancel() }}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-1 text-red-400">Eliminar cajera</h2>
-        <p className="text-sm text-zinc-300 mb-2">
-          ¿Estás seguro de que querés eliminar a <strong className="truncate inline-block max-w-full align-bottom" title={cashier.displayName}>{cashier.displayName}</strong>?
-        </p>
-        <p className="text-xs text-zinc-500 mb-4">
-          La cajera quedará deshabilitada y no podrá volver a ingresar. Sus datos históricos
-          (ventas, turnos) se conservan. La cuenta de Firebase puede eliminarse físicamente
-          desde Firebase Console si es necesario.
-        </p>
-
-        {!confirmed ? (
-          <div className="space-y-2">
-            <button onClick={() => setConfirmed(true)}
-              className="w-full bg-red-700 hover:bg-red-600 text-white text-sm font-medium py-2 rounded-lg transition-colors">
-              Sí, eliminar cajera
-            </button>
-            <button onClick={onCancel}
-              className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
-              Cancelar
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-xs text-red-400 font-medium text-center mb-2">Confirmación final — esta acción no se puede deshacer</p>
-            <button onClick={onConfirm}
-              className="w-full bg-red-600 hover:bg-red-500 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
-              Confirmar eliminación definitiva
-            </button>
-            <button onClick={onCancel}
-              className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
-              Cancelar
-            </button>
-          </div>
-        )}
+      <div className="bg-zinc-900 rounded-2xl border border-zinc-800 w-full max-w-sm p-6 space-y-4">
+        <h2 className="text-base font-semibold text-white min-w-0">
+          ¿Estás seguro que querés eliminar{' '}
+          <span className="truncate inline-block max-w-full align-bottom" title={cashier.displayName}>
+            {cashier.displayName}
+          </span>
+          ?
+        </h2>
+        <div className="flex gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold"
+          >
+            Eliminar
+          </button>
+        </div>
       </div>
     </div>
   )

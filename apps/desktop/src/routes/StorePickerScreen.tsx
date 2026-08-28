@@ -47,7 +47,7 @@ export default function StorePickerScreen({ stores, intent, onSelect, onLogout }
               key={store.id}
               disabled={loading}
               onClick={() => void handleSelect(store.id)}
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 hover:border-blue-500 hover:bg-zinc-700 text-left px-5 py-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 hover:border-emerald-500 hover:bg-emerald-950/30 text-left px-5 py-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <p className="font-semibold text-white">{store.name}</p>
               {store.address && (

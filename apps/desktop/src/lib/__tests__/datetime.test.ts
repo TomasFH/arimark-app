@@ -13,6 +13,7 @@ import {
   todayLocalYmd,
   addDaysYmd,
   weekStartMondayLocalYmd,
+  utcToLocalYmd,
 } from '../datetime'
 
 const TZ = 'America/Argentina/Buenos_Aires'
@@ -83,6 +84,16 @@ describe('todayLocalYmd', () => {
     const result = todayLocalYmd()
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(result).toBe(new Date().toLocaleDateString('en-CA', { timeZone: TZ }))
+  })
+})
+
+describe('utcToLocalYmd', () => {
+  it('convierte un instante UTC al día civil en AR', () => {
+    expect(utcToLocalYmd('2026-07-27T12:00:00.000Z')).toBe('2026-07-27')
+  })
+
+  it('string vacío no inventa una fecha', () => {
+    expect(utcToLocalYmd('')).toBe('')
   })
 })
 

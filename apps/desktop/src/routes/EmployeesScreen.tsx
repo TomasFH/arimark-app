@@ -1,6 +1,6 @@
 /**
  * Gestión de empleados / carniceros (solo admin).
- * ABM: crear, editar nombre/sueldo semanal, archivar y restaurar.
+ * ABM: crear, editar nombre/sueldo semanal, eliminar y restaurar.
  */
 import { useEffect, useState } from 'react'
 import BackButton from '../components/BackButton'
@@ -11,16 +11,26 @@ import SalaryPaymentModal from './SalaryPaymentModal'
 import type { EmployeeRow } from '../types/hw-api'
 
 interface Props {
-  onBack: () => void
+  onBack?: () => void
+  embedded?: boolean
+  kind?: 'butcher' | 'cashier'
+  hideCreate?: boolean
+  showPayrollButton?: boolean
 }
 
 type ModalMode =
   | { type: 'none' }
   | { type: 'create' }
   | { type: 'edit'; employee: EmployeeRow }
-  | { type: 'archive'; employee: EmployeeRow }
+  | { type: 'delete'; employee: EmployeeRow }
 
-export default function EmployeesScreen({ onBack }: Props) {
+export default function EmployeesScreen({
+  onBack,
+  embedded = false,
+  kind,
+  hideCreate = false,
+  showPayrollButton = true,
+}: Props) {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<EmployeeRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -28,6 +38,8 @@ export default function EmployeesScreen({ onBack }: Props) {
   const [showArchived, setShowArchived] = useState(false)
   const [showLiquidation, setShowLiquidation] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
+
+  const roleLabel = kind === 'cashier' ? 'cajeras' : kind === 'butcher' ? 'carniceros' : 'empleados'
 
   async function load(includeArchived = showArchived) {
     setLoading(true)
@@ -37,7 +49,11 @@ export default function EmployeesScreen({ onBack }: Props) {
     )
     setLoading(false)
     if (r.ok) {
-      setList(includeArchived ? r.data.filter(e => !e.active) : r.data)
+      const byActive = includeArchived ? r.data.filter(e => !e.active) : r.data
+      const byKind = kind
+        ? byActive.filter(e => (e.kind === 'cashier' ? 'cashier' : 'butcher') === kind)
+        : byActive
+      setList(byKind)
     } else {
       setError(r.error ?? 'Error al cargar empleados.')
     }
@@ -46,7 +62,7 @@ export default function EmployeesScreen({ onBack }: Props) {
   useEffect(() => {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArchived])
+  }, [showArchived, kind])
 
   async function handleUnarchive(emp: EmployeeRow) {
     setRestoringId(emp.id)
@@ -61,16 +77,20 @@ export default function EmployeesScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
+    <div className={`flex flex-col ${embedded ? '' : 'h-screen'} bg-zinc-950 text-white`}>
       <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
+        {!embedded && onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-zinc-100 truncate">Empleados</h1>
+          <h1 className="text-sm font-semibold text-zinc-100 truncate">
+            {embedded
+              ? (kind === 'cashier' ? 'Sueldo y vales' : 'Alta y sueldos')
+              : 'Empleados'}
+          </h1>
           <p className="text-[10px] text-zinc-500 truncate">
-            {showArchived ? 'Archivados — restaurar para volver a usarlos' : 'Alta, sueldos, archivo y liquidación semanal'}
+            {showArchived ? 'Eliminados — restaurar para volver a usarlos' : 'Sueldo semanal y liquidación'}
           </p>
         </div>
-        {!showArchived && (
+        {!showArchived && showPayrollButton && (
           <button
             type="button"
             onClick={() => setShowLiquidation(true)}
@@ -85,9 +105,9 @@ export default function EmployeesScreen({ onBack }: Props) {
           onClick={() => setShowArchived(v => !v)}
           className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
         >
-          {showArchived ? 'Ver activos' : 'Ver archivados'}
+          {showArchived ? 'Ver activos' : 'Ver eliminados'}
         </button>
-        {!showArchived && (
+        {!showArchived && !hideCreate && (
           <button
             type="button"
             onClick={() => setModal({ type: 'create' })}
@@ -98,7 +118,7 @@ export default function EmployeesScreen({ onBack }: Props) {
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className={embedded ? '' : 'flex-1 overflow-y-auto'}>
         {loading && (
           <div className="flex justify-center items-center py-16">
             <p className="text-zinc-500 text-sm">Cargando empleados…</p>
@@ -123,11 +143,16 @@ export default function EmployeesScreen({ onBack }: Props) {
             {list.length === 0 && (
               <div className="text-center py-12">
                 <p className="text-zinc-500 text-sm">
-                  {showArchived ? 'No hay empleados archivados.' : 'No hay empleados activos.'}
+                  {showArchived ? `No hay ${roleLabel} eliminados.` : `No hay ${roleLabel} activos.`}
                 </p>
-                {!showArchived && (
+                {!showArchived && !hideCreate && (
                   <p className="text-zinc-600 text-xs mt-1">
                     Creá uno con “+ Nuevo” para registrar asistencia y vales.
+                  </p>
+                )}
+                {!showArchived && hideCreate && kind === 'cashier' && (
+                  <p className="text-zinc-600 text-xs mt-1">
+                    Las cajeras con cuenta de login aparecen acá para sueldo y vales.
                   </p>
                 )}
               </div>
@@ -145,7 +170,7 @@ export default function EmployeesScreen({ onBack }: Props) {
                   <p className="text-xs text-zinc-400 tabular-nums">
                     Sueldo semanal: {formatARS(emp.weeklyWage)}
                     {!emp.active && (
-                      <span className="ml-2 text-zinc-500">· Archivado</span>
+                      <span className="ml-2 text-zinc-500">· Eliminado</span>
                     )}
                   </p>
                 </div>
@@ -169,10 +194,10 @@ export default function EmployeesScreen({ onBack }: Props) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setModal({ type: 'archive', employee: emp })}
-                      className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-lg hover:bg-zinc-800"
+                      onClick={() => setModal({ type: 'delete', employee: emp })}
+                      className="shrink-0 text-xs text-zinc-400 hover:text-red-400 px-2 py-1 rounded-lg hover:bg-zinc-800"
                     >
-                      Archivar
+                      Eliminar
                     </button>
                   </>
                 )}
@@ -189,7 +214,7 @@ export default function EmployeesScreen({ onBack }: Props) {
           initialWage=""
           onCancel={() => setModal({ type: 'none' })}
           onSave={async (name, weeklyWage) => {
-            const r = await window.hw.createEmployee({ name, weeklyWage })
+            const r = await window.hw.createEmployee({ name, weeklyWage, kind: kind ?? 'butcher' })
             if (!r.ok) return r.error ?? 'No se pudo crear.'
             setModal({ type: 'none' })
             await load()
@@ -218,14 +243,14 @@ export default function EmployeesScreen({ onBack }: Props) {
         />
       )}
 
-      {modal.type === 'archive' && (
-        <ArchiveConfirmModal
+      {modal.type === 'delete' && (
+        <DeleteConfirmModal
           name={modal.employee.name}
           onCancel={() => setModal({ type: 'none' })}
           onConfirm={async () => {
             const r = await window.hw.archiveEmployee({ id: modal.employee.id })
             if (!r.ok) {
-              setError(r.error ?? 'No se pudo archivar.')
+              setError(r.error ?? 'No se pudo eliminar.')
               setModal({ type: 'none' })
               return
             }
@@ -327,7 +352,7 @@ function EmployeeFormModal({
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700"
           >
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
@@ -337,7 +362,7 @@ function EmployeeFormModal({
   )
 }
 
-function ArchiveConfirmModal({
+function DeleteConfirmModal({
   name,
   onCancel,
   onConfirm,
@@ -350,19 +375,18 @@ function ArchiveConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
-      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4">
-        <h2 className="text-lg font-semibold">Archivar empleado</h2>
-        <p className="text-sm text-zinc-300">
-          ¿Archivar a{' '}
-          <span className="font-medium text-white" title={name}>{name}</span>?
-          Dejará de aparecer en listas activas (asistencia/vales). Podés restaurarlo desde “Ver archivados”.
-        </p>
-        <div className="flex justify-end gap-2">
+      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 p-6 space-y-4">
+        <h2 className="text-base font-semibold text-white min-w-0">
+          ¿Estás seguro que querés eliminar{' '}
+          <span className="truncate inline-block max-w-full align-bottom" title={name}>{name}</span>
+          ?
+        </h2>
+        <div className="flex gap-3 pt-1">
           <button
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800"
+            className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           >
             Cancelar
           </button>
@@ -373,9 +397,9 @@ function ArchiveConfirmModal({
               setBusy(true)
               void onConfirm().finally(() => setBusy(false))
             }}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700"
+            className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold disabled:opacity-40"
           >
-            {busy ? 'Archivando…' : 'Archivar'}
+            {busy ? 'Eliminando…' : 'Eliminar'}
           </button>
         </div>
       </div>

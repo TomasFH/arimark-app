@@ -11,15 +11,23 @@
  *   licenses/{tenantId}/employeeVales/{id}
  */
 
-import { getFirestore, collection, getDocs, doc, getDoc } from 'firebase/firestore'
+import { getFirestore, collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore'
 import log from 'electron-log'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { getBusinessConfig } from '../businessConfig'
+import {
+  cashAmountFromDeposit,
+  digitalAmountFromDeposit,
+  depositPaymentsToJson,
+} from '../lib/depositPayments'
 import type {
   HistoryShiftRow,
   HistoryShiftDetail,
   HistorySaleRow,
   HistoryExpenseRow,
+  HistoryOrderRow,
+  HistoryDebtRow,
+  HistoryValeRow,
   RemoteEmployeeValeRow,
   ShiftType,
 } from '../../src/types/hw-api'
@@ -77,6 +85,41 @@ interface FsExpense {
   deleted?: boolean
 }
 
+interface FsOrder {
+  id?: string
+  customerName?: string
+  phone?: string | null
+  items?: string
+  depositAmount?: number
+  depositMethod?: string | null
+  depositPayments?: unknown
+  depositShiftId?: string | null
+  createdAt?: string
+  status?: string
+  deleted?: boolean
+}
+
+interface FsDebtEvent {
+  id?: string
+  customerId?: string
+  saleId?: string | null
+  shiftId?: string | null
+  amount?: number
+  eventType?: string
+  notes?: string | null
+  createdAt?: string
+  paymentMethod?: string | null
+  deleted?: boolean
+}
+
+const FIRESTORE_IN_LIMIT = 30
+
+function chunkIds(ids: string[], size = FIRESTORE_IN_LIMIT): string[][] {
+  const out: string[][] = []
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size))
+  return out
+}
+
 export interface HistoryShiftsFilter {
   fromDate?: string
   toDate?: string
@@ -110,8 +153,9 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
 }
 
 /**
- * Lista turnos (abiertos y cerrados) desde Firestore con resumen de ventas/gastos.
- * No incluye señas ni fiados (aún no sincronizados).
+ * Lista turnos (abiertos y cerrados) desde Firestore con resumen de ventas/gastos/señas.
+ * Las 5 colecciones se leen en paralelo (un round-trip). El detalle de un turno
+ * usa queries filtradas por shiftId para no volver a bajar colecciones enteras.
  */
 export async function fetchHistoryShiftsFromFirestore(
   filter: HistoryShiftsFilter,
@@ -122,10 +166,12 @@ export async function fetchHistoryShiftsFromFirestore(
   const app = getFirebaseApp()
   const firestore = getFirestore(app)
 
-  const [shiftsSnap, salesSnap, expensesSnap] = await Promise.all([
+  const [shiftsSnap, salesSnap, expensesSnap, ordersSnap, debtsSnap] = await Promise.all([
     getDocs(collection(firestore, 'licenses', config.tenant_id, 'shifts')),
     getDocs(collection(firestore, 'licenses', config.tenant_id, 'sales')),
     getDocs(collection(firestore, 'licenses', config.tenant_id, 'expenses')),
+    getDocs(collection(firestore, 'licenses', config.tenant_id, 'orders')),
+    getDocs(collection(firestore, 'licenses', config.tenant_id, 'customerDebtEvents')),
   ])
 
   const shifts: FsShift[] = []
@@ -158,9 +204,32 @@ export async function fetchHistoryShiftsFromFirestore(
     expensesByShift.set(e.shiftId, (expensesByShift.get(e.shiftId) ?? 0) + e.amount)
   }
 
+  const depositsByShift = new Map<string, number>()
+  for (const d of ordersSnap.docs) {
+    const o = d.data() as FsOrder
+    if (o.deleted === true) continue
+    if (!o.depositShiftId || (o.depositAmount ?? 0) <= 0) continue
+    const cash = cashAmountFromDeposit({
+      depositAmount: o.depositAmount ?? 0,
+      depositMethod: o.depositMethod ?? null,
+      depositPayments: depositPaymentsToJson(o.depositPayments),
+    })
+    depositsByShift.set(o.depositShiftId, (depositsByShift.get(o.depositShiftId) ?? 0) + cash)
+  }
+
+  const cashDebtByShift = new Map<string, number>()
+  for (const d of debtsSnap.docs) {
+    const e = d.data() as FsDebtEvent
+    if (e.deleted === true) continue
+    if (!e.shiftId || e.paymentMethod !== 'cash') continue
+    cashDebtByShift.set(e.shiftId, (cashDebtByShift.get(e.shiftId) ?? 0) + Math.abs(e.amount ?? 0))
+  }
+
   return shifts.map(s => {
     const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
     const exp = expensesByShift.get(s.id) ?? 0
+    const dep = depositsByShift.get(s.id) ?? 0
+    const debtCash = cashDebtByShift.get(s.id) ?? 0
     return {
       id: s.id,
       shiftType: s.shiftType,
@@ -171,21 +240,50 @@ export async function fetchHistoryShiftsFromFirestore(
       totalRevenue: sv.total,
       totalCashSales: sv.cash,
       totalExpenses: exp,
-      cashInHand: s.openingCash + sv.cash - exp,
-      totalDeposits: 0,
+      cashInHand: s.openingCash + sv.cash + dep + debtCash - exp,
+      totalDeposits: dep,
     }
   })
 }
 
-/** Preferir filas locales (más completas) ante el mismo id. */
+/** Preferir la fila con más movimiento. Empate → local (esta PC es fuente de verdad). */
 export function mergeHistoryShiftRows(
   local: HistoryShiftRow[],
   remote: HistoryShiftRow[],
 ): HistoryShiftRow[] {
   const byId = new Map<string, HistoryShiftRow>()
   for (const r of remote) byId.set(r.id, r)
-  for (const l of local) byId.set(l.id, l)
-  return Array.from(byId.values()).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  for (const l of local) {
+    const existing = byId.get(l.id)
+    if (!existing || historyShiftRowScore(l) >= historyShiftRowScore(existing)) {
+      byId.set(l.id, l)
+    }
+  }
+  return Array.from(byId.values())
+}
+
+export function historyShiftRowScore(row: HistoryShiftRow): number {
+  return row.salesCount * 1_000_000 + row.totalRevenue + row.totalExpenses + row.totalDeposits
+}
+
+/** Abiertos primero, después los más recientes. Aplicar antes de paginar. */
+export function sortHistoryShiftRowsNewestFirst(rows: HistoryShiftRow[]): HistoryShiftRow[] {
+  return [...rows].sort((a, b) => {
+    const aOpen = a.closedAt ? 0 : 1
+    const bOpen = b.closedAt ? 0 : 1
+    if (aOpen !== bOpen) return bOpen - aOpen
+    return b.startedAt.localeCompare(a.startedAt)
+  })
+}
+
+export function historyShiftDetailIsEmpty(detail: HistoryShiftDetail): boolean {
+  return (
+    detail.sales.length === 0
+    && detail.expenses.length === 0
+    && detail.deposits.length === 0
+    && detail.debts.length === 0
+    && detail.vales.length === 0
+  )
 }
 
 /**
@@ -207,9 +305,20 @@ export async function fetchHistoryShiftDetailFromFirestore(
 
     const shift = { ...(shiftSnap.data() as FsShift), id: shiftId }
 
-    const [salesSnap, expensesSnap] = await Promise.all([
-      getDocs(collection(firestore, 'licenses', config.tenant_id, 'sales')),
-      getDocs(collection(firestore, 'licenses', config.tenant_id, 'expenses')),
+    const tenant = config.tenant_id
+    const salesCol = collection(firestore, 'licenses', tenant, 'sales')
+    const expensesCol = collection(firestore, 'licenses', tenant, 'expenses')
+    const ordersCol = collection(firestore, 'licenses', tenant, 'orders')
+    const debtsCol = collection(firestore, 'licenses', tenant, 'customerDebtEvents')
+    const valesCol = collection(firestore, 'licenses', tenant, 'employeeVales')
+
+    // Queries por shiftId: no bajan la colección entera (a diferencia de la lista).
+    const [salesSnap, expensesSnap, ordersSnap, debtsSnap, valesSnap] = await Promise.all([
+      getDocs(query(salesCol, where('shiftId', '==', shiftId))),
+      getDocs(query(expensesCol, where('shiftId', '==', shiftId))),
+      getDocs(query(ordersCol, where('depositShiftId', '==', shiftId))),
+      getDocs(query(debtsCol, where('shiftId', '==', shiftId))),
+      getDocs(query(valesCol, where('shiftId', '==', shiftId))),
     ])
 
     const historySales: HistorySaleRow[] = []
@@ -218,7 +327,6 @@ export async function fetchHistoryShiftDetailFromFirestore(
     let totalCreditSales = 0
     for (const d of salesSnap.docs) {
       const s = { ...(d.data() as FsSale), id: (d.data() as FsSale).id ?? d.id }
-      if (s.shiftId !== shiftId) continue
       historySales.push(saleToHistoryRow(s))
       if (s.status === 'confirmed') {
         for (const p of s.payments ?? []) {
@@ -233,7 +341,6 @@ export async function fetchHistoryShiftDetailFromFirestore(
     const historyExpenses: HistoryExpenseRow[] = []
     for (const d of expensesSnap.docs) {
       const e = d.data() as FsExpense
-      if (e.shiftId !== shiftId) continue
       if (e.deleted === true) continue
       historyExpenses.push({
         id: e.id ?? d.id,
@@ -247,10 +354,134 @@ export async function fetchHistoryShiftDetailFromFirestore(
     }
     historyExpenses.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
+    const saleIds = [...new Set(historySales.filter(s => s.isDebt).map(s => s.id))]
+    const extraDebtSnaps = await Promise.all(
+      chunkIds(saleIds).map(chunk => getDocs(query(debtsCol, where('saleId', 'in', chunk)))),
+    )
+    const debtsById = new Map<string, FsDebtEvent & { id: string }>()
+    for (const snap of [debtsSnap, ...extraDebtSnaps]) {
+      for (const d of snap.docs) {
+        const e = d.data() as FsDebtEvent
+        if (e.deleted === true) continue
+        const id = e.id ?? d.id
+        if (debtsById.has(id)) continue
+        const fromShift = e.shiftId === shiftId
+        const type = e.eventType === 'debt' ? 'created' : e.eventType
+        const fromSale = type === 'created' && Boolean(e.saleId && saleIds.includes(e.saleId))
+        if (!fromShift && !fromSale) continue
+        debtsById.set(id, { ...e, id })
+      }
+    }
+
+    const historyDeposits: HistoryOrderRow[] = []
+    for (const d of ordersSnap.docs) {
+      const o = d.data() as FsOrder
+      if (o.deleted === true) continue
+      const depositAmount = o.depositAmount ?? 0
+      if (depositAmount <= 0) continue
+      const paymentsJson = depositPaymentsToJson(o.depositPayments)
+      let parsedPayments: HistoryOrderRow['depositPayments'] = null
+      if (paymentsJson) {
+        try {
+          parsedPayments = JSON.parse(paymentsJson) as HistoryOrderRow['depositPayments']
+        } catch { /* ignore */ }
+      }
+      const status = o.status
+      historyDeposits.push({
+        id: o.id ?? d.id,
+        customerName: o.customerName ?? '(cliente)',
+        phone: o.phone ?? null,
+        items: o.items ?? '',
+        depositAmount,
+        depositPayments: parsedPayments,
+        depositMethod: (o.depositMethod ?? null) as HistoryOrderRow['depositMethod'],
+        createdAt: o.createdAt ?? '',
+        status: status === 'pending' || status === 'ready' || status === 'delivered' || status === 'cancelled'
+          ? status
+          : undefined,
+      })
+    }
+    historyDeposits.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+    const rawDebts = [...debtsById.values()]
+    const customerIds: string[] = []
+    for (const e of rawDebts) {
+      if (e.customerId) customerIds.push(e.customerId)
+    }
+
+    const uniqueCustomerIds = [...new Set(customerIds)]
+    const nameById = new Map<string, string>()
+    await Promise.all(uniqueCustomerIds.map(async cid => {
+      const snap = await getDoc(doc(firestore, 'licenses', tenant, 'customers', cid))
+      if (!snap.exists()) return
+      const name = (snap.data() as { name?: string }).name
+      nameById.set(cid, name?.trim() || '(cliente)')
+    }))
+
+    const historyDebts: HistoryDebtRow[] = rawDebts
+      .map(e => {
+        const rawType = e.eventType === 'debt' ? 'created' : e.eventType
+        const eventType: HistoryDebtRow['eventType'] =
+          rawType === 'partial_payment'
+          || rawType === 'paid'
+          || rawType === 'cancelled'
+          || rawType === 'reopened'
+            ? rawType
+            : 'created'
+        return {
+          id: e.id,
+          createdAt: e.createdAt ?? '',
+          customerName: nameById.get(e.customerId ?? '') ?? '(cliente)',
+          amount: e.amount ?? 0,
+          eventType,
+          notes: e.notes ?? null,
+        }
+      })
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+    const historyVales: HistoryValeRow[] = []
+    for (const d of valesSnap.docs) {
+      const v = d.data() as {
+        id?: string
+        employeeName?: string | null
+        employeeId?: string
+        amount?: number
+        description?: string | null
+        items?: HistoryValeRow['items']
+        cancelledAt?: string | null
+        createdAt?: string
+        deleted?: boolean
+      }
+      if (v.deleted === true) continue
+      historyVales.push({
+        id: v.id ?? d.id,
+        employeeName: v.employeeName?.trim() || v.employeeId || '(empleado)',
+        amount: v.amount ?? 0,
+        description: v.description ?? null,
+        items: v.items ?? null,
+        cancelledAt: v.cancelledAt ?? null,
+        createdAt: v.createdAt ?? '',
+      })
+    }
+    historyVales.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
     const confirmedSales = historySales.filter(s => s.status === 'confirmed')
     const totalRevenue = confirmedSales.reduce((a, s) => a + s.total, 0)
     const totalCashSales = confirmedSales.reduce((a, s) => a + s.cashAmount, 0)
     const totalExpenses = historyExpenses.reduce((a, e) => a + e.amount, 0)
+    const cashDeposits = historyDeposits.reduce((a, d) => a + cashAmountFromDeposit({
+      depositAmount: d.depositAmount,
+      depositMethod: d.depositMethod,
+      depositPayments: depositPaymentsToJson(d.depositPayments),
+    }), 0)
+    const digitalDeposits = historyDeposits.reduce((a, d) => a + digitalAmountFromDeposit({
+      depositAmount: d.depositAmount,
+      depositMethod: d.depositMethod,
+      depositPayments: depositPaymentsToJson(d.depositPayments),
+    }), 0)
+    const cashDebtPayments = rawDebts
+      .filter(e => e.paymentMethod === 'cash')
+      .reduce((a, e) => a + Math.abs(e.amount ?? 0), 0)
 
     return {
       shift: {
@@ -267,8 +498,9 @@ export async function fetchHistoryShiftDetailFromFirestore(
       },
       sales: historySales,
       expenses: historyExpenses,
-      debts: [],
-      deposits: [],
+      debts: historyDebts,
+      deposits: historyDeposits,
+      vales: historyVales,
       summary: {
         salesCount: confirmedSales.length,
         totalRevenue,
@@ -277,11 +509,11 @@ export async function fetchHistoryShiftDetailFromFirestore(
         totalWalletSales,
         totalCreditSales,
         totalExpenses,
-        cashDeposits: 0,
-        digitalDeposits: 0,
-        cashInHand: shift.openingCash + totalCashSales - totalExpenses,
-        debtsCount: 0,
-        totalDebts: 0,
+        cashDeposits,
+        digitalDeposits,
+        cashInHand: shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments - totalExpenses,
+        debtsCount: historyDebts.length,
+        totalDebts: historyDebts.reduce((a, d) => a + d.amount, 0),
       },
     }
   } catch (err) {
@@ -333,6 +565,7 @@ export async function fetchEmployeeValesFromFirestore(
         }> | null
         paidAt?: string
         createdAt?: string
+        cancelledAt?: string | null
         deleted?: boolean
       }
       if (v.deleted === true) continue
@@ -360,6 +593,7 @@ export async function fetchEmployeeValesFromFirestore(
         })),
         paidAt: v.paidAt ?? v.createdAt ?? '',
         createdAt: v.createdAt ?? '',
+        cancelledAt: v.cancelledAt ?? null,
       })
     }
 

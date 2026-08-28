@@ -6,7 +6,7 @@
  * a modo informativo. Las cajeras solo pueden consultar.
  *
  * Los precios son puramente informativos — no afectan el carrito.
- * Idea de automatización por cliente documentada para el futuro.
+ * El auto-apply desde el POS existe pero está oculto: PLAN.md FEAT-SPECIAL-POS-SELECTOR-01.
  *
  * --- Idea futura: actualización masiva de precios ---
  * Cuando la lista de clientes especiales sea grande, una opción eficiente
@@ -49,7 +49,10 @@ function ProductTypeahead({ products, excludeIds, onSelect }: ProductTypeaheadPr
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const available = products.filter(p => !excludeIds.includes(p.id))
+    const available = products
+      .filter(p => !excludeIds.includes(p.id))
+      .slice()
+      .sort((a, b) => a.pluNumber - b.pluNumber)
     if (!q) return available
     return available.filter(p =>
       p.name.toLowerCase().includes(q) ||
@@ -79,9 +82,9 @@ function ProductTypeahead({ products, excludeIds, onSelect }: ProductTypeaheadPr
               <button
                 type="button"
                 onClick={() => { onSelect(p); setQuery('') }}
-                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-zinc-800 transition-colors"
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-zinc-800 transition-colors"
               >
-                <span className="text-sm text-white">{p.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm text-white" title={p.name}>{p.name}</span>
                 <span className="text-xs text-zinc-500 shrink-0 ml-2">
                   PLU {p.pluNumber}
                   {p.price != null && (
@@ -272,7 +275,7 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
     : null
 
   return (
-    <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden">
+    <div className="rounded-xl border border-zinc-700 bg-zinc-800 overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
@@ -393,6 +396,11 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
 
   useEffect(() => {
     void loadAll()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    return window.hw.onSpecialCustomerSyncUpdated(() => { void loadAll() })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -538,7 +546,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   return (
     <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
         {onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold text-zinc-100">Clientes especiales</h1>
@@ -557,10 +565,9 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
       </header>
 
       {/* Info banner */}
-      <div className="mx-6 mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-2.5">
+      <div className="mx-6 mt-4 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5">
         <p className="text-xs text-zinc-500">
-          Esta sección es informativa. Los precios especiales <strong className="text-zinc-400">no modifican</strong> el carrito automáticamente.
-          La cajera los consulta para confirmar si el ticket coincide con el acuerdo de ese cliente.
+          Esta sección lista los acuerdos. En caja, la cajera consulta acá y controla que el ticket coincida; los precios de lista del POS no se cambian solos.
         </p>
       </div>
 
@@ -603,7 +610,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
           className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={e => { if (e.target === e.currentTarget && !formSaving) closeForm() }}
         >
-          <div className="w-full sm:max-w-lg bg-zinc-900 rounded-t-2xl sm:rounded-2xl border border-zinc-800 max-h-[92vh] overflow-y-auto">
+          <div className="w-full sm:max-w-lg bg-zinc-800 rounded-t-2xl sm:rounded-2xl border border-zinc-700 max-h-[92vh] overflow-y-auto">
             <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
               <h2 className="text-base font-semibold">
                 {editingCustomer ? 'Editar cliente especial' : 'Nuevo cliente especial'}

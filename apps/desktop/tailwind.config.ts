@@ -6,7 +6,14 @@ const config: Config = {
     './src/**/*.{ts,tsx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        // Fondo de app: zinc-950 se iguala a zinc-900 (menos negro, un solo token).
+        zinc: {
+          950: '#18181b',
+        },
+      },
+    },
   },
   plugins: [],
 }

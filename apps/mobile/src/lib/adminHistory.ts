@@ -9,9 +9,14 @@
  *
  * Solo lectura. Los admins no operan el POS desde esta capa.
  */
-import { getFirestore, collection, getDocs } from 'firebase/firestore'
+import { getFirestore, collection, getDocs, getDoc, doc, query, where } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import type { PaymentMethod, ShiftType } from '../types/pos'
+import {
+  parseDepositPayments,
+  type DepositMethod,
+  type DepositPayment,
+} from './orderMapping'
 
 const firestore = getFirestore(firebaseApp)
 
@@ -75,6 +80,7 @@ export interface AdminVale {
   items: AdminValeItem[]
   paidAt: string
   createdAt: string
+  cancelledAt: string | null
 }
 
 export interface AdminValeEmployeeTotal {
@@ -150,7 +156,7 @@ export async function fetchAdminStores(): Promise<AdminStore[]> {
  * Turnos del local, más recientes primero.
  * Incluye abiertos y cerrados (útil para ver en vivo el turno de la cajera).
  */
-export async function fetchAdminShifts(storeId: string): Promise<AdminShift[]> {
+export async function fetchAdminShifts(storeId?: string): Promise<AdminShift[]> {
   const snap = await getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'shifts'))
   const shifts: AdminShift[] = []
   for (const d of snap.docs) {
@@ -166,9 +172,10 @@ export async function fetchAdminShifts(storeId: string): Promise<AdminShift[]> {
       closingCash?: number | null
       source?: string
     }
-    if (data.storeId !== storeId) continue
+    if (storeId && data.storeId !== storeId) continue
     // Solo turnos operativos de PC (mismo criterio que historyFirestore desktop).
     if (data.source && data.source !== 'desktop') continue
+    if (!data.storeId) continue
     const userId = data.userId ?? ''
     shifts.push({
       id: data.id ?? d.id,
@@ -266,6 +273,7 @@ export async function fetchAdminVales(storeId: string): Promise<AdminVale[]> {
       }> | null
       paidAt?: string
       createdAt?: string
+      cancelledAt?: string | null
       deleted?: boolean
     }
     if (data.deleted === true) continue
@@ -292,9 +300,217 @@ export async function fetchAdminVales(storeId: string): Promise<AdminVale[]> {
       })),
       paidAt: data.paidAt ?? data.createdAt ?? '',
       createdAt: data.createdAt ?? '',
+      cancelledAt: data.cancelledAt ?? null,
     })
   }
 
   vales.sort((a, b) => b.paidAt.localeCompare(a.paidAt))
+  return vales
+}
+
+export interface AdminShiftDebt {
+  id: string
+  customerName: string
+  amount: number
+  eventType: string
+  notes: string | null
+  createdAt: string
+}
+
+export interface AdminShiftDeposit {
+  id: string
+  customerName: string
+  items: string
+  depositAmount: number
+  createdAt: string
+  depositPayments: DepositPayment[] | null
+  depositMethod: DepositMethod | null
+}
+
+const FIRESTORE_IN_LIMIT = 30
+
+function chunkIds(ids: string[], size = FIRESTORE_IN_LIMIT): string[][] {
+  const out: string[][] = []
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size))
+  return out
+}
+
+/** Fiado del turno: `shiftId` del evento, o alta `created` ligada a una venta del turno. */
+export function debtEventMatchesShift(
+  event: {
+    deleted?: boolean
+    shiftId?: string | null
+    saleId?: string | null
+    eventType?: string | null
+  },
+  shiftId: string,
+  saleIds: ReadonlySet<string>,
+): boolean {
+  if (event.deleted === true) return false
+  if (event.shiftId === shiftId) return true
+  const type = event.eventType === 'debt' ? 'created' : event.eventType
+  if (type === 'created' && event.saleId && saleIds.has(event.saleId)) return true
+  return false
+}
+
+export async function fetchDebtsForShift(
+  shiftId: string,
+  saleIds: string[] = [],
+): Promise<AdminShiftDebt[]> {
+  const col = collection(firestore, 'licenses', LICENSE_KEY, 'customerDebtEvents')
+  const uniqueSaleIds = [...new Set(saleIds.filter(Boolean))]
+  const [eventsByShiftSnap, ...eventsBySaleSnaps] = await Promise.all([
+    getDocs(query(col, where('shiftId', '==', shiftId))),
+    ...chunkIds(uniqueSaleIds).map(chunk => getDocs(query(col, where('saleId', 'in', chunk)))),
+  ])
+
+  const saleIdSet = new Set(uniqueSaleIds)
+  const byId = new Map<string, {
+    id: string
+    customerId: string
+    amount: number
+    eventType: string
+    notes: string | null
+    createdAt: string
+  }>()
+  const customerIds: string[] = []
+
+  for (const snap of [eventsByShiftSnap, ...eventsBySaleSnaps]) {
+    for (const d of snap.docs) {
+      const data = d.data() as {
+        id?: string
+        shiftId?: string | null
+        saleId?: string | null
+        customerId?: string
+        amount?: number
+        eventType?: string
+        notes?: string | null
+        createdAt?: string
+        deleted?: boolean
+      }
+      if (!debtEventMatchesShift(data, shiftId, saleIdSet)) continue
+      const id = data.id ?? d.id
+      if (byId.has(id)) continue
+      const customerId = data.customerId ?? ''
+      if (customerId) customerIds.push(customerId)
+      byId.set(id, {
+        id,
+        customerId,
+        amount: Math.abs(data.amount ?? 0),
+        eventType: data.eventType ?? 'created',
+        notes: data.notes ?? null,
+        createdAt: data.createdAt ?? '',
+      })
+    }
+  }
+
+  const nameById = new Map<string, string>()
+  const uniqueCustomerIds = [...new Set(customerIds)]
+  await Promise.all(uniqueCustomerIds.map(async cid => {
+    const snap = await getDoc(doc(firestore, 'licenses', LICENSE_KEY, 'customers', cid))
+    if (!snap.exists()) return
+    const name = (snap.data() as { name?: string }).name
+    nameById.set(cid, name?.trim() || '(cliente)')
+  }))
+
+  const list: AdminShiftDebt[] = [...byId.values()].map(e => ({
+    id: e.id,
+    customerName: nameById.get(e.customerId) ?? e.customerId ?? '(cliente)',
+    amount: e.amount,
+    eventType: e.eventType,
+    notes: e.notes,
+    createdAt: e.createdAt,
+  }))
+  list.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return list
+}
+
+export async function fetchDepositsForShift(shiftId: string): Promise<AdminShiftDeposit[]> {
+  const snap = await getDocs(
+    query(
+      collection(firestore, 'licenses', LICENSE_KEY, 'orders'),
+      where('depositShiftId', '==', shiftId),
+    ),
+  )
+  const list: AdminShiftDeposit[] = []
+  for (const d of snap.docs) {
+    const data = d.data() as {
+      id?: string
+      depositShiftId?: string | null
+      depositAmount?: number
+      depositPayments?: unknown
+      depositMethod?: DepositMethod | null
+      customerName?: string
+      items?: string
+      createdAt?: string
+      deleted?: boolean
+    }
+    if (data.deleted === true) continue
+    const amount = data.depositAmount ?? 0
+    if (amount <= 0) continue
+    list.push({
+      id: data.id ?? d.id,
+      customerName: data.customerName ?? '(cliente)',
+      items: data.items ?? '',
+      depositAmount: amount,
+      createdAt: data.createdAt ?? '',
+      depositPayments: parseDepositPayments(data.depositPayments),
+      depositMethod: data.depositMethod ?? null,
+    })
+  }
+  list.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return list
+}
+
+export async function fetchValesForShift(shiftId: string): Promise<AdminVale[]> {
+  const snap = await getDocs(
+    query(
+      collection(firestore, 'licenses', LICENSE_KEY, 'employeeVales'),
+      where('shiftId', '==', shiftId),
+    ),
+  )
+  const vales: AdminVale[] = []
+  for (const d of snap.docs) {
+    const data = d.data() as {
+      id?: string
+      employeeId?: string
+      employeeName?: string | null
+      storeId?: string | null
+      shiftId?: string | null
+      amount?: number
+      description?: string | null
+      items?: Array<{
+        productName?: string | null
+        quantity?: number
+        unitPrice?: number
+        subtotal?: number
+      }> | null
+      paidAt?: string
+      createdAt?: string
+      cancelledAt?: string | null
+      deleted?: boolean
+    }
+    if (data.deleted === true) continue
+    const employeeId = data.employeeId ?? ''
+    vales.push({
+      id: data.id ?? d.id,
+      employeeId,
+      employeeName: data.employeeName?.trim() || employeeId || '(sin nombre)',
+      storeId: data.storeId ?? null,
+      shiftId: data.shiftId ?? shiftId,
+      amount: data.amount ?? 0,
+      description: data.description ?? null,
+      items: (data.items ?? []).map(i => ({
+        productName: i.productName ?? '(producto)',
+        quantity: i.quantity ?? 0,
+        unitPrice: i.unitPrice ?? 0,
+        subtotal: i.subtotal ?? 0,
+      })),
+      paidAt: data.paidAt ?? data.createdAt ?? '',
+      createdAt: data.createdAt ?? '',
+      cancelledAt: data.cancelledAt ?? null,
+    })
+  }
+  vales.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   return vales
 }

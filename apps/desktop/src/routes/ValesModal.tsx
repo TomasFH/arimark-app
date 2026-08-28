@@ -19,6 +19,13 @@ import {
 import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
 
+function normalizeSearch(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
 type Mode = 'products' | 'advance'
 
 interface DraftItem {
@@ -71,10 +78,13 @@ export default function ValesModal({ onClose, onSaved }: Props) {
 
   // Modo productos — borrador
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
+  const [productQuery, setProductQuery] = useState('')
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false)
   const [selectedProductId, setSelectedProductId] = useState('')
   const [quantityText, setQuantityText] = useState('')
   const [priceText, setPriceText] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
   const nextDraftId = useRef(0)
 
   // Modo adelanto
@@ -120,10 +130,6 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     setLoadingProducts(false)
     if (!res.ok) return
     setProducts(res.data)
-    if (res.data.length > 0 && !selectedProductId) {
-      setSelectedProductId(res.data[0].id)
-      setPriceText(res.data[0].price != null ? String(res.data[0].price) : '')
-    }
   }
 
   useEffect(() => {
@@ -142,9 +148,24 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     setSelectedProductId(productId)
     setAddError(null)
     const p = products.find(x => x.id === productId)
-    if (p) setPriceText(p.price != null ? String(p.price) : '')
+    if (p) {
+      setProductQuery(p.name)
+      setPriceText(p.price != null ? String(p.price) : '')
+    }
     setQuantityText('')
+    setShowProductSuggestions(false)
   }
+
+  const productSuggestions: ProductRow[] = (() => {
+    const query = productQuery.trim()
+    if (!query) return []
+    const digits = query.replace(/\./g, '')
+    if (/^\d+$/.test(digits)) {
+      return products.filter(p => String(p.pluNumber).startsWith(digits)).slice(0, 8)
+    }
+    const normalizedQuery = normalizeSearch(query)
+    return products.filter(p => normalizeSearch(p.name).includes(normalizedQuery)).slice(0, 8)
+  })()
 
   function handleAddItem() {
     setAddError(null)
@@ -177,6 +198,21 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     setAdvanceDescription('')
     setFormError(null)
     setAddError(null)
+    setProductQuery('')
+    setSelectedProductId('')
+    setPriceText('')
+    setShowProductSuggestions(false)
+  }
+
+  async function handleCancelVale(id: string) {
+    setError(null)
+    setSuccess(null)
+    setCancellingId(id)
+    const res = await window.hw.cancelVale({ id })
+    setCancellingId(null)
+    if (!res.ok) { setError(res.error ?? 'Error al anular el vale.'); return }
+    setSuccess('Vale anulado.')
+    if (selectedId) void loadDetail(selectedId)
   }
 
   function handleSelectEmployee(id: string) {
@@ -237,7 +273,7 @@ export default function ValesModal({ onClose, onSaved }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}
     >
-      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh]">
+      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
           <div className="min-w-0 flex-1">
@@ -278,6 +314,9 @@ export default function ValesModal({ onClose, onSaved }: Props) {
                   }`}
                 >
                   <span className="block text-xs font-medium truncate" title={emp.name}>{emp.name}</span>
+                  {emp.kind === 'cashier' && (
+                    <span className="block text-[10px] text-zinc-600">Cajera</span>
+                  )}
                 </button>
               )
             })}
@@ -343,8 +382,23 @@ export default function ValesModal({ onClose, onSaved }: Props) {
                                 </p>
                               )}
                               <p className="text-[10px] text-zinc-600">{toLocalDateTime(v.paidAt)}</p>
+                              {v.cancelledAt && (
+                                <p className="text-[10px] text-red-400/80">Anulado</p>
+                              )}
                             </div>
-                            <span className="shrink-0 text-xs font-medium text-zinc-200 tabular-nums">{formatARS(v.amount)}</span>
+                            <div className="shrink-0 flex flex-col items-end gap-1">
+                              <span className={`text-xs font-medium tabular-nums ${v.cancelledAt ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>{formatARS(v.amount)}</span>
+                              {!v.cancelledAt && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleCancelVale(v.id)}
+                                  disabled={cancellingId === v.id || saving}
+                                  className="text-[10px] text-zinc-500 hover:text-red-400 disabled:opacity-50"
+                                >
+                                  {cancellingId === v.id ? 'Anulando…' : 'Anular'}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </li>
                       ))}
@@ -382,20 +436,39 @@ export default function ValesModal({ onClose, onSaved }: Props) {
                       ) : (
                         <>
                           <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
-                            <div>
-                              <label className="block text-[10px] text-zinc-500 mb-1">Producto</label>
-                              <select
-                                value={selectedProductId}
-                                onChange={e => handleProductChange(e.target.value)}
+                            <div className="relative min-w-0">
+                              <label className="block text-[10px] text-zinc-500 mb-1">Producto (nombre o PLU)</label>
+                              <input
+                                type="text"
+                                value={productQuery}
+                                onChange={e => {
+                                  setProductQuery(e.target.value)
+                                  setSelectedProductId('')
+                                  setShowProductSuggestions(true)
+                                }}
+                                onFocus={() => productQuery.trim() && setShowProductSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
                                 disabled={saving}
-                                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white focus:outline-none focus:border-zinc-500"
-                              >
-                                {products.map(p => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.name} ({p.unit === 'kg' ? '$/kg' : '$/u'})
-                                  </option>
-                                ))}
-                              </select>
+                                autoComplete="off"
+                                placeholder="ej. asado o 5"
+                                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                              />
+                              {showProductSuggestions && productSuggestions.length > 0 && (
+                                <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-44 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-xl">
+                                  {productSuggestions.map(p => (
+                                    <li key={p.id}>
+                                      <button
+                                        type="button"
+                                        onMouseDown={() => handleProductChange(p.id)}
+                                        className="w-full px-2 py-1.5 text-left hover:bg-zinc-800 transition-colors min-w-0"
+                                      >
+                                        <span className="text-[10px] font-bold text-zinc-500 mr-1">{p.pluNumber}</span>
+                                        <span className="text-[10px] text-zinc-200 truncate" title={p.name}>{p.name}</span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                             <div className="w-24">
                               <label className="block text-[10px] text-zinc-500 mb-1">

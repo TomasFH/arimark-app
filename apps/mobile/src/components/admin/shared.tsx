@@ -3,6 +3,9 @@
  * Siguen el design system del proyecto: zinc + emerald, sin blue/amber.
  */
 import type { ReactNode } from 'react'
+import { backStackDepth, requestBack, useBackLayer } from '../../lib/backStack'
+import NumericInput from '../NumericInput'
+import { parseNumericInput } from '../../lib/numericInput'
 
 // ---------------------------------------------------------------------------
 // ScreenHeader
@@ -10,27 +13,39 @@ import type { ReactNode } from 'react'
 
 interface ScreenHeaderProps {
   title: string
+  subtitle?: string
   onBack: () => void
   action?: ReactNode
 }
 
-export function ScreenHeader({ title, onBack, action }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, onBack, action }: ScreenHeaderProps) {
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/80 px-4 py-3 backdrop-blur-sm">
+    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-700 bg-zinc-800/95 px-4 py-3 backdrop-blur-sm">
       <button
         type="button"
-        onClick={onBack}
+        onClick={() => {
+          // Misma pila que el atrás del sistema. Si no hay capa (pantalla mal registrada), cae al handler.
+          if (backStackDepth() > 0) requestBack()
+          else onBack()
+        }}
         aria-label="Volver"
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
       >
         ←
       </button>
-      <h1
-        className="min-w-0 flex-1 truncate text-base font-semibold text-zinc-100"
-        title={title}
-      >
-        {title}
-      </h1>
+      <div className="min-w-0 flex-1">
+        <h1
+          className="truncate text-base font-semibold text-zinc-100"
+          title={title}
+        >
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="truncate text-xs text-zinc-500" title={subtitle}>
+            {subtitle}
+          </p>
+        )}
+      </div>
       {action}
     </header>
   )
@@ -93,28 +108,78 @@ interface ModalProps {
 }
 
 export function Modal({ title, onClose, children }: ModalProps) {
+  useBackLayer(true, onClose)
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4"
+      onClick={() => requestBack()}
     >
       <div
-        className="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+        className="flex max-h-[92vh] w-full max-w-sm flex-col rounded-t-2xl border border-zinc-700 bg-zinc-800 shadow-2xl sm:rounded-xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h2 className="font-semibold text-zinc-100">{title}</h2>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-700 px-5 py-4">
+          <h2 className="min-w-0 flex-1 truncate font-semibold text-zinc-100" title={title}>
+            {title}
+          </h2>
           <button
             type="button"
-            onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+            onClick={() => requestBack()}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+            aria-label="Cerrar"
           >
             ✕
           </button>
         </div>
-        {children}
+        <div className="min-h-0 overflow-y-auto px-5 py-4">{children}</div>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Confirmación in-app (nunca window.confirm / diálogo nativo del browser)
+// ---------------------------------------------------------------------------
+
+interface ConfirmModalProps {
+  title: string
+  message: string
+  confirmLabel?: string
+  cancelLabel?: string
+  danger?: boolean
+  onConfirm: () => void | Promise<void>
+  onClose: () => void
+}
+
+export function ConfirmModal({
+  title,
+  message,
+  confirmLabel = 'Confirmar',
+  cancelLabel = 'Cancelar',
+  danger,
+  onConfirm,
+  onClose,
+}: ConfirmModalProps) {
+  return (
+    <Modal title={title} onClose={onClose}>
+      <p className="text-sm text-zinc-300">{message}</p>
+      <div className="mt-4 flex gap-2">
+        <Btn variant="ghost" className="flex-1" onClick={() => requestBack()}>
+          {cancelLabel}
+        </Btn>
+        <Btn
+          variant={danger ? 'danger' : 'primary'}
+          className="flex-1"
+          onClick={async () => {
+            await onConfirm()
+            onClose()
+          }}
+        >
+          {confirmLabel}
+        </Btn>
+      </div>
+    </Modal>
   )
 }
 
@@ -152,6 +217,35 @@ export function LabeledInput({
         placeholder={placeholder}
         required={required}
         maxLength={maxLength}
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+      />
+    </label>
+  )
+}
+
+interface LabeledNumericInputProps {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  required?: boolean
+}
+
+export function LabeledNumericInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+}: LabeledNumericInputProps) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm text-zinc-400">{label}</span>
+      <NumericInput
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required={required}
         className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
       />
     </label>
@@ -246,7 +340,7 @@ interface StoreSelectorProps {
 export function StoreSelector({ stores, value, onChange, allowAll }: StoreSelectorProps) {
   if (stores.length <= 1 && !allowAll) return null
   return (
-    <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-2">
+    <div className="border-b border-zinc-700 bg-zinc-800 px-4 py-2">
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -274,6 +368,5 @@ export function filterDigits(value: string): string {
 
 /** Parsea un string de dígitos a número entero (0 si vacío). */
 export function parseDigits(value: string): number {
-  const n = parseInt(value.replace(/\D/g, ''), 10)
-  return isNaN(n) ? 0 : n
+  return parseNumericInput(value) ?? 0
 }

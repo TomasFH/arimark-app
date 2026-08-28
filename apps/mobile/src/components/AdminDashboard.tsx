@@ -12,8 +12,7 @@ import { OrdersScreen } from './admin/OrdersScreen'
 import { DebtsScreen } from './admin/DebtsScreen'
 import { ProvidersScreen } from './admin/ProvidersScreen'
 import { SpecialCustomersScreen } from './admin/SpecialCustomersScreen'
-import { EmployeesScreen } from './admin/EmployeesScreen'
-import { CashiersScreen } from './admin/CashiersScreen'
+import { StaffScreen } from './admin/StaffScreen'
 import { StoresScreen } from './admin/StoresScreen'
 import { HistoryScreen } from './admin/HistoryScreen'
 import type { LocalProfile } from '../types/pos'
@@ -29,8 +28,7 @@ type AdminScreen =
   | { kind: 'debts' }
   | { kind: 'providers' }
   | { kind: 'special-customers' }
-  | { kind: 'employees' }
-  | { kind: 'cashiers' }
+  | { kind: 'staff' }
   | { kind: 'stores' }
   | { kind: 'history' }
 
@@ -69,22 +67,19 @@ export function AdminDashboard({ profile, onLogout }: Props) {
   // ---------------------------------------------------------------------------
 
   if (screen.kind === 'orders') {
-    return <OrdersScreen onBack={toHub} stores={activeStores} />
+    return <OrdersScreen onBack={toHub} stores={activeStores} createdBy={profile.uid} />
   }
   if (screen.kind === 'debts') {
     return <DebtsScreen onBack={toHub} stores={activeStores} profile={profile} />
   }
   if (screen.kind === 'providers') {
-    return <ProvidersScreen onBack={toHub} stores={activeStores} />
+    return <ProvidersScreen onBack={toHub} stores={activeStores} profile={profile} />
   }
   if (screen.kind === 'special-customers') {
-    return <SpecialCustomersScreen onBack={toHub} />
+    return <SpecialCustomersScreen onBack={toHub} profile={profile} />
   }
-  if (screen.kind === 'employees') {
-    return <EmployeesScreen onBack={toHub} stores={activeStores} />
-  }
-  if (screen.kind === 'cashiers') {
-    return <CashiersScreen onBack={toHub} stores={stores} />
+  if (screen.kind === 'staff') {
+    return <StaffScreen onBack={toHub} profile={profile} />
   }
   if (screen.kind === 'stores') {
     return <StoresScreen onBack={toHub} />
@@ -98,7 +93,7 @@ export function AdminDashboard({ profile, onLogout }: Props) {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -115,6 +110,7 @@ export function AdminDashboard({ profile, onLogout }: Props) {
           onClick={() => void loadStores()}
           disabled={loadingStores}
           aria-label="Actualizar"
+          title="Actualizar locales. Recargar el resto de datos (con lecturas mínimas a Firebase) queda para el final de la sesión de pruebas."
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 transition-colors disabled:opacity-40"
         >
           ↻
@@ -134,72 +130,72 @@ export function AdminDashboard({ profile, onLogout }: Props) {
         </div>
       )}
 
-      {/* Content */}
-      <main className="flex-1 space-y-6 px-4 py-5">
-        {/* Operación */}
-        <HubSection title="Operación">
-          <div className="grid grid-cols-2 gap-3">
-            <HubTile
-              label="Pedidos"
-              subtitle="Encargos de clientes"
-              onClick={() => setScreen({ kind: 'orders' })}
-            />
-            <HubTile
-              label="Fiados"
-              subtitle="Deudas de clientes"
-              onClick={() => setScreen({ kind: 'debts' })}
-            />
-            <HubTile
-              label="Proveedores"
-              subtitle="Deudas y pagos"
-              onClick={() => setScreen({ kind: 'providers' })}
-            />
-            <HubTile
-              label="Clientes especiales"
-              subtitle="Precios diferenciados"
-              onClick={() => setScreen({ kind: 'special-customers' })}
-            />
-          </div>
-        </HubSection>
-
-        {/* Empleados */}
-        <HubSection title="Empleados">
-          <div className="grid grid-cols-2 gap-3">
-            <HubTile
-              label="Carniceros"
-              subtitle="Personal operativo"
-              onClick={() => setScreen({ kind: 'employees' })}
-            />
-            <HubTile
-              label="Cajeras"
-              subtitle="Acceso y locales"
-              onClick={() => setScreen({ kind: 'cashiers' })}
-            />
-          </div>
-        </HubSection>
-
-        {/* Análisis */}
-        <HubSection title="Análisis">
-          <div className="grid grid-cols-1 gap-3">
-            <HubTile
-              label="Historial"
-              subtitle="Turnos, ventas y gastos"
-              onClick={() => setScreen({ kind: 'history' })}
-            />
-          </div>
-        </HubSection>
-
-        {/* Configuración */}
+      {/* Content — mismo orden e iconos que el hub de escritorio */}
+      <main className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
         <HubSection title="Configuración">
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <HubTile
-              label="Locales"
+              icon="🏪"
+              accent="bg-teal-600/15"
+              label="Gestión de locales"
               subtitle={
                 loadingStores
                   ? 'Cargando...'
                   : `${activeStores.length} local${activeStores.length !== 1 ? 'es' : ''} activo${activeStores.length !== 1 ? 's' : ''}`
               }
               onClick={() => setScreen({ kind: 'stores' })}
+            />
+            <HubTile
+              icon="👥"
+              accent="bg-blue-600/15"
+              label="Empleados"
+              subtitle="Cajeras y carniceros"
+              onClick={() => setScreen({ kind: 'staff' })}
+            />
+          </div>
+        </HubSection>
+
+        <HubSection title="Operación">
+          <div className="grid grid-cols-2 gap-3">
+            <HubTile
+              icon="📒"
+              accent="bg-amber-600/15"
+              label="Fiados"
+              subtitle="Deudas, cobros y cuentas corrientes"
+              onClick={() => setScreen({ kind: 'debts' })}
+            />
+            <HubTile
+              icon="👤"
+              accent="bg-purple-600/15"
+              label="Clientes especiales"
+              subtitle="Precios acordados por cliente"
+              onClick={() => setScreen({ kind: 'special-customers' })}
+            />
+            <HubTile
+              icon="📦"
+              accent="bg-emerald-600/15"
+              label="Pedidos"
+              subtitle="Gestionar pedidos del local"
+              onClick={() => setScreen({ kind: 'orders' })}
+            />
+            <HubTile
+              icon="🚚"
+              accent="bg-orange-600/15"
+              label="Proveedores"
+              subtitle="Deuda combinada entre locales"
+              onClick={() => setScreen({ kind: 'providers' })}
+            />
+          </div>
+        </HubSection>
+
+        <HubSection title="Análisis">
+          <div className="grid grid-cols-1 gap-3">
+            <HubTile
+              icon="📊"
+              accent="bg-sky-600/15"
+              label="Historial completo"
+              subtitle="Ventas, gastos y fiados por turno"
+              onClick={() => setScreen({ kind: 'history' })}
             />
           </div>
         </HubSection>
@@ -224,24 +220,33 @@ function HubSection({ title, children }: { title: string; children: React.ReactN
 }
 
 interface HubTileProps {
+  icon: string
+  accent: string
   label: string
   subtitle?: string
   onClick: () => void
 }
 
-function HubTile({ label, subtitle, onClick }: HubTileProps) {
+function HubTile({ icon, accent, label, subtitle, onClick }: HubTileProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col gap-1 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-4 text-left transition-all hover:border-zinc-700 hover:bg-zinc-800/60 active:scale-[0.98]"
+      className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-3.5 py-3.5 text-left transition-all hover:border-zinc-600 hover:bg-zinc-700/60 active:scale-[0.98]"
     >
-      <span className="text-sm font-semibold text-zinc-100">{label}</span>
-      {subtitle && (
-        <span className="truncate text-xs text-zinc-500" title={subtitle}>
-          {subtitle}
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl ${accent}`}>
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold text-zinc-100" title={label}>
+          {label}
         </span>
-      )}
+        {subtitle && (
+          <span className="mt-0.5 block truncate text-xs text-zinc-500" title={subtitle}>
+            {subtitle}
+          </span>
+        )}
+      </div>
     </button>
   )
 }

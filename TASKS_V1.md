@@ -239,7 +239,8 @@ Archivos clave a leer antes de empezar cualquier tarea:
 
 **Qué se hizo:**
 - `ValesModal.tsx`: empleados, resumen semanal, lista de vales, registro con `NumericInput` (descuenta caja).
-- `SalaryPaymentModal.tsx`: panel **solo consulta** (bruto / vales / neto). El admin no registra pago; la cajera paga efectivo tras OK verbal. IPC `payWeeklySalary` queda en backend (legado/tests) sin UI.
+- `SalaryPaymentModal.tsx`: liquidación + **pago en caja** (turno abierto). Nota opcional. Snapshot de vales. Semanas anteriores. IPC `payWeeklySalary` + `listSalaryPayments` + `getRemoteSalaryWeek`.
+- **Revertido para 1.0 (2026-08-24) / hecho 2026-08-25:** ver **BLOQUE J** / `PLAN.md` FEAT-PAYROLL-01.
 - Accesos: **💵 Vales** en `CashierScreen`; **Liquidación semanal** en `AdminHubScreen`.
 - Helpers `weekStartMondayLocalYmd` / `addDaysYmd` en `datetime.ts`.
 
@@ -304,9 +305,9 @@ Archivos clave a leer antes de empezar cualquier tarea:
 - **Asistencia:** pausada en operación; puede retirarse. UI queda marcada como “(pausado)”.
 - **Vales remotos:** admin móvil (tab Vales) + hub desktop “Vales (remoto)” leen `employeeVales` desde Firestore.
 - **Rol carnicero:** no existe; conteo de stock lo usan admin/cajera de momento.
-- **Pago a empleado (cajera):** botón **💰 Pago** → elige empleado, ve neto de referencia, monto libre → gasto `Pago: {nombre}` (baja caja).
+- **Pago a empleado (cajera):** Menú → **Liquidación / pago de sueldo**. Neto = sueldo − vales (no monto libre). Gasto `Salario: {nombre}`. Nota opcional. Reemplaza el gasto suelto `Pago: {nombre}`.
 - **Tickets balanza / barcode “emergencia”:** el bloqueo de AGENTS.md (decodificar ticket KRETZ) **no es prioritario**. En operación real, si el lector no trae datos, ya existe **carga manual** (producto + kg/precio). Eso cubre el caso del local.
-- **App móvil ≠ port del desktop:** hoy es un POS de respaldo (cajera: turno/venta/catálogo) + admin solo lectura (historial/vales). Paridad total con desktop sería un proyecto grande (no hay SQLite/IPC/hardware en el celular).
+- **App móvil ≠ port del desktop:** POS de **emergencia** (seguir vendiendo y no perder la plata). Recorte: `PLAN.md` **FEAT-MOB-EMERGENCY-01**. Paridad total con PC no conviene: sería un segundo sistema de caja + DT-06.
 - **Locales de cajera (`authorizedStores`):** editable en hub → Gestión de cajeras (crear + botón Locales). En móvil, el selector de local usa esa lista; con 1 solo local salta directo a abrir turno.
 - **Catálogo ago 2026:** fuente `apps/desktop/scripts/catalog-2026-08.json`; PDF `LISTA_PRECIOS.pdf`. Wipe total (pruebas): `pnpm --filter desktop db:wipe:prod` (conserva locales, borra ventas/fiados/etc. y deja solo catálogo nuevo).
 
@@ -374,7 +375,7 @@ Hoy el catálogo se publica a Firestore al guardar (con merge), pero el resto de
 - Al llegar un cambio: **merge** con SQLite (altas se unen, gana el dato más nuevo por ítem, bajas globales se propagan) y **republicar** el union si hace falta — **no** pisar con un snapshot incompleto.
 - Aviso IPC al renderer: POS, lista de productos y carga manual **releen** el catálogo.
 - **POS:** no cambiar precio/nombre de ítems **ya en el ticket**. Solo lista / altas nuevas / siguiente escaneo.
-- Celular: el mismo doc; al reconectar o con listener si hay red. Sigue sin panel de edición.
+- Celular: el mismo doc; al reconectar o con listener si hay red. Sigue sin **panel de edición** de catálogo (alta/baja/precio de lista). El typeahead de Clientes especiales **sí** usa el catálogo publicado completo (union por local, orden PLU); eso no es I-A ni 4.3.
 - El ↺ queda como respaldo (sin internet, listener caído, o para forzar).
 
 **Cuota — no preocuparse de antemano; medir en jornada real**
@@ -397,7 +398,7 @@ Hoy solo el admin tiene pantalla de catálogo. Las cajeras no pueden ajustar pre
 
 **Quién edita**
 - **Admin y cajera** pueden crear productos, editar nombre/categoría/unidad/PLU, y cambiar precios.
-- Edición de catálogo en **PC**. El celular **recibe** la lista actualizada; no tiene panel de edición.
+- Edición de catálogo en **PC**. El celular **recibe** la lista actualizada; no tiene panel de edición de ficha/precios. Clientes especiales en el celu lee esa lista publicada para el autocomplete.
 - Cajera: precio (y “borrar” de lista, ver abajo) solo del **local en el que está operando**.
 - Admin: puede cambiar precios de **cualquier** local.
 
@@ -422,10 +423,28 @@ Hoy solo el admin tiene pantalla de catálogo. Las cajeras no pueden ajustar pre
 ### No hacer
 - Soft-delete global (`active=false`) cuando una cajera “borra” (parte B).
 - Listener que pise un guardado local que **aún no** se publicó.
-- Edición de catálogo en la app móvil.
+- Edición de catálogo en la app móvil (alta/edición de ficha y precios de lista). Pedido 2026-08-24: **post 1.0** (admin quiere cambiar precios sin estar en la PC; no re-testear el módulo entero ahora). El autocomplete de Clientes especiales no cuenta como panel de catálogo.
 - Rollback / backup de precios masivos.
 - Sync automático a la KRETZ.
 - Plan Blaze “por si acaso”.
+
+---
+
+## BLOQUE J — Pago de sueldo en caja + archivo semanal ✅ HECHA (2026-08-25)
+
+> **Estado:** Hecho. Producto: `PLAN.md` **FEAT-PAYROLL-01**. Nota opcional (sin ajuste de monto). Cajera paga en PC con turno abierto; celu consulta el archivo.
+
+**Qué hay:** UI Liquidación (Personal + menú caja), gasto `Salario: {nombre}`, 1 pago/semana, snapshot de vales, nota, navegación de semanas, `onSnapshot` de `salaryPayments` por `weekStart` en celu.
+
+**No hacer en J (queda fuera):** descuento automático por asistencia; campo que cambia el neto; pago desde admin-móvil.
+
+---
+
+## BLOQUE K — Aporte de efectivo a caja (pendiente)
+
+> **Estado:** Solo documentado. Pedido en testeo Parte 5 (2026-08-25). Producto: `PLAN.md` **FEAT-CASH-INJECT-01**. **No implementar hasta que se pida.**
+
+Cajera sin efectivo suficiente para un proveedor; admin manda plata. Falta un movimiento que **suma** caja (monto + nota). Hoy solo hay gastos/saldar que restan.
 
 ---
 
@@ -439,8 +458,8 @@ Para maximizar valor entregable en orden:
 4. ~~D1–D8~~ ✅ código; **pendiente checklist manual** (`CHECKLIST_TEST_V1.md`)
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
-7. **Ahora:** completar checklist en local real — no abrir H ni I todavía
-8. **Después del testeo / cuando el desarrollador lo pida:** BLOQUE H (local habitual). BLOQUE I-A (listener catálogo en vivo, Spark $0) y I-B (edición cajera). Al implementar I-A, recordar cómo ver Usage en Firebase Console (instrucciones en el bloque).
+7. **Ahora:** completar checklist en local real — no abrir H ni I todavía. **J** (pago de sueldo) está hecho; re-probar Liquidación en PC y celu.
+8. **Después del testeo / cuando el desarrollador lo pida:** BLOQUE H (local habitual). BLOQUE I-A (listener catálogo en vivo, Spark $0) y I-B (edición cajera). Al implementar I-A, recordar cómo ver Usage en Firebase Console (instrucciones en el bloque). **No codear hasta que se pida:** `PLAN.md` **DT-07** (proveedores a escala) y **DT-08** (Historial de ventas / no `getDocs` de colecciones que crecen). Criterio: nadie dosifica clics; las queries piden turno/fecha/página; un humano martillando ↻ todo el día no debería poder agotar Spark (detalle en DT-08).
 
 ---
 

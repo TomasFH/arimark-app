@@ -2,10 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input, textarea, select, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 body {
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.overflow-y-auto, .overflow-auto {
+  overscroll-behavior: contain;
+}
+
+html.is-pinching,
+html.is-pinching body,
+html.is-pinching #root {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.is-pinching .overflow-y-auto,
+html.is-pinching .overflow-auto {
+  overflow: hidden;
   overscroll-behavior: none;
 }

@@ -399,7 +399,7 @@ Entregado (implementación base):
 - [x] Migración 0007: `dni` en `customers`, `due_date` en `debt_events`.
 
 Refinamientos y mejoras adicionales (jul 2026):
-- [x] **Clientes especiales** como entidad separada de fiados: tabla propia (`special_customers` + `special_customer_prices`, migración 0008), admins crean/editan/eliminan, cajeras solo consultan. Los precios son informativos — no afectan el carrito automáticamente.
+- [x] **Clientes especiales** como entidad separada de fiados: tabla propia (`special_customers` + `special_customer_prices`, migración 0008), admins crean/editan/eliminan, cajeras solo consultan. Los precios son informativos — no afectan el carrito automáticamente. (El selector del POS que *sí* los aplicaba quedó **oculto**: `FEAT-SPECIAL-POS-SELECTOR-01`.)
 - [x] **Gestión de precios especiales inline**: disponible desde la creación y edición del cliente (no solo post-creación). Typeahead de productos por nombre o PLU con precio de lista visible para referencia.
 - [x] **Acordeón por tarjeta** en `SpecialCustomersScreen`: contraída por defecto, se expande al tocar la cabecera; muestra resumen del conteo de precios cuando está contraída.
 - [x] **Medio de pago en fiado**: el `DebtModal` solicita el medio de pago (efectivo, débito, billetera, crédito o combinación) para el monto inicial. Los pagos se registran en `sale_payments` para que el cierre de caja los contabilice correctamente.
@@ -408,6 +408,11 @@ Refinamientos y mejoras adicionales (jul 2026):
 - [x] `CustomerSearchCreate`: short-circuit cuando el query extiende un prefijo sin resultados (evita flash y IPC innecesario); `maxLength=100` alineado al backend; truncate con `title` en el mensaje de no-encontrado.
 - [x] Teléfono formateado en paso 2 del `DebtModal`.
 - [x] Campo inicial de pago con auto-select al hacer foco.
+
+**Admin móvil — catálogo para Clientes especiales (ago 2026):**
+El “no hay panel de catálogo en el celular” (checklist 4.3 / TASKS_V1 BLOQUE I) se refiere a **no editar productos/precios de lista** en el teléfono (eso sigue siendo el Panel de Administración de la PC). No aplica al typeahead de Clientes especiales: esa pantalla **debe** bajar el catálogo publicado (`licenses/{tenant}/catalog/{storeId}` de todos los locales, union por `productId`) y listar **todos** los productos, ordenados por PLU ascendente, buscando por nombre o PLU. Sin recorte artificial de la lista. No espera al listener en vivo (BLOQUE I-A): un ↺ o reentrar a la sección alcanza. Lecturas: 1 documento por local, no 1 por producto. Escala de Historial / cupo Spark: **DT-08**.
+
+**Testeo 2026-08-24:** lista y ABM celu↔PC OK; UI celu alineada a PC. Selector de precios en el POS: oculto 2026-08-27 (`FEAT-SPECIAL-POS-SELECTOR-01`).
 
 Pendiente de largo plazo (no bloqueante):
 - **Actualización masiva de precios especiales**: cuando la lista de clientes crezca, opciones posibles son (a) vista tabla cruzada producto×cliente o (b) campo "% de descuento fijo" por cliente que recalcule automáticamente al actualizar el catálogo. Documentado también en comentario de `SpecialCustomersScreen.tsx`. Requiere validar con los dueños antes de implementar.
@@ -422,6 +427,7 @@ Pendiente de largo plazo (no bloqueante):
 - ABM de pedidos con estado (pendiente / listo / entregado / cancelado).
 - Panel admin: historial de ventas, reportes por turno/período. (El catálogo/precios se gestionan en Fase 4.)
 - Registro local de medios de pago. La app no interactúa con caja registradora ni terminal de pago.
+- **Rework de cobro (no implementado):** `FEAT-ORDER-CART-01`. El Cobrar actual pide un resto a mano; no arma carrito ni va al POS.
 
 ### Fase 8 — Stock ⚠️ DISEÑO ACORDADO — IMPLEMENTACIÓN BLOQUEADA
 
@@ -715,10 +721,14 @@ Las consultas históricas del panel admin leerán `daily_summaries` (N filas don
 **Visión objetivo:**
 La misma cajera puede trabajar en PC y celular de forma intercambiable, como un juego con progreso en la nube. Si registra una venta en PC, el celular la ve en tiempo real. Si la luz se corta y continúa en el celular, cuando vuelve la luz la PC retoma exactamente donde dejó el celular, sin cerrar turno ni volver a abrirlo. Un solo turno, varios dispositivos, sincronizados a través de Firebase.
 
-**Estado actual (jul 2026) — limitación temporal:**
-El auto-resume en PC (`GET_USER_OPEN_SHIFT`) solo detecta turnos `source='desktop'`. Las ventas, gastos y el estado de la caja son 100% locales en SQLite; no se sincronizan a Firestore. Por lo tanto, si la cajera usó el celular, la PC no puede ver esos registros.
+**Estado actual (jul 2026, aclarado 2026-08-25):**
+El auto-resume en PC (`GET_USER_OPEN_SHIFT`) solo detecta turnos `source='desktop'`. El celu sube a `sync/{storeId}/shifts` y la PC **importa** a SQLite con `source='mobile'`, pero **ese turno no es la caja activa**.
 
-Workaround aceptado hasta que se implemente: cerrar el turno desde el celular y abrir uno nuevo en la PC. Quedan dos turnos separados en el historial en lugar de uno continuo.
+Además el Historial (PC y admin celu) **omite** `source !== 'desktop'`. No son “dos cajas del mismo turno” en una sola fila: son **dos turnos distintos**. Y el del celu hoy **puede no verse** en el Historial. Las ventas sí quedan en SQLite (y a veces se re-pushean a `licenses/{tenant}/shifts` con `source: mobile`), pero la UI de stats/historial las filtra.
+
+Workaround operativo: cerrar en el celu y abrir otro en la PC. Quedan dos IDs de turno. Cuando se implemente DT-06, el objetivo es **un** turno y varios dispositivos, no fusionar a mano dos cierres viejos.
+
+Estadísticas “por turno” en el futuro: o se deja de filtrar `source` y se muestran dos jornadas (Mañana PC + Mañana celu) sumables por día/cajera/local, o se unifica en vivo (esta deuda). No hay un “mismo turno con 2 cajas” en el modelo actual.
 
 **Prerequisitos técnicos para implementar la visión completa:**
 1. **Sync operacional PC → Firestore en tiempo real**: ventas, gastos, estado del turno (monto en caja) se pushean a Firestore al confirmar cada operación (outbox pattern, igual que proveedores).
@@ -733,3 +743,249 @@ Mueve ventas y gastos de "datos 100% locales" a "datos sincronizados con Firesto
 **Prioridad:** Media-alta — el escenario de corte de luz es poco frecuente pero no improbable, y la sincronización multi-dispositivo es una expectativa central del producto a largo plazo.
 
 **Cuándo implementar:** Fase futura dedicada (sugerido: Fase S2 — Sync operacional). No bloquea ninguna fase actual.
+
+---
+
+### DT-07: Historial de proveedores a escala + memoria del celular (acordado 2026-08-20)
+
+**No implementar ahora.** Quedó de la pasada de proveedores / testeo 2026-08-20. El paginado visual actual (20 ítems en PC) no resuelve esto.
+
+**Problema:**
+Hoy el historial admin de PC pide a Firestore **todos** los eventos de un proveedor (`where providerId == X`, sin fecha ni `limit`). El celu admin, al entrar a Proveedores, hace `getDocs` de **toda** la colección `providerDebtEvents` para armar saldos e historial. El listener de PC (`onSnapshot` de esa colección) además **copia todos los eventos al SQLite de cada PC**.
+
+Un proveedor que va lun–sáb a ambos locales ≈ 12 eventos/semana ≈ 600/año. Varios así, en meses, hace inviable “traer todo” (lecturas Firebase, RAM en celu, disco en PC). El admin **no** necesita enero en pantalla si está en agosto.
+
+**Uso real del historial (no es un feed diario):**
+- “¿Cuánto le pagábamos en enero a este proveedor?”
+- “El proveedor no se acuerda qué pasó en X fecha — ¿qué tenemos registrado?”
+Filtro **desde–hasta** (o por mes) para ese recorte. Default razonable: mes en curso / últimos ~30 días. No bajar feb–ago si solo pide enero.
+
+**Checkpoint de saldo (acordado — buena idea):**
+El saldo actual **no** debe recalcularse recorriendo todo el historial. Cada tanto (p. ej. cierre de mes, o cada N eventos) materializar un **checkpoint** por proveedor+local: `{ providerId, storeId, asOf, balance }`. Deuda vigente = último checkpoint + eventos posteriores. Los eventos viejos **no se borran** (igual que DT-05: sin compactación destructiva). El historial de un rango se consulta a Firestore con `providerId` + `createdAt` (índice compuesto + `limit` / cursor). El saldo de las cards sale del checkpoint, no de bajar la colección.
+
+**Memoria en celulares de cajeras:**
+Varias cajeras tienen el teléfono lleno (a veces no abre WhatsApp). **Requisito:** el celu no es el archivo histórico. Sesión + lo mínimo para operar offline (catálogo, turno/ventas pendientes). Historial largo y ledgers viven en Firebase y se piden **de a páginas / por rango**. No persistir la colección entera en IndexedDB/SQLite del teléfono. Aplica a admin móvil y, cuando escale, a no cachear ledgers de proveedores en el POS.
+
+**Relacionado:** DT-05 (summaries de ventas en SQLite, otro dominio). DT-08 (mismo criterio aplicado a `sales` / Historial). UX-MOB-REFRESH-01 (↻ recargar lo justo) es otra cosa.
+
+**Prioridad:** Media — no bloquea el testeo actual; conviene antes de meses de uso real, sobre todo en celu.
+
+**Cuándo implementar:** Cuando el desarrollador lo pida, en una pasada dedicada (proveedores + no bajar colecciones enteras al celu). No mezclar con el recorrido de la checklist.
+
+---
+
+### DT-08: Lecturas Firestore — Historial de ventas y “pedir solo lo que se mira” (acordado 2026-08-24)
+
+**No implementar ahora.** Quedó del testeo de Clientes especiales (charla cuota Spark / escala). El checklist sigue; esto no se codea hasta que el desarrollador lo pida. Conviene **antes de 6–12 meses de uso real**, no de un día para el otro.
+
+Fuente de verdad de este tema. DT-05 y DT-07 son piezas del mismo rompecabezas; no se contradicen.
+
+#### Principio (innegociable de producto)
+
+Las personas que usan la app (dueños, cajeras; ≤10 por día, no técnicas) **no** tienen que saber qué es Firebase ni dosificar clics. No hay “máximo X veces al día”. Si el uso normal puede agotar el cupo, **la consulta está mal**, no el usuario. Tampoco hay un botón secreto para “romper” la app: el único escenario feo es una pantalla que pide **todo el archivo** cuando ya es grande.
+
+#### Criterio ampliado (2026-08-24): imposible de agotar a mano
+
+Pedido de producto: aunque alguien (admin, cajera, carnicero, o varios a la vez) pase el día generando peticiones **a propósito**, que **humanamente** no pueda tumbar el sync. Años de datos no cambian eso: la app pide cada vez menos relativo al archivo, nunca “todo”.
+
+**Qué sí es posible**
+
+Con queries recortadas (turno / fecha / página) el costo de **una** pantalla deja de crecer con los meses. Un turno de 150 ventas ≈ 150–250 lecturas al abrir el detalle, no 50.000. Abrir Historial el 24 de agosto de 2028 cuesta lo mismo que abrirlo mañana, porque no se baja 2026–2028.
+
+Eso solo no alcanza contra un mash de ↻: 50.000 / 250 ≈ 200 refrescos. Un humano acelerado puede llegar. Por eso DT-08, cuando se implemente, incluye **tres palancas juntas**, no un cartel de “no pulses tanto”:
+
+1. **Pedir solo lo visible** — `where shiftId` / rango de fechas / `limit` de página. Prohibido `getDocs` de colecciones que crecen. Default de lista: hoy o últimos días, no “desde que existe la app”. No hay acción de producto que signifique “traer el archivo entero”.
+2. **No volver a pagar lo mismo** — cache de sesión del detalle ya abierto; salir y entrar al mismo turno no re-descarga. El ↻ solo pega si pasó un mínimo (p. ej. 10–30 s) o si hay dato nuevo. Varios dispositivos: cada uno paga su primer snapshot; no clonar `onSnapshot` de colecciones grandes en el celu.
+3. **Páginas chicas y estables** — ABM (locales, personal, clientes especiales, catálogo = 1 doc/local) ya está en este régimen. El riesgo es Historial + ledger de proveedores (DT-07).
+
+Con (1)+(2), 8 h de alguien obsesivo quedan en el orden de miles de lecturas, no de 50.000. Varios usuarios a la vez no lo multiplican al archivo completo: multiplican el recorte (turnos del día).
+
+**Qué no es posible (y no hace falta)**
+
+Un **script** que dispare `getDocs` en loop no se puede garantizar en Spark: no hay rate-limit nuestro en el servidor. No es el threat model (carnicería, no atacante). No se pone “máximo X consultas al día” en la UI. No se sube a Blaze “por las dudas”.
+
+**Dónde aplicar (cuando se pida codear DT-08)**
+
+| Lugar | Qué cambia |
+|---|---|
+| `apps/mobile/src/lib/adminHistory.ts` | `fetchAdminShifts` / `fetchAdminSalesForShift` / vales de local: hoy `getDocs` de la colección y filtro en memoria. Pasar a `where` fecha/local/turno + `limit`. |
+| `apps/mobile/src/lib/adminFirestore.ts` | Gastos/pedidos/deudas de proveedor si aún bajan la colección entera. |
+| `apps/desktop/electron/licensing/historyFirestore.ts` | `fetchHistoryShiftsFromFirestore` (lista): mismas 5 colecciones enteras. La lista debe armarse desde `shifts` recortados, no sumando todas las `sales`. El detalle **ya** va por `shiftId` (+ fallback `saleId` de fiados viejos). |
+| Renderer Historial (celu + PC remota) | Cache del último detalle; debounce del ↻. |
+| DT-07 en la misma oleada | `providerDebtEvents` no puede ser `onSnapshot` de todo el ledger al boot de cada PC. |
+
+No reformular el producto (seguir viendo el ticket de hace 8 meses si se pide **ese** día). Reformular **cómo se pide**: el archivo vive en Firestore; el cliente no lo descarga hasta que alguien abre ese recorte.
+
+Spark (plan gratis): **50.000 lecturas/día**, **20.000 escrituras/día**. **No factura** si te pasás: **corta** el sync hasta el día siguiente. Síntoma: “no carga / no sincroniza”, no un cargo. Aviso claro en la UI cuando Firestore devuelva cuota agotada = mejora secundaria (hoy no hay copy dedicado); no reemplaza arreglar las consultas.
+
+#### Qué es una lectura (para no mezclar)
+
+Una lectura = **un documento** que Firestore devuelve.
+
+| Acción | Lecturas |
+|---|---|
+| `getDoc` de 1 documento que existe | 1 |
+| `getDocs` / primer `onSnapshot` de una colección con N docs | **N** |
+| Cambio posterior en un `onSnapshot` ya abierto | 1 por documento que cambió, **por cada dispositivo** que esté escuchando |
+| Campos o arrays **dentro** de un documento (104 productos, 8 ítems de una venta) | **0 extra** |
+
+El celu admin hoy, al abrir una sección, hace `getDocs` de esa colección (`adminFirestore.ts`). Salir y volver a entrar = otra vez N. La PC, al login, deja `onSnapshot`: el primer aviso = N; después, un rename = 1 por PC abierta.
+
+Eso **no** es un problema en colecciones chicas (3 clientes especiales, 8 locales, 7 empleados). Abrir Clientes especiales 50 veces × 6 personas sigue en cientos de lecturas.
+
+**Celu → PC se ve al toque, PC → celu no:** la PC tiene listener; el celu no. Es asimetría de diseño, no un leak de cuota. No hace falta clonar todos los listeners en el teléfono “por las dudas”.
+
+#### Lo que ya está bien — catálogo
+
+No es “104 productos × veces que entré”. Cada local es **un** documento `licenses/{tenant}/catalog/{storeId}` con `products: [...]` adentro (`catalogPublish.ts` `setDoc`; celu POS `getDoc` en `syncCatalog`; Clientes especiales `getDocs` de la colección `catalog` = **1 lectura por local**, no por producto). ~100 productos caben holgados (límite ~1 MB/doc). BLOQUE I-A (listener en vivo del catálogo) es otra tarea; no es DT-08.
+
+Cada **venta** sí es su propio `sales/{saleId}`; ítems y pagos van **embebidos** (`saleSync.ts`). Una venta de 8 productos = 1 lectura, no 9. Lo que escala es **cuántas ventas pedís**, no los renglones de cada ticket. 350 ventas/día ≈ 350 escrituras; lejos de 20.000.
+
+#### Volumen real (techos, 2 locales)
+
+Local grande ≤200 ventas/día; el otro ≤150. Techo combinado **350/día** × ~26 días ≈ **9.000/mes**.
+
+| Tiempo | Docs en `sales` | Un `getDocs` de toda la colección |
+|---|---|---|
+| 1 mes | ~9.000 | cómodo |
+| 3 meses | ~27.000 | más de la mitad del cupo diario |
+| 6 meses | ~54.000 | **un** abrir Historial se pasa de 50.000 |
+| 1 año | ~100.000 | un abrir ni arranca |
+
+Si admin y una cajera abren Historial el mismo día con el patrón actual, se duplica. Nadie está usando mal la app.
+
+Historial **en la PC del local** contra SQLite de esa caja = **0 lecturas** Firebase. El cupo duele cuando el dato viaja por red: celu, admin en casa, PC remota (`historyFirestore.ts`).
+
+Dispositivos: hasta **3 PCs** abiertas (caja del local grande, PC de dueños, futura PC del segundo local). Suelen apagarse: cada boot **vuelve a cobrar** el primer snapshot de cada listener, incluida `providerDebtEvents` entera (DT-07). Colecciones chicas: irrelevante. Ledger de proveedores creciendo: el otro lugar donde el cupo se muerde **sin** abrir Historial.
+
+#### Qué está mal hoy (código)
+
+**Lista de Historial** (celu `adminHistory.ts` `fetchAdminShifts` + `fetchAdminSalesForShift`; PC remota `fetchHistoryShiftsFromFirestore`): `getDocs` de **todas** las `sales` (y turnos, gastos, pedidos, deudas) y filtro **en memoria**. Pedir “el martes” igual baja enero–agosto.
+
+**Detalle de un turno en PC** (`fetchHistoryShiftDetailFromFirestore`): ya hace `query(..., where('shiftId', '==', shiftId))`. Comentario en código: no baja la colección entera, a diferencia de la lista. Ese es el patrón correcto.
+
+**Detalle de un turno en celu** (`fetchAdminSalesForShift`): todavía `getDocs` de **toda** `sales` y después `shiftId`. Peor que el detalle de PC.
+
+Misma familia: fiados/eventos de cliente y gastos si se listan enteros. DT-07 cubre `providerDebtEvents`.
+
+#### Qué hay que hacer (cuando se pida)
+
+1. **Historial de ventas (celu y PC remota):** lista de turnos por **fecha y local** (query a `shifts` acotada), no sumar todas las ventas del año para armar las cards. Al abrir un turno: `where shiftId == ese` (como el detalle PC). Default razonable: día de hoy / últimos días, no “desde que existe la app”.
+2. **Cache + ↻ barato** (criterio “imposible a mano”): el detalle ya visto no se vuelve a bajar al navegar; el botón Actualizar tiene intervalo mínimo o solo pega deltas. Sin esto, un mash de ↻ sobre un turno grande todavía puede acercarse al cupo.
+3. **DT-07** en la misma oleada o justo antes: proveedores + no copiar el ledger entero a cada PC al encender.
+4. **Historial para cajeras** (idea de producto, no implementada): sí se puede — “los días que yo trabajé” / un día concreto. **Obligatorio** el mismo recorte por turno o fecha (~100–200 lecturas). Prohibido clonar el Historial admin actual (`getDocs` de todo). Admin y cajera el mismo día: con query por turno, suma chica; con “traer todo”, cada uno paga el archivo completo.
+5. **DT-05** (`daily_summaries`): para “¿cómo nos fue en marzo?” sin pintar 6.000 tickets. **No borra** ventas. No arregla el `getDocs` de Firestore. SQLite local, prioridad baja, cuando el `.sqlite` pese o las sumas anden lentas.
+6. **No compactar destruyendo.** A los 3 meses el detalle del ticket sigue existiendo por si hace falta. Lo que no se hace es **bajarlo** hasta que alguien pida ese día. El celu no es el archivo (DT-07): no cachear historial largo en el teléfono.
+7. **Mensaje de cuota agotada** (secundario): si Spark cortó, decirlo en español; no sustituye (1)–(3).
+
+#### Relación entre DTs
+
+| Ítem | Qué resuelve | Qué no |
+|---|---|---|
+| DT-05 | Sumas lentas / tamaño SQLite a años | Lecturas Firestore del Historial |
+| DT-07 | Ledger proveedores pedido entero + RAM celu + listener PC | `sales` |
+| DT-08 (este) | Historial de ventas / principio general de queries | Compactar SQLite |
+
+#### Prioridad y cuándo
+
+Media. No bloquea el testeo de la checklist (2026-08-24: Clientes especiales y Personal cerrados; Locales / Historial móvil **funcional** con fix pendiente de re-probar, no esta deuda). Implementar cuando el desarrollador lo pida, **antes** de varios meses a 350 ventas/día. El 80 % del producto (caja, catálogo, ABM chico) **ya escala**. El riesgo es una pantalla de historial mal pedida a los 6–12 meses, no el sync en vivo de un nombre.
+
+---
+
+### FEAT-SPECIAL-POS-SELECTOR-01: Aplicar precios especiales desde el POS (código vivo, UI oculta — 2026-08-27)
+
+La lógica existe: header del Área de Venta, desplegable “Precio de lista” / nombre del cliente; al escanear o Manual, `specialPriceByProductId` sustituye el de catálogo (`CashierScreen` + `ScanInput` / `barcodeItem`).
+
+**Producto acordado:** los clientes especiales son **consulta**. La cajera mira Menú → Clientes especiales y controla que el ticket tenga esos precios; el POS no cambia el precio de lista solo.
+
+**Qué se hizo:** no se borró el código. Flag `SHOW_SPECIAL_CUSTOMER_POS_SELECTOR = false` en `apps/desktop/src/routes/CashierScreen.tsx`. Poner `true` restaura el desplegable y el auto-apply.
+
+No implementar otra idea de “consulta en caja” hasta que el desarrollador lo pida.
+
+### FEAT-ORDER-CART-01: Pedido con presupuesto + cobro en POS (diseño cerrado 2026-08-27, no codear hasta que se pida)
+
+El Cobrar de hoy **no** es este flujo: `orders.items` es texto libre y Cobrar pide el resto a mano. Checklist: Tanda 3.
+
+**Alcance v1: solo PC.** Celu después.
+
+#### Al crear el pedido
+
+- Sigue nombre, teléfono, fecha, seña, notas.
+- Además, un **carrito de presupuesto**: producto del catálogo + kg o unidades **aproximados**. Total estimado en vivo (precio de lista de ese momento).
+- Esos kg/u. **no** son la venta. El cliente puede decir “2 kg de asado”; al preparar puede pesar más o menos.
+
+#### Al retirar (cajera, turno abierto)
+
+1. Menú → Pedidos → buscar (nombre / qué pidió) → **Cobrar**.
+2. **Modal de pesos:** líneas precargadas, cantidades **vacías**, placeholder del estimado. Se pueden sacar líneas. **Solo tipeo** (sin escaneo de balanza en ese modal).
+3. Confirmar → el **POS** queda con el carrito ya armado (precios, total). En **Total de la venta** se descuenta la seña. Se pueden agregar más ítems (escaneo / Manual) como una venta normal.
+4. Precio al cobrar = **lista al momento del retiro** (el estimado era orientativo).
+5. **Siempre hay venta** con los kilos reales. Si la seña cubre el total → $0 a cobrar ahora (la seña ya entró al crear el pedido).
+6. **Cancelar el carrito del pedido:** no hay venta; el pedido sigue pendiente, como si no se hubiera tocado Cobrar.
+7. Sin turno abierto y hay resto → pedir abrir turno. No cobrar un pedido ya entregado.
+8. Sacar “Marcar listo” (desktop) cuando se implemente este flujo.
+
+#### Seña de más
+
+Si al retirar saca productos y el total queda **bajo** la seña: **no** se devuelve sola (la seña reserva). Caso excepcional (merma, culpa del local): la cajera registra un **Gasto** de devolución a mano. No hace falta un flujo extra en Cobrar.
+
+No implementar hasta que el desarrollador lo pida (testeo de otras tandas primero).
+
+### FEAT-PAYROLL-01: Pago de sueldo en caja + archivo semanal (1.0 — hecho 2026-08-25)
+
+Pedido en testeo de Liquidación. Implementado: UI de pago en PC, nota opcional, snapshot de vales, consulta de semanas anteriores. **No** hay campo de ajuste de monto (el neto es siempre sueldo − vales; la nota explica recortes humanos).
+
+#### Qué hay
+
+1. **Registrar el pago** (cajera o admin con turno abierto): Menú caja → Liquidación, **solo la semana en curso** (lun–dom). ← consulta archivo: **no** se puede pagar una semana anterior. Un pago por carnicero por semana. Si ya está pagado: conflicto. Si se olvidó hasta el lunes, esa semana queda sin pago en el archivo (no hay “pago atrasado” en la app).
+2. **El pago es el archivo.** 1 documento `salaryPayments/{id}` por carnicero por semana. Congela sueldo, vales, neto, nota opcional y lista de vales al pagar.
+3. **Consulta:** PC y celu navegan semanas. Si hay cierre, se muestra ese archivo (no se recalcula). Query `weekStart ==` / recorte de vales — no `getDocs` de toda la colección.
+4. **Nota opcional** (máx. 200): ej. “Le pagué menos porque esa semana llegó tarde 2 veces”. No cambia el neto en caja.
+
+Spark: ~4 carniceros × 52 semanas ≈ 200 docs/año.
+
+#### UX-FLICKER-01 — parpadeo al cambiar de semana (hecho 2026-08-25)
+
+**Causa:** al cambiar `weekStart`, el primer frame de React sigue con `vales`/`payments` de la semana anterior. Se filtran a la semana nueva → no matchean → tarjetas chicas (sin lista de vales). Milisegundos después llega la caché o el fetch y las tarjetas crecen. No se nota en semanas sin vales (mismo alto). El mismo patrón (pintar una clave de pantalla con datos de otra) es el sospechoso en otras listas de la app; no se tocó el resto.
+
+**Solución (reaplicable):** `resolveWeekView` en `apps/mobile/src/lib/payrollWeekCache.ts`. Si `dataWeekStart !== weekStart`, usar la caché de esa semana o `waiting: true` (spinner, no tarjetas vacías). No mezclar el filtro de la pantalla con datos de otra clave.
+
+#### Fuera de 1.0
+
+- Campo de ajuste que cambia el neto (monto aparte de la nota).
+- Regla automática “tarde = $X”.
+- Pagar desde el admin móvil (el celu solo consulta el archivo).
+- Recalcular un cierre viejo si cambia el sueldo o se anula un vale.
+- **Aguinaldo** (`FEAT-PAYROLL-02`): no está modelado. Queda pendiente; no mezclar con el sueldo semanal hasta que el desarrollador lo pida.
+- Pago de una semana ya cerrada (atraso / caja flaca): no se permite. Si hace falta, es otra tarea.
+
+### FEAT-CASH-INJECT-01: Aporte de efectivo a caja (pendiente — pedido 2026-08-25)
+
+Caso raro: llega un proveedor, la cajera no tiene efectivo suficiente, los admins le mandan plata para saldar. Hoy no hay forma de **sumar efectivo a mano** al turno (ni en PC ni en celu). El gasto/saldar proveedor **resta** caja; no hay el movimiento inverso.
+
+**Producto (cuando se pida):** registrar un ingreso de efectivo al turno (monto + nota, ej. “aporte admin para proveedor X”). Suma al efectivo esperado en vivo. No es un gasto ni un vale. Misma idea en PC y celu.
+
+Parte del pack de emergencia del celu: `FEAT-MOB-EMERGENCY-01`. No implementar hasta que el desarrollador lo pida.
+
+### FEAT-MOB-EMERGENCY-01: Qué es “suficiente” en el POS del celular (acordado 2026-08-25, pendiente de confirmar)
+
+El celu **no** es un segundo POS completo. Es el respaldo cuando la PC no está (corte de luz, PC rota). Si clonáramos todo, la PC dejaría de ser la caja del día y aparecerían dos fuentes de verdad + DT-06 (turno compartido en vivo).
+
+**Criterio:** en emergencia hay que **seguir vendiendo y no perder la plata**. Lo que no mueve caja ni cierra una venta puede esperar a que vuelva la PC.
+
+| En el celu (pack emergencia) | No en el celu (quedan en PC) |
+| --- | --- |
+| Abrir/cerrar turno, cobro, venta (scan + manual) | Vales a carniceros, liquidación |
+| Efectivo esperado en vivo | Clientes especiales / conteo / asistencia / pedidos |
+| Gastos (sale plata) | Saldar proveedor (el gasto cubre “le pagué”) |
+| Aporte de efectivo (`FEAT-CASH-INJECT-01`) | Catálogo / balanza / precios |
+| Ventas de **este** turno (anular si hace falta) | |
+| **Fiado en el cobro** (cliente + seña opcional) | |
+
+**Fiado:** no se puede colgar “después” sobre la misma venta. En PC el fiado es un botón en Cobrar: la venta nace `isDebt` y el ledger apunta a esa venta del turno activo. Si en el celu se cobra como venta normal, `CREATE_DEBT` no la convierte luego (tiene que ser del turno abierto y no estar ya confirmada como no-fiado de otro flujo). Papel + cargar el fiado cuando vuelve la PC = la deuda existe, pero **no es la misma venta** y el momento del corte no queda atado al cliente. Por eso el fiado **sí** entra al pack de emergencia; no es como un vale.
+
+Historial largo y proveedores en celu = admin (ya existe), no el POS de cajera.
+
+**Turno celu no se ve “en vivo” en el POS de PC:** no es un bug de esta pasada. Es **DT-06** (turno compartido). Hoy el celu sube a Firestore y la PC **importa** con `source='mobile'`, pero ese turno **no** es la caja activa del escritorio. Workaround: cerrar en el celu y abrir otro en la PC (quedan dos turnos en historial). Unificar en vivo = fase S2, no mezclar con el testeo.
+
+No codear gastos / historial de turno / aporte hasta confirmar este recorte.

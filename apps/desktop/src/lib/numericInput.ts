@@ -139,6 +139,39 @@ export function formatDecimalInputValue(raw: string, maxDecimals = 2, options: F
   return formattedInt
 }
 
+/** Formatea un peso en kg para DecimalInput (vacío si es 0). */
+export function formatKgQuantity(kg: number): string {
+  const next = Math.max(0, Math.round(kg * 1000) / 1000)
+  if (next === 0) return ''
+  return formatDecimalInputValue(String(next).replace('.', ','), 3, { weightMode: true })
+}
+
+/** Suma/resta kg al texto es-AR del DecimalInput (mínimo 0; vacío si queda 0). */
+export function adjustKgInputValue(current: string, delta: number): string {
+  return formatKgQuantity((parseDecimalInput(current) ?? 0) + delta)
+}
+
+/**
+ * Suma o resta un peso tipeado (es-AR) al total ya anotado.
+ * `deltaText` inválido o ≤ 0 → null (no toca el total).
+ */
+export function applyKgDelta(currentText: string, deltaText: string, sign: 1 | -1): string | null {
+  const delta = parseDecimalInput(deltaText)
+  if (delta === null || delta <= 0) return null
+  return formatKgQuantity((parseDecimalInput(currentText) ?? 0) + sign * delta)
+}
+
+/**
+ * Suma o resta unidades enteras al total ya anotado.
+ * `deltaText` inválido o ≤ 0 → null.
+ */
+export function applyUnitsDelta(currentText: string, deltaText: string, sign: 1 | -1): string | null {
+  const delta = parseNumericInput(deltaText)
+  if (delta === null || delta <= 0) return null
+  const next = Math.max(0, (parseNumericInput(currentText) ?? 0) + sign * delta)
+  return next === 0 ? '' : formatNumericInputValue(String(next))
+}
+
 /**
  * Convierte un monto formateado es-AR (1.234,56) a número.
  * Retorna null si el campo está vacío o es inválido.

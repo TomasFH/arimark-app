@@ -91,6 +91,7 @@ export const IPC = {
   UPDATE_ORDER: 'ipc:update-order',
   DELETE_ORDER: 'ipc:delete-order',
   HARD_DELETE_ORDER: 'ipc:hard-delete-order',
+  CHARGE_ORDER: 'ipc:charge-order',
 
   // Gastos del turno — deuda a proveedores
   GET_PROVIDER_DEBT: 'ipc:get-provider-debt',
@@ -101,9 +102,14 @@ export const IPC = {
   CREATE_PROVIDER: 'ipc:create-provider',
   UPDATE_PROVIDER: 'ipc:update-provider',
   ARCHIVE_PROVIDER: 'ipc:archive-provider',
+  UNARCHIVE_PROVIDER: 'ipc:unarchive-provider',
+  DELETE_PROVIDER: 'ipc:delete-provider',
   GET_PROVIDERS_WITH_DEBT: 'ipc:get-providers-with-debt',
   GET_PROVIDER_DEBT_HISTORY: 'ipc:get-provider-debt-history',
   SETTLE_PROVIDER_DEBT: 'ipc:settle-provider-debt',
+  RECORD_PROVIDER_LEDGER: 'ipc:record-provider-ledger',
+  COMPENSATE_PROVIDER_STORES: 'ipc:compensate-provider-stores',
+  PAY_PROVIDER_FROM_SHIFT: 'ipc:pay-provider-from-shift',
 
   // Empleados / carniceros (Bloque D)
   LIST_EMPLOYEES: 'ipc:list-employees',
@@ -121,14 +127,19 @@ export const IPC = {
   REGISTER_VALE: 'ipc:register-vale',
   LIST_VALES: 'ipc:list-vales',
   GET_WEEKLY_VALE_SUMMARY: 'ipc:get-weekly-vale-summary',
+  CANCEL_VALE: 'ipc:cancel-vale',
 
   // Pago de salario semanal (Bloque D)
   PAY_WEEKLY_SALARY: 'ipc:pay-weekly-salary',
+  LIST_SALARY_PAYMENTS: 'ipc:list-salary-payments',
+  GET_REMOTE_SALARY_WEEK: 'ipc:get-remote-salary-week',
 
   // Conteo de stock (Bloque E)
   CREATE_STOCK_COUNT: 'ipc:create-stock-count',
   LIST_STOCK_COUNTS: 'ipc:list-stock-counts',
   GET_STOCK_COUNT_DETAIL: 'ipc:get-stock-count-detail',
+  GET_DRAFT_STOCK_COUNT: 'ipc:get-draft-stock-count',
+  DISCARD_STOCK_COUNT_DRAFT: 'ipc:discard-stock-count-draft',
 
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
@@ -164,6 +175,11 @@ export const IPC = {
   // Carga masiva del catálogo a la balanza (solo admin, balanza conectada)
   KRETZ_SYNC_CATALOG: 'ipc:kretz-sync-catalog',
   KRETZ_SYNC_PROGRESS: 'ipc:kretz-sync-progress',  // push main → renderer
+
+  /** Sync de fiados / clientes especiales listo en SQLite (push main → renderer). */
+  DEBT_SYNC_UPDATED: 'ipc:debt-sync-updated',
+  SPECIAL_CUSTOMER_SYNC_UPDATED: 'ipc:special-customer-sync-updated',
+  UI_SETTINGS_CHANGED: 'ipc:ui-settings-changed',
 
   // Preferencias de UI (zoom, etc.) — persisten entre sesiones
   GET_UI_SETTINGS: 'ipc:get-ui-settings',

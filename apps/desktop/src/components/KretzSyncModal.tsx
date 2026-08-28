@@ -56,7 +56,7 @@ export default function KretzSyncModal({ storeId, store, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
 
         {/* Confirmación */}
         {phase === 'confirm' && (

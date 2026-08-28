@@ -2,9 +2,9 @@
  * Orquestador de flujo del POS móvil (app nativa Capacitor, offline-first).
  *
  * Flujo:
- *   [arranque] restaurar sesión persistida (funciona sin internet)
- *     → si hay sesión → selector de local (si hay >1) → cargar contexto → POS
- *     → si no hay sesión → login (email + contraseña, requiere internet la 1ª vez)
+ *   [arranque] restaurar sesión persistida
+ *     → si hay turno abierto de esa cuenta en este celu → POS de ese local
+ *     → si no, selector de local (si hay >1) → abrir turno → POS
  *
  * No hay PIN ni claves offline: la sesión de Firebase queda guardada en el
  * dispositivo tras el primer login con internet. Al reconectar, se resincroniza
@@ -20,7 +20,10 @@ import { syncCatalog, getCatalog } from './lib/catalog'
 import { db } from './lib/db'
 import { triggerSync, registerOnlineListener } from './lib/sync'
 import { useOnlineStatus, isOnline } from './lib/connectivity'
+import { installSystemBackHandler, setEmptyBackHandler, exitApp, useBackLayer } from './lib/backStack'
 import { v4 as uuidv4 } from 'uuid'
+import { loadCashierStoreOptions, type CashierStoreOption } from './lib/cashierStores'
+import { pickOpenShiftForUser } from './lib/sessionResume'
 import type { LocalProfile, CatalogProduct, LocalShift, ShiftType } from './types/pos'
 
 type Screen =
@@ -46,9 +49,20 @@ export default function App() {
   const [catalog, setCatalog] = useState<CatalogProduct[]>([])
   const [activeShift, setActiveShift] = useState<LocalShift | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [cashierStores, setCashierStores] = useState<CashierStoreOption[]>([])
+  const [exitConfirm, setExitConfirm] = useState(false)
 
   const online = useOnlineStatus()
   const prevOnline = useRef(online)
+
+  useEffect(() => {
+    const uninstall = installSystemBackHandler()
+    setEmptyBackHandler(() => setExitConfirm(true))
+    return () => {
+      setEmptyBackHandler(null)
+      uninstall()
+    }
+  }, [])
 
   // Restaurar sesión persistida al arrancar.
   useEffect(() => {
@@ -97,10 +111,23 @@ export default function App() {
       return
     }
 
-    const { authorizedStores } = profile
+    setScreen('loading')
+    const options = await loadCashierStoreOptions(profile.authorizedStores)
+    setCashierStores(options)
 
-    if (authorizedStores.length === 1) {
-      const sess: SessionState = { profile, storeId: authorizedStores[0]!, loginMode: mode }
+    const openShift = pickOpenShiftForUser(
+      await db.shifts.toArray(),
+      profile.uid,
+    )
+    if (openShift) {
+      const sess: SessionState = { profile, storeId: openShift.storeId, loginMode: mode }
+      setSession(sess)
+      await loadStoreContext(sess)
+      return
+    }
+
+    if (options.length === 1) {
+      const sess: SessionState = { profile, storeId: options[0]!.id, loginMode: mode }
       setSession(sess)
       await loadStoreContext(sess)
     } else {
@@ -172,6 +199,8 @@ export default function App() {
     triggerSync().catch(() => { /* silencioso */ })
   }
 
+  const storeName = cashierStores.find(s => s.id === session?.storeId)?.name ?? session?.storeId ?? ''
+
   async function handleLogout() {
     await signOut().catch(() => { /* silencioso en offline */ })
     setSession(null)
@@ -190,7 +219,7 @@ export default function App() {
 
     if (screen === 'login') {
       return (
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+        <div className="h-full min-h-0 bg-gray-950 flex items-center justify-center p-4">
           <div className="w-full max-w-sm">
             <div className="text-center mb-8">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-red-600 rounded-2xl mb-4">
@@ -217,8 +246,9 @@ export default function App() {
     if (screen === 'store-select' && session) {
       return (
         <StoreSelector
-          stores={session.profile.authorizedStores}
+          stores={cashierStores}
           onSelect={handleStoreSelect}
+          onBack={handleLogout}
         />
       )
     }
@@ -231,9 +261,10 @@ export default function App() {
       return (
         <OpenShiftScreen
           displayName={session.profile.displayName}
-          storeId={session.storeId}
+          storeName={storeName}
           onOpen={handleOpenShift}
           onLogout={handleLogout}
+          onBack={cashierStores.length > 1 ? () => setScreen('store-select') : handleLogout}
         />
       )
     }
@@ -243,6 +274,7 @@ export default function App() {
         <PosScreen
           shift={activeShift}
           catalog={catalog}
+          storeName={storeName}
           onCloseShift={handleCloseShift}
         />
       )
@@ -252,9 +284,15 @@ export default function App() {
   }
 
   return (
-    <div className={!online ? 'pb-10' : undefined}>
+    <div className={`h-full min-h-0 ${!online ? 'pb-10' : ''}`}>
       {renderScreen()}
       {!online && <OfflineBanner />}
+      {exitConfirm && (
+        <ExitAppModal
+          onCancel={() => setExitConfirm(false)}
+          onConfirm={() => { void exitApp() }}
+        />
+      )}
     </div>
   )
 }
@@ -263,9 +301,39 @@ export default function App() {
 // Sub-componentes
 // ---------------------------------------------------------------------------
 
+function ExitAppModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  useBackLayer(true, onConfirm)
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-6">
+      <div className="w-full max-w-sm space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+        <h2 className="text-lg font-bold text-white">¿Seguro querés salir de la app?</h2>
+        <p className="text-sm text-zinc-400">
+          Si hay un turno abierto, sigue en este celular. Atrás otra vez también sale.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-xl border border-zinc-700 bg-zinc-800 py-3 text-sm font-semibold text-zinc-200"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="rounded-xl bg-red-600 py-3 text-sm font-bold text-white"
+          >
+            Salir
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FullScreenSpinner({ label }: { label: string }) {
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+    <div className="h-full min-h-0 bg-gray-950 flex items-center justify-center">
       <div className="text-center">
         <div className="w-10 h-10 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
         <p className="text-gray-400 text-sm">{label}</p>

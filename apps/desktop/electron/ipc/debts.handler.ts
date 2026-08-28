@@ -204,6 +204,7 @@ export function registerDebtHandlers(): void {
             amount: debtAmount,
             dueDate: dueDate ?? null,
             notes: notes?.trim() ?? null,
+            shiftId: sale.shiftId,
             createdAt: now,
             createdBy: session.userId,
             syncedAt: null,

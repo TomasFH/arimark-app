@@ -19,6 +19,8 @@ import { getDb } from '../db/client'
 import { customers, debtEvents, sales, shifts } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
+import { notifyRenderer } from './notifyRenderer'
+import { IPC } from '../ipc/channels'
 
 interface RemoteCustomerDoc {
   id: string
@@ -29,8 +31,8 @@ interface RemoteCustomerDoc {
   type?: 'restaurant' | 'wholesale' | 'other' | null
   notes?: string | null
   active?: boolean
-  createdAt: string
-  createdBy: string
+  createdAt?: string
+  createdBy?: string
   deleted?: boolean
 }
 
@@ -39,19 +41,26 @@ interface RemoteDebtEventDoc {
   customerId: string
   saleId?: string | null
   storeId: string
-  eventType: 'created' | 'partial_payment' | 'paid' | 'cancelled' | 'reopened'
+  eventType: 'created' | 'debt' | 'partial_payment' | 'paid' | 'cancelled' | 'reopened'
   amount: number
   dueDate?: string | null
   notes?: string | null
   paymentMethod?: 'cash' | 'debit' | 'wallet' | 'credit' | null
   shiftId?: string | null
-  createdAt: string
-  createdBy: string
+  createdAt?: string
+  createdBy?: string
   deleted?: boolean
 }
 
 const customerListeners: Unsubscribe[] = []
 const debtListeners: Unsubscribe[] = []
+
+const MAX_PENDING_EVENTS = 500
+const pendingDebtEvents = new Map<string, { data: RemoteDebtEventDoc; docId: string }>()
+
+function notifyDebtsUpdated(): void {
+  notifyRenderer(IPC.DEBT_SYNC_UPDATED)
+}
 
 function upsertCustomerFromRemote(data: RemoteCustomerDoc, docId: string): void {
   const db = getDb()
@@ -64,7 +73,9 @@ function upsertCustomerFromRemote(data: RemoteCustomerDoc, docId: string): void 
     return
   }
 
-  ensureUserStub(data.createdBy, data.storeId)
+  const createdBy = data.createdBy || 'remote-debt-unknown'
+  const createdAt = data.createdAt || now
+  ensureUserStub(createdBy, data.storeId)
 
   db.insert(customers)
     .values({
@@ -76,8 +87,8 @@ function upsertCustomerFromRemote(data: RemoteCustomerDoc, docId: string): void 
       type: data.type ?? null,
       notes: data.notes ?? null,
       active: data.active ?? true,
-      createdAt: data.createdAt,
-      createdBy: data.createdBy,
+      createdAt,
+      createdBy,
       syncedAt: now,
     })
     .onConflictDoUpdate({
@@ -94,26 +105,59 @@ function upsertCustomerFromRemote(data: RemoteCustomerDoc, docId: string): void 
       },
     })
     .run()
+
+  retryPendingDebtEvents()
+  notifyDebtsUpdated()
 }
 
-function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): void {
+function queuePendingDebtEvent(data: RemoteDebtEventDoc, docId: string): void {
+  if (pendingDebtEvents.size >= MAX_PENDING_EVENTS && !pendingDebtEvents.has(docId)) {
+    const oldest = pendingDebtEvents.keys().next().value
+    if (oldest) pendingDebtEvents.delete(oldest)
+  }
+  pendingDebtEvents.set(docId, { data, docId })
+}
+
+function retryPendingDebtEvents(): void {
+  for (const [id, item] of [...pendingDebtEvents.entries()]) {
+    if (upsertDebtEventFromRemote(item.data, item.docId, false)) {
+      pendingDebtEvents.delete(id)
+    }
+  }
+}
+
+function upsertDebtEventFromRemote(
+  data: RemoteDebtEventDoc,
+  docId: string,
+  enqueueIfOrphan = true,
+): boolean {
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
 
   if (data.deleted) {
     db.delete(debtEvents).where(eq(debtEvents.id, id)).run()
-    return
+    pendingDebtEvents.delete(id)
+    notifyDebtsUpdated()
+    return true
   }
 
-  // Requiere el cliente en cache
   const customer = db.select({ id: customers.id }).from(customers).where(eq(customers.id, data.customerId)).all()[0]
   if (!customer) {
-    log.warn('[customerDebtSync] Debt event sin cliente local — omitido', { id, customerId: data.customerId })
-    return
+    log.warn('[customerDebtSync] Debt event sin cliente local — en cola', { id, customerId: data.customerId })
+    if (enqueueIfOrphan) queuePendingDebtEvent(data, docId)
+    return false
   }
 
-  ensureUserStub(data.createdBy, data.storeId)
+  const createdBy = data.createdBy || 'remote-debt-unknown'
+  ensureUserStub(createdBy, data.storeId)
+
+  const existing = db
+    .select({ syncedAt: debtEvents.syncedAt })
+    .from(debtEvents)
+    .where(eq(debtEvents.id, id))
+    .get()
+  if (existing && existing.syncedAt === null) return true
 
   let saleId: string | null = data.saleId ?? null
   if (saleId) {
@@ -127,20 +171,25 @@ function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): voi
     if (!shift) shiftId = null
   }
 
+  const eventType = data.eventType === 'debt' ? 'created' : data.eventType
+  const absAmount = Math.abs(data.amount)
+  const amount = eventType === 'created' || eventType === 'reopened' ? absAmount : -absAmount
+  const createdAt = data.createdAt || now
+
   db.insert(debtEvents)
     .values({
       id,
       customerId: data.customerId,
       saleId,
       storeId: data.storeId,
-      eventType: data.eventType,
-      amount: data.amount,
+      eventType,
+      amount,
       dueDate: data.dueDate ?? null,
       notes: data.notes ?? null,
       paymentMethod: data.paymentMethod ?? null,
       shiftId,
-      createdAt: data.createdAt,
-      createdBy: data.createdBy,
+      createdAt,
+      createdBy,
       syncedAt: now,
     })
     .onConflictDoUpdate({
@@ -149,8 +198,8 @@ function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): voi
         customerId: data.customerId,
         saleId,
         storeId: data.storeId,
-        eventType: data.eventType,
-        amount: data.amount,
+        eventType,
+        amount,
         dueDate: data.dueDate ?? null,
         notes: data.notes ?? null,
         paymentMethod: data.paymentMethod ?? null,
@@ -159,6 +208,41 @@ function upsertDebtEventFromRemote(data: RemoteDebtEventDoc, docId: string): voi
       },
     })
     .run()
+
+  notifyDebtsUpdated()
+  return true
+}
+
+/**
+ * Altas de fiado anteriores a 2026-08-24 no guardaban shiftId.
+ * Completa el campo desde la venta y deja syncedAt=null para re-pushear.
+ */
+export function backfillDebtEventShiftIdsFromSales(): number {
+  const db = getDb()
+  const rows = db
+    .select({
+      id: debtEvents.id,
+      saleId: debtEvents.saleId,
+      shiftId: debtEvents.shiftId,
+    })
+    .from(debtEvents)
+    .all()
+
+  let updated = 0
+  for (const row of rows) {
+    if (row.shiftId || !row.saleId) continue
+    const sale = db.select({ shiftId: sales.shiftId }).from(sales).where(eq(sales.id, row.saleId)).get()
+    if (!sale?.shiftId) continue
+    db.update(debtEvents)
+      .set({ shiftId: sale.shiftId, syncedAt: null })
+      .where(eq(debtEvents.id, row.id))
+      .run()
+    updated += 1
+  }
+  if (updated > 0) {
+    log.info('[customerDebtSync] Backfill shiftId en fiados', { count: updated })
+  }
+  return updated
 }
 
 export async function pushUnsyncedCustomers(tenantId: string): Promise<void> {
@@ -200,6 +284,8 @@ export async function pushUnsyncedCustomers(tenantId: string): Promise<void> {
 
 export async function pushUnsyncedCustomerDebtEvents(tenantId: string): Promise<void> {
   if (!isFirebaseAvailable()) return
+
+  backfillDebtEventShiftIdsFromSales()
 
   const db = getDb()
   const pending = db.select().from(debtEvents).where(isNull(debtEvents.syncedAt)).all()
@@ -334,16 +420,20 @@ export function stopCustomerDebtSyncListener(): void {
   }
   customerListeners.length = 0
   debtListeners.length = 0
+  pendingDebtEvents.clear()
   log.info('[customerDebtSync] Listeners detenidos')
 }
 
 /** Push customers → push events → pull customers → pull events → listeners. */
 export async function ensureCustomerDebtsSynced(tenantId: string): Promise<void> {
+  backfillDebtEventShiftIdsFromSales()
   await pushUnsyncedCustomers(tenantId)
   await pushUnsyncedCustomerDebtEvents(tenantId)
   await pullCustomersFromFirestore(tenantId)
   await pullCustomerDebtEventsFromFirestore(tenantId)
+  retryPendingDebtEvents()
   startCustomerDebtSyncListener(tenantId)
+  notifyDebtsUpdated()
 }
 
 export async function pushUnsyncedCustomerDebtOps(tenantId: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useOnlineStatus } from '../../lib/connectivity'
+import { useBackLayer } from '../../lib/backStack'
 import {
   ScreenHeader,
   OfflineBanner,
@@ -9,9 +10,8 @@ import {
   Modal,
   Btn,
   LabeledInput,
+  LabeledNumericInput,
   StoreSelector,
-  filterDigits,
-  parseDigits,
 } from './shared'
 import {
   fetchCustomers,
@@ -24,10 +24,13 @@ import {
   formatDate,
   type Customer,
   type CustomerDebtEvent,
-  type DebtEventType,
   type StoreDoc,
 } from '../../lib/adminFirestore'
-import type { LocalProfile } from '../../types/pos'
+import type { LocalProfile, PaymentMethod } from '../../types/pos'
+import { parseNumericInput, formatNumericInputValue } from '../../lib/numericInput'
+import { paidTotal, remainderForField } from '../../lib/paymentSplit'
+import { planCustomerDebtPayments, type PlannedDebtPayment } from '../../lib/adminLedger'
+import NumericInput from '../NumericInput'
 
 interface Props {
   onBack: () => void
@@ -35,17 +38,27 @@ interface Props {
   profile: LocalProfile
 }
 
-const EVENT_LABEL: Record<DebtEventType, string> = {
+const EVENT_LABEL: Record<string, string> = {
+  created: 'Deuda',
   debt: 'Deuda',
+  reopened: 'Reabierta',
   partial_payment: 'Pago parcial',
   paid: 'Pago total',
   cancelled: 'Cancelada',
 }
 
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: 'Efectivo',
+  debit: 'Débito',
+  wallet: 'Billetera Virtual',
+  credit: 'Crédito',
+}
+
 export function DebtsScreen({ onBack, stores, profile }: Props) {
   const online = useOnlineStatus()
   const activeStores = stores.filter(s => !s.archivedAt)
-  const [storeId, setStoreId] = useState<string>(() => activeStores[0]?.id ?? '')
+  useBackLayer(true, onBack)
+  const [storeId, setStoreId] = useState<string>('')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [allEvents, setAllEvents] = useState<CustomerDebtEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,7 +100,7 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
   })
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
       <ScreenHeader
         title="Fiados"
         onBack={onBack}
@@ -146,7 +159,7 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
                   <button
                     type="button"
                     onClick={() => setSelected(c)}
-                    className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left hover:border-zinc-700 transition-colors"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-left hover:border-zinc-500 transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span
@@ -244,17 +257,20 @@ function CustomerDetailModal({
 
   const balance = calcCustomerBalance(events)
 
-  const handlePayment = async (amount: number, type: 'partial_payment' | 'paid') => {
-    await createCustomerDebtEvent({
-      customerId: customer.id,
-      storeId: storeId || customer.storeId,
-      eventType: type,
-      amount,
-      notes: null,
-      dueDate: null,
-      createdAt: new Date().toISOString(),
-      createdBy: profile.uid,
-    })
+  const handlePayment = async (payments: PlannedDebtPayment[]) => {
+    for (const p of payments) {
+      await createCustomerDebtEvent({
+        customerId: customer.id,
+        storeId: storeId || customer.storeId,
+        eventType: p.eventType,
+        amount: p.amount,
+        notes: null,
+        dueDate: null,
+        createdAt: new Date().toISOString(),
+        createdBy: profile.uid,
+        paymentMethod: p.method,
+      })
+    }
     await loadEvents()
     onEventCreated()
   }
@@ -342,6 +358,7 @@ function CustomerDetailModal({
                     title={EVENT_LABEL[e.eventType]}
                   >
                     {EVENT_LABEL[e.eventType]}
+                    {e.paymentMethod ? ` · ${PAYMENT_METHOD_LABELS[e.paymentMethod]}` : ''}
                     {e.notes ? ` — ${e.notes}` : ''}
                   </span>
                   <span
@@ -395,25 +412,49 @@ function CustomerDetailModal({
 interface PaymentModalProps {
   balance: number
   onClose: () => void
-  onPay: (amount: number, type: 'partial_payment' | 'paid') => Promise<void>
+  onPay: (payments: PlannedDebtPayment[]) => Promise<void>
+}
+
+const PAY_METHODS: { id: PaymentMethod; label: string }[] = [
+  { id: 'cash', label: 'Efectivo' },
+  { id: 'debit', label: 'Débito' },
+  { id: 'wallet', label: 'Billetera' },
+  { id: 'credit', label: 'Crédito' },
+]
+
+const EMPTY_AMOUNTS: Record<PaymentMethod, string> = {
+  cash: '', debit: '', wallet: '', credit: '',
 }
 
 function PaymentModal({ balance, onClose, onPay }: PaymentModalProps) {
-  const [amountInput, setAmountInput] = useState('')
+  const [amounts, setAmounts] = useState<Record<PaymentMethod, string>>(EMPTY_AMOUNTS)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  const paid = paidTotal(amounts)
+  const remaining = Math.max(0, Math.round(balance - paid))
+  const over = paid > balance
+  const canConfirm = paid > 0 && !over
+
+  function fillRemainder(method: PaymentMethod) {
+    const rem = remainderForField(balance, amounts, method)
+    if (rem <= 0) return
+    setAmounts(prev => ({ ...prev, [method]: formatNumericInputValue(String(rem)) }))
+  }
+
   const handlePay = async () => {
-    const amount = parseDigits(amountInput)
-    if (amount <= 0) {
-      setErr('Ingresá un monto válido.')
+    const planned = planCustomerDebtPayments(
+      balance,
+      PAY_METHODS.map(m => ({ method: m.id, amount: parseNumericInput(amounts[m.id]) ?? 0 })),
+    )
+    if (!planned.ok) {
+      setErr(planned.error)
       return
     }
     setSaving(true)
     setErr(null)
     try {
-      const type = amount >= balance ? 'paid' : 'partial_payment'
-      await onPay(amount, type)
+      await onPay(planned.payments)
       onClose()
     } catch {
       setErr('No se pudo registrar el pago.')
@@ -425,23 +466,55 @@ function PaymentModal({ balance, onClose, onPay }: PaymentModalProps) {
     <Modal title="Registrar pago" onClose={onClose}>
       <div className="space-y-3">
         <p className="text-sm text-zinc-400">
-          Deuda actual: <span className="font-mono font-semibold text-amber-400">{formatMoney(balance)}</span>
+          Deuda actual:{' '}
+          <span className="font-mono font-semibold text-amber-400">{formatMoney(balance)}</span>
         </p>
-        <LabeledInput
-          label="Monto pagado ($)"
-          value={amountInput}
-          onChange={v => setAmountInput(filterDigits(v))}
-          placeholder="0"
-          inputMode="numeric"
-        />
-        {err && (
-          <p className="text-sm text-red-400/80">{err}</p>
+        <div className="space-y-3">
+          {PAY_METHODS.map(m => {
+            const rem = remainderForField(balance, amounts, m.id)
+            const thisAmount = parseNumericInput(amounts[m.id]) ?? 0
+            const showFill = remaining > 0 && rem > 0 && thisAmount <= 0
+            return (
+              <div key={m.id} className="flex min-w-0 items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <label className="mb-0.5 block truncate text-xs text-zinc-400">{m.label}</label>
+                  <NumericInput
+                    value={amounts[m.id]}
+                    onChange={v => setAmounts(prev => ({ ...prev, [m.id]: v }))}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-base text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                    placeholder="0"
+                  />
+                </div>
+                {showFill && (
+                  <button
+                    type="button"
+                    onClick={() => fillRemainder(m.id)}
+                    className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-2 py-2 text-[11px] font-semibold text-zinc-300"
+                    title="Completar con el monto restante"
+                  >
+                    ← {formatMoney(rem)}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {paid > 0 && remaining > 0 && !over && (
+          <p className="text-center text-sm font-medium text-zinc-400">
+            Faltan {formatMoney(remaining)}
+          </p>
         )}
+        {over && (
+          <p className="text-center text-sm font-medium text-red-400/80">
+            El total supera la deuda
+          </p>
+        )}
+        {err && <p className="text-sm text-red-400/80">{err}</p>}
         <div className="flex gap-2">
           <Btn variant="ghost" className="flex-1" onClick={onClose}>
             Cancelar
           </Btn>
-          <Btn className="flex-1" loading={saving} onClick={handlePay}>
+          <Btn className="flex-1" loading={saving} disabled={!canConfirm} onClick={() => void handlePay()}>
             Confirmar
           </Btn>
         </div>
@@ -469,13 +542,19 @@ function CreateCustomerModal({
   onClose,
   onCreate,
 }: CreateCustomerModalProps) {
-  const [storeId, setStoreId] = useState(defaultStoreId || (stores[0]?.id ?? ''))
+  const [storeId, setStoreId] = useState(defaultStoreId)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [dni, setDni] = useState('')
   const [debtInput, setDebtInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (stores.length === 1 && stores[0] && !storeId) {
+      setStoreId(stores[0].id)
+    }
+  }, [stores, storeId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -496,13 +575,14 @@ function CreateCustomerModal({
         dni: dni.trim() || null,
         storeId,
         active: true,
+        createdBy: profile.uid,
       })
-      const debt = parseDigits(debtInput)
+      const debt = parseNumericInput(debtInput) ?? 0
       if (debt > 0) {
         await createCustomerDebtEvent({
           customerId,
           storeId,
-          eventType: 'debt',
+          eventType: 'created',
           amount: debt,
           notes: null,
           dueDate: null,
@@ -528,6 +608,7 @@ function CreateCustomerModal({
               onChange={e => setStoreId(e.target.value)}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
             >
+              <option value="">Elegir un local</option>
               {stores.map(s => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -560,12 +641,11 @@ function CreateCustomerModal({
           inputMode="numeric"
           maxLength={15}
         />
-        <LabeledInput
+        <LabeledNumericInput
           label="Deuda inicial ($)"
           value={debtInput}
-          onChange={v => setDebtInput(filterDigits(v))}
+          onChange={setDebtInput}
           placeholder="0"
-          inputMode="numeric"
         />
         {err && (
           <p className="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/80">

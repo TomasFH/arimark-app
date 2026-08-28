@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useOnlineStatus } from '../../lib/connectivity'
+import { useBackLayer } from '../../lib/backStack'
 import {
   ScreenHeader,
   OfflineBanner,
@@ -7,6 +8,7 @@ import {
   Spinner,
   EmptyState,
   Modal,
+  ConfirmModal,
   Btn,
   LabeledInput,
 } from './shared'
@@ -26,6 +28,7 @@ interface Props {
 
 export function StoresScreen({ onBack }: Props) {
   const online = useOnlineStatus()
+  useBackLayer(true, onBack)
   const [stores, setStores] = useState<StoreDoc[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -53,7 +56,7 @@ export function StoresScreen({ onBack }: Props) {
   const displayed = stores.filter(s => showArchived || !s.archivedAt)
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
       <ScreenHeader
         title="Locales"
         onBack={onBack}
@@ -71,16 +74,21 @@ export function StoresScreen({ onBack }: Props) {
 
       {!online && <OfflineBanner />}
 
-      <div className="border-b border-zinc-800 px-4 py-2">
-        <button
-          type="button"
-          onClick={() => setShowArchived(p => !p)}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-            showArchived ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          {showArchived ? 'Con archivados' : 'Activos'}
-        </button>
+      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
+        {(['active', 'archived'] as const).map(mode => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setShowArchived(mode === 'archived')}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              (mode === 'archived') === showArchived
+                ? 'bg-zinc-700 text-zinc-100'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {mode === 'active' ? 'Activos' : 'Eliminados'}
+          </button>
+        ))}
       </div>
 
       <main className="flex-1 px-4 py-4">
@@ -98,8 +106,8 @@ export function StoresScreen({ onBack }: Props) {
                   onClick={() => setSelected(store)}
                   className={`w-full rounded-xl border px-4 py-3 text-left hover:border-zinc-700 transition-colors ${
                     store.archivedAt
-                      ? 'border-zinc-800/50 bg-zinc-900/50 opacity-60'
-                      : 'border-zinc-800 bg-zinc-900'
+                      ? 'border-zinc-600 bg-zinc-800/60 opacity-70'
+                      : 'border-zinc-700 bg-zinc-800'
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -111,7 +119,7 @@ export function StoresScreen({ onBack }: Props) {
                     </span>
                     {store.archivedAt && (
                       <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-500">
-                        Archivado
+                        Eliminado
                       </span>
                     )}
                   </div>
@@ -125,7 +133,7 @@ export function StoresScreen({ onBack }: Props) {
                   )}
                   <p className="mt-0.5 text-xs text-zinc-600">
                     {store.archivedAt
-                      ? `Archivado el ${formatDate(store.archivedAt)}`
+                      ? `Eliminado el ${formatDate(store.archivedAt)}`
                       : `Creado el ${formatDate(store.createdAt)}`}
                   </p>
                 </button>
@@ -176,6 +184,7 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
   const [editName, setEditName] = useState(store.name)
   const [editAddress, setEditAddress] = useState(store.address ?? '')
   const [saving, setSaving] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
 
   const handleSave = async () => {
     if (!editName.trim()) return
@@ -192,7 +201,6 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
   }
 
   const handleArchive = async () => {
-    if (!confirm(`¿${store.archivedAt ? 'Restaurar' : 'Archivar'} ${store.name}?`)) return
     if (store.archivedAt) {
       await restoreStore(store.id)
       onUpdated({ ...store, archivedAt: null })
@@ -254,7 +262,7 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
             </p>
             {store.archivedAt && (
               <p className="text-zinc-600">
-                Archivado: {formatDate(store.archivedAt)}
+                Eliminado: {formatDate(store.archivedAt)}
               </p>
             )}
             <button
@@ -270,11 +278,26 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
         <Btn
           variant={store.archivedAt ? 'ghost' : 'danger'}
           className="w-full"
-          onClick={handleArchive}
+          onClick={() => setConfirmArchive(true)}
         >
-          {store.archivedAt ? 'Restaurar local' : 'Archivar local'}
+          {store.archivedAt ? 'Restaurar local' : 'Eliminar local'}
         </Btn>
       </div>
+
+      {confirmArchive && (
+        <ConfirmModal
+          title={store.archivedAt ? 'Restaurar local' : 'Eliminar local'}
+          message={
+            store.archivedAt
+              ? `¿Restaurar ${store.name}?`
+              : `¿Estás seguro que querés eliminar ${store.name}?`
+          }
+          confirmLabel={store.archivedAt ? 'Restaurar' : 'Eliminar'}
+          danger={!store.archivedAt}
+          onClose={() => setConfirmArchive(false)}
+          onConfirm={handleArchive}
+        />
+      )}
     </Modal>
   )
 }

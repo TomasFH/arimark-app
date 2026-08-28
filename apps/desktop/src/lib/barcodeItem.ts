@@ -56,3 +56,18 @@ export function buildItemFromBarcode(
     priceDiscrepancy,
   }
 }
+
+/** Recalcula subtotal con precio especial, conservando el peso/cantidad del ítem. */
+export function applySpecialUnitPrice(
+  item: SaleItemDraft,
+  specialUnitPrice: number | undefined,
+): SaleItemDraft {
+  if (specialUnitPrice == null || specialUnitPrice <= 0) return item
+  const subtotal = Math.round(item.weightKg * specialUnitPrice)
+  return {
+    ...item,
+    unitPrice: specialUnitPrice,
+    subtotal,
+    priceDiscrepancy: true,
+  }
+}

@@ -5,10 +5,13 @@ import log from 'electron-log'
 import { eq, and, desc, gte, lte, inArray, lt } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { orders, users } from '../db/schema'
+import { orders, users, sales, saleItems, salePayments, products } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedOrders, markOrderDeletedInFirestore } from '../licensing/orderSync'
+import { pushUnsyncedSales } from '../licensing/saleSync'
+import { notifySaleOccurred } from './inactivityDaemon'
+import { parseDepositPayments } from '../lib/depositPayments'
 import type { IpcResult, OrderRow, DepositPayment } from '../../src/types/hw-api'
 
 function scheduleOrderPush(): void {
@@ -38,8 +41,8 @@ const createOrderSchema = z.object({
   notes: z.string().max(300).optional(),
   depositAmount: z.number().min(0).default(0),
   depositPayments: z.array(depositPaymentSchema).optional(),
-  /** Solo admin: sobreescribe el local de sesión para crear el pedido en ese local */
-  storeId: z.string().uuid().optional(),
+  /** Solo admin: sobreescribe el local de sesión. No es UUID: los locales reales pueden ser `local1` u otros ids. */
+  storeId: z.string().min(1).optional(),
 })
 
 const updateOrderStatusSchema = z.object({
@@ -73,11 +76,32 @@ const deleteOrderSchema = z.object({
   id: z.string().uuid(),
 })
 
+const chargeOrderSchema = z.object({
+  orderId: z.string().uuid(),
+  remaining: z.number().int().min(0).max(99_999_999),
+  payments: z.array(z.object({
+    paymentMethod: z.enum(['cash', 'debit', 'wallet', 'credit']),
+    amount: z.number().positive(),
+    installments: z.number().int().positive().optional(),
+  })).default([]),
+  notes: z.string().max(300).optional(),
+}).refine(
+  d => {
+    if (d.remaining === 0) return d.payments.length === 0
+    const paid = Math.round(d.payments.reduce((s, p) => s + p.amount, 0))
+    return d.payments.length > 0 && Math.abs(paid - d.remaining) < 0.5
+  },
+  { message: 'Los pagos deben cubrir el resto a cobrar (la seña ya está descontada).' },
+)
+
 function buildOrderRow(row: typeof orders.$inferSelect, creatorName: string, updaterName?: string | null): OrderRow {
-  let parsedPayments: DepositPayment[] | null = null
-  if (row.depositPayments) {
-    try { parsedPayments = JSON.parse(row.depositPayments) as DepositPayment[] } catch { /* ignore */ }
-  }
+  const parsed = parseDepositPayments(row.depositPayments)
+  const valid = parsed
+    ? parsed.filter((p): p is DepositPayment =>
+      p.method === 'cash' || p.method === 'debit' || p.method === 'wallet' || p.method === 'credit',
+    )
+    : []
+  const parsedPayments: DepositPayment[] | null = valid.length > 0 ? valid : null
   return {
     id: row.id,
     storeId: row.storeId,
@@ -116,7 +140,7 @@ function purgeOldOrders(db: ReturnType<typeof import('../db/client').getDb>, sto
       .where(and(
         eq(orders.storeId, storeId),
         lt(orders.pickupDate, cutoffStr),
-        // Solo eliminar terminales (no activos)
+        inArray(orders.status, ['delivered', 'cancelled']),
       ))
       .run()
   } catch (err) {
@@ -427,6 +451,114 @@ export function registerOrderHandlers(): void {
     } catch (err) {
       log.error('[ipc:hard-delete-order] Error inesperado', err)
       return { ok: false, error: 'Error al eliminar el pedido.' }
+    }
+  })
+
+  // --------------------------------------------------------------------------
+  // CHARGE_ORDER — cobra el resto (total − seña) y marca entregado
+  // --------------------------------------------------------------------------
+  ipcMain.handle(IPC.CHARGE_ORDER, (_event, payload: unknown): IpcResult<OrderRow> => {
+    const parsed = chargeOrderSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:charge-order] Payload inválido', parsed.error)
+      return { ok: false, error: parsed.error.errors[0]?.message ?? 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+
+    const { orderId, remaining, payments, notes } = parsed.data
+    if (remaining > 0 && !session.shiftId) {
+      return { ok: false, error: 'Abrí un turno para cobrar el resto del pedido.', code: 'NO_SHIFT' }
+    }
+
+    try {
+      const db = getDb()
+      const storeCondition = session.role === 'admin'
+        ? eq(orders.id, orderId)
+        : and(eq(orders.id, orderId), eq(orders.storeId, session.storeId))
+      const existing = db.select().from(orders).where(storeCondition).all()[0]
+      if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
+      if (existing.status === 'delivered' || existing.status === 'cancelled') {
+        return { ok: false, error: 'Este pedido ya no se puede cobrar.', code: 'INVALID_STATUS' }
+      }
+
+      const now = new Date().toISOString()
+      const saleNote = `Pedido ${existing.customerName}: ${existing.items}`.slice(0, 300)
+
+      db.transaction(tx => {
+        if (remaining > 0 && session.shiftId) {
+          const product = tx.select({ id: products.id }).from(products).all()[0]
+          if (!product) {
+            throw new Error('NO_PRODUCT')
+          }
+          const saleId = uuidv4()
+          tx.insert(sales).values({
+            id: saleId,
+            storeId: session.storeId,
+            shiftId: session.shiftId,
+            customerId: null,
+            total: remaining,
+            isDebt: false,
+            status: 'confirmed',
+            manualEntry: true,
+            notes: notes?.trim() || saleNote,
+            createdAt: now,
+            createdBy: session.userId,
+          }).run()
+          tx.insert(saleItems).values({
+            id: uuidv4(),
+            saleId,
+            productId: product.id,
+            quantity: 1,
+            unitPrice: remaining,
+            subtotal: remaining,
+            notes: saleNote,
+          }).run()
+          for (const payment of payments) {
+            tx.insert(salePayments).values({
+              id: uuidv4(),
+              saleId,
+              paymentMethod: payment.paymentMethod,
+              amount: payment.amount,
+              installments: payment.installments ?? null,
+              createdAt: now,
+              createdBy: session.userId,
+            }).run()
+          }
+        }
+
+        tx.update(orders).set({
+          status: 'delivered',
+          updatedAt: now,
+          updatedBy: session.userId,
+          syncedAt: null,
+        }).where(eq(orders.id, orderId)).run()
+      })
+
+      if (remaining > 0) {
+        notifySaleOccurred()
+        try {
+          const { tenant_id } = getBusinessConfig()
+          pushUnsyncedSales(tenant_id).catch(err =>
+            log.warn('[ipc:charge-order] pushUnsyncedSales falló (no bloqueante)', err),
+          )
+        } catch (err) {
+          log.warn('[ipc:charge-order] pushUnsyncedSales omitido', err)
+        }
+      }
+      scheduleOrderPush()
+
+      const updated = db.select().from(orders).where(eq(orders.id, orderId)).all()[0]
+      const userMap = resolveUserNames(db, [updated.createdBy, session.userId])
+      log.info('[ipc:charge-order] Pedido cobrado/entregado', { orderId, remaining, by: session.userId })
+      return { ok: true, data: buildOrderRow(updated, userMap.get(updated.createdBy) ?? updated.createdBy, userMap.get(session.userId)) }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'NO_PRODUCT') {
+        return { ok: false, error: 'No hay productos en el catálogo para registrar el cobro.', code: 'NOT_FOUND' }
+      }
+      log.error('[ipc:charge-order] Error inesperado', err)
+      return { ok: false, error: 'Error al cobrar el pedido.' }
     }
   })
 }

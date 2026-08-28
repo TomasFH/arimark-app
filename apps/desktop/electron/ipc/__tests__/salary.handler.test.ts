@@ -31,6 +31,19 @@ vi.mock('../../licensing/employeeSync', () => ({
   pushUnsyncedSalaryPayments: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/salaryFirestore', () => ({
+  fetchSalaryPaymentsByWeekStart: vi.fn().mockResolvedValue([]),
+  fetchValesInPaidAtRange: vi.fn().mockResolvedValue([]),
+  firestorePaidAtBounds: (weekStart: string, weekEnd: string) => ({
+    from: `${weekStart}T00:00:00.000Z`,
+    to: `${weekEnd}T23:59:59.999Z`,
+  }),
+}))
+
+vi.mock('../../../src/lib/datetime', () => ({
+  weekStartMondayLocalYmd: () => '2026-07-27',
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
@@ -46,7 +59,7 @@ function getHandler(channel: string): HandlerFn {
 
 const SHIFT_ID = 'shift-001'
 const EMP_ID = 'emp-001'
-const WEEK = '2026-07-28'
+const WEEK = '2026-07-27'
 
 const SESSION = {
   userId: 'user-001',
@@ -123,6 +136,44 @@ describe('salary.handler', () => {
       const payments = db.select().from(salaryPayments).all()
       expect(payments).toHaveLength(1)
       expect(payments[0]?.weekStart).toBe(WEEK)
+      expect(payments[0]?.notes).toBeNull()
+    })
+
+    it('guarda nota y snapshot de vales', () => {
+      const snapshot = [
+        { id: 'vale-1', amount: 25000, description: 'adelanto', paidAt: '2026-07-29T12:00:00.000Z' },
+      ]
+      const res = getHandler('ipc:pay-weekly-salary')(null, {
+        employeeId: EMP_ID,
+        weekStart: WEEK,
+        amount: 100000,
+        valesDeducted: 25000,
+        notes: '  Llegó tarde 2 veces  ',
+        valesSnapshot: snapshot,
+      }) as { ok: boolean; data: { notes: string | null; valesSnapshot: typeof snapshot } }
+
+      expect(res.ok).toBe(true)
+      expect(res.data.notes).toBe('Llegó tarde 2 veces')
+      expect(res.data.valesSnapshot).toEqual([
+        { id: 'vale-1', amount: 25000, description: 'adelanto', paidAt: '2026-07-29T12:00:00.000Z' },
+      ])
+      const [row] = db.select().from(salaryPayments).all()
+      expect(row?.notes).toBe('Llegó tarde 2 veces')
+      expect(JSON.parse(row?.valesSnapshot ?? 'null')).toEqual(res.data.valesSnapshot)
+    })
+
+    it('rechaza snapshot cuya suma no coincide', () => {
+      const res = getHandler('ipc:pay-weekly-salary')(null, {
+        employeeId: EMP_ID,
+        weekStart: WEEK,
+        amount: 100000,
+        valesDeducted: 25000,
+        valesSnapshot: [
+          { id: 'vale-1', amount: 1000, description: 'x', paidAt: '2026-07-29T12:00:00.000Z' },
+        ],
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
     })
 
     it('sin neto no crea gasto pero sí registra el pago', () => {
@@ -156,6 +207,17 @@ describe('salary.handler', () => {
       expect(res.code).toBe('CONFLICT')
     })
 
+    it('rechaza pagar una semana que no es la en curso', () => {
+      const res = getHandler('ipc:pay-weekly-salary')(null, {
+        employeeId: EMP_ID,
+        weekStart: '2026-07-20',
+        amount: 100000,
+        valesDeducted: 0,
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
     it('rechaza sin turno', () => {
       vi.mocked(getActiveSession).mockReturnValue({
         ...SESSION,
@@ -180,6 +242,46 @@ describe('salary.handler', () => {
       }) as { ok: boolean; code?: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+  })
+
+  describe('LIST_SALARY_PAYMENTS', () => {
+    it('lista pagos de la semana', () => {
+      getHandler('ipc:pay-weekly-salary')(null, {
+        employeeId: EMP_ID,
+        weekStart: WEEK,
+        amount: 100000,
+        valesDeducted: 0,
+      })
+      const res = getHandler('ipc:list-salary-payments')(null, { weekStart: WEEK }) as {
+        ok: boolean
+        data: Array<{ employeeId: string; netPaid: number }>
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data).toHaveLength(1)
+      expect(res.data[0]?.employeeId).toBe(EMP_ID)
+      expect(res.data[0]?.netPaid).toBe(100000)
+    })
+
+    it('rechaza payload malformado', () => {
+      const res = getHandler('ipc:list-salary-payments')(null, { weekStart: 'lunes' }) as {
+        ok: boolean
+        code?: string
+      }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+  })
+
+  describe('GET_REMOTE_SALARY_WEEK', () => {
+    it('devuelve recorte remoto', async () => {
+      const res = await getHandler('ipc:get-remote-salary-week')(null, { weekStart: WEEK }) as {
+        ok: boolean
+        data: { payments: unknown[]; vales: unknown[] }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.payments).toEqual([])
+      expect(res.data.vales).toEqual([])
     })
   })
 })

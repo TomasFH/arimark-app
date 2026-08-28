@@ -11,6 +11,7 @@ import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedShifts, reconcileStoreShifts } from '../licensing/shiftSync'
 import type { IpcResult, ShiftInfo, ShiftSummary } from '../../src/types/hw-api'
+import { addDepositToTotals, emptyDepositTotals } from '../lib/depositPayments'
 
 const openShiftSchema = z.object({
   shiftType: z.enum(['morning', 'evening']),
@@ -288,32 +289,17 @@ export function registerShiftHandlers(): void {
         .where(eq(orders.depositShiftId, session.shiftId))
         .all()
 
-      let totalCashDeposits = 0
-      let totalDebitDeposits = 0
-      let totalWalletDeposits = 0
-      let totalCreditDeposits = 0
+      const depositTotals = emptyDepositTotals()
       let depositsCount = 0
       for (const d of depositOrders) {
         if (d.depositAmount <= 0) continue
         depositsCount++
-        if (d.depositPayments) {
-          try {
-            const payments = JSON.parse(d.depositPayments) as Array<{ method: string; amount: number }>
-            for (const p of payments) {
-              if (p.method === 'cash') totalCashDeposits += p.amount
-              else if (p.method === 'debit') totalDebitDeposits += p.amount
-              else if (p.method === 'wallet') totalWalletDeposits += p.amount
-              else if (p.method === 'credit') totalCreditDeposits += p.amount
-            }
-          } catch { /* legado sin JSON → caer a depositMethod */ }
-        } else if (d.depositMethod) {
-          // Compatibilidad con pedidos anteriores a la migración multi-método
-          if (d.depositMethod === 'cash') totalCashDeposits += d.depositAmount
-          else if (d.depositMethod === 'debit') totalDebitDeposits += d.depositAmount
-          else if (d.depositMethod === 'wallet') totalWalletDeposits += d.depositAmount
-          else if (d.depositMethod === 'credit') totalCreditDeposits += d.depositAmount
-        }
+        addDepositToTotals(d, depositTotals)
       }
+      const totalCashDeposits = depositTotals.cash
+      const totalDebitDeposits = depositTotals.debit
+      const totalWalletDeposits = depositTotals.wallet
+      const totalCreditDeposits = depositTotals.credit
       const totalDigitalDeposits = totalDebitDeposits + totalWalletDeposits + totalCreditDeposits
 
       // Cobranzas de fiado en efectivo de este turno (amount es negativo en el ledger)

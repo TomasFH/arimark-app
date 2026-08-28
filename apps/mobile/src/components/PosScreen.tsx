@@ -12,11 +12,14 @@ import { db } from '../lib/db'
 import { triggerSync } from '../lib/sync'
 import { PaymentModal } from './PaymentModal'
 import { ManualEntry } from './ManualEntry'
-import type { CatalogProduct, LocalShift, SaleItemDraft, SalePaymentDraft } from '../types/pos'
+import { useBackLayer } from '../lib/backStack'
+import { expectedCashInHand, shiftRevenue } from '../lib/shiftCash'
+import type { CatalogProduct, LocalSale, LocalShift, SaleItemDraft, SalePaymentDraft } from '../types/pos'
 
 interface Props {
   shift: LocalShift
   catalog: CatalogProduct[]
+  storeName: string
   onCloseShift: () => void
 }
 
@@ -41,16 +44,18 @@ function formatARS(n: number): string {
   }).format(n)
 }
 
-export function PosScreen({ shift, catalog, onCloseShift }: Props) {
+export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
   const [items, setItems] = useState<SaleItemDraft[]>([])
   const [showScanner, setShowScanner] = useState(false)
   const [showManual, setShowManual] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [lastScan, setLastScan] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
   const [pendingDup, setPendingDup] = useState<SaleItemDraft | null>(null)
+  const [shiftSales, setShiftSales] = useState<LocalSale[]>([])
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const stopScanRef = useRef<(() => void) | null>(null)
@@ -58,6 +63,22 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
   const itemsRef = useRef<SaleItemDraft[]>([])
 
   const total = items.reduce((s, i) => s + i.subtotal, 0)
+  const cashInHand = expectedCashInHand(shift.openingCash, shiftSales)
+  const soldTotal = shiftRevenue(shiftSales)
+
+  useBackLayer(showScanner, closeScanner)
+  useBackLayer(Boolean(pendingDup), cancelDuplicate)
+  useBackLayer(showCloseConfirm, () => setShowCloseConfirm(false))
+
+  async function refreshShiftSales(): Promise<void> {
+    const rows = await db.sales.where('shiftId').equals(shift.id).toArray()
+    setShiftSales(rows)
+  }
+
+  useEffect(() => {
+    void refreshShiftSales()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shift.id, success])
 
   // Espejo de items para leer el estado actual dentro de handleBarcode
   // (que se memoiza y de otro modo capturaría un items obsoleto).
@@ -201,6 +222,7 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
     setItems([])
     setSuccess(true)
     setTimeout(() => setSuccess(false), 2000)
+    void refreshShiftSales()
 
     // Disparar sync en background — no bloquea la UI.
     triggerSync().catch(() => { /* silencioso */ })
@@ -209,25 +231,31 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
   async function closeShift() {
     await db.shifts.update(shift.id, {
       closedAt: new Date().toISOString(),
-      closingCash: 0,
+      closingCash: cashInHand,
     })
     onCloseShift()
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col">
+    <div className="h-full min-h-0 bg-gray-950 flex flex-col">
       {/* Header */}
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
-        <div>
-          <p className="text-white font-semibold text-sm">{shift.displayName}</p>
-          <p className="text-gray-400 text-xs">Local {shift.storeId} · POS móvil</p>
+      <div className="flex items-center justify-between border-b border-gray-800 bg-gray-900 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white" title={shift.displayName}>{shift.displayName}</p>
+          <p className="truncate text-xs text-gray-400" title={storeName}>{storeName} · POS móvil</p>
         </div>
-        <button
-          onClick={closeShift}
-          className="text-xs text-gray-400 hover:text-red-400 border border-gray-700 hover:border-red-700 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          Cerrar turno
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="font-mono text-xs text-emerald-400" title="Efectivo estimado en caja">
+            {formatARS(cashInHand)} en caja
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowCloseConfirm(true)}
+            className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-red-700 hover:text-red-400"
+          >
+            Cerrar turno
+          </button>
+        </div>
       </div>
 
       {/* Feedback de escaneo */}
@@ -248,7 +276,7 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
       )}
 
       {/* Lista de items del pedido */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {items.length === 0 ? (
           <div className="text-center text-gray-600 mt-16">
             <p className="text-5xl mb-3">🛒</p>
@@ -392,6 +420,42 @@ export function PosScreen({ shift, catalog, onCloseShift }: Props) {
                 className="bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl py-3 transition-colors"
               >
                 Sí, agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
+          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-gray-900 p-5">
+            <h2 className="text-lg font-bold text-white">¿Cerrar el turno ahora?</h2>
+            <p className="text-sm text-gray-400">
+              Esta acción finaliza el turno y no puede deshacerse. Verificá los datos antes de confirmar.
+            </p>
+            <div className="space-y-2 rounded-xl bg-gray-800/80 p-4 text-sm">
+              <div className="flex justify-between gap-2">
+                <span className="text-gray-400">Total vendido</span>
+                <span className="font-semibold text-white">{formatARS(soldTotal)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-gray-400">Efectivo esperado</span>
+                <span className="font-semibold text-emerald-400">{formatARS(cashInHand)}</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCloseConfirm(false)}
+                className="rounded-xl bg-gray-800 py-3 font-semibold text-white transition-colors hover:bg-gray-700"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                onClick={() => void closeShift()}
+                className="rounded-xl bg-red-600 py-3 font-bold text-white transition-colors hover:bg-red-700"
+              >
+                Cerrar turno
               </button>
             </div>
           </div>

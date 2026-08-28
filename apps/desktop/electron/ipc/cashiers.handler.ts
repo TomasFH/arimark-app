@@ -7,8 +7,10 @@
  *                      temporal internamente y envía email de configuración
  *                      de contraseña para que la cajera la defina ella misma.
  *                      Si el Firestore write falla, hace rollback del Auth user.
- *                      Requiere al menos un local en authorizedStores.
- *  - UPDATE_CASHIER  — actualiza displayName y/o authorizedStores en Firestore
+ *                      authorizedStores se rellena con todos los locales activos
+ *                      desde la UI (las cajeras pueden operar en cualquiera).
+ *  - UPDATE_CASHIER  — actualiza displayName; authorizedStores se mantiene
+ *                      alineado a los locales activos desde la UI.
  *  - TOGGLE_CASHIER  — activa/desactiva (active: boolean) en Firestore
  *  - DELETE_CASHIER  — soft-delete: marca deleted:true + active:false en
  *                      Firestore. El Auth user persiste hasta que una Cloud

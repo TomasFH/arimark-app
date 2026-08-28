@@ -69,12 +69,38 @@ describe('migrations', () => {
       expect(cols.map(c => c.name)).toContain('updated_at')
     })
 
-    it('tiene payment_method y shift_id en debt_events (migración 0026)', async () => {
+    it('tiene notes en provider_debt_events (migración 0028)', async () => {
       const { sqlite } = await createInMemoryDb()
-      const cols = sqlite.prepare('PRAGMA table_info(debt_events)').all() as { name: string }[]
-      const names = cols.map(c => c.name)
-      expect(names).toContain('payment_method')
-      expect(names).toContain('shift_id')
+      const cols = sqlite.prepare('PRAGMA table_info(provider_debt_events)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('notes')
+    })
+
+    it('tiene notes y vales_snapshot en salary_payments (migración 0029)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(salary_payments)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('notes')
+      expect(cols.map(c => c.name)).toContain('vales_snapshot')
+    })
+
+    it('tiene kind en employees (migración 0030)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(employees)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('kind')
+    })
+
+    it('tiene status y updated_at en stock_counts (migración 0031)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(stock_counts)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('status')
+      expect(cols.map(c => c.name)).toContain('updated_at')
+    })
+
+    it('tiene original_items y last_edited_by en stock_counts (migración 0032)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(stock_counts)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('original_items')
+      expect(cols.map(c => c.name)).toContain('last_edited_by')
+      expect(cols.map(c => c.name)).toContain('last_edited_at')
     })
 
   it('tiene el índice idx_debt_events_customer', async () => {

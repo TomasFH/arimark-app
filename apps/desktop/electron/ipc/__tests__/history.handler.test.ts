@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, sales, salePayments, expenses } from '../../db/schema'
-import type { HistoryShiftRow, HistoryShiftDetail } from '../../../src/types/hw-api'
+import { stores, users, shifts, sales, salePayments, expenses, orders, employees, employeeVales, customers, debtEvents } from '../../db/schema'
+import type { HistoryShiftDetail } from '../../../src/types/hw-api'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -23,17 +23,15 @@ vi.mock('../../licensing/firebase', () => ({
   isFirebaseAvailable: vi.fn(() => false),
 }))
 
-vi.mock('../../licensing/historyFirestore', () => ({
-  fetchHistoryShiftsFromFirestore: vi.fn(async () => []),
-  fetchHistoryShiftDetailFromFirestore: vi.fn(async () => null),
-  fetchEmployeeValesFromFirestore: vi.fn(async () => []),
-  mergeHistoryShiftRows: vi.fn((local: HistoryShiftRow[], remote: HistoryShiftRow[]) => {
-    const byId = new Map<string, HistoryShiftRow>()
-    for (const r of remote) byId.set(r.id, r)
-    for (const l of local) byId.set(l.id, l)
-    return Array.from(byId.values()).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
-  }),
-}))
+vi.mock('../../licensing/historyFirestore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../licensing/historyFirestore')>()
+  return {
+    ...actual,
+    fetchHistoryShiftsFromFirestore: vi.fn(async () => []),
+    fetchHistoryShiftDetailFromFirestore: vi.fn(async () => null),
+    fetchEmployeeValesFromFirestore: vi.fn(async () => []),
+  }
+})
 
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
@@ -69,6 +67,10 @@ describe('history.handler', () => {
     db = result.db
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
     vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    vi.mocked(fetchHistoryShiftsFromFirestore).mockResolvedValue([])
+    vi.mocked(fetchHistoryShiftDetailFromFirestore).mockResolvedValue(null)
+    vi.mocked(fetchEmployeeValesFromFirestore).mockResolvedValue([])
     registerHistoryHandlers()
 
     const now = new Date().toISOString()
@@ -172,8 +174,58 @@ describe('history.handler', () => {
       const handler = getHandler('ipc:get-history-shifts')
       const res = await handler(null) as { ok: boolean; data: { id: string }[] }
       expect(res.ok).toBe(true)
-      expect(res.data.map(r => r.id)).toEqual([remoteId, SHIFT_ID])
+      expect(res.data.map(r => r.id)).toEqual([SHIFT_ID, remoteId])
       expect(fetchHistoryShiftsFromFirestore).toHaveBeenCalled()
+    })
+
+    it('pone el turno abierto primero aunque sea más viejo que un cerrado reciente', async () => {
+      const openId = '00000000-0000-0000-0000-0000000000bb'
+      db.insert(shifts).values({
+        id: openId,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'evening',
+        startedAt: '2026-08-16T11:00:00.000Z',
+        closedAt: null,
+        openingCash: 2000,
+        source: 'desktop',
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shifts')
+      const res = await handler(null) as { ok: boolean; data: Array<{ id: string; closedAt: string | null }> }
+      expect(res.ok).toBe(true)
+      expect(res.data[0].id).toBe(openId)
+      expect(res.data[0].closedAt).toBeNull()
+    })
+
+    it('usa totales de Firestore si el turno local no tiene ventas', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(fetchHistoryShiftsFromFirestore).mockResolvedValue([
+        {
+          id: SHIFT_ID,
+          shiftType: 'morning',
+          startedAt: '2026-07-01T08:00:00.000Z',
+          closedAt: '2026-07-01T16:00:00.000Z',
+          cashierName: 'Admin Prueba',
+          salesCount: 3,
+          totalRevenue: 149620,
+          totalCashSales: 149620,
+          totalExpenses: 0,
+          cashInHand: 150620,
+          totalDeposits: 0,
+        },
+      ])
+
+      const handler = getHandler('ipc:get-history-shifts')
+      const res = await handler(null) as {
+        ok: boolean
+        data: Array<{ id: string; salesCount: number; totalRevenue: number }>
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data).toHaveLength(1)
+      expect(res.data[0].id).toBe(SHIFT_ID)
+      expect(res.data[0].salesCount).toBe(3)
+      expect(res.data[0].totalRevenue).toBe(149620)
     })
   })
 
@@ -222,6 +274,7 @@ describe('history.handler', () => {
         expenses: [],
         debts: [],
         deposits: [],
+        vales: [],
         summary: {
           salesCount: 0,
           totalRevenue: 0,
@@ -247,6 +300,102 @@ describe('history.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.shift.id).toBe(remoteShiftId)
       expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(remoteShiftId)
+    })
+
+    it('usa detalle de Firestore si el turno local no tiene movimientos', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const remoteDetail: HistoryShiftDetail = {
+        shift: {
+          id: SHIFT_ID,
+          shiftType: 'morning',
+          startedAt: '2026-07-01T08:00:00.000Z',
+          closedAt: '2026-07-01T16:00:00.000Z',
+          cashierName: 'Admin Prueba',
+          openingCash: 500,
+          closingCash: 800,
+          deliveredAmount: 800,
+          deliveredTo: 'Admin',
+          notes: null,
+        },
+        sales: [{
+          id: 'sale-remote-1',
+          createdAt: '2026-07-01T10:00:00.000Z',
+          total: 149620,
+          status: 'confirmed',
+          cashAmount: 149620,
+          digitalAmount: 0,
+          paymentMethods: ['cash'],
+          manualEntry: false,
+          isDebt: false,
+          customerName: null,
+          items: [],
+        }],
+        expenses: [],
+        debts: [],
+        deposits: [],
+        vales: [],
+        summary: {
+          salesCount: 3,
+          totalRevenue: 149620,
+          totalCashSales: 149620,
+          totalDebitSales: 0,
+          totalWalletSales: 0,
+          totalCreditSales: 0,
+          totalExpenses: 0,
+          cashDeposits: 0,
+          digitalDeposits: 0,
+          cashInHand: 150120,
+          debtsCount: 0,
+          totalDebts: 0,
+        },
+      }
+      vi.mocked(fetchHistoryShiftDetailFromFirestore).mockResolvedValue(remoteDetail)
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: HistoryShiftDetail
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.summary.totalRevenue).toBe(149620)
+      expect(res.data.sales).toHaveLength(1)
+      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID)
+    })
+
+    it('no pisa el detalle local si hay ventas en SQLite', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const now = '2026-07-01T10:00:00.000Z'
+      const saleId = '11111111-0000-0000-0000-000000000099'
+      db.insert(sales).values({
+        id: saleId,
+        storeId: STORE_ID,
+        shiftId: SHIFT_ID,
+        total: 5000,
+        isDebt: false,
+        status: 'confirmed',
+        manualEntry: false,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+      db.insert(salePayments).values({
+        id: '22222222-0000-0000-0000-000000000099',
+        saleId,
+        paymentMethod: 'cash',
+        amount: 5000,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: { sales: { total: number }[]; summary: { totalRevenue: number } }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.sales).toHaveLength(1)
+      expect(res.data.sales[0].total).toBe(5000)
+      expect(res.data.summary.totalRevenue).toBe(5000)
+      expect(fetchHistoryShiftDetailFromFirestore).not.toHaveBeenCalled()
     })
 
     it('retorna el detalle de un turno de otro local (cross-store)', async () => {
@@ -296,6 +445,105 @@ describe('history.handler', () => {
       expect(res.data.deposits).toHaveLength(0)
       expect(res.data.summary.salesCount).toBe(0)
       expect(res.data.summary.cashInHand).toBe(1000)
+    })
+
+    it('lista vales del turno en el detalle', async () => {
+      const now = '2026-07-01T10:00:00.000Z'
+      db.insert(employees).values({
+        id: 'emp-hist',
+        name: 'Carnicero Hist',
+        weeklyWage: 100000,
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(employeeVales).values({
+        id: 'vale-hist-1',
+        employeeId: 'emp-hist',
+        shiftId: SHIFT_ID,
+        amount: 8000,
+        description: 'Adelanto',
+        paidAt: now,
+        recordedBy: USER_ID,
+        createdAt: now,
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: { vales: { employeeName: string; amount: number; cancelledAt: string | null }[] }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.vales).toHaveLength(1)
+      expect(res.data.vales[0].employeeName).toBe('Carnicero Hist')
+      expect(res.data.vales[0].amount).toBe(8000)
+      expect(res.data.vales[0].cancelledAt).toBeNull()
+    })
+
+    it('incluye fiados del turno aunque el evento no tenga shiftId (vía saleId)', async () => {
+      const now = '2026-07-01T10:00:00.000Z'
+      const saleId = '00000000-0000-0000-0000-0000000000aa'
+      const custId = 'cust-hist-1'
+      db.insert(customers).values({
+        id: custId, storeId: STORE_ID, name: 'Fiado Hist',
+        active: true, createdAt: now, createdBy: USER_ID,
+      }).run()
+      db.insert(sales).values({
+        id: saleId, storeId: STORE_ID, shiftId: SHIFT_ID,
+        total: 15000, status: 'confirmed', isDebt: true, customerId: custId,
+        manualEntry: false, createdAt: now, createdBy: USER_ID,
+      }).run()
+      db.insert(debtEvents).values({
+        id: 'debt-hist-1', customerId: custId, saleId, storeId: STORE_ID,
+        eventType: 'created', amount: 15000, shiftId: null,
+        createdAt: now, createdBy: USER_ID,
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: { debts: { customerName: string; amount: number }[] }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.debts).toHaveLength(1)
+      expect(res.data.debts[0].customerName).toBe('Fiado Hist')
+      expect(res.data.debts[0].amount).toBe(15000)
+    })
+
+    it('suma solo el efectivo de una seña mixta al efectivo esperado y lista el pedido', async () => {
+      const now = '2026-07-01T10:00:00.000Z'
+      db.insert(orders).values({
+        id: '33333333-0000-0000-0000-000000000001',
+        storeId: STORE_ID,
+        customerName: 'Pedido B',
+        items: 'asado',
+        pickupDate: '2026-07-01',
+        status: 'pending',
+        depositAmount: 30000,
+        depositMethod: 'cash',
+        depositPayments: JSON.stringify([
+          { method: 'cash', amount: 20000 },
+          { method: 'debit', amount: 10000 },
+        ]),
+        depositShiftId: SHIFT_ID,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: {
+          deposits: { customerName: string; depositAmount: number }[]
+          summary: { cashDeposits: number; digitalDeposits: number; cashInHand: number }
+        }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.deposits).toHaveLength(1)
+      expect(res.data.deposits[0].customerName).toBe('Pedido B')
+      expect(res.data.summary.cashDeposits).toBe(20000)
+      expect(res.data.summary.digitalDeposits).toBe(10000)
+      // apertura 1000 + seña efectivo 20000
+      expect(res.data.summary.cashInHand).toBe(21000)
     })
 
     it('retorna el detalle de un turno todavía abierto', async () => {
@@ -415,6 +663,7 @@ describe('history.handler', () => {
           items: [],
           paidAt: '2026-08-03T12:00:00.000Z',
           createdAt: '2026-08-03T12:00:00.000Z',
+          cancelledAt: null,
         },
       ])
       const handler = getHandler('ipc:get-remote-employee-vales')

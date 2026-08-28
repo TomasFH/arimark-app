@@ -203,7 +203,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="relative w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
           {mode !== 'single' && (

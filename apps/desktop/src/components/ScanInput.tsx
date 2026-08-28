@@ -1,14 +1,12 @@
 /**
- * Input de escaneo de productos — flujo principal de ventas en la PC.
+ * Panel de carga manual (botón Manual del POS).
  *
- * Pestaña "Escanear" (default): código EAN-13 del ticket KRETZ.
- *   Solo acepta dígitos. Auto-submit al detectar 13 dígitos (compatible con lector USB).
- *   Calcula el peso en kg a partir del precio total / precio por kg del catálogo.
- *
- * Pestaña "PLU + precio" (emergencia): ingreso manual.
+ * Pestaña default "PLU + precio": ingreso por PLU o nombre.
  *   - Productos por kg: campos Peso y Precio vinculados (regla de tres).
  *   - Productos por unidad: solo campo Cantidad (entero). Precio = qty × catálogo.
  *     Checkbox "Precio especial" desbloquea precio editable + muestra aviso.
+ *
+ * Pestaña "Código manual": pegar el EAN-13 del ticket KRETZ (sin lector USB).
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -31,6 +29,8 @@ type Tab = 'scan' | 'manual'
 interface Props {
   onAddItem: (item: SaleItemDraft) => void
   products: ProductRow[]
+  /** Precio especial por productId cuando hay un cliente especial elegido en el POS. */
+  specialPriceByProductId?: Record<string, number>
 }
 
 // ---------------------------------------------------------------------------
@@ -95,9 +95,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 // Componente
 // ---------------------------------------------------------------------------
 
-export default function ScanInput({ onAddItem, products }: Props) {
-  const [tab, setTab] = useState<Tab>('scan')
-  const [addedMsg, setAddedMsg] = useState('')
+export default function ScanInput({ onAddItem, products, specialPriceByProductId = {} }: Props) {
+  const [tab, setTab] = useState<Tab>('manual')
 
   // --- Scan state ---
   const [barcode, setBarcode] = useState('')
@@ -144,7 +143,9 @@ export default function ScanInput({ onAddItem, products }: Props) {
     ? products.find(p => p.pluNumber === pluNum)
     : undefined
 
-  const refPrice = matchedProduct?.price ?? null
+  const catalogPrice = matchedProduct?.price ?? null
+  const customerSpecial = matchedProduct?.id ? specialPriceByProductId[matchedProduct.id] : undefined
+  const refPrice = customerSpecial ?? catalogPrice
   const isUnit = matchedProduct?.unit === 'unit'
 
   // Precio calculado automáticamente para productos por unidad (sin precio especial)
@@ -170,13 +171,6 @@ export default function ScanInput({ onAddItem, products }: Props) {
     setBarcode('')
     setBarcodeError('')
     resetManual()
-  }
-
-  // ── Flash feedback ─────────────────────────────────────────────────────
-
-  function flashAdded(name: string) {
-    setAddedMsg(name)
-    setTimeout(() => setAddedMsg(''), 2000)
   }
 
   // ── PLU suggestion pick ────────────────────────────────────────────────
@@ -285,7 +279,6 @@ export default function ScanInput({ onAddItem, products }: Props) {
       }
       const item = buildItemFromManual(plu, qty, subtotal, matchedProduct, specialPrice)
       onAddItem(item)
-      flashAdded(item.productName)
       resetManual()
       setTimeout(() => pluInputRef.current?.focus(), 50)
     } else {
@@ -302,7 +295,6 @@ export default function ScanInput({ onAddItem, products }: Props) {
       }
       const item = buildItemFromManual(plu, w, price, matchedProduct, specialPrice)
       onAddItem(item)
-      flashAdded(item.productName)
       resetManual()
       setTimeout(() => pluInputRef.current?.focus(), 50)
     }
@@ -317,7 +309,6 @@ export default function ScanInput({ onAddItem, products }: Props) {
     const product = products.find(p => p.pluNumber === plu)
     const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
     onAddItem(item)
-    flashAdded(item.productName)
     return true
   }
 
@@ -377,17 +368,6 @@ export default function ScanInput({ onAddItem, products }: Props) {
       <div className="flex rounded-md overflow-hidden border border-zinc-700 text-[10px] font-semibold">
         <button
           type="button"
-          onClick={() => handleTabChange('scan')}
-          className={`flex-1 py-1 transition-colors ${
-            tab === 'scan'
-              ? 'bg-zinc-700 text-zinc-100'
-              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          📱 Código manual
-        </button>
-        <button
-          type="button"
           onClick={() => handleTabChange('manual')}
           className={`flex-1 py-1 transition-colors ${
             tab === 'manual'
@@ -397,13 +377,18 @@ export default function ScanInput({ onAddItem, products }: Props) {
         >
           ⚡ PLU + precio
         </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('scan')}
+          className={`flex-1 py-1 transition-colors ${
+            tab === 'scan'
+              ? 'bg-zinc-700 text-zinc-100'
+              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          📱 Código manual
+        </button>
       </div>
-
-      {addedMsg && (
-        <p className="rounded bg-green-900/40 px-2 py-1 text-[10px] text-green-300 truncate">
-          ✓ {addedMsg}
-        </p>
-      )}
 
       {/* ── Pestaña Código manual (alternativa sin lector USB) ───────── */}
       {tab === 'scan' && (
@@ -595,7 +580,7 @@ export default function ScanInput({ onAddItem, products }: Props) {
           {/* Checkbox precio especial — visible cuando hay producto en catálogo */}
           {matchedProduct && (
             <div className="space-y-1.5">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
+              <label className="flex items-center gap-2 select-none">
                 <input
                   type="checkbox"
                   checked={specialPrice}

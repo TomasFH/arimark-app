@@ -106,7 +106,7 @@ Guía para validar lo implementado. Ir marcando con `[x]` al confirmar.
 
 #### Liquidación semanal (admin hub) — solo consulta
 
-> **Cambio de producto:** el admin **no confirma pago** en la app. Solo ve cuánto correspondería (sueldo − vales). El pago en efectivo lo hace la cajera tras OK verbal; si paga otro monto, se registra como movimiento de caja / gasto según el flujo operativo real (no hay botón “Pagar salario” en el hub).
+> **Cambio de producto (2026-08-25):** el admin y la cajera **sí registran el pago** en Liquidación (turno abierto). Neto = sueldo − vales. Nota opcional. Gasto `Salario: {nombre}`.
 
 - [x] Hub: tarjeta **Liquidación semanal**
 - [x] Lista empleados con sueldo &gt; 0; muestra bruto / vales / neto de la semana
@@ -136,7 +136,7 @@ Cómo verificarlo (con `pnpm dev:prod` o build real, **no** `pnpm dev` puro sin 
 
 - [ ] En producción: registrar asistencia → documento en `licenses/{tenant}/attendance/{id}`
 - [ ] Registrar vale → `employeeVales/{id}` (además del gasto)
-- [ ] ~~Pagar salario → `salaryPayments/{id}`~~ _(obsoleto en UI; el IPC puede seguir existiendo pero no es flujo operativo)_
+- [ ] Pagar salario → `salaryPayments/{id}` + gasto `Salario:` (turno abierto; no duplicar la semana)
 - [ ] Sin red: queda `syncedAt=null`; al volver internet / re-login se drena el outbox
 
 ### Smoke final — pendiente (mañana / antes de ir a la carnicería)

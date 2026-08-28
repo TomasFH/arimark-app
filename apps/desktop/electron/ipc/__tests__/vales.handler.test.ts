@@ -124,6 +124,27 @@ describe('vales.handler', () => {
       expect(expenseRow?.concept).toContain('Carnicero Vale')
     })
 
+    it('vale en productos no crea gasto ni baja caja', () => {
+      const res = getHandler('ipc:register-vale')(null, {
+        employeeId: EMP_ID,
+        amount: 50000,
+        description: '2 kg asado',
+        items: [{
+          productId: 'prod-1',
+          productName: 'Asado',
+          unit: 'kg',
+          quantity: 2,
+          unitPrice: 25000,
+          subtotal: 50000,
+        }],
+      }) as { ok: boolean }
+
+      expect(res.ok).toBe(true)
+
+      const expenseRows = db.select().from(expenses).where(eq(expenses.shiftId, SHIFT_ID)).all()
+      expect(expenseRows).toHaveLength(0)
+    })
+
     it('rechaza sin turno abierto', () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT as ReturnType<typeof getActiveSession>)
       const res = getHandler('ipc:register-vale')(null, {
@@ -201,6 +222,102 @@ describe('vales.handler', () => {
       expect(res.data.totalVales).toBe(30000)
       expect(res.data.weeklyWage).toBe(100000)
       expect(res.data.netToPay).toBe(70000)
+    })
+  })
+
+  describe('CANCEL_VALE', () => {
+    it('anula vale en efectivo con contra-asiento y no borra el gasto original', () => {
+      const created = getHandler('ipc:register-vale')(null, {
+        employeeId: EMP_ID,
+        amount: 15000,
+        description: 'Adelanto',
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
+      const before = db.select().from(expenses).where(eq(expenses.shiftId, SHIFT_ID)).all()
+      expect(before).toHaveLength(1)
+      expect(Number(before[0].amount)).toBe(15000)
+
+      const res = getHandler('ipc:cancel-vale')(null, { id: created.data.id }) as {
+        ok: boolean
+        data: { cancelledAt: string | null }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.cancelledAt).toBeTruthy()
+
+      const after = db.select().from(expenses).where(eq(expenses.shiftId, SHIFT_ID)).all()
+      expect(after).toHaveLength(2)
+      expect(after.some(e => Number(e.amount) === 15000)).toBe(true)
+      expect(after.some(e => Number(e.amount) === -15000)).toBe(true)
+
+      const [exp] = db
+        .select({ total: sum(expenses.amount) })
+        .from(expenses)
+        .where(eq(expenses.shiftId, SHIFT_ID))
+        .all()
+      expect(Number(exp?.total ?? 0)).toBe(0)
+    })
+
+    it('anula vale de productos sin crear gasto', () => {
+      const created = getHandler('ipc:register-vale')(null, {
+        employeeId: EMP_ID,
+        amount: 50000,
+        items: [{
+          productId: 'prod-1',
+          productName: 'Asado',
+          unit: 'kg',
+          quantity: 2,
+          unitPrice: 25000,
+          subtotal: 50000,
+        }],
+      }) as { ok: boolean; data: { id: string } }
+
+      const res = getHandler('ipc:cancel-vale')(null, { id: created.data.id }) as { ok: boolean }
+      expect(res.ok).toBe(true)
+      expect(db.select().from(expenses).where(eq(expenses.shiftId, SHIFT_ID)).all()).toHaveLength(0)
+    })
+
+    it('excluye vales anulados del resumen semanal', () => {
+      const created = getHandler('ipc:register-vale')(null, {
+        employeeId: EMP_ID,
+        amount: 20000,
+      }) as { ok: boolean; data: { id: string } }
+      getHandler('ipc:cancel-vale')(null, { id: created.data.id })
+
+      const todayYmd = new Date().toLocaleDateString('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+      })
+      const anchor = new Date(`${todayYmd}T12:00:00.000Z`)
+      const day = anchor.getUTCDay()
+      const mondayOffset = day === 0 ? -6 : 1 - day
+      anchor.setUTCDate(anchor.getUTCDate() + mondayOffset)
+      const weekStart = anchor.toISOString().slice(0, 10)
+
+      const res = getHandler('ipc:get-weekly-vale-summary')(null, {
+        employeeId: EMP_ID,
+        weekStart,
+      }) as { ok: boolean; data: { totalVales: number; netToPay: number } }
+
+      expect(res.ok).toBe(true)
+      expect(res.data.totalVales).toBe(0)
+      expect(res.data.netToPay).toBe(100000)
+    })
+
+    it('rechaza un segundo anular', () => {
+      const created = getHandler('ipc:register-vale')(null, {
+        employeeId: EMP_ID,
+        amount: 1000,
+      }) as { ok: boolean; data: { id: string } }
+      getHandler('ipc:cancel-vale')(null, { id: created.data.id })
+      const res = getHandler('ipc:cancel-vale')(null, { id: created.data.id }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('CONFLICT')
+    })
+
+    it('rechaza payload malformado', () => {
+      const res = getHandler('ipc:cancel-vale')(null, {}) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
     })
   })
 })

@@ -11,6 +11,7 @@ import path from 'path'
 import log from 'electron-log'
 import { IPC } from './channels'
 import type { IpcResult } from '../../src/types/hw-api'
+import { notifyRenderer } from '../licensing/notifyRenderer'
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -75,6 +76,7 @@ function adjustZoom(delta: number): void {
   const updated = { ...current, zoomFactor: next }
   writeSettings(updated)
   applyZoomToAll(next)
+  notifyRenderer(IPC.UI_SETTINGS_CHANGED, updated)
 }
 
 /**
@@ -98,6 +100,7 @@ export function hookZoomShortcuts(webContents: WebContents): void {
         const reset = { ...current, zoomFactor: DEFAULTS.zoomFactor }
         writeSettings(reset)
         applyZoomToAll(DEFAULTS.zoomFactor)
+        notifyRenderer(IPC.UI_SETTINGS_CHANGED, reset)
       }
     }
   })
@@ -120,6 +123,7 @@ export function registerUiSettingsHandlers(): void {
     }
     writeSettings(parsed.data)
     applyZoomToAll(parsed.data.zoomFactor)
+    notifyRenderer(IPC.UI_SETTINGS_CHANGED, parsed.data)
     return { ok: true, data: parsed.data }
   })
 }

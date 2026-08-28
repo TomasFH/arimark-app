@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc/channels'
-import type { HwApi, HardwareStatus, KretzSyncProgress } from '../src/types/hw-api'
+import type { HwApi, HardwareStatus, KretzSyncProgress, UiSettings } from '../src/types/hw-api'
 
 const hw: HwApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.GET_APP_INFO),
@@ -51,6 +51,24 @@ const hw: HwApi = {
     const listener = () => cb()
     ipcRenderer.on(IPC.SHIFT_INACTIVITY_WARNING, listener)
     return () => ipcRenderer.removeListener(IPC.SHIFT_INACTIVITY_WARNING, listener)
+  },
+
+  onDebtSyncUpdated: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.DEBT_SYNC_UPDATED, listener)
+    return () => ipcRenderer.removeListener(IPC.DEBT_SYNC_UPDATED, listener)
+  },
+
+  onSpecialCustomerSyncUpdated: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.SPECIAL_CUSTOMER_SYNC_UPDATED, listener)
+    return () => ipcRenderer.removeListener(IPC.SPECIAL_CUSTOMER_SYNC_UPDATED, listener)
+  },
+
+  onUiSettingsChanged: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, settings: UiSettings) => cb(settings)
+    ipcRenderer.on(IPC.UI_SETTINGS_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC.UI_SETTINGS_CHANGED, listener)
   },
 
   dismissInactivityWarning: () => ipcRenderer.invoke(IPC.DISMISS_INACTIVITY_WARNING),
@@ -107,9 +125,14 @@ const hw: HwApi = {
   createProvider: payload => ipcRenderer.invoke(IPC.CREATE_PROVIDER, payload),
   updateProvider: payload => ipcRenderer.invoke(IPC.UPDATE_PROVIDER, payload),
   archiveProvider: payload => ipcRenderer.invoke(IPC.ARCHIVE_PROVIDER, payload),
-  getProvidersWithDebt: () => ipcRenderer.invoke(IPC.GET_PROVIDERS_WITH_DEBT),
+  unarchiveProvider: payload => ipcRenderer.invoke(IPC.UNARCHIVE_PROVIDER, payload),
+  deleteProvider: payload => ipcRenderer.invoke(IPC.DELETE_PROVIDER, payload),
+  getProvidersWithDebt: payload => ipcRenderer.invoke(IPC.GET_PROVIDERS_WITH_DEBT, payload),
   getProviderDebtHistory: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_DEBT_HISTORY, payload),
   settleProviderDebt: payload => ipcRenderer.invoke(IPC.SETTLE_PROVIDER_DEBT, payload),
+  recordProviderLedger: payload => ipcRenderer.invoke(IPC.RECORD_PROVIDER_LEDGER, payload),
+  compensateProviderStores: payload => ipcRenderer.invoke(IPC.COMPENSATE_PROVIDER_STORES, payload),
+  payProviderFromShift: payload => ipcRenderer.invoke(IPC.PAY_PROVIDER_FROM_SHIFT, payload),
 
   // Empleados / carniceros (Bloque D)
   listEmployees: payload => ipcRenderer.invoke(IPC.LIST_EMPLOYEES, payload),
@@ -127,14 +150,19 @@ const hw: HwApi = {
   registerVale: payload => ipcRenderer.invoke(IPC.REGISTER_VALE, payload),
   listVales: payload => ipcRenderer.invoke(IPC.LIST_VALES, payload),
   getWeeklyValeSummary: payload => ipcRenderer.invoke(IPC.GET_WEEKLY_VALE_SUMMARY, payload),
+  cancelVale: payload => ipcRenderer.invoke(IPC.CANCEL_VALE, payload),
 
   // Pago de salario semanal (Bloque D)
   payWeeklySalary: payload => ipcRenderer.invoke(IPC.PAY_WEEKLY_SALARY, payload),
+  listSalaryPayments: payload => ipcRenderer.invoke(IPC.LIST_SALARY_PAYMENTS, payload),
+  getRemoteSalaryWeek: payload => ipcRenderer.invoke(IPC.GET_REMOTE_SALARY_WEEK, payload),
 
   // Conteo de stock (Bloque E)
   createStockCount: payload => ipcRenderer.invoke(IPC.CREATE_STOCK_COUNT, payload),
   listStockCounts: payload => ipcRenderer.invoke(IPC.LIST_STOCK_COUNTS, payload),
   getStockCountDetail: payload => ipcRenderer.invoke(IPC.GET_STOCK_COUNT_DETAIL, payload),
+  getDraftStockCount: payload => ipcRenderer.invoke(IPC.GET_DRAFT_STOCK_COUNT, payload),
+  discardStockCountDraft: payload => ipcRenderer.invoke(IPC.DISCARD_STOCK_COUNT_DRAFT, payload),
 
   // Clientes especiales (Fase 6)
   createCustomer: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER, payload),
@@ -172,6 +200,7 @@ const hw: HwApi = {
   updateOrder: payload => ipcRenderer.invoke(IPC.UPDATE_ORDER, payload),
   deleteOrder: payload => ipcRenderer.invoke(IPC.DELETE_ORDER, payload),
   hardDeleteOrder: payload => ipcRenderer.invoke(IPC.HARD_DELETE_ORDER, payload),
+  chargeOrder: payload => ipcRenderer.invoke(IPC.CHARGE_ORDER, payload),
 
   // Historial completo (Fase 7 — solo admin)
   getHistoryShifts: payload => ipcRenderer.invoke(IPC.GET_HISTORY_SHIFTS, payload),

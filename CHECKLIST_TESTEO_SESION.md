@@ -1,595 +1,327 @@
-# Checklist de testeo — sesión 2026-08-10 / 2026-08-14 / 2026-08-15 / 2026-08-16
+# Checklist de testeo — retomado 2026-08-19
 
-Notas de QA. **No implementar hasta que el desarrollador lo pida.**
-Convención: `[x]` OK · `[ ]` pendiente de probar · `[!]` bug / mejora anotada.
+Convención: `[ ]` pendiente · `[x]` OK · `[!]` bug nuevo.
 
----
+**Cómo se lee el progreso (acordado):** si mencionaste el punto N de una sección, se asume que **1…N están OK** (incluidos los intermedios que no nombraste). Lo **posterior** al último punto del que hablaste **no se testeó**. “Lo que no mencioné está hecho” vale **hacia atrás**, no hacia adelante.
 
-## PARTE 0 — Arranque e instalación
+**Dónde frenaste (reconstruido del chat, no de memoria):**
 
-**Estado: COMPLETA** `[x]`
+- Parte 3 (desktop sync) **cerrada**. 3.5 offline **salteada** a propósito.
+- **4.1** hub admin móvil: **OK** (2026-08-17). Queda diferido el ↻ “recargar lo justo” (UX-MOB-REFRESH-01).
+- **4.2 Pedidos** y **4.2 Fiados:** último comentario = “bien” / “en general parece bien” → se dan por OK. (Pedidos: Cobrar se re-diseña; no re-probar el flujo viejo de “resto a mano”. Ver Tanda 3.)
+- **4.2 Proveedores:** testeo 2026-08-20 **cerrado** (ajustes de UX aplicados después: re-probar al retomar).
+- **4.2 Clientes especiales:** testeo **2026-08-24 cerrado**.
+- **4.2 Carniceros / Cajeras (Personal):** testeo **2026-08-24 cerrado**.
+- **4.2 Locales:** testeo **2026-08-24 cerrado** (eliminar en PC persiste al reentrar).
+- **4.2 Historial (móvil):** testeo **2026-08-24 cerrado**.
+- **4.3** limitaciones esperadas: testeo **2026-08-24 cerrado**. Catálogo en celu = post 1.0. Liquidación semanal **con pago en PC** (2026-08-25): re-probar en caja (Menú → Liquidación) y en celu (archivo + nota). Zoom pellizco en la PWA. **Parte 5** testeo 2026-08-25 cerrado (POS). **Parte 6** testeo **2026-08-25 cerrado**. **Parte 7** en curso: baja global en celu, header de productos, paleta de capas.
+- La **ola 2026-08-18** A.1–A.6 **re-testeada y aprobada 2026-08-27**. **B. Móvil (selector de local)** queda para después. Tanda 1 OK. Tanda 2: fiados/↺ OK; selector de cliente especial en POS **oculto a propósito**. Tanda 3 = rework no codeado (`FEAT-ORDER-CART-01`). Seguir con Tanda 4 (Vales).
 
-- [x] App arranca sin errores de migración
-- [x] Login admin → hub
-- [x] Login cajera → selector de local → turno → POS
-- [x] Cerrar sesión y volver a entrar
-- [x] Scrollbars / estética general de arranque OK
+**Orden práctico:** I (humo) → II (lo que no llegaste a probar de móvil/sync) → III (ola 18, desktop) → IV (tandas, código nuevo). Si un ítem dice “también Tanda N”, al pasarlo en la tanda podés tacharlo en II/III.
 
----
-
-## PARTE 1 — Admin solo (Desktop)
-
-### 1.1 Hub admin y ajustes
-
-- [x] Header hub: nombre + rol
-- [x] Panel **Ajustes** abre
-- [!] Zoom **− / +** del panel: OK y **persiste** al cerrar la app
-- [!] Atajos **Ctrl+= / Ctrl+- / Ctrl+0**: el zoom visual **sí cambia**, pero el valor del modal Ajustes **no se actualiza** (desincronizado UI vs factor real)
-- [x] Botón ↺ del header no rompe
-- [x] **Operar como cajera** lleva al POS
-- [x] Grupo **Empleados** expande/colapsa
-- [x] Grupo **Stock** expande/colapsa (Nuevo conteo + Historial)
-- [!] Al expandir un grupo cerca del borde inferior: las sub-opciones quedan fuera de vista. Pedido: **autoscroll** para mostrar todas las opciones (Stock y cualquier GroupTile)
-- [!] Al expandir (y al cambiar de sección): aparece la scrollbar → el contenido **salta a la izquierda** unos px. Al cambiar de sección se percibe como parpadeo blanco + scrollbar fantasma milisegundos. Causa: reserva de espacio de scrollbar. Pedido: evitar el salto (p. ej. scrollbar siempre reservada / overlay)
-- [x] Cerrar sesión desde el hub
-
-### 1.2 Navegación y consistencia visual
-
-**a. Headers de sección — pendiente de rediseño** `[!]`
-- No gusta el bloque izquierdo (atrás + título): todo apretado a la izquierda con espacio vacío al centro.
-- Botón atrás actual (`<`) poco reconocible para adultos mayores.
-- Pedido: flecha clara + **fondo más claro** para que se note que es botón. Intuitivo, no “símbolo de nativo digital”.
-
-**b. Paleta / contraste — pendiente** `[!]`
-- Fiados: combinación azul (filtro “Todos”) + cards rojo vencidas + botón emerald = ruido visual. No volver al azul de fondo; **suavizar acentos** para que destaquen sin chocar.
-- Proveedores (imagen 4): se veía “mejor” en conjunto pero **sigue paleta vieja** (naranja deuda, verde “sin deuda”, CTA azul). Actualizar a zinc/emerald (ver 1.10).
-- Fondo `zinc-950` **demasiado oscuro**. Preferir gris oscuro un poco más claro (modo oscuro sin contraste extremo contra el contenido).
-
-**c. Panel de administración (productos)** `[x]` recorrido; mejoras:
-- [!] Table header **sticky** al scrollear
-- [!] Columnas **ordenables** (PLU, Nombre, Categoría, Unidad, Precio, Disponible)
-
-**d. Gestión de locales** — ver 1.4 (notas ya tomadas)
-
-**e. Modales inconsistentes entre secciones** `[!]`
-- Locales “Nuevo local”: CTA confirmar **azul** vs “+ Nuevo” del header **emerald**
-- Cajeras “Nueva cajera”: CTA **rojo** (al usuario le gusta ese rojo en ese modal, pero rompe consistencia)
-- Empleados “Nuevo empleado”: CTA **azul** + focus ring azul vs “+ Nuevo” emerald
-- Clientes especiales: **ahora usa modal** (mismo patrón que Pedidos, 2026-08-16). El pedido general de unificar CTA/focus en el resto de secciones sigue pendiente.
-- Pedido general: misma estructura de modal (layout, CTA emerald salvo peligro explícito, focus zinc) en todas las secciones.
-
-**f. Historial completo** — scrollbar blanca + fondo demasiado oscuro (ver 1.11). `[!]`
-
-**g. Asistencia** `[!]`
-- Se ve muted/deshabilitada pero **sigue siendo clickeable** y abre el modal. Pedido: o se deshabilita de verdad, o no se muestra como desactivada.
-
-**h. Stock → Nuevo conteo** `[!]`
-- Visual del modal OK, pero al scrollear el listado **se ve por detrás del searchbar** (header/search no opaco / no sticky sólido).
-
-Secciones recorridas en 1.2:
-- [x] Panel de administración (productos) — con mejoras c + 1.3
-- [x] Gestión de locales — notas en 1.4
-- [x] Cajeras — notas en 1.5
-- [x] Carniceros / Empleados — notas en 1.6
-- [x] Fiados — paleta (b)
-- [x] Clientes especiales — modal inline (e) + sync (1.8)
-- [x] Pedidos — notas en 1.9
-- [x] Proveedores — notas en 1.10
-- [x] Historial completo — notas en 1.11
-- [x] Asistencia — (g)
-- [x] Stock nuevo conteo — (h) + 1.13
-- [x] Stock historial — notas en 1.13
-
-### 1.3 Catálogo — Panel de administración
-
-**Estado: OK en lo testeado** `[x]`
-
-- [x] Solo productos activos (eliminados no visibles)
-- [x] Buscar nombre / PLU
-- [x] Nuevo producto (PLU, categoría, unidad, precio)
-- [x] Toggle mismo precio en todos / por local al **crear**
-- [x] Editar producto
-- [x] Eliminar = modal custom (no Windows)
-- [x] Tras eliminar desaparece
-- [x] Recrear con mismo PLU (PLU liberado)
-
-**Mejora pendiente** `[!]`
-- Edición de **precios** hoy aplica solo al local elegido. Pedido: igual que al crear, poder aplicar el cambio a **un local, varios, o todos**, o precios distintos por local, sin repetir el flujo N veces.
-
-### 1.4 Gestión de locales
-
-**Recorrido hecho; comportamiento a cambiar** `[!]`
-
-- [x] Crear local
-- [x] Editar
-- [x] Eliminar con mensaje simple
-- [!] Lista **Eliminados** inconsistente para el usuario: si el local no tenía datos asociados se borra del todo y **no aparece** en eliminados; si tenía datos, sí aparece. Pedido: no explicar archivado técnico. Opción en header tipo **Configuración → “Ver locales eliminados”** (checkbox, **off por defecto**). Sin esa opción, no mostrar la sección.
-
-### 1.5 Cajeras
-
-- [x] Listar
-- [x] Crear
-- [x] Activar / desactivar
-- [!] **Quitar** “Editar locales autorizados” (botón Locales). Las cajeras pueden trabajar en **todos** los locales (casi siempre uno, rara vez cambian). No filtrar por authorizedStores en este sentido.
-- [!] Fusionar **Cajeras + Carniceros** en **una sola sección Empleados**, misma UI/UX, **listas separadas** (no mezclar personas). Carniceros: **no cambiar la lógica** actual (siguen sin cuenta de login). Preparar UI por si mañana tienen usuario.
-- [!] Al crear un local en una ventana, la otra no lo ve hasta ↺ manual. Pedido: **al entrar/salir de cada sección, refrescar datos** automáticamente.
-
-### 1.6 Carniceros / Empleados
-
-- Cubierto en 1.5 (fusión + refresh al navegar).
-- Liquidación / CRUD empleados: no hay hallazgos extra en este bloque (queda subsumido en la fusión).
-
-### 1.7 Fiados
-
-- Recorrido visual: paleta ruidosa (ver 1.2.b). Funcional no detalló bugs nuevos en este mensaje.
-
-### 1.8 Clientes especiales
-
-- [x] CRUD / precios se ven en **admin**
-- [!] Precios actualizados en admin **no aparecen en la UI de cajera** (ventana con sesión cajera abierta después del cambio), **ni siquiera con ↺** en la pantalla principal de cajera. Sync/refresh roto o incompleto para precios especiales.
-
-### 1.9 Pedidos
-
-- [!] **Esconder** el botón “marcar como listo” (es de carniceros; hoy no tienen app). **No borrar la lógica.**
-- [!] Reemplazar “marcar como entregado” por **Cobrar** (o similar): redirige al POS de cajera; al armar el ticket del pedido, **descontar la seña** del total (ej. $60.000 − seña $50.000 → cobrar $10.000). Al confirmar el pago, el pedido pasa a **entregado** automático.
-
-### 1.10 Proveedores
-
-- [!] Interfaz **vieja**: actualizar a paleta zinc/emerald de la app.
-- [!] Alta de proveedor: teléfono **sin** formateo numérico (acepta espacios y letras). Al **editar**, el teléfono previo **no aparece** (campo vacío).
-- [!] Pago a proveedor poco intuitivo si hay que ir a **Historial**. Pedido: acción más directa (desde la fila / card del proveedor).
-- [!] “Archivar” → para el usuario debe ser **Eliminar**, sin aclaraciones técnicas de archivado.
-
-### 1.11 Historial completo
-
-- [!] Scrollbar blanca + fondo demasiado oscuro (1.2.f).
-- [!] **Bug de señas vs cierre** — análisis abajo. El usuario **no está equivocado**.
-
-#### Análisis señas / cierre / historial (no es un error de procedimiento)
-
-Flujo que hiciste:
-1. Pedido A: seña $40.000 → cancelás → se registra gasto **Devolución de seña $40.000**.
-2. Pedido B: seña $30.000 ($20.000 efectivo + $10.000 débito) → **no** cancelado.
-3. Cierre de caja: **Efectivo esperado $20.000** (y vos declaraste $0 al cerrar rápido).
-4. Historial del mismo turno: Ventas 0, Gastos −$40.000, **Señas (0)**, Efectivo esperado **−$40.000**.
-
-**El cierre de caja está bien.** Cuenta:
-- Señas en efectivo: $40.000 (A) + $20.000 (B) = $60.000
-- Menos devolución $40.000
-- Quedan $20.000 de la seña en efectivo del pedido B  
-(El débito $10.000 no entra al efectivo esperado.)
-
-**El historial está mal** (o incompleto). En detalle:
-- El tab **Señas** no lista el pedido B (debería).
-- El efectivo esperado del historial **no suma señas en efectivo**; solo hace `apertura + ventas efectivo − gastos` → 0 + 0 − 40.000 = −40.000.
-- Causa probable (código, para cuando se implemente):
-  1. **Historial remoto / Firestore** (`historyFirestore.ts`): `deposits: []`, `cashDeposits: 0`, `cashInHand` sin señas. Pedidos/señas **no se pushean** a Firestore como parte del detalle de turno. Si el admin mira historial en otra sesión/`electron:remote`, ve gastos (sí sync) y **cero señas**.
-  2. Aun en SQLite local, el detalle de historial calcula `cashDeposits` con `depositMethod === 'cash'` y **no parsea** `depositPayments` (el JSON mixto efectivo+débito). El **cierre de turno sí** parsea `depositPayments`. Misma data, dos fórmulas.
-- Extra UX: el cierre cuenta **2 pedidos / $70.000** incluyendo la seña del pedido **ya cancelado** (el cancel no pone `depositAmount` en 0; la devolución va por gasto). La plata cierra, pero el rótulo “2 pedidos” puede confundir.
-
-Conclusión: procedimiento OK; hay que corregir historial (señas + efectivo esperado) y, si aplica, el copy del cierre sobre pedidos cancelados.
-
-### 1.12 Asistencia
-
-- Cubierto en 1.2.g (muted pero clickeable).
-
-### 1.13 Stock
-
-**Nuevo conteo**
-- [x] Modal visual OK (salvo searchbar transparente, 1.2.h)
-- [!] En la lista aparecen **ofertas** (ej. “asado por 2 kg”) que no deberían contarse como stock. Pedido: filtrarlas **sin complejizar** (decidir criterio simple: categoría, flag, o no listar productos que no son “corte/unidad de inventario”). Pendiente definir la regla más simple.
-- [!] UX de kilos: el carnicero anota un valor, después **suma** tiras que encuentra y **resta** ventas de último momento, sin calculadora. Pedido: campo kg + botones **+ / −** que abren un campo chico para el delta (ej. 10 kg → +2 → 12 → −3 → 9).
-
-**Historial de conteos**
-- [!] En el **detalle** de un conteo guardado: **buscador** para filtrar productos de esa lista.
-
-### 1.14 Operar como cajera (admin en POS)
-
-- [ ] Aún no reportado en esta tanda (dejar intacto).
-
-**Notas / bugs Parte 1 (resumen ejecutivo)**
-
-```
-BUG-ZOOM-01     Atajos Ctrl+/- cambian zoom visual; modal Ajustes no refleja el valor
-UX-HUB-01       Autoscroll al expandir GroupTile (Stock/Empleados)
-UX-HUB-02       Salto de layout / parpadeo blanco por aparición de scrollbar
-UX-HDR-01       Header de sección apretado a la izquierda; atrás poco evidente (fondo + flecha)
-UX-PAL-01       Fondo menos negro; acentos que destaquen sin chocar (fiados, filtros)
-UX-MOD-01       Unificar modales (CTA emerald; clientes especiales en modal no inline)
-FEAT-CAT-01     Header tabla productos sticky + columnas ordenables
-FEAT-CAT-02     Editar precios: aplicar a uno / varios / todos los locales
-UX-STO-01       “Ver locales eliminados” opt-in en header; default off
-FEAT-EMP-01     Fusionar Cajeras+Carniceros, mismas UI, listas separadas; quitar Locales autorizados
-FEAT-NAV-01     Refresh automático al entrar/salir de cada sección
-BUG-SC-01       Precios cliente especial no llegan a UI cajera ni con ↺
-FEAT-ORD-01     Esconder “listo”; “entregado” → Cobrar en POS descontando seña → marca entregado
-UX-PROV-01      Paleta nueva; teléfono formateado + valor al editar; pago más directo; “Eliminar”
-BUG-HIST-01     Historial no muestra señas ni fiados ni los suma al efectivo esperado (el cierre sí cuenta señas). Segunda pasada: incluirlos en el detalle; si se anulan, **seguir visibles como anulados** (auditoría), no borrarlos ni “hacer como si no existieron”.
-UX-ATT-01       Asistencia muted pero clickeable
-UX-CNT-01       Searchbar conteo deja ver ítems detrás al scroll
-FEAT-CNT-01     Excluir ofertas del conteo (regla simple TBD)
-FEAT-CNT-02     +/- deltas de kg durante el conteo
-FEAT-CNT-03     Buscador en detalle de conteo guardado
-```
+**Sigue fuera (no re-probar / no es esta pasada):** UX-PLU-01, UX-PROV-02, FEAT-CAT-03 backup, listener de catálogo en vivo, 3.5 offline, optimizar ↻ móvil (UX-MOB-REFRESH-01). **No codear ahora:** DT-07, **DT-08**. El Historial **móvil de la Parte 4** sí se recorre como checklist funcional; DT-08 es la deuda de *cómo* pide Firestore, no de tachar la pantalla.
 
 ---
 
-## PARTE 2 — Cajera solo (Desktop)
 
-> Recorrida completa **2.1–2.11** (2026-08-15). Ítems no mencionados = OK (incluido 2.8 Conteo).
 
-### Hallazgo 2026-08-14 (corregido en código)
+## I — Arranque de humo
 
-- **BUG-SHIFT-01** Turno abierto fantasma: al operar como admin/cajera quedaba un turno `closedAt=null` en SQLite. Otra ventana/PC no lo veía (no se reconciliaba con Firestore). Cerrar un turno *nuevo* en la otra ventana no cerraba el original. La cajera seguía viendo “Ya hay un turno abierto (Admin Prueba)”.
-  - Fix: `reconcileStoreShifts` antes de abrir/consultar turno; admin puede **Cerrar el turno de X**; “Volver a comprobar”; admin → POS retoma su turno abierto.
-
-### 2.1 Flujo de turno
-
-- [x] Selector de local — **nota:** 1.5 pide que cajeras puedan todos los locales; este ítem se actualizará al implementar FEAT-EMP-01
-- [!] **Estado seleccionado casi invisible.** En el picker de local (y el mismo patrón en Mañana/Tarde al abrir turno): el elegido y el resto tienen el **mismo fondo**; solo cambia que el texto es un blanco un poco más fuerte. Pedido: estado activo claro (borde/fondo emerald o relleno distinto, no solo `font-weight` / brillo del texto). Captura de referencia: botones Mañana/Tarde idénticos en gris.
-- [x] Abrir turno
-- [x] POS carga catálogo
-- [x] Barra superior
-
-### 2.2 POS — diseño y venta
-
-- [x] Checkout sticky / TOTAL / cobro funcional
-- [!] **Input hero:** el checklist decía “estilo Raycast para escanear/buscar”. **No es un buscador de productos** (no se puede escribir “vacío”). El usuario **no quiere** que lo sea: la búsqueda de producto vive en **Menú → Lista de productos**. El hero queda para escanear / flujo de venta, no para buscar por nombre.
-- [!] Al **cargar un producto al ticket** (manual): **no mostrar** toast/mensaje de confirmación tipo “X agregado al carrito”.
-- [!] Quitar ítem del ticket: **solo una cruz**, sin texto “Eliminar”.
-- [!] Botón cobro: hoy dice algo como “Cobrar y Finalizar” + hint **Enter**. Enter **no hace nada** y **no debe hacerlo**. Quitar el texto “Enter”. El botón debe decir solo **Cobrar**.
-
-### 2.3 Carga manual
-
-- [x] Botón Manual visible
-- [x] Dropdown abre hacia abajo; Vacío visible; scroll OK
-- [x] Foco a Peso (kg) al elegir producto
-- [x] Kg / unidad / ítem al ticket
-- [!] Al abrir carga manual, pestaña default = **PLU + precio** (no Código manual). **Intercambiar** el orden de las pestañas: PLU + precio a la izquierda, Código manual a la derecha.
-- [!] Teclado en dropdown de sugerencias: flecha abajo / **Tab** deben navegar las opciones; **Enter** confirma la seleccionada (sin mouse). Hoy Tab parece enfocar la primera opción y **el menú se cierra** al toque. Agilizar carga.
-- [!] Etiqueta de **precio especial**: al hover el cursor pasa a puntero + “?”. No hay tooltip ni clic útil, y **no se quiere**. Quitar el cambio de cursor (`cursor-help` / `cursor-pointer`).
-
-### 2.4 Fiado desde cajera
-
-- [x] Cobrar → fiado → cliente → confirma (venta OK; saldo del cliente sube en admin)
-- [!] **Sync pago admin → cajera roto.** Caso Tomas Holgado:
-  - Admin (remoto): pago parcial **$10.000** (15/8 4:16) sobre deuda **+$23.000**; saldo **$13.000**; historial con cancelación previa de $7.000 y deudas viejas.
-  - Cajera (tras actualizar la sección): sigue **$28.000**; historial incompleto (solo +$23.000 y +$5.000; no ve el pago ni la cancelación). Fechas acordadas distintas (21/7 vs 24/7).
-  - Log remoto: el pago **sí se pusheó** a Firestore (`[ipc:add-debt-payment]` + `Customer debt events pusheados { count: 1 }`). La cajera no lo baja / no lo aplica al ledger local. Relacionado con sync de `customerDebtSync` (no solo ↺ de UI).
-
-### 2.5 Sidebar y menú
-
-- [x] Accesos y colores (salvo lo de abajo)
-- [!] **Menú / Ajustes:** debe ser **uno u el otro**, no ambos. Ajustes podría quedar para cosas futuras (ej. tema claro/oscuro, no implementado). Hoy no duplicar el mismo panel.
-
-### 2.6 Vales
-
-- [x] Modal abre; modo efectivo funciona (adelanto en efectivo **sí** baja caja — correcto)
-- [!] **Modo Con productos — UX:** el selector de producto debe ser **campo con autocompletado** como la carga manual de Ventas. Tras elegir, **focus a Peso**. El campo siguiente es **precio total** (no precio/kg): peso completa precio y viceversa, igual que Ventas. Checkbox de **precio diferido** como en Ventas. Botón **“+ Agregar ítem” → “Confirmar”** (Enter también confirma y suma al listado del vale; no hablar de “carrito” en la UI).
-- [!] **Vale en productos ≠ gasto de caja.** Adelanto en **efectivo**: sí es gasto, descuenta el efectivo esperado (ej. $1.000.000 − $10.000 = $990.000). Vale de **productos** (ej. 2 kg de asado = $50.000): **no** es plata que salió de la caja; es un adelanto en mercadería que se compensa después (típicamente descuento de sueldo). **No** debe registrarse como gasto ni bajar el efectivo esperado en tiempo real.
-
-### 2.7 Gastos y pago a empleado
-
-- [x] Registrar gasto (salvo validación de abajo) / lista de gastos del turno
-- [!] **Total entregado al proveedor = 0 (o vacío) debe ser válido.** Caso: visita de $1.000.000, entregado $0, nota “No pagué nada”. Hoy el form rechaza con “Ingresá el total entregado al proveedor.” Es un caso real (el proveedor deja mercadería y no se le paga en el momento).
-- [!] **Pago a empleado:** tras pagar a alguien en esta sesión, **sacarlo de la lista** (al menos hasta cerrar el turno / esta sesión) para no volver a ofrecerlo. El modal de confirmación de pago tiene **CTA/cerrar con azul de paleta vieja** — pasar a zinc/emerald como el resto.
-- [!] Al **cambiar de empleado** en la lista, el modal **parpadea**: se achica y agranda en un instante (casi siempre). Causa probable: el contenido cambia de alto y el modal se re-centra/re-layout. Estabilizar altura o no animar el tamaño.
-
-### Logs `pnpm electron:remote` (2026-08-15, no bloquean el testeo)
-
-No son “esperados” como ruido inocuo; anotar para cuando se toque sync:
-
-- **BUG-CAT-PULL-01** `UNIQUE constraint failed: products.plu_number` al hacer pull del catálogo en la DB remota (`desktop-remote-admin`). Firestore más completo (103 vs 34) → pull aborta. Mismo error en varios `storeId` (`local1` y UUIDs). Causa probable: upsert por `id` pero el PLU ya existe en **otro** `productId` local.
-- Precios de cliente especial omitidos: `Precio sin producto local` (productIds que no están en el SQLite remoto) — encaja con BUG-SC-01 / catálogo incompleto por el pull fallido.
-- Un local sin precios (`3110e845-…`): “Catálogo local más completo — publish” y después “Sin productos con PLU y precio — publicación omitida”.
-- El pago de fiado del admin **sí** se subió; el problema de la cajera es el **pull**, no el push.
-
-### 2.8 Conteo (cajera)
-
-- [x] Desde menú — OK (no reportado = funcionó).
-
-### 2.9 Ventas del turno
-
-- [x] Lista coherente con lo vendido
-- [!] Interfaz **vieja** (paleta/componentes). Actualizar al diseño actual (zinc/emerald, mismos modales).
-- [!] El label **“Turno”** no es intuitivo. Decisión: probar **“Ventas del turno”** (más texto; ver cómo queda en el sidebar). Evitar “Caja” (se confunde con cierre).
-
-### 2.10 Cierre de turno
-
-- [x] Flujo de cierre / resumen funciona (señas en cierre OK; historial no — ver 1.11)
-- [!] Pantalla de cierre con **interfaz vieja**. Actualizar al resto de la app.
-- [!] Al entrar: **parpadeo / pantallazo blanco** y después la UI correcta (mismo patrón UX-HUB-02 / transiciones).
-- [!] **Cancelar** (seguir con caja abierta) tarda un toque en volver a Ventas. Achicar el delay.
-- [!] Modal **“¿Cerrar el turno ahora?”** queda centrado respecto al **formulario largo** (hay que scrollear para verlo bien), no respecto a la **ventana visible**. Debe ser overlay fijo al centro de la pantalla (`position: fixed` / portal al viewport), no al centro del contenido scrolleable.
-- Captura: efectivo esperado **negativo** (ej. `$-1.630.400`). No reportado como ítem aparte; probable efecto de BUG-VALE-01 / gastos. Verificar al corregir vales.
-
-### 2.11 Animaciones
-
-- [!] Login → selector/POS: **no se percibe transición suave**; hay **parpadeo blanco** entre pantallas. Mismo síntoma que cierre de turno y salto de scrollbar.
-- [ ] **Modales: fade overlay + entrada suave** — el usuario no está seguro de haberlo notado. Dejar **pendiente de verificar** (no dar por OK ni por roto). Qué debería verse (criterio):
-  1. Al abrir un modal, el resto de la app se oscurece **de a poco** (~150–250 ms), no en un corte seco.
-  2. El recuadro del modal aparece en el **centro de la ventana** (lo que se ve, no el scroll) y entra con una animación corta (opacidad + un leve movimiento hacia arriba o escala 0.97→1).
-  3. Al cerrar, lo inverso: el recuadro se va y el overlay se aclara, también suave.
-  4. Si el modal “ explota” de golpe, o el fondo pasa a negro instantáneo, o hay un flash blanco: **no cumple**.
-
-**Parte 2 cerrada** (2.8 OK).
-
-**Notas / bugs Parte 2 (resumen ejecutivo, 2026-08-15)**
-
-```
-UX-POS-01       Hero no es buscador de productos (OK así; búsqueda = Menú → Lista)
-UX-PICK-01      Local / Mañana-Tarde: el seleccionado debe verse claro (no solo texto más blanco)
-UX-POS-02       Sin toast al agregar ítem al ticket
-UX-POS-03       Quitar ítem = solo cruz, sin “Eliminar”
-UX-POS-04       Botón solo “Cobrar”; quitar hint Enter (Enter no debe cobrar)
-UX-MAN-01       Default tab PLU + precio; intercambiar orden con Código manual
-UX-MAN-02       Tab/flecha/Enter en dropdown de sugerencias (hoy Tab cierra el menú)
-UX-MAN-03       Precio especial: no cambiar cursor al hover
-BUG-DEBT-01     Pago/cancelación de fiado en admin no llega a cajera ni al actualizar
-UX-PLU-01       Ventas → Manual → PLU + Precio: al escribir un nombre con dígito (ej. “Asado x2kg”) el campo “PLU o nombre” se reemplaza por ese dígito. No tocar ahora.
-BUG-PROV-SYNC-01 **Retesteado OK 2026-08-17:** cajera ya no ve la deuda si el admin la saldó. Si reaparece, es regresión.
-UX-PROV-02      Admin → Proveedores → Historial de movimientos: filtro **desde / hasta**. `hasta` ≤ hoy (nunca fecha futura). Display **dd/mm/aaaa**. No implementar ahora.
-UX-MENU-01      Menú o Ajustes, no ambos
-UX-VALE-01      Vale con productos: autocomplete + peso/total + diferido + Confirmar/Enter
-BUG-VALE-01     Vale en productos no debe ser gasto ni bajar efectivo de caja. Confirmado otra vez en 3.3.5.
-FEAT-VALE-CANCEL-01 Anular un vale (cajera lo registró y el empleado se arrepiente). Hoy no hay forma. Segunda pasada; al anular: no debe seguir descontando caja (si era efectivo) ni liquidación; el registro queda visible como anulado (auditoría).
-FEAT-HIST-VALE-01 Historial completo → detalle de turno: pestaña **Vales** (no mezclar con Gastos). Ver nota 3.3.5.
-BUG-CASH-01     Al anular una venta, el “en caja” del POS se actualiza con delay (segundos). Debe ser instantáneo. Caso: venta $1000, pagó $500 + fiado $500; al anular, los $500 de efectivo tardan en descontarse.
-BUG-EXP-01      Permitir total entregado al proveedor = 0 / vacío
-UX-PAY-01       Empleado ya pagado en la sesión sale de la lista; CTA confirmación a paleta nueva
-UX-PAY-02       Parpadeo del modal al cambiar de empleado (resize)
-UX-SHIFT-01     Modal “Turno”: paleta vieja; renombrar a “Ventas del turno”
-UX-CLOSE-01     Cierre: paleta vieja; flash blanco al entrar; delay al Cancelar
-UX-CLOSE-02     Modal confirmar cierre anclado al viewport, no al scroll del form
-UX-TRANS-01     Transiciones con flash blanco (login→POS, cierre, etc.)
-UX-MODAL-01     Fade overlay + entrada suave: pendiente de notar (criterio en 2.11)
-BUG-CAT-PULL-01 Pull catálogo remoto falla UNIQUE plu_number (electron:remote)
-```
+- [ ] `pnpm dev:prod` abre login admin/cajera sin error de TypeScript ni de migración.
 
 ---
 
-## PARTE 3 — Sync simultáneo (Admin + Cajera, 2 sesiones Desktop)
 
-**Setup:** Terminal 1 = `pnpm dev:prod` (cajera). Terminal 2 = `pnpm electron:remote` (admin). Ambas con internet.
 
-Cómo están aislados (no es la misma PC “con dos ventanas sobre el mismo SQLite”):
-- **`dev:prod`:** SQLite en el `userData` normal de Electron (`…/app.sqlite`). Es “la PC de la carnicería”.
-- **`electron:remote`:** otro `--user-data-dir` (`%APPDATA%/@carniceria/desktop-remote-admin`). SQLite, sesión y secretos **aparte**. Es “la PC de casa / otra máquina”.
-- Lo que se ve en common **no** es porque compartan disco: cada uno sube/baja por **Firestore**.
-- Remote pide que `dev:prod` esté levantado solo porque reutiliza Vite en `localhost:5173` (el HTML/JS). Eso es atajo de desarrollo, **no** cruce de datos. En un `.exe` instalado en otra PC no hace falta Vite.
+## II — Parte 4 en adelante (lo que no se recorrió)
 
-**Catálogo (regla vigente, ago 2026 — reemplaza last-write-wins):** sync por **merge**, no por snapshot que pisa.
-- Altas en cualquier dispositivo se unen.
-- Precio / nombre / PLU: gana el dato **más nuevo por ítem**.
-- **Visibilidad por local:** toggle "Disponible" OFF = no se vende en ese local; el producto sigue en la lista admin y en los otros locales. El PLU **no** se libera.
-- **Quitar del catálogo** (Editar → zona de peligro): baja global, desaparece de todos los locales y **libera el PLU**. Usarlo para productos de prueba o fichas que no deberían existir. No usarlo si el producto se vende en otro local.
-- Después del merge se republica el conjunto.
-- Crear / editar / cambiar precio también mergean **antes** de subir.
-- **No** se espera que una PC con lista corta borre el resto al ↺. Si pasa, es bug.
-- Para ver un alta hecha solo en remote (ej. Prueba 999 / PLU 999): ↺ **primero** en `electron:remote` (donde sigue existiendo) y **después** ↺ en `dev:prod`.
+Admin en **[https://arimark-7f418.web.app](https://arimark-7f418.web.app)** y PC (`dev:prod` / `electron:remote`). Tras escribir en un lado, ↻ o reentrar a la sección en el otro.
 
-**Backup/rollback de catálogo (FEAT-CAT-03):** no está; no testear. Anotado para más adelante.
+### 4.2 desde Proveedores
 
-Hallazgos ya vistos (no reabrir como “nuevo” si se repiten):
-- [!] Crear local en una ventana → la otra no lo ve hasta ↺ (→ FEAT-NAV-01)
-- [!] Precios cliente especial admin → cajera no, ni con ↺ (→ BUG-SC-01)
-- [!] Pago/cancelación de fiado en admin no llega a cajera (→ BUG-DEBT-01)
-- [x] Pago de proveedor en admin → cajera deja de ver la deuda (BUG-PROV-SYNC-01 retesteado OK 2026-08-17)
-- [!] Pull UNIQUE `plu_number` en remote (→ BUG-CAT-PULL-01). El merge ahora libera PLU en conflicto: **re-testear**; si no revienta, marcar OK.
-- [!] 2026-08-15: crear desde remote **pisó** Firestore (34/35 vs ~103). Con merge **no debería volver a pasar**. Si al crear TEST-SYNC-PROD desaparece el catálogo largo, es regresión.
+- [x] **Proveedores** (testeo 2026-08-20). Eliminar/restaurar conserva historial. Pago por local. “A favor $…” en el desglose. Historial PC y celu. Ajustar deuda (salida de emergencia, queda “Ajuste de admin (Nombre)…”). Saldar/Registrar en modales aparte. Compensar entre locales desde admin. Cajera: gasto con saldo a favor; sidebar Saldar (efectivo de esta caja). Concepto no sugiere `Vale:` / `Pago:`.
+  **UX aplicada después de ese testeo (re-probar al retomar):** selector de local vacío si hay 2+ locales; gasto más ancho + paleta zinc/emerald y saldo a favor en verde; comprobante aclara si se usó saldo a favor; Saldar deshabilitado en la pestaña de un local sin deuda; historial PC paginado y más ancho; naranja de Registrar alineado a `orange-600`; modal Saldar de cajera más alto (autocomplete sin scroll ridículo); compensación opcional en Saldar de cajera; aviso al crear un nombre que ya existe (activo → usar otro; eliminado → restaurar). Sin UUID: un proveedor por nombre normalizado.
 
-### 3.1 Maestros compartidos (admin escribe → cajera lee)
+- [x] **Clientes especiales** (testeo 2026-08-24). Lista celu ↔ PC (creados en celu aparecen en remote). UI celu alineada a PC (cards que se expanden, crear/editar con precios inline, borrar). Agregar precio = catálogo publicado **completo**, orden **PLU asc**, sin recorte a 40. El “no hay panel de catálogo en móvil” es el Panel de Administración de la PC (4.3), no este autocomplete. Sync: celu→PC en vivo (listener PC); PC→celu al reentrar a la sección (el celu no tiene `onSnapshot`). Precios especiales en el **POS** = **Tanda 2**.
+- [x] **Carniceros / Cajeras:** ahora viven en **Personal** (también **Tanda 5**). En móvil: pestañas Cajeras (activar/desactivar; sin alta ni “locales autorizados”) y Carniceros (Activos / Eliminados, sueldo semanal `1.000`, sin selector de local, vales listados). Crear carnicero en celu → se ve en PC y al revés. Confirmar eliminar con modal de la app.
+- [x] **Locales:** copy **Eliminar** / Restaurar. Confirmación = modal de la app. Botón **←** siempre visible (iOS). Crear en celu o PC y eliminar: debe desaparecer en ambos tras ↻. “Ver eliminados” opt-in (también **Tanda 6**).
+- [x] **Historial (móvil):** detalle de turno con pestañas Ventas / Gastos / **Fiados** / **Señas** / **Vales**. En Gastos el **título** es el proveedor o “Vale: …” (como en PC). Filtro Todos los locales lista turnos de todos. Señas/fiados del turno = también **III A.5**.
 
-| # | Admin hace | Cajera verifica | Esperado |
-|---|---|---|---|
-| 3.1.1 | Crear empleado TEST-SYNC-EMP | Menú/Vales → lista | Visible tras ↺ o en segundos (listener) |
-| 3.1.2 | Editar sueldo de ese empleado | Vales → resumen semanal | Sueldo nuevo en totales |
-| 3.1.3 | Archivar empleado | Vales → lista activa | Desaparece |
-| 3.1.4 | Renombrar un local | Selector / barra POS | Nombre nuevo |
-| 3.1.5 | Crear producto TEST-SYNC-PROD, PLU único (ideal: desde **dev:prod**; si se crea en remote, ↺ remote y después ↺ cajera) | Manual / lista productos | Producto **y** el resto del catálogo (no se achica la lista) |
-| 3.1.6 | Cambiar precio de un producto **que exista en ambos** | Vender ese producto | Precio nuevo en ticket (el más reciente gana) |
-| 3.1.7 | Desactivar el producto de prueba **en este local** usando el toggle "Disponible" (pasa a OFF) | Buscar PLU/nombre en la **vista cajera** de ese local (↺) | Producto **no aparece** para esa cajera; en el otro local sigue visible |
-| 3.1.7b | Reactivar el producto (toggle "Disponible" vuelve a ON) | Vista cajera del mismo local (↺) | Producto vuelve a aparecer |
-| 3.1.7c | Quitar del catálogo un producto de prueba (Editar → "Quitar del catálogo" → confirmar) | Buscar PLU/nombre en **ambas** sesiones y ambos locales | Desaparece de todos los locales y el PLU queda libre para reutilizar |
-| 3.1.8 | ~~Quitar local autorizado a la cajera~~ | — | **No testear.** Decisión: las cajeras operan en **todos** los locales (FEAT-EMP-01). El filtro `authorizedStores` se va a quitar; si hoy el selector aún filtra, es deuda conocida, no el comportamiento objetivo. |
 
-- [x] 3.1.1
-- [x] 3.1.2
-- [x] 3.1.3
-- [x] 3.1.4
-- [x] 3.1.5
-- [x] 3.1.6
-- [x] 3.1.7 (toggle off per local)
-- [x] 3.1.7b (toggle on — reactivar)
-- [x] 3.1.7c (quitar del catálogo / liberar PLU)
-- [x] 3.1.8 — **N/A** (feature a eliminar, no a validar)
-
-### 3.2 Operación compartida (admin ↔ cajera)
-
-| # | Quién escribe | Dónde verificar | Esperado |
-|---|---|---|---|
-| 3.2.1 | Admin crea pedido TEST-SYNC-ORD **asignándolo a un local específico** (selector en el form; default = tab activa) | Cajera → Pedidos en **ese local** | Visible en la tab del local asignado; no aparece en tabs de otros locales |
-| 3.2.2 | Cajera o admin cambia estado | La otra sesión | Estado actualizado. **Nota:** “marcar listo” se va a **esconder** (FEAT-ORD-01), no borrar lógica. Preferir estados que sigan visibles. |
-| 3.2.3 | Admin crea cliente fiado + deuda | Cajera → Fiados | Cliente y saldo |
-| 3.2.4 | Cajera cobra fiado (si aplica) | Admin → Fiados | Saldo baja. **OK 2026-08-16.** El cobro ahora **pide medio de pago**; si es efectivo, suma a caja en vivo / efectivo esperado. |
-| 3.2.5 | Admin crea cliente especial + precio (modal; **sin asignar local** — es global) | Cajera → Clientes especiales | El cliente y sus precios de referencia aparecen en **todos** los locales. **No** se aplican al carrito: la cajera los consulta si el ticket no coincide con el precio de lista. |
-| 3.2.6 | Admin registra deuda proveedor | Admin remote → deuda combinada | Cross-local coherente. **OK 2026-08-17.** |
-| 3.2.7 | Admin registra pago proveedor | Misma pantalla **y** cajera → Gastos | Saldo baja en admin **y** la cajera deja de ver la deuda. **OK 2026-08-17** (BUG-PROV-SYNC-01 cerrado). Mejora UI diferida: UX-PROV-02. |
-| 3.2.8 | Admin **sin turno abierto** crea pedido con seña (recibió transferencia fuera de horario) | Pedido guardado; seña registrada | No debe bloquearse — admin puede registrar señas sin caja abierta |
-
-- [x] 3.2.1
-- [x] 3.2.2
-- [x] 3.2.3
-- [x] 3.2.4 — OK; medio de pago en cobro de fiado implementado. UX-PLU-01 anotado (no tocar ahora).
-- [x] 3.2.5 — criterio corregido (solo consulta, no aplica al carrito). UI: modal + cliente global.
-- [x] 3.2.6
-- [x] 3.2.7 — retesteado OK; UX-PROV-02 (filtro fechas historial proveedor) diferido
-- [x] 3.2.8
-
-### 3.3 Cajera opera → Admin ve (Firestore push)
-
-| # | Cajera hace | Admin verifica (ideal: electron:remote) | Esperado |
-|---|---|---|---|
-| 3.3.1 | Abrir turno nuevo | Historial → turno **abierto** (badge “Abierto”, arriba de la lista) | Aparece (puede tardar; ↺). Incluye turnos con `closedAt` null. Si bloquea por turno fantasma, ya hay fix BUG-SHIFT-01. |
-| 3.3.2 | Confirmar 1 venta en efectivo | Historial → detalle turno | Venta + monto **OK**. Señas **y** fiados **no** aparecen ni suman (BUG-HIST-01). Segunda pasada: mostrarlos; anulados **visibles como anulados** (auditoría). POS: anular venta debe actualizar “en caja” al instante (BUG-CASH-01). |
-| 3.3.3 | Registrar gasto | Detalle turno → gastos | Gasto listado |
-| 3.3.4 | Vale **en efectivo** a TEST-SYNC-EMP | Empleados → Liquidación | Vale suma en la semana **y baja caja** (correcto) |
-| 3.3.5 | Vale en local A; repetir en local B | Liquidación (todos los locales) | Suma de ambos **OK**. Vale **en productos** sigue bajando caja / aparece en Gastos (BUG-VALE-01). UI diferida: FEAT-HIST-VALE-01. |
-| 3.3.6 | Cerrar turno | Historial → turno cerrado | Totales coherentes |
-
-Nota: el modal Vales de la cajera lee SQLite **de esa PC**; la Liquidación admin mezcla local + remoto. Si el vale está en liquidación pero no cruzado en el modal cajera de la otra PC, anotar como **limitación** vs bug.
-
-- [x] 3.3.1
-- [x] 3.3.2 — venta OK; BUG-HIST-01 (señas + fiados; anulados **visibles** para auditoría) y BUG-CASH-01 (delay al anular)
-- [x] 3.3.3
-- [x] 3.3.4
-- [x] 3.3.5 — liquidación cross-local OK; BUG-VALE-01 confirmado; FEAT-HIST-VALE-01 y FEAT-VALE-CANCEL-01 diferidos
-- [x] 3.3.6
-
-### 3.4 Admin remoto “desde cero” (smoke de sync real)
-
-Con `electron:remote` (SQLite aparte = simula otra PC), solo login admin:
-
-- [x] Historial muestra turnos/ventas de la PC cajera (sin haber operado en remote). **Señas en historial:** puede fallar (BUG-HIST-01).
-- [x] Pedidos creados en PC principal aparecen.
-- [x] Fiados / Proveedores / Clientes especiales tienen datos de la operación principal. Fiados: si el pago se hizo en admin y remote/cajera no lo ven → BUG-DEBT-01.
-- [x] Empleados listados (sync maestro).
-- [x] Liquidación muestra vales de la PC cajera.
-- [x] **Catálogo:** la lista debe ser la **completa** (merge), no la corta de 34. Productos dados de alta en cualquier lado deben estar. Si UNIQUE PLU o lista recortada → regresión.
-
-### 3.5 Resiliencia offline (opcional)
-
-**Diferida** — no testear ahora. Se hará en el futuro.
-
-| # | Acción | Esperado |
-|---|---|---|
-| 3.5.1 | Cortar internet en cajera → vale → volver internet → ↺ admin liquidación | Vale eventualmente visible |
-| 3.5.2 | Cortar internet → venta → volver internet → ↺ historial admin | Venta aparece |
-| 3.5.3 | Admin offline abre sección que requiere Firestore | Mensaje claro, no crash |
-
-- [ ] 3.5.1–3.5.3 — **salteada 2026-08-17**; no bloquea Parte 4
-
-**Notas / bugs Parte 3 (backlog — segunda pasada, no re-testear ahora):**
-
-- **3.1, 3.2, 3.3 y 3.4 cerradas.** 3.5 opcional **salteada**. Parte 3 no bloquea Parte 4.
-- UX-PLU-01: campo “PLU o nombre” en venta manual reemplaza el texto al tipear un dígito. No implementar ahora.
-- 3.2.4: cobro de fiado ahora exige medio de pago; efectivo entra a caja en vivo.
-- 3.2.5: clientes especiales son globales (sin local) y solo informativos; alta/edición en modal.
-- 3.2.7 OK; UX-PROV-02 diferido (filtro desde/hasta en historial de proveedor; `hasta` ≤ hoy; dd/mm/aaaa).
-- 3.3.1 OK (turnos abiertos en historial).
-- BUG-HIST-01 confirmado: historial **no** cuenta señas ni fiados. Segunda pasada: mostrarlos en el detalle; si se anulan, **quedan visibles como anulados** (auditoría), no desaparecen.
-- BUG-CASH-01: anular venta (ej. $1000 con $500 efectivo + $500 fiado) descuenta bien la caja pero **con delay**. Segunda pasada: refresco instantáneo del “en caja” del POS.
-- BUG-VALE-01 confirmado en 3.3.5: vale en **productos** no debe bajar caja ni listarse como gasto operativo. Vale en **efectivo** sí. Segunda pasada + FEAT-HIST-VALE-01 (pestaña Vales).
-- FEAT-VALE-CANCEL-01: poder anular un vale si el empleado se arrepiente. Hoy no existe. Anulado = visible para auditoría; deja de afectar caja/liquidación.
-- 3.3.5 liquidación: vales de distintos locales se suman bien.
-- `electron:remote` = otra PC (otro `userData`/SQLite). Comparte Vite con `dev:prod` solo para servir la UI; los datos cruzan por Firestore.
-
----
-
-## PARTE 4 — Admin móvil solo (Fase A)
-
-URL hosting, login admin, con internet.
-
-### 4.1 Hub y navegación
-
-- [ ] Tras login admin → hub de tiles (**no** el POS de cajera).
-- [ ] Secciones: Operación, Empleados, Análisis, Configuración.
-- [ ] Paleta zinc/emerald coherente con desktop (mismos pedidos UX-PAL-01 / UX-MOD-01 si se ve paleta vieja).
-- [ ] Botón ↻ del header recarga locales.
-- [ ] Banner “Sin conexión” en avión.
-- [ ] Salir cierra sesión.
-
-### 4.2 Por sección (CRUD + UI)
-
-- [ ] Pedidos: listar, crear, cambiar estado, eliminar/cancelar. “Listo” puede seguir visible en móvil (FEAT-ORD-01 es desktop cajera); anotar si molesta.
-- [ ] Fiados: clientes, saldos, cobros, alta. Sync con desktop: mismo riesgo BUG-DEBT-01.
-- [ ] Proveedores: lista, deuda, pagos, archivar. Copy: para el usuario es **Eliminar**, no “archivar” (UX-PROV-01).
-- [ ] Clientes especiales: CRUD + precios.
-- [ ] Carniceros: CRUD, archivar/restaurar, vales (lectura).
-- [ ] Cajeras: listar, activar/desactivar. **Locales autorizados:** decisión desktop = quitar (FEAT-EMP-01). En móvil el selector aún puede usar esa lista (TASKS_V1); no exigir “editar autorizados” como feature a conservar.
-- [ ] Locales: crear, editar, eliminar/restaurar. “Ver eliminados” opt-in (UX-STO-01) si existe en móvil.
-- [ ] Historial: turnos por local, detalle ventas + gastos + totales. Señas: mismo BUG-HIST-01 si el detalle viene de Firestore.
 
 ### 4.3 Limitaciones esperadas (no marcar bug salvo que falle lo prometido)
 
-- No hay panel de **catálogo/productos** en móvil (solo desktop). El merge de catálogo no se opera desde acá.
-- No hay conteo de stock ni asistencia en móvil admin.
-- No hay liquidación semanal dedicada como en desktop (solo vales por empleado en Carniceros).
+- [x] No hay panel de **catálogo/productos** en móvil (la pantalla de Panel de Administración de la PC: alta/edición de ficha, precios de lista, carga a la balanza). El autocomplete de Clientes especiales **sí** debe mostrar el catálogo publicado completo. **Post 1.0:** edición de precios/ficha en celu (sin balanza).
+- [x] No hay conteo de stock ni asistencia en móvil admin.
+- [x] **Liquidación semanal** en celu (2026-08-24 consulta; **2026-08-25 pago en PC**): Empleados → **Liquidación** (header). Semanas ← →. Si está pagado: badge, sueldo/vales/neto congelados, nota. El pago se hace en **PC** (turno abierto). Zoom pellizco en toda la PWA. **Re-probar** tras deploy.
 
-**Notas / bugs Parte 4:**
 
--
 
----
+### Parte 5 — Cajera móvil (POS respaldo)
 
-## PARTE 5 — Cajera móvil (opcional, POS respaldo)
+Nunca se arrancó. Selector de locales = también **III B**.
 
-- [ ] Login cajera → selector de local. **Objetivo:** todos los locales activos (FEAT-EMP-01). Si hoy filtra `authorizedStores`, es deuda, no el diseño final. Con 1 solo local en la lista que vea → puede saltar a abrir turno.
-- [ ] Abrir turno → POS.
-- [ ] Venta manual: dropdown abajo, foco en peso. (Mismos UX-MAN-01/02 si se portan: default PLU+precio, teclado en dropdown.)
-- [ ] Confirmar venta → totales coherentes.
+- [ ] Login cajera → selector con **nombres** de locales (no el id). Todos los locales **activos**. Un solo local activo → puede saltar a abrir turno. **Si ya hay turno abierto de esa cuenta en este celu → directo al POS** (no vuelve a preguntar el local).
+- [ ] Abrir turno → POS. Efectivo inicial con autoformateo `1.000` (NumericInput).
+- [ ] Venta manual: sugerencias **arriba** del campo (visibles con teclado). Peso y/o precio como en PC; al elegir producto el foco va al peso.
+- [ ] Confirmar venta → totales coherentes. Cobro: campos **vacíos**; botón ← $resto por medio (como PC). No precargar efectivo = total.
 - [ ] Banner offline; al reconectar resync (catálogo/ventas pendientes). Catálogo móvil = descarga al login/reconectar, **no** en vivo.
-- [ ] Cerrar turno.
+- [ ] Cerrar turno: pide confirmación (total vendido + efectivo esperado). El POS muestra **en caja** en vivo.
+- [ ] Atrás del sistema: cierra modal/pantalla primero; con la pila vacía pregunta “¿salir de la app?”.
 
-**Notas / bugs Parte 5:**
+**No es bug de esta pasada:** el turno abierto en celu **no** aparece como caja activa en PC (`PLAN.md` DT-06). **Pack emergencia (pendiente de confirmar):** gastos + aporte + ventas de este turno + **fiado en el cobro** — `FEAT-MOB-EMERGENCY-01`.
 
--
+### Parte 6 — Sync Desktop ↔ Móvil
+
+Testeo 2026-08-25 (primera pasada). 6.3–6.6 y 6.9–6.11 OK. **Re-probar solo lo roto.**
+
+**Alta de cajeras en móvil (6.5):** **decisión**, no deuda. Auth es Firebase; el alta de cuentas es consola Firebase. El celu solo activa/desactiva.
+
+**Re-probar tras el fix:** (cerrado 2026-08-25)
+
+- [x] **6.1 / 6.2 fechas:** el retiro es el **mismo día civil** en PC y celu. El celu muestra el **turno** (mañana / tarde / horario) en el listado.
+- [x] **Pedidos PC (admin hub):** entrar desde el hub no deja pantalla blanca. Pedidos del celu se listan.
+- [x] **6.7 / Empleados:** hub tile **Empleados**. Misma página, sectores Cajeras y Carniceros (cards compactas; clic abre modal con datos, vales y acciones). Un solo “+” elige tipo. Cajeras tienen sueldo y vales. Vale de cajera en PC → celu.
+- [x] **6.8 fiado:** en celu, al pagar, se pueden combinar medios y hay botón **← $resto** por medio (como en el POS).
+
+
+| #    | Escritura                          | Lectura                                   | Esperado                                                                                 |
+| ---- | ---------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 6.1  | Desktop admin crea pedido          | Móvil Pedidos (↺)                         | Visible. Fecha de retiro = mismo día civil. Turno visible en celu.                       |
+| 6.2  | Móvil admin crea pedido            | Desktop Pedidos                           | Visible. Fecha igual. Turno en listado celu.                                             |
+| 6.3  | Móvil cambia estado pedido         | Desktop Pedidos                           | Estado igual (ya no hay “Listo”; entregado/anulado/Cobrar = Tanda 3)                     |
+| 6.4  | Desktop crea carnicero             | Móvil Empleados → Carniceros              | Visible                                                                                  |
+| 6.5  | Móvil crea carnicero               | Desktop Empleados (↺)                     | Visible. Cajeras **no** se dan de alta en móvil (**decisión**: consola Firebase).        |
+| 6.6  | Desktop cajera: venta + cierre     | Móvil Historial                           | Turno + ventas (señas: III A.5)                                                          |
+| 6.7  | Desktop cajera: vale               | Móvil Empleados → card → vales            | Listado. Cajeras también tienen sueldo/vales. Empleados = sectores + modal, no pestañas. |
+| 6.8  | Desktop: fiado nuevo               | Móvil Fiados                              | Cliente/saldo. Pago en celu mixto + botón de resto.                                      |
+| 6.9  | Móvil: pago proveedor              | Desktop Proveedores                       | Deuda actualizada                                                                        |
+| 6.10 | Desktop: renombra local            | Móvil hub (↺)                             | Nombre nuevo                                                                             |
+| 6.11 | Desktop: alta/precio/baja producto | Móvil POS cajera (login o ↺ / reconectar) | Merge: alta visible, precio nuevo, baja **no** aparece                                   |
+
+
+- [x] 6.1–6.11 (cerrado 2026-08-25)
+
+
+
+### Parte 7 — Regresiones rápidas
+
+Nunca se recorrió. Varios puntos ya están en tandas: al pasar la tanda, tachalos acá.
+
+- [x] Productos eliminados invisibles en todo el sistema (baja **global**). **Bug 2026-08-25:** en PC desaparece; en celu Clientes especiales → Agregar productos seguía apareciendo (a veces **duplicado** con el mismo PLU). Re-probar tras el deploy: no debe listarse ni duplicarse.
+- [x] PLU se libera al eliminar.
+- [x] Eliminar producto = modal custom (nunca diálogo nativo de Windows).
+- [x] Eliminar local = mensaje corto; “eliminados” solo con opt-in (**Tanda 6**).
+- [x] Liquidación semanal sin sección “Vales (remoto)” suelta en hub; vales remotos **dentro** de Liquidación con buscador.
+- [x] Zoom persiste entre sesiones (atajos vs slider = **Tanda 8**).
+- [x] **Ventana de caja a pantalla completa:** agrandá la ventana del punto de venta (el botón de maximizar de Windows, o arrastrar a toda la pantalla). Recorré una venta: carrito, total, botones de cobro y menú tienen que verse y usarse bien, sin que se corten o queden tapados. No es un término técnico raro: es “¿se puede trabajar con la ventana grande?”.
+- [ ] Modales paleta zinc/emerald (**Tanda 9**). Capas aplicadas (página 950 → paneles 800 → filas 700) en: Productos, hub, cobro, empleados, gasto, vale, liquidación, **locales, caja (Turno + Saldar alineado a Vales/Gastos), fiados, clientes especiales, pedidos, proveedores, historial, conteo de stock (formulario + historial)**. Recorrer y marcar si todavía hay pantallas “todo el mismo gris”.
+- [x] **Catálogo merge:** crear un producto en una sesión **no** borra el resto en la otra; ↺ une las listas.
+- [x] **Catálogo merge:** borrar un producto en admin → desaparece en cajera tras ↺.
+- [x] **El recuadro grande de la caja no es un buscador.** Sirve para **escanear el ticket** de la balanza. Para buscar un producto por nombre o PLU: **Menú → Lista**. El placeholder ya no dice “busca”.
+- [x] Cajeras operan en **todos** los locales activos (también III A.6).
+- [ ] **Header de la lista de productos (admin):** al scrollear, las filas **no** se tienen que ver atravesando el encabezado (PLU / Nombre / …). Re-probar.
 
 ---
 
-## PARTE 6 — Sync Desktop ↔ Móvil (2+ dispositivos)
 
-Admin desktop + admin móvil, o cajera desktop + admin móvil.
 
-| # | Escritura | Lectura | Esperado |
-|---|---|---|---|
-| 6.1 | Desktop admin crea pedido | Móvil Pedidos (↺) | Visible |
-| 6.2 | Móvil admin crea pedido | Desktop Pedidos | Visible |
-| 6.3 | Móvil edita estado pedido | Desktop Pedidos | Estado igual |
-| 6.4 | Desktop crea empleado | Móvil Carniceros | Visible |
-| 6.5 | Móvil crea empleado | Desktop Empleados (↺) | Visible |
-| 6.6 | Desktop cajera: venta + cierre | Móvil Historial | Turno + ventas (señas: BUG-HIST-01) |
-| 6.7 | Desktop cajera: vale | Móvil Carniceros → vales | Listado. Distinguir vale efectivo vs productos (BUG-VALE-01) |
-| 6.8 | Desktop admin: fiado nuevo | Móvil Fiados | Cliente/saldo |
-| 6.9 | Móvil admin: pago proveedor | Desktop Proveedores | Deuda actualizada |
-| 6.10 | Desktop admin: renombra local | Móvil hub (↺) | Nombre nuevo |
-| 6.11 | Desktop: alta/precio/baja de producto | Móvil POS cajera (login o ↺ / reconectar) | Catálogo mergeado: alta visible, precio nuevo, baja **no** aparece. No hay editor de catálogo en móvil. |
+## III — Ola 2026-08-18 (re-testeada 2026-08-27)
 
-- [ ] 6.1–6.11
+A.1–A.6 **cerradas en PC**. **B. Móvil (selector de local cajera)** se deja para después.
 
-**Notas / bugs Parte 6:**
+### A.1 Gastos (proveedor)
 
--
+- [x] Visita $1.000.000, entregado **0** (o vacío), nota “No pagué nada” → se guarda. El saldo del proveedor **sube** esa plata. El efectivo de caja **no** cambia.
+- [x] Gasto **sin** proveedor: monto 0 **sigue rechazado** (eso está bien).
+- [x] Visita normal con entregado > 0 sigue funcionando.
+
+
+
+### A.2 Vales
+
+- [x] Vale en **efectivo** $10.000 → el efectivo esperado baja $10.000. Aparece en Gastos.
+- [x] Vale **con productos** (ej. 2 kg asado) → **no** baja caja y **no** aparece como gasto. Sigue sumando en Liquidación. Autocomplete / anular / pestaña Vales = **Tanda 4**.
+
+
+
+### A.3 POS y ventas del turno
+
+- [x] Carga **manual**: no aparece mensaje tipo “X agregado”.
+- [x] Al abrir Manual, la pestaña de la izquierda es **PLU + precio**.
+- [x] Quitar un ítem: solo la cruz, sin la palabra “Eliminar”.
+- [x] El botón grande dice **Cobrar**. Enter **no** cobra.
+- [x] Confirmá una venta en efectivo. Anulala desde “Ventas del turno”. El monto “en caja” baja **inmediatamente**.
+
+
+
+### A.4 Abrir turno / hub
+
+- [x] Mañana vs Tarde: el elegido se ve verde (borde/fondo), el otro gris.
+- [x] Si hay más de un local: al pasar el mouse se ve borde verde.
+- [x] Hub admin → **Asistencia** se ve igual de activa que Historial (no “apagada”) y abre el modal.
+
+
+
+### A.5 Historial (señas)
+
+Repetí (o mirá un turno viejo equivalente):
+
+1. Pedido A: seña $40.000 efectivo → cancelar (queda gasto “Devolución de seña”).
+2. Pedido B: seña $30.000 ($20.000 efectivo + $10.000 débito) → **no** cancelar.
+3. Cierre: efectivo esperado debería ser **$20.000** de la seña B (el débito no cuenta).
+4. Historial de ese turno:
+  - [x] Tab **Señas** lista A (anulado) y B.
+     [x] Efectivo esperado **igual al del cierre** (no −$40.000).
+     [x] Tab **Fiados** muestra los fiados/cobros de ese turno si los hubo.
+
+También con `pnpm electron:remote` (otra PC simulada):
+
+- [x] El detalle del mismo turno muestra señas y un efectivo esperado coherente (ya no Señas 0).
+
+
+
+### A.6 Conteo y cajeras
+
+- [x] Nuevo conteo: scrolleá la lista. El buscador **no** deja ver productos atrás (fondo opaco).
+- [x] Historial de conteos → abrir un detalle → el buscador filtra esa lista.
+- [x] Cajeras: en el POS puede elegir cualquier local activo. Conteo por local + filas vacías + ± kg = **Tanda 1**.
+
+
+
+### B. Móvil — selector de local (cajera)
+
+Pendiente (no es esta pasada). Hace falta `pnpm mobile:deploy`. Probar en Hosting (cajera):
+
+- [ ] Login cajera → selector con **nombres** de locales. Si hay un solo local activo, puede saltear el selector.
+- [ ] Con 2+ locales, se ven todos los activos.
+- [ ] Offline: si ya habías abierto la app online, el selector usa la lista cacheada.
 
 ---
 
-## PARTE 7 — Regresiones rápidas (sesión de cambios)
 
-Checklist express de lo que se tocó y de las decisiones vigentes:
 
-- [ ] Productos eliminados invisibles en todo el sistema (baja **global**).
-- [ ] PLU se libera al eliminar.
-- [ ] Eliminar producto = modal custom (nunca `window.confirm` de Windows).
-- [ ] Eliminar local = mensaje corto; “eliminados” solo si hay opt-in (UX-STO-01).
-- [ ] Liquidación semanal sin sección “Vales (remoto)” suelta en hub.
-- [ ] Vales remotos integrados en Liquidación con buscador.
-- [ ] Zoom persiste entre sesiones (atajos Ctrl+/- vs modal: BUG-ZOOM-01).
-- [ ] Maximizar ventana POS: layout usable en 1920×1080 o tu resolución.
-- [ ] Modales (Vales, Gastos, Fiados, cierre, etc.) paleta zinc/emerald (no blue/amber/orange).
-- [ ] **Catálogo merge:** crear un producto en una sesión **no** borra el resto en la otra; ↺ une las listas.
-- [ ] **Catálogo merge:** borrar un producto en admin → desaparece en cajera tras ↺ (todas las PCs).
-- [ ] Hero POS no es buscador (búsqueda = Menú → Lista).
-- [ ] Cajeras: no validar “locales autorizados” como regla de negocio.
+## IV — Tandas (backlog grande, 2026-08-18/19)
 
-**Notas / bugs Parte 7:**
+Re-probar cada tanda una vez (misma pantalla junta).
 
--
+### Tanda 1 — Conteo
+
+- [x] Admin desde el hub: **hay que elegir local** antes de guardar. El modal muestra el nombre del local.
+- [x] Cajera: el local es el del turno (se ve, no se elige).
+- [x] Copy: “si lo dejás vacío, no entra en el conteo”. Filas vacías **no** se guardan. Packs/ofertas **siguen visibles**.
+- [x] Botones **+/−** en kg (0,1 kg) sobre el peso. (Esto era como funcionaba antes. Ya no funciona así sino de la forma deseada, y lo hace correctamente)
+
+
+
+### Tanda 2 — Sync fiados y precios especiales
+
+- [x] ↺ en POS recarga la lista de **fiados**. Un pago hecho en admin/otra PC aparece.
+- [x] ↺ también refresca esa lista de clientes especiales.
+
+- Selector de **cliente especial** en el POS (auto-aplica precios): **oculto** 2026-08-27 a propósito. Consulta = Menú → Clientes especiales. Código vivo: `SHOW_SPECIAL_CUSTOMER_POS_SELECTOR` en `CashierScreen.tsx` / `PLAN.md` FEAT-SPECIAL-POS-SELECTOR-01. **No testear** el desplegable hasta reactivarlo.
+
+
+
+### Tanda 3 — Pedidos (Cobrar)
+
+**Rework pendiente de codear** (diseño cerrado 2026-08-27; no está en la app todavía). El Cobrar de hoy **no** es este flujo: `items` es texto libre y pide el resto a mano.
+
+**Diseño acordado:**
+
+- Al crear: descripción **y** carrito de **presupuesto** (producto + kg/u. aproximados; total estimado en vivo). Esos kg **no** son la venta.
+- Al retirar (cajera, turno abierto): **modal** para tipear kg/u. reales (campos vacíos + placeholder del estimado; se pueden sacar líneas). Sin escaneo en ese modal.
+- Al confirmar el modal: el **POS** queda con el carrito armado (precio de **lista al retirar**, total, seña descontada). Se pueden agregar más ítems (escaneo / Manual) como una venta normal.
+- Siempre hay **venta** con los kilos reales. Si la seña cubre el total → $0 a cobrar ahora (la seña ya entró al crear el pedido).
+- Seña de más (sacó productos y el total quedó bajo la seña): **no** se devuelve sola. La seña reserva; si no se lleva, se queda. Caso excepcional (merma, culpa del local): la cajera registra un **Gasto** de devolución a mano. No hace falta un flujo extra en Cobrar.
+- Cancelar el carrito del pedido: sin venta; el pedido sigue pendiente.
+- **Solo PC.** Celu después.
+- Precio al cobrar = lista al momento del retiro.
+
+Cuando esté en la app, probar en PC (cajera, turno abierto):
+
+- [ ] Crear pedido: nombre/teléfono/fecha/seña **y** un **carrito de presupuesto** (producto + kg o unidades aproximados). El total estimado se actualiza en vivo. La descripción libre sigue como nota.
+- [ ] Los kg/unidades del presupuesto **no** se usan como cantidad de la venta (solo placeholder).
+- [ ] Card → Cobrar → **modal**: líneas precargadas, cantidades vacías, placeholder del estimado; se puede sacar un producto. Sin escaneo en el modal.
+- [ ] Confirmar el modal → POS con carrito, precios de lista y total. En **Total de la venta** se descuenta la seña. Se pueden agregar ítems extra (escaneo / Manual).
+- [ ] **Cancelar el carrito del pedido**: no hay venta; el pedido sigue pendiente.
+- [ ] Seña cubre el total → venta igual (kilos reales), $0 a cobrar ahora, pedido entregado.
+- [ ] Seña de más (sacó productos): **no** pide devolución. La diferencia se queda. Si el local decide devolver: **Gasto** a mano.
+- [ ] Sin turno abierto y hay resto a cobrar → mensaje de abrir turno. No se cobra de nuevo un pedido ya entregado.
+- [ ] Ya **no** se ve “Marcar listo” (desktop).
+
+
+
+### Tanda 4 — Vales
+
+- [x] Autocomplete de producto (nombre o PLU), no lista desplegable ni `type="number"`.
+- [x] **Anular** vale: no se borra. Efectivo → contra-asiento de caja (el original sigue). Productos → deja de descontar en liquidación.
+- [x] Historial de turno: pestaña **Vales** (local y remoto).
+
+
+
+### Tanda 5 — Empleados
+
+- [x] Hub: **un solo tile Empleados**. Adentro, dos sectores: Cajeras y Carniceros (mismo diseño de cards; detalle en modal). Igual en móvil.
+- [ ] Liquidación: quien ya cobró **esta semana (lun–dom)** sigue en la lista con badge **Pagado** (también en otras PCs/sesiones). **No** hay botón de pagar de nuevo. El CTA de pagar es verde emerald. El lunes siguiente es otra semana: vuelve a aparecer para pagar (no “a los 7 días”).
+- [ ] ← semanas anteriores = **solo archivo**. No aparece **Pagar**. Un texto aclara que el pago es de la semana en curso.
+
+
+
+### Tanda 6 — Catálogo y locales
+
+- [ ] Catálogo: encabezado de tabla **fijo** al scrollear. Clic en columnas **ordena**.
+- [ ] Editar producto: precios de **todos** los locales precargados y se guardan (no solo el de la pestaña).
+- [ ] Locales: “Ver eliminados” como carniceros archivados (opt-in, no sección colapsable abajo).
+
+
+
+### Tanda 7 — Proveedores y cierre
+
+- [ ] Proveedores: paleta zinc/emerald, **teléfono visible**, saldar/ajustar/registrar en modales aparte, compensar entre locales. Re-probar UX 2026-08-20: local vacío si hay 2+; gasto más ancho + a favor en verde; comprobante aclara saldo a favor; Saldar deshabilitado en pestaña sin deuda; historial PC paginado; Saldar cajera más alto + compensación opcional; aviso de nombre existente (sin UUID).
+- [ ] Cierre de turno: paleta alineada, sin pulse de carga, modal de confirmación anclado al viewport (no se corta).
+
+
+
+### Tanda 8 — Nav, menú, zoom, hub
+
+- [ ] Entrar/salir de una sección dispara el mismo refresh que ↺.
+- [ ] POS: **un** botón Menú (ya no hay Ajustes duplicado).
+- [ ] Ctrl+/− actualiza el valor del slider de zoom en Ajustes.
+- [ ] Hub: al expandir un grupo, scrollea a la vista. La scrollbar no salta el layout.
+
+
+
+### Tanda 9 — Paleta (re-testeo visual único)
+
+Capas 950 / 800 / 700 aplicadas también a locales, caja, fiados, clientes especiales, pedidos, proveedores, historial y conteo. Recorrer de punta a punta mirando:
+
+- [ ] Fondo menos negro (ya no “negro puro”).
+- [ ] Header de sección: flecha + fondo (mismo patrón).
+- [ ] CTAs de modales zinc/emerald, sin azul viejo.
+- [ ] Caja: sidebar/carrito/total distintos del fondo; **Turno** ya no usa gray-*; **Saldar** mismo gris que Vales/Gastos.
+
+
+
+### Móvil (Hosting) — tandas
+
+Hay cambio de capas zinc (locales, fiados, clientes, pedidos, proveedores, historial) además del hub. Hace falta `pnpm mobile:deploy`.
+
+- [ ] Hub admin: un tile **Personal** con pestañas Cajeras / Carniceros.
+- [ ] Pedidos: no aparece Listo; pending → entregado / anulado.
 
 ---
 
-## Orden sugerido cuando se pase a código (no ahora)
 
-1. UX transversal: scrollbar/salto, headers, paleta/fondo, modales unificados, refresh al navegar.
-2. Bugs: zoom UI, historial señas, precios especiales → cajera, fiados admin→cajera, pull PLU (re-test post-merge), searchbar conteo, asistencia clickeable, gasto entregado=0, vale-productos vs caja.
-3. Producto: fusión empleados, **quitar locales autorizados**, pedidos Cobrar−seña, proveedores, stock +/- y ofertas, precios multi-local al editar, POS (cruz/Cobrar/tabs/dropdown), vales UX, menú vs ajustes, pago empleado, modal Turno/cierre.
-4. Catálogo: merge ya en código. **En vivo (listener) = BLOQUE I-A**, no ahora. FEAT-CAT-03 backup **no ahora**. Spark $0; medir Usage en jornada real.
+
+## Cómo anotar si algo no cierra
+
+- **Conteo:** si guarda filas vacías o el admin puede guardar sin local, es Tanda 1.
+- **Fiado:** si ↺ no trae el pago, Tanda 2. El desplegable de cliente especial en el POS está oculto (`FEAT-SPECIAL-POS-SELECTOR-01`); no es bug.
+- **Pedido cobrado dos veces o seña duplicada en caja:** Tanda 3 (cuando exista el flujo nuevo; el Cobrar actual no es el deseado).
+- **Anular vale borra el gasto original o sigue descontando en liquidación:** Tanda 4.
+- **Caja vs historial (señas mixtas):** III A.5. Si no coinciden, anotá turno + montos.
+- **Vale productos vs caja:** si baja caja, es III A.2.
+- **Proveedores (archivar vs borrar deuda, pago por local, “A favor”):** II 4.2.
+- **Sync celu↔PC:** Parte 6.
+

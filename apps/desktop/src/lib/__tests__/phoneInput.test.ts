@@ -55,17 +55,17 @@ describe('formatPhoneInput', () => {
     expect(formatPhoneInput('11456')).toBe('11456')
   })
 
-  it('formatea CABA (11) como "11 XXXX-XXXX"', () => {
-    expect(formatPhoneInput('1145678901')).toBe('11 4567-8901')
+  it('formatea CABA (11) como "11-XXXX-XXXX"', () => {
+    expect(formatPhoneInput('1145678901')).toBe('11-4567-8901')
   })
 
   it('formatea +54 pegado (12 dígitos) correctamente', () => {
-    expect(formatPhoneInput('+54 11 4567-8901')).toBe('11 4567-8901')
-    expect(formatPhoneInput('541145678901')).toBe('11 4567-8901')
+    expect(formatPhoneInput('+54 11 4567-8901')).toBe('11-4567-8901')
+    expect(formatPhoneInput('541145678901')).toBe('11-4567-8901')
   })
 
   it('formatea con 0 inicial de discado', () => {
-    expect(formatPhoneInput('01145678901')).toBe('11 4567-8901')
+    expect(formatPhoneInput('01145678901')).toBe('11-4567-8901')
   })
 
   it('formatea área de 3 dígitos como "XXX XXX-XXXX"', () => {
@@ -86,6 +86,7 @@ describe('formatPhoneInput', () => {
   })
 
   it('acepta número ya formateado sin romper la idempotencia', () => {
-    expect(formatPhoneInput('11 4567-8901')).toBe('11 4567-8901')
+    expect(formatPhoneInput('11-4567-8901')).toBe('11-4567-8901')
+    expect(formatPhoneInput('11 4567-8901')).toBe('11-4567-8901')
   })
 })

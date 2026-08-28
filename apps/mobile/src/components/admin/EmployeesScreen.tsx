@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useOnlineStatus } from '../../lib/connectivity'
+import { useBackLayer } from '../../lib/backStack'
 import {
   ScreenHeader,
   OfflineBanner,
@@ -7,11 +8,10 @@ import {
   Spinner,
   EmptyState,
   Modal,
+  ConfirmModal,
   Btn,
   LabeledInput,
-  StoreSelector,
-  filterDigits,
-  parseDigits,
+  LabeledNumericInput,
 } from './shared'
 import {
   fetchEmployees,
@@ -24,31 +24,42 @@ import {
   formatDate,
   type Employee,
   type EmployeeVale,
-  type StoreDoc,
 } from '../../lib/adminFirestore'
+import { parseNumericInput, formatNumericInputValue } from '../../lib/numericInput'
+import type { LocalProfile } from '../../types/pos'
 
 interface Props {
   onBack: () => void
-  stores: StoreDoc[]
+  profile: LocalProfile
+  embedded?: boolean
+  kind?: 'butcher' | 'cashier'
+  hideCreate?: boolean
+  onOpenPayroll?: () => void
 }
 
-export function EmployeesScreen({ onBack, stores }: Props) {
+export function EmployeesScreen({
+  onBack,
+  profile,
+  embedded = false,
+  kind,
+  hideCreate = false,
+  onOpenPayroll,
+}: Props) {
   const online = useOnlineStatus()
-  const activeStores = stores.filter(s => !s.archivedAt)
-  const [storeId, setStoreId] = useState<string>(() => activeStores[0]?.id ?? '')
+  useBackLayer(!embedded, onBack)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showArchived, setShowArchived] = useState(false)
+  const [listMode, setListMode] = useState<'active' | 'archived'>('active')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Employee | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
-  const load = useCallback(async (sid: string) => {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const list = await fetchEmployees(sid || undefined)
+      const list = await fetchEmployees()
       setEmployees(list)
     } catch {
       setError('No se pudieron cargar los empleados.')
@@ -58,53 +69,75 @@ export function EmployeesScreen({ onBack, stores }: Props) {
   }, [])
 
   useEffect(() => {
-    void load(storeId)
-  }, [storeId, load])
+    void load()
+  }, [load])
 
   const displayed = employees.filter(e => {
-    if (!showArchived && e.archivedAt) return false
+    if (listMode === 'active' ? e.archivedAt : !e.archivedAt) return false
+    if (kind && (e.kind === 'cashier' ? 'cashier' : 'butcher') !== kind) return false
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 
-  const storeMap = new Map(stores.map(s => [s.id, s.name]))
+  const roleLabel = kind === 'cashier' ? 'cajeras' : 'carniceros'
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
-      <ScreenHeader
-        title="Carniceros"
-        onBack={onBack}
-        action={
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition-colors"
-            aria-label="Nuevo empleado"
-          >
-            +
-          </button>
-        }
-      />
+    <div className={`flex ${embedded ? '' : 'h-full min-h-0'} flex-col bg-zinc-950 text-zinc-100`}>
+      {embedded ? (
+        <div className="flex items-center justify-end gap-2 border-b border-zinc-800 px-4 py-2">
+          {listMode === 'active' && onOpenPayroll && (
+            <button
+              type="button"
+              onClick={onOpenPayroll}
+              className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              title="Sueldo menos vales de la semana"
+            >
+              Liquidación
+            </button>
+          )}
+          {!hideCreate && (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition-colors"
+              aria-label="Nuevo empleado"
+            >
+              +
+            </button>
+          )}
+        </div>
+      ) : (
+        <ScreenHeader
+          title="Carniceros"
+          onBack={onBack}
+          action={
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition-colors"
+              aria-label="Nuevo empleado"
+            >
+              +
+            </button>
+          }
+        />
+      )}
 
       {!online && <OfflineBanner />}
 
-      <StoreSelector
-        stores={activeStores}
-        value={storeId}
-        onChange={id => { setStoreId(id); setSelected(null) }}
-        allowAll
-      />
-
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
-        <button
-          type="button"
-          onClick={() => setShowArchived(p => !p)}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-            showArchived ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          {showArchived ? 'Con archivados' : 'Activos'}
-        </button>
+        {(['active', 'archived'] as const).map(mode => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setListMode(mode)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              listMode === mode ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            {mode === 'active' ? 'Activos' : 'Eliminados'}
+          </button>
+        ))}
         <input
           type="text"
           value={search}
@@ -114,11 +147,11 @@ export function EmployeesScreen({ onBack, stores }: Props) {
         />
       </div>
 
-      <main className="flex-1 px-4 py-4">
-        {error && <ErrorBanner message={error} onRetry={() => void load(storeId)} />}
+      <main className="px-4 py-4">
+        {error && <ErrorBanner message={error} onRetry={() => void load()} />}
         {loading && <Spinner />}
         {!loading && !error && displayed.length === 0 && (
-          <EmptyState message="No hay empleados." />
+          <EmptyState message={listMode === 'archived' ? `No hay ${roleLabel} eliminados.` : `No hay ${roleLabel}.`} />
         )}
         {!loading && !error && displayed.length > 0 && (
           <ul className="space-y-2">
@@ -140,16 +173,10 @@ export function EmployeesScreen({ onBack, stores }: Props) {
                     >
                       {emp.name}
                     </span>
-                    {emp.archivedAt && (
-                      <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-500">
-                        Archivado
-                      </span>
-                    )}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-3 text-xs text-zinc-500">
-                    <span>{storeMap.get(emp.storeId) ?? emp.storeId}</span>
-                    <span className="font-mono">{formatMoney(emp.salary)}/mes</span>
-                  </div>
+                  <p className="mt-0.5 font-mono text-xs text-zinc-500">
+                    {formatMoney(emp.weeklyWage)}/semana
+                  </p>
                 </button>
               </li>
             ))}
@@ -165,28 +192,24 @@ export function EmployeesScreen({ onBack, stores }: Props) {
             setEmployees(prev => prev.map(e => e.id === updated.id ? updated : e))
             setSelected(updated)
           }}
-          onRefresh={() => void load(storeId)}
+          onRefresh={() => void load()}
         />
       )}
 
       {showCreate && (
         <CreateEmployeeModal
-          stores={activeStores}
-          defaultStoreId={storeId}
+          createdBy={profile.uid}
+          kind={kind ?? 'butcher'}
           onClose={() => setShowCreate(false)}
           onCreate={async () => {
             setShowCreate(false)
-            void load(storeId)
+            void load()
           }}
         />
       )}
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Employee detail modal
-// ---------------------------------------------------------------------------
 
 interface EmployeeDetailModalProps {
   employee: Employee
@@ -205,8 +228,9 @@ function EmployeeDetailModal({
   const [loadingVales, setLoadingVales] = useState(true)
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(employee.name)
-  const [editSalaryInput, setEditSalaryInput] = useState(String(employee.salary))
+  const [editWageInput, setEditWageInput] = useState(formatNumericInputValue(String(employee.weeklyWage)))
   const [savingEdit, setSavingEdit] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
 
   const loadVales = useCallback(async () => {
     setLoadingVales(true)
@@ -225,17 +249,15 @@ function EmployeeDetailModal({
   const handleSaveEdit = async () => {
     if (!editName.trim()) return
     setSavingEdit(true)
-    const salary = parseDigits(editSalaryInput)
-    await updateEmployee(employee.id, { name: editName.trim(), salary })
-    onUpdated({ ...employee, name: editName.trim(), salary })
+    const weeklyWage = parseNumericInput(editWageInput) ?? 0
+    await updateEmployee(employee.id, { name: editName.trim(), weeklyWage })
+    onUpdated({ ...employee, name: editName.trim(), weeklyWage, salary: weeklyWage })
     onRefresh()
     setEditing(false)
     setSavingEdit(false)
   }
 
   const handleArchiveToggle = async () => {
-    const action = employee.archivedAt ? 'restaurar' : 'archivar'
-    if (!confirm(`¿Querés ${action} a ${employee.name}?`)) return
     if (employee.archivedAt) {
       await unarchiveEmployee(employee.id)
       onUpdated({ ...employee, archivedAt: null })
@@ -259,11 +281,10 @@ function EmployeeDetailModal({
               onChange={setEditName}
               maxLength={100}
             />
-            <LabeledInput
-              label="Sueldo mensual ($)"
-              value={editSalaryInput}
-              onChange={v => setEditSalaryInput(filterDigits(v))}
-              inputMode="numeric"
+            <LabeledNumericInput
+              label="Sueldo semanal ($)"
+              value={editWageInput}
+              onChange={setEditWageInput}
             />
             <div className="flex gap-2">
               <Btn className="flex-1" onClick={handleSaveEdit} loading={savingEdit}>
@@ -275,7 +296,7 @@ function EmployeeDetailModal({
                 onClick={() => {
                   setEditing(false)
                   setEditName(employee.name)
-                  setEditSalaryInput(String(employee.salary))
+                  setEditWageInput(formatNumericInputValue(String(employee.weeklyWage)))
                 }}
               >
                 Cancelar
@@ -287,7 +308,7 @@ function EmployeeDetailModal({
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-sm text-zinc-400">Sueldo:</span>
               <span className="font-mono font-semibold text-zinc-100">
-                {formatMoney(employee.salary)}/mes
+                {formatMoney(employee.weeklyWage)}/semana
               </span>
             </div>
             <button
@@ -300,7 +321,6 @@ function EmployeeDetailModal({
           </div>
         )}
 
-        {/* Vales summary */}
         <div>
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs text-zinc-500 uppercase tracking-wide">
@@ -339,35 +359,49 @@ function EmployeeDetailModal({
         <Btn
           variant={employee.archivedAt ? 'ghost' : 'danger'}
           className="w-full"
-          onClick={handleArchiveToggle}
+          onClick={() => setConfirmArchive(true)}
         >
-          {employee.archivedAt ? 'Restaurar empleado' : 'Archivar empleado'}
+          {employee.archivedAt
+            ? (employee.kind === 'cashier' ? 'Restaurar cajera' : 'Restaurar carnicero')
+            : (employee.kind === 'cashier' ? 'Eliminar cajera' : 'Eliminar carnicero')}
         </Btn>
       </div>
+
+      {confirmArchive && (
+        <ConfirmModal
+          title={employee.archivedAt
+            ? (employee.kind === 'cashier' ? 'Restaurar cajera' : 'Restaurar carnicero')
+            : (employee.kind === 'cashier' ? 'Eliminar cajera' : 'Eliminar carnicero')}
+          message={
+            employee.archivedAt
+              ? `¿Restaurar a ${employee.name}?`
+              : `¿Estás seguro que querés eliminar ${employee.name}?`
+          }
+          confirmLabel={employee.archivedAt ? 'Restaurar' : 'Eliminar'}
+          danger={!employee.archivedAt}
+          onClose={() => setConfirmArchive(false)}
+          onConfirm={handleArchiveToggle}
+        />
+      )}
     </Modal>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Create employee modal
-// ---------------------------------------------------------------------------
-
 interface CreateEmployeeModalProps {
-  stores: StoreDoc[]
-  defaultStoreId: string
+  createdBy: string
+  kind: 'butcher' | 'cashier'
   onClose: () => void
   onCreate: () => Promise<void>
 }
 
 function CreateEmployeeModal({
-  stores,
-  defaultStoreId,
+  createdBy,
+  kind,
   onClose,
   onCreate,
 }: CreateEmployeeModalProps) {
-  const [storeId, setStoreId] = useState(defaultStoreId || (stores[0]?.id ?? ''))
   const [name, setName] = useState('')
-  const [salaryInput, setSalaryInput] = useState('')
+  const [wageInput, setWageInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -377,17 +411,14 @@ function CreateEmployeeModal({
       setErr('El nombre es obligatorio.')
       return
     }
-    if (!storeId) {
-      setErr('Seleccioná un local.')
-      return
-    }
     setSaving(true)
     setErr(null)
     try {
       await createEmployee({
         name: name.trim(),
-        salary: parseDigits(salaryInput),
-        storeId,
+        weeklyWage: parseNumericInput(wageInput) ?? 0,
+        createdBy,
+        kind,
       })
       await onCreate()
     } catch {
@@ -397,24 +428,8 @@ function CreateEmployeeModal({
   }
 
   return (
-    <Modal title="Nuevo carnicero" onClose={onClose}>
+    <Modal title={kind === 'cashier' ? 'Nueva cajera (sueldo)' : 'Nuevo carnicero'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3">
-        {stores.length > 1 && (
-          <label className="block">
-            <span className="mb-1 block text-sm text-zinc-400">Local</span>
-            <select
-              value={storeId}
-              onChange={e => setStoreId(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
-            >
-              {stores.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         <LabeledInput
           label="Nombre *"
           value={name}
@@ -423,12 +438,11 @@ function CreateEmployeeModal({
           maxLength={100}
           required
         />
-        <LabeledInput
-          label="Sueldo mensual ($)"
-          value={salaryInput}
-          onChange={v => setSalaryInput(filterDigits(v))}
+        <LabeledNumericInput
+          label="Sueldo semanal ($)"
+          value={wageInput}
+          onChange={setWageInput}
           placeholder="0"
-          inputMode="numeric"
         />
         {err && (
           <p className="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/80">

@@ -12,14 +12,13 @@ interface Props {
   initStatus: InitStatus
   onGoToAdminPanel: () => void
   onGoToCashier: () => void
-  onGoToCashierManagement: () => void
+  onGoToStaff: () => void
   onGoToStoreManagement: () => void
   onGoToDebts: () => void
   onGoToSpecialCustomers: () => void
   onGoToOrders: () => void
   onGoToHistory: () => void
   onGoToProviders: () => void
-  onGoToEmployees: () => void
   onGoToStockCounts: () => void
   onLogout: () => void
 }
@@ -40,8 +39,8 @@ function Tile({ icon, accent, label, description, onClick, muted }: TileProps) {
       onClick={onClick}
       className={`group flex items-center gap-3 rounded-xl border p-3.5 text-left transition-all active:scale-[0.98] ${
         muted
-          ? 'border-zinc-800/60 bg-zinc-900/40 opacity-60 hover:opacity-80 hover:bg-zinc-900 hover:border-zinc-800'
-          : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800/80 hover:border-zinc-700'
+          ? 'border-zinc-800/60 bg-zinc-800/40 opacity-60 hover:opacity-80 hover:bg-zinc-800 hover:border-zinc-700'
+          : 'border-zinc-700 bg-zinc-800 hover:bg-zinc-700/80 hover:border-zinc-600'
       }`}
     >
       <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl ${accent}`}>
@@ -79,9 +78,13 @@ interface GroupTileProps {
 }
 
 function GroupTile({ icon, accent, label, description, options, expanded, onToggle }: GroupTileProps) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (expanded) boxRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [expanded])
   return (
-    <div className={`rounded-xl border transition-all duration-150 ${
-      expanded ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-800 bg-zinc-900'
+    <div ref={boxRef} className={`rounded-xl border transition-all duration-150 ${
+      expanded ? 'border-zinc-600 bg-zinc-800' : 'border-zinc-700 bg-zinc-800'
     }`}>
       <button
         type="button"
@@ -137,21 +140,20 @@ export default function AdminHubScreen({
   initStatus,
   onGoToAdminPanel,
   onGoToCashier,
-  onGoToCashierManagement,
+  onGoToStaff,
   onGoToStoreManagement,
   onGoToDebts,
   onGoToSpecialCustomers,
   onGoToOrders,
   onGoToHistory,
   onGoToProviders,
-  onGoToEmployees,
   onGoToStockCounts,
   onLogout,
 }: Props) {
   const [showAttendance, setShowAttendance] = useState(false)
   const [showStockCount, setShowStockCount] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const [expandedGroup, setExpandedGroup] = useState<'employees' | 'stock' | null>(null)
+  const [expandedGroup, setExpandedGroup] = useState<'stock' | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [uiSettings, setUiSettings] = useState<UiSettings>({ zoomFactor: 1.0 })
   const settingsBtnRef = useRef<HTMLButtonElement>(null)
@@ -160,6 +162,7 @@ export default function AdminHubScreen({
     void window.hw.getUiSettings().then(r => {
       if (r.ok) setUiSettings(r.data)
     })
+    return window.hw.onUiSettingsChanged(settings => setUiSettings(settings))
   }, [])
 
   async function handleSetZoom(factor: number): Promise<void> {
@@ -168,7 +171,7 @@ export default function AdminHubScreen({
     if (r.ok) setUiSettings(r.data)
   }
 
-  function toggleGroup(g: 'employees' | 'stock') {
+  function toggleGroup(g: 'stock') {
     setExpandedGroup(v => (v === g ? null : g))
   }
 
@@ -301,7 +304,7 @@ export default function AdminHubScreen({
       </header>
 
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto w-full max-w-5xl px-8 py-5 space-y-4">
 
           {/* Primary action */}
@@ -330,18 +333,7 @@ export default function AdminHubScreen({
             <div className="grid grid-cols-2 gap-2">
               <Tile icon="⚙️" accent="bg-red-600/15" label="Panel de administración" description="Productos, precios y disponibilidad" onClick={onGoToAdminPanel} />
               <Tile icon="🏪" accent="bg-teal-600/15" label="Gestión de locales" description="Locales registrados en el sistema" onClick={onGoToStoreManagement} />
-              <GroupTile
-                icon="👥"
-                accent="bg-blue-600/15"
-                label="Empleados"
-                description="Cajeras y carniceros — cuentas, sueldos y liquidación"
-                expanded={expandedGroup === 'employees'}
-                onToggle={() => toggleGroup('employees')}
-                options={[
-                  { icon: '💳', label: 'Cajeras', description: 'Cuentas, locales y accesos', onClick: onGoToCashierManagement },
-                  { icon: '👷', label: 'Carniceros', description: 'Alta, sueldo y liquidación semanal', onClick: onGoToEmployees },
-                ]}
-              />
+              <Tile icon="👥" accent="bg-blue-600/15" label="Empleados" description="Cajeras y carniceros — cuentas, sueldos y liquidación" onClick={onGoToStaff} />
             </div>
           </div>
 
@@ -365,7 +357,7 @@ export default function AdminHubScreen({
             </p>
             <div className="grid grid-cols-2 gap-2">
               <Tile icon="📊" accent="bg-sky-600/15" label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
-              <Tile icon="✓" accent="bg-teal-600/15" label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} muted />
+              <Tile icon="✓" accent="bg-teal-600/15" label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} />
               <GroupTile
                 icon="⚖️"
                 accent="bg-cyan-600/15"

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildItemFromBarcode } from '../barcodeItem'
+import { buildItemFromBarcode, applySpecialUnitPrice } from '../barcodeItem'
 import type { ProductRow } from '../../types/hw-api'
 
 const kgProduct: ProductRow = {
@@ -65,5 +65,22 @@ describe('buildItemFromBarcode — producto por unidad', () => {
     const item = buildItemFromBarcode(1, 12000, unitProduct)
     expect(item.weightKg).toBe(2)
     expect(item.priceDiscrepancy).toBe(false)
+  })
+})
+
+describe('applySpecialUnitPrice', () => {
+  it('recalcula subtotal conservando el peso', () => {
+    const item = buildItemFromBarcode(5, 17535, kgProduct)
+    const priced = applySpecialUnitPrice(item, 18000)
+    expect(priced.weightKg).toBeCloseTo(item.weightKg, 5)
+    expect(priced.unitPrice).toBe(18000)
+    expect(priced.subtotal).toBe(Math.round(item.weightKg * 18000))
+    expect(priced.priceDiscrepancy).toBe(true)
+  })
+
+  it('no cambia si no hay precio especial', () => {
+    const item = buildItemFromBarcode(5, 17535, kgProduct)
+    expect(applySpecialUnitPrice(item, undefined)).toEqual(item)
+    expect(applySpecialUnitPrice(item, 0)).toEqual(item)
   })
 })

@@ -22,6 +22,18 @@ const UNIT_LABELS: Record<string, string> = {
   unit: 'por unidad',
 }
 
+function ProductsListColgroup() {
+  return (
+    <colgroup>
+      <col className="w-14" />
+      <col />
+      <col className="w-24" />
+      <col className="w-24" />
+      <col className="w-20" />
+    </colgroup>
+  )
+}
+
 interface Props {
   onClose: () => void
 }
@@ -78,7 +90,7 @@ export default function ProductsListModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh]">
+      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh]">
         <div className="flex items-center justify-between border-b border-zinc-700 px-5 py-3">
           <div>
             <h2 className="text-sm font-bold text-white">Catálogo de productos</h2>
@@ -109,7 +121,7 @@ export default function ProductsListModal({ onClose }: Props) {
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col">
           {loading && (
             <p className="py-8 text-center text-xs text-zinc-500">Cargando catálogo…</p>
           )}
@@ -122,52 +134,62 @@ export default function ProductsListModal({ onClose }: Props) {
             </p>
           )}
           {!loading && !error && sorted.length > 0 && (
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-800">
-                <tr>
-                  <th
-                    className="px-5 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none w-14"
-                    onClick={() => handleSort('pluNumber')}
-                  >
-                    PLU <SortIcon col="pluNumber" />
-                  </th>
-                  <th
-                    className="px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none"
-                    onClick={() => handleSort('name')}
-                  >
-                    Producto <SortIcon col="name" />
-                  </th>
-                  <th
-                    className="px-3 py-2 text-right font-semibold text-zinc-400 cursor-pointer hover:text-white select-none w-24"
-                    onClick={() => handleSort('price')}
-                  >
-                    Precio <SortIcon col="price" />
-                  </th>
-                  <th
-                    className="px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none"
-                    onClick={() => handleSort('category')}
-                  >
-                    Cat. <SortIcon col="category" />
-                  </th>
-                  <th className="px-5 py-2 text-right font-semibold text-zinc-400 w-20">
-                    Unidad
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map(p => (
-                  <tr key={p.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
-                    <td className="px-5 py-2 font-bold text-orange-400">{p.pluNumber}</td>
-                    <td className="px-3 py-2 text-white">{p.name}</td>
-                    <td className="px-3 py-2 text-right text-amber-300 font-medium">
-                      {p.price != null ? formatARS(p.price) : '—'}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                    <td className="px-5 py-2 text-right text-zinc-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              <div className="shrink-0 [scrollbar-gutter:stable]">
+                <table className="w-full border-separate border-spacing-0 text-xs">
+                  <ProductsListColgroup />
+                  <thead>
+                    <tr>
+                      <th
+                        className="bg-zinc-800 px-5 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        onClick={() => handleSort('pluNumber')}
+                      >
+                        PLU <SortIcon col="pluNumber" />
+                      </th>
+                      <th
+                        className="bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        onClick={() => handleSort('name')}
+                      >
+                        Producto <SortIcon col="name" />
+                      </th>
+                      <th
+                        className="bg-zinc-800 px-3 py-2 text-right font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        onClick={() => handleSort('price')}
+                      >
+                        Precio <SortIcon col="price" />
+                      </th>
+                      <th
+                        className="bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        onClick={() => handleSort('category')}
+                      >
+                        Cat. <SortIcon col="category" />
+                      </th>
+                      <th className="bg-zinc-800 px-5 py-2 text-right font-semibold text-zinc-400 shadow-[0_1px_0_0] shadow-zinc-700">
+                        Unidad
+                      </th>
+                    </tr>
+                  </thead>
+                </table>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                <table className="w-full border-separate border-spacing-0 text-xs">
+                  <ProductsListColgroup />
+                  <tbody>
+                    {sorted.map(p => (
+                      <tr key={p.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
+                        <td className="px-5 py-2 font-bold text-orange-400">{p.pluNumber}</td>
+                        <td className="px-3 py-2 text-white">{p.name}</td>
+                        <td className="px-3 py-2 text-right text-amber-300 font-medium">
+                          {p.price != null ? formatARS(p.price) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-zinc-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                        <td className="px-5 py-2 text-right text-zinc-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 

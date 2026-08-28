@@ -190,6 +190,48 @@
       "when": 1786879068034,
       "tag": "0026_debt_payment_method",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1787075869330,
+      "tag": "0027_vale_cancel",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1787141147746,
+      "tag": "0028_provider_debt_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1787676258204,
+      "tag": "0029_salary_payment_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1787692756013,
+      "tag": "0030_employee_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1787782193643,
+      "tag": "0031_stock_count_draft",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1787789257824,
+      "tag": "0032_stock_count_edits",
+      "breakpoints": true
     }
   ]
 }

@@ -111,7 +111,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   function handlePhoneConfirm() {
     const clean = parsePhoneNumber(phoneRaw)
     if (!clean) {
-      setPhoneError('Ingresá un número válido de 10 dígitos (ej. 11 4567-8901).')
+      setPhoneError('Ingresá un número válido de 10 dígitos (ej. 11-4567-8901).')
       return
     }
     onCreateNew({ name: query.trim(), phone: clean })
@@ -228,7 +228,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           onBlur={handlePhoneBlur}
           onFocus={handlePhoneFocus}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handlePhoneConfirm() } }}
-          placeholder="Ej. 11 4567-8901"
+          placeholder="Ej. 11-4567-8901"
           className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
           maxLength={15}
         />

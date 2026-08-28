@@ -213,11 +213,16 @@ export function registerSpecialCustomersHandlers() {
 
     try {
       const db = getDb()
+      const priceRows = db
+        .select({ id: specialCustomerPrices.id })
+        .from(specialCustomerPrices)
+        .where(eq(specialCustomerPrices.specialCustomerId, parsed.data.id))
+        .all()
+
       db.transaction(tx => {
         tx.delete(specialCustomerPrices)
           .where(eq(specialCustomerPrices.specialCustomerId, parsed.data.id))
           .run()
-        // Los admins pueden eliminar cualquier cliente especial
         tx.delete(specialCustomers)
           .where(eq(specialCustomers.id, parsed.data.id))
           .run()
@@ -225,6 +230,11 @@ export function registerSpecialCustomersHandlers() {
 
       try {
         const { tenant_id } = getBusinessConfig()
+        for (const row of priceRows) {
+          markSpecialCustomerPriceDeletedInFirestore(tenant_id, row.id).catch(err =>
+            log.warn('[ipc:delete-special-customer] markPriceDeleted falló', err),
+          )
+        }
         markSpecialCustomerDeletedInFirestore(tenant_id, parsed.data.id).catch(err =>
           log.warn('[ipc:delete-special-customer] markDeleted falló', err),
         )

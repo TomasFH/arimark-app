@@ -5,17 +5,18 @@ import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
 import ExpenseListModal from './ExpenseListModal'
+import SettleProviderDebtModal from './SettleProviderDebtModal'
 import AttendanceModal from './AttendanceModal'
-import EmployeePayModal from './EmployeePayModal'
 import ValesModal from './ValesModal'
+import SalaryPaymentModal from './SalaryPaymentModal'
 import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import DebtModal from '../components/DebtModal'
-import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow } from '../types/hw-api'
+import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, SpecialCustomerRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
-import { buildItemFromBarcode } from '../lib/barcodeItem'
+import { applySpecialUnitPrice, buildItemFromBarcode } from '../lib/barcodeItem'
 
 interface Props {
   session: SessionInfo
@@ -30,6 +31,13 @@ interface Props {
 }
 
 const FALLBACK_PRODUCT_ID = '00000000-0000-0000-0001-000000000099'
+
+/**
+ * Selector de cliente especial en el header del POS (aplica precios acordados al escanear / Manual).
+ * Oculto 2026-08-27: los acuerdos se consultan en Menú → Clientes especiales; el ticket se controla a mano.
+ * Para reactivar: `true`. Ver PLAN.md FEAT-SPECIAL-POS-SELECTOR-01.
+ */
+const SHOW_SPECIAL_CUSTOMER_POS_SELECTOR = false
 
 interface CartItem extends SaleItemDraft {
   localId: string
@@ -69,22 +77,21 @@ const IconClock = () => (
   </svg>
 )
 
-const IconGear = () => (
+const IconSettle = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75h19.5M4.5 15.75l4.5-7.5 3 4.5 3.75-6 3.75 9" />
   </svg>
 )
 
 const IconX = () => (
-  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
   </svg>
 )
 
-const IconSearch = () => (
+const IconScan = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.5v15M7.5 4.5v15M10.5 4.5v15M12.75 4.5v15M16.5 4.5v15M20.25 4.5v15" />
   </svg>
 )
 
@@ -109,8 +116,8 @@ function SidebarBtn({ icon, label, onClick, active, danger }: SidebarBtnProps) {
         danger
           ? 'text-red-500 hover:bg-red-950/40 hover:text-red-400'
           : active
-            ? 'bg-zinc-800 text-zinc-100'
-            : 'text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300'
+            ? 'bg-zinc-700 text-zinc-100'
+            : 'text-zinc-500 hover:bg-zinc-700/70 hover:text-zinc-300'
       }`}
     >
       <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
@@ -136,7 +143,7 @@ function MenuAction({ emoji, label, onClick, danger, muted }: MenuActionProps) {
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-zinc-800/80 active:bg-zinc-800 ${
+      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-zinc-700/80 active:bg-zinc-700 ${
         danger ? 'text-red-400 hover:text-red-300' : muted ? 'text-zinc-600 hover:text-zinc-400' : 'text-zinc-300 hover:text-zinc-100'
       }`}
     >
@@ -166,11 +173,12 @@ export default function CashierScreen({
   const [products, setProducts] = useState<ProductRow[]>([])
   const [showAttendanceModal, setShowAttendanceModal] = useState(false)
   const [showValesModal, setShowValesModal] = useState(false)
-  const [showEmployeePayModal, setShowEmployeePayModal] = useState(false)
+  const [showSalaryModal, setShowSalaryModal] = useState(false)
   const [showStockCountModal, setShowStockCountModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [showSettleDebtModal, setShowSettleDebtModal] = useState(false)
   const [showExpenseListModal, setShowExpenseListModal] = useState(false)
   const [showSalesModal, setShowSalesModal] = useState(false)
   const [showDebtModal, setShowDebtModal] = useState(false)
@@ -183,6 +191,9 @@ export default function CashierScreen({
   const [scanFlash, setScanFlash] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [storeName, setStoreName] = useState<string | null>(null)
+  const [specialCustomers, setSpecialCustomers] = useState<SpecialCustomerRow[]>([])
+  const [specialCustomerId, setSpecialCustomerId] = useState<string | null>(null)
+  const [specialPriceByProductId, setSpecialPriceByProductId] = useState<Record<string, number>>({})
   const scanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── New UI state ───────────────────────────────────────────────────────────
@@ -210,6 +221,38 @@ export default function CashierScreen({
     })
   }, [session.storeId, shift.storeId])
 
+  const loadSpecialCustomers = useCallback(async () => {
+    const res = await window.hw.listSpecialCustomers()
+    if (!res.ok) return
+    setSpecialCustomers(res.data)
+  }, [])
+
+  const loadSpecialPrices = useCallback(async (customerId: string | null) => {
+    if (!customerId) {
+      setSpecialPriceByProductId({})
+      return
+    }
+    const res = await window.hw.getSpecialCustomerPrices({ specialCustomerId: customerId })
+    if (!res.ok) {
+      setSpecialPriceByProductId({})
+      return
+    }
+    const map: Record<string, number> = {}
+    for (const row of res.data) {
+      map[row.productId] = row.specialPrice
+    }
+    setSpecialPriceByProductId(map)
+  }, [])
+
+  useEffect(() => {
+    if (!SHOW_SPECIAL_CUSTOMER_POS_SELECTOR) return
+    void loadSpecialCustomers()
+    return window.hw.onSpecialCustomerSyncUpdated(() => {
+      void loadSpecialCustomers()
+      void loadSpecialPrices(specialCustomerId)
+    })
+  }, [loadSpecialCustomers, loadSpecialPrices, specialCustomerId])
+
   function refreshBalance(): void {
     void window.hw.getShiftSummary().then(r => {
       if (r.ok) setCashInHand(r.data.cashInHand)
@@ -228,6 +271,10 @@ export default function CashierScreen({
       }
       const productsRes = await window.hw.getProducts()
       if (productsRes.ok) setProducts(productsRes.data)
+      if (SHOW_SPECIAL_CUSTOMER_POS_SELECTOR) {
+        await loadSpecialCustomers()
+        await loadSpecialPrices(specialCustomerId)
+      }
       const storeId = session.storeId ?? shift.storeId
       if (storeId) {
         const storesRes = await window.hw.getStores()
@@ -260,10 +307,12 @@ export default function CashierScreen({
   const hasManualItems = cart.some(item => item.manualEntry)
 
   const addItem = useCallback((item: SaleItemDraft) => {
-    setCart(prev => [...prev, { ...item, localId: `tmp-${crypto.randomUUID()}` }])
+    const special = item.productId ? specialPriceByProductId[item.productId] : undefined
+    const priced = applySpecialUnitPrice(item, special)
+    setCart(prev => [...prev, { ...priced, localId: `tmp-${crypto.randomUUID()}` }])
     setError('')
     setLastSaleId(null)
-  }, [])
+  }, [specialPriceByProductId])
 
   const anyModalOpen = showPaymentModal || showProductsModal
 
@@ -442,22 +491,21 @@ export default function CashierScreen({
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
 
       {/* ━━━ SIDEBAR ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <nav className="flex w-16 flex-none flex-col items-center border-r border-zinc-800 bg-zinc-900 py-2 gap-0.5 z-10">
+      <nav className="flex w-16 flex-none flex-col items-center border-r border-zinc-700 bg-zinc-800 py-2 gap-0.5 z-10">
         <SidebarBtn icon={<IconMenu />} label="Menú" onClick={() => setShowMenuPanel(v => !v)} active={showMenuPanel} />
 
-        <div className="my-1.5 w-8 h-px bg-zinc-800 shrink-0" />
+        <div className="my-1.5 w-8 h-px bg-zinc-700 shrink-0" />
 
-        <SidebarBtn icon={<IconCart />} label="Venta" onClick={() => {}} active={!showMenuPanel} />
+        <SidebarBtn icon={<IconCart />} label="Venta" onClick={() => { setShowMenuPanel(false) }} active={!showMenuPanel} />
         <SidebarBtn icon={<IconBanknote />} label="Vales" onClick={() => setShowValesModal(true)} />
         <SidebarBtn icon={<IconReceipt />} label="Gastos" onClick={() => setShowExpenseModal(true)} />
+        <SidebarBtn icon={<IconSettle />} label="Saldar" onClick={() => setShowSettleDebtModal(true)} />
         <SidebarBtn icon={<IconClock />} label="Turno" onClick={() => setShowSalesModal(true)} />
 
         <div className="flex-1" />
 
-        <SidebarBtn icon={<IconGear />} label="Ajustes" onClick={() => setShowMenuPanel(v => !v)} />
-
         {/* Brand mark */}
-        <div className="my-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800/80">
+        <div className="my-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-700">
           <span className="text-sm">🥩</span>
         </div>
       </nav>
@@ -466,7 +514,7 @@ export default function CashierScreen({
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
 
         {/* Status bar */}
-        <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-5 py-2 shrink-0">
+        <header className="flex items-center gap-3 border-b border-zinc-700 bg-zinc-800 px-5 py-2 shrink-0">
           {storeName && (
             <span className="text-sm font-semibold text-zinc-100 truncate max-w-[12rem]" title={storeName}>
               {storeName}
@@ -479,6 +527,25 @@ export default function CashierScreen({
             </span>
           )}
           <div className="flex-1" />
+          {SHOW_SPECIAL_CUSTOMER_POS_SELECTOR && specialCustomers.length > 0 && (
+            <select
+              value={specialCustomerId ?? ''}
+              onChange={e => {
+                const id = e.target.value || null
+                setSpecialCustomerId(id)
+                void loadSpecialPrices(id)
+              }}
+              title={specialCustomerId
+                ? specialCustomers.find(c => c.id === specialCustomerId)?.name
+                : 'Precio de lista'}
+              className="max-w-[11rem] truncate rounded-md border border-zinc-600 bg-zinc-700 px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+            >
+              <option value="">Precio de lista</option>
+              {specialCustomers.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={() => void handleRefreshRemote()}
@@ -510,15 +577,15 @@ export default function CashierScreen({
               {/* Hero scan input + manual toggle */}
               <div className="shrink-0 flex gap-2">
                 <form onSubmit={handleHeroSubmit} className="flex-1 min-w-0">
-                  <div className={`flex h-14 items-center gap-3 rounded-xl border bg-zinc-900 px-4 transition-colors focus-within:border-zinc-600 ${heroError ? 'border-red-900/70' : 'border-zinc-800'}`}>
-                    <span className="shrink-0 text-zinc-600"><IconSearch /></span>
+                  <div className={`flex h-14 items-center gap-3 rounded-xl border bg-zinc-800 px-4 transition-colors focus-within:border-emerald-600 ${heroError ? 'border-red-900/70' : 'border-zinc-700'}`}>
+                    <span className="shrink-0 text-zinc-600"><IconScan /></span>
                     <input
                       ref={heroInputRef}
                       type="text"
                       inputMode="numeric"
                       value={heroInput}
                       onChange={handleHeroChange}
-                      placeholder="Escanea o busca PLU/Producto…"
+                      placeholder="Escaneá el ticket de la balanza"
                       data-barcode-input="true"
                       autoFocus
                       className="min-w-0 flex-1 bg-transparent text-base text-zinc-100 placeholder-zinc-600 focus:outline-none"
@@ -547,8 +614,8 @@ export default function CashierScreen({
                   title="Ingresar producto manualmente por PLU y precio"
                   className={`h-14 shrink-0 rounded-xl border px-4 text-sm font-medium transition-all active:scale-95 ${
                     showManualPanel
-                      ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
-                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                      ? 'border-emerald-700 bg-zinc-700 text-zinc-100'
+                      : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -562,8 +629,12 @@ export default function CashierScreen({
 
               {/* Manual PLU panel */}
               {showManualPanel && (
-                <div className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-900">
-                  <ScanInput onAddItem={addItem} products={products} />
+                <div className="shrink-0 rounded-xl border border-zinc-700 bg-zinc-800">
+                  <ScanInput
+                    onAddItem={addItem}
+                    products={products}
+                    specialPriceByProductId={specialPriceByProductId}
+                  />
                 </div>
               )}
 
@@ -585,10 +656,11 @@ export default function CashierScreen({
                 )}
               </div>
 
-              {/* Cart items */}
-              <div className="flex-1 overflow-y-auto space-y-0.5 min-h-0">
+              {/* Cart items — panel elevado para no fundirse con el fondo */}
+              <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-800">
+                <div className="h-full overflow-y-auto space-y-0.5 p-1">
                 {cart.length === 0 ? (
-                  <div className="flex h-48 flex-col items-center justify-center gap-3 text-zinc-700">
+                  <div className="flex h-48 flex-col items-center justify-center gap-3 text-zinc-600">
                     <svg className="h-10 w-10 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
                     </svg>
@@ -605,11 +677,11 @@ export default function CashierScreen({
                   cart.map(item => (
                     <div
                       key={item.localId}
-                      className="group flex items-center gap-3 rounded-lg px-3 py-3 hover:bg-zinc-900/80 transition-colors"
+                      className="group flex items-center gap-3 rounded-lg px-3 py-3 hover:bg-zinc-700 transition-colors"
                     >
                       {/* PLU badge */}
                       {item.pluNumber ? (
-                        <span className="w-9 shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-zinc-500 tabular-nums">
+                        <span className="w-9 shrink-0 rounded bg-zinc-700 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-zinc-400 tabular-nums">
                           {item.pluNumber}
                         </span>
                       ) : (
@@ -629,7 +701,7 @@ export default function CashierScreen({
                           )}
                           {item.priceDiscrepancy && (
                             <span
-                              className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[9px] text-red-300 cursor-help"
+                              className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[9px] text-red-300"
                               title="El precio del ticket no coincide con el catálogo. Verificar la balanza."
                             >
                               ⚠ precio
@@ -652,24 +724,25 @@ export default function CashierScreen({
                       <button
                         type="button"
                         onClick={() => removeItem(item.localId)}
-                        className="shrink-0 flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-zinc-700 opacity-0 transition-all hover:bg-red-950/40 hover:text-red-400 group-hover:opacity-100"
-                        title="Eliminar"
+                        className="shrink-0 flex items-center rounded px-1.5 py-1 text-zinc-400 hover:bg-red-950/40 hover:text-red-400 transition-colors"
+                        title="Quitar de la venta"
+                        aria-label="Quitar de la venta"
                       >
                         <IconX />
-                        <span>Eliminar</span>
                       </button>
                     </div>
                   ))
                 )}
+                </div>
               </div>
             </div>
 
             {/* ━━━ RIGHT COLUMN — CHECKOUT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
             <div className="w-80 flex-none flex flex-col gap-4">
-              <div className="flex flex-col flex-1 rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-xl">
+              <div className="flex flex-col flex-1 rounded-xl border border-zinc-700 bg-zinc-800 overflow-hidden shadow-xl">
 
                 {/* Panel header */}
-                <div className="border-b border-zinc-800 px-5 py-4 shrink-0">
+                <div className="border-b border-zinc-700 bg-zinc-700/40 px-5 py-4 shrink-0">
                   <h2 className="text-sm font-semibold text-zinc-100">Total de la Venta</h2>
                 </div>
 
@@ -690,7 +763,7 @@ export default function CashierScreen({
                 </div>
 
                 {/* Big total + cobrar */}
-                <div className="shrink-0 space-y-4 border-t border-zinc-800 px-5 pb-5 pt-4">
+                <div className="shrink-0 space-y-4 border-t border-zinc-700 px-5 pb-5 pt-4">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600 mb-1.5">
                       TOTAL
@@ -715,17 +788,12 @@ export default function CashierScreen({
                     type="button"
                     onClick={openPaymentModal}
                     disabled={loading || cart.length === 0}
-                    className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-30"
+                    className="flex h-14 w-full items-center justify-center rounded-xl bg-emerald-500 text-lg font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     {loading ? (
                       'Procesando…'
                     ) : (
-                      <>
-                        <span>Cobrar y Finalizar</span>
-                        <kbd className="rounded bg-emerald-600/60 px-1.5 py-0.5 font-mono text-xs opacity-80">
-                          Enter
-                        </kbd>
-                      </>
+                      <span>Cobrar</span>
                     )}
                   </button>
                 </div>
@@ -748,8 +816,8 @@ export default function CashierScreen({
             onClick={closeMenu}
           />
           {/* Panel */}
-          <div className="fixed left-16 top-0 z-50 flex h-full w-64 flex-col border-r border-zinc-800 bg-zinc-900 shadow-2xl">
-            <div className="shrink-0 border-b border-zinc-800 px-4 py-4">
+          <div className="fixed left-16 top-0 z-50 flex h-full w-64 flex-col border-r border-zinc-700 bg-zinc-800 shadow-2xl">
+            <div className="shrink-0 border-b border-zinc-700 px-4 py-4">
               <p className="text-sm font-semibold text-zinc-100">Opciones</p>
               {storeName && (
                 <p className="mt-0.5 text-xs text-zinc-500">
@@ -770,7 +838,7 @@ export default function CashierScreen({
                 <MenuAction emoji="👤" label="Clientes especiales" onClick={() => { onViewSpecialCustomers(); closeMenu() }} />
               )}
               <MenuAction emoji="⚖️" label="Conteo de stock" onClick={() => { setShowStockCountModal(true); closeMenu() }} />
-              <MenuAction emoji="💰" label="Pago a empleado" onClick={() => { setShowEmployeePayModal(true); closeMenu() }} />
+              <MenuAction emoji="💰" label="Liquidación / pago de sueldo" onClick={() => { setShowSalaryModal(true); closeMenu() }} />
               <MenuAction emoji="📋" label="Ver gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
               <MenuAction emoji="↺" label={refreshing ? 'Actualizando…' : 'Actualizar datos'} onClick={() => { void handleRefreshRemote(); closeMenu() }} muted={refreshing} />
               <MenuAction emoji="✓" label="Asistencia (pausado)" onClick={() => { setShowAttendanceModal(true); closeMenu() }} muted />
@@ -823,15 +891,18 @@ export default function CashierScreen({
         />
       )}
 
-      {showEmployeePayModal && (
-        <EmployeePayModal
-          onClose={() => setShowEmployeePayModal(false)}
+      {showSalaryModal && (
+        <SalaryPaymentModal
+          onClose={() => setShowSalaryModal(false)}
           onPaid={refreshBalance}
         />
       )}
 
       {showStockCountModal && (
-        <StockCountModal onClose={() => setShowStockCountModal(false)} />
+        <StockCountModal
+          storeId={session.storeId ?? shift.storeId}
+          onClose={() => setShowStockCountModal(false)}
+        />
       )}
 
       {showExpenseModal && (
@@ -842,12 +913,19 @@ export default function CashierScreen({
         />
       )}
 
+      {showSettleDebtModal && (
+        <SettleProviderDebtModal
+          onClose={() => setShowSettleDebtModal(false)}
+          onSaved={refreshBalance}
+        />
+      )}
+
       {showExpenseListModal && (
         <ExpenseListModal onClose={() => setShowExpenseListModal(false)} />
       )}
 
       {showSalesModal && (
-        <ShiftSalesModal onClose={() => setShowSalesModal(false)} />
+        <ShiftSalesModal onClose={() => setShowSalesModal(false)} onCancelled={refreshBalance} />
       )}
 
     </div>

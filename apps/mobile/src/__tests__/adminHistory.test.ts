@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   sumPaymentTotals,
   sumValesByEmployee,
+  debtEventMatchesShift,
   type AdminSale,
   type AdminVale,
 } from '../lib/adminHistory'
@@ -71,6 +72,7 @@ function vale(partial: Partial<AdminVale> & { id: string; employeeId: string }):
     items: [],
     paidAt: '2026-08-03T12:00:00.000Z',
     createdAt: '2026-08-03T12:00:00.000Z',
+    cancelledAt: null,
     ...partial,
   }
 }
@@ -90,5 +92,38 @@ describe('sumValesByEmployee', () => {
 
   it('retorna vacío si no hay vales', () => {
     expect(sumValesByEmployee([])).toEqual([])
+  })
+})
+
+describe('debtEventMatchesShift', () => {
+  const saleIds = new Set(['sale-1'])
+
+  it('acepta evento con shiftId del turno', () => {
+    expect(debtEventMatchesShift({ shiftId: 's1', eventType: 'created' }, 's1', new Set())).toBe(true)
+  })
+
+  it('acepta alta created ligada a una venta del turno aunque shiftId sea null', () => {
+    expect(debtEventMatchesShift(
+      { shiftId: null, saleId: 'sale-1', eventType: 'created' },
+      's1',
+      saleIds,
+    )).toBe(true)
+  })
+
+  it('no atribuye un cobro posterior al turno de la venta original', () => {
+    expect(debtEventMatchesShift(
+      { shiftId: 'otro', saleId: 'sale-1', eventType: 'partial_payment' },
+      's1',
+      saleIds,
+    )).toBe(false)
+  })
+
+  it('ignora eliminados y ventas de otro turno', () => {
+    expect(debtEventMatchesShift({ shiftId: 's1', deleted: true }, 's1', saleIds)).toBe(false)
+    expect(debtEventMatchesShift(
+      { shiftId: null, saleId: 'sale-otra', eventType: 'created' },
+      's1',
+      saleIds,
+    )).toBe(false)
   })
 })

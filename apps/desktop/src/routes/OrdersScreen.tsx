@@ -8,13 +8,15 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
-import { formatARS, formatYmd } from '../lib/datetime'
+import { addDaysYmd, formatARS, formatYmd, todayLocalYmd } from '../lib/datetime'
 import { formatPhoneInput } from '../lib/phoneInput'
+import StoreFilter from '../components/StoreFilter'
 import type {
   OrderRow, OrderStatus, DepositMethod, DepositPayment,
   CreateOrderPayload, UpdateOrderPayload, OrderTimeSlot, StoreRow,
+  SalePaymentPayload,
 } from '../types/hw-api'
-import StoreFilter from '../components/StoreFilter'
+import PaymentModal from '../components/PaymentModal'
 
 const DEPOSIT_METHOD_LABELS: Record<DepositMethod, string> = {
   cash: 'Efectivo',
@@ -73,7 +75,7 @@ const EMPTY_FORM: FormState = {
 }
 
 function todayDateStr(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayLocalYmd()
 }
 
 function isToday(pickupDate: string): boolean {
@@ -81,9 +83,17 @@ function isToday(pickupDate: string): boolean {
 }
 
 function isTomorrow(pickupDate: string): boolean {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return pickupDate === tomorrow.toISOString().slice(0, 10)
+  return pickupDate === addDaysYmd(todayDateStr(), 1)
+}
+
+function paymentsForOrder(order: OrderRow): DepositPayment[] {
+  if (Array.isArray(order.depositPayments) && order.depositPayments.length > 0) {
+    return order.depositPayments
+  }
+  if (order.depositMethod && order.depositAmount > 0) {
+    return [{ method: order.depositMethod, amount: order.depositAmount }]
+  }
+  return []
 }
 
 function isOverdue(pickupDate: string, status: OrderStatus): boolean {
@@ -111,10 +121,10 @@ interface ConfirmModalProps {
   onCancel: () => void
 }
 
-function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-blue-600 hover:bg-blue-700', onConfirm, onCancel }: ConfirmModalProps) {
+function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-emerald-600 hover:bg-emerald-700', onConfirm, onCancel }: ConfirmModalProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-900 rounded-2xl border border-zinc-800 w-full max-w-sm p-6 space-y-4 overflow-hidden animate-modal-enter">
+      <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4 overflow-hidden animate-modal-enter">
         <h2 className="text-base font-semibold text-white break-words">{title}</h2>
         <div className="text-sm text-zinc-400 break-words">{message}</div>
         <div className="flex gap-3">
@@ -159,6 +169,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const [confirmHardDelete, setConfirmHardDelete] = useState<OrderRow | null>(null)
   // Si hay turno activo y el pedido tiene seña, ofrecer registrar la devolución como gasto
   const [registerRefund, setRegisterRefund] = useState(true)
+  const [chargeOrder, setChargeOrder] = useState<OrderRow | null>(null)
+  const [remainingRaw, setRemainingRaw] = useState('')
+  const [chargeError, setChargeError] = useState<string | null>(null)
+  const [chargePaying, setChargePaying] = useState(false)
+  const [showChargePayment, setShowChargePayment] = useState(false)
 
   const loadOrders = useCallback(async () => {
     const r = await window.hw.listOrders(showStoreFilter ? { storeIdFilter } : undefined)
@@ -188,9 +203,9 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(o =>
-        o.customerName.toLowerCase().includes(q) ||
+        (o.customerName ?? '').toLowerCase().includes(q) ||
         (o.phone ?? '').includes(q) ||
-        o.items.toLowerCase().includes(q)
+        (o.items ?? '').toLowerCase().includes(q)
       )
     }
     return [...list].sort((a, b) => {
@@ -243,11 +258,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   }
 
   function openEdit(order: OrderRow) {
-    const payments: DepositPayment[] = order.depositPayments
-      ? order.depositPayments
-      : order.depositMethod && order.depositAmount > 0
-        ? [{ method: order.depositMethod, amount: order.depositAmount }]
-        : []
+    const payments: DepositPayment[] = paymentsForOrder(order)
     setForm({
       customerName: order.customerName,
       phone: formatPhoneInput(order.phone ?? ''),
@@ -354,6 +365,46 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
     }
   }
 
+  async function executeCharge(payments: SalePaymentPayload[]) {
+    if (!chargeOrder) return
+    const remaining = parseNumericInput(remainingRaw) ?? 0
+    setChargePaying(true)
+    setChargeError(null)
+    const r = await window.hw.chargeOrder({
+      orderId: chargeOrder.id,
+      remaining,
+      payments,
+    })
+    setChargePaying(false)
+    if (!r.ok) {
+      setChargeError(r.error ?? 'No se pudo cobrar.')
+      setShowChargePayment(false)
+      return
+    }
+    setOrdersList(prev => prev.map(o => o.id === r.data.id ? r.data : o))
+    setChargeOrder(null)
+    setShowChargePayment(false)
+  }
+
+  function handleChargeContinue() {
+    if (!chargeOrder) return
+    setChargeError(null)
+    const remaining = remainingRaw.trim() === '' ? 0 : parseNumericInput(remainingRaw)
+    if (remaining === null || remaining < 0) {
+      setChargeError('Ingresá el resto a cobrar (0 si la seña cubrió todo).')
+      return
+    }
+    if (remaining > 0 && !currentShiftId) {
+      setChargeError('Abrí un turno para cobrar el resto del pedido.')
+      return
+    }
+    if (remaining === 0) {
+      void executeCharge([])
+      return
+    }
+    setShowChargePayment(true)
+  }
+
   async function executeStatusChange(order: OrderRow, status: OrderStatus) {
     const r = await window.hw.updateOrderStatus({ id: order.id, status })
     if (r.ok) {
@@ -410,7 +461,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   return (
     <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white overflow-hidden">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
         <BackButton onClick={onBack} />
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-zinc-100">Pedidos</h1>
@@ -462,7 +513,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar por nombre, teléfono o descripción…"
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
         />
       </div>
 
@@ -480,6 +531,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
             isAdmin={isAdmin}
             isNew={order.id === newOrderId}
             onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
+            onCharge={o => {
+              setChargeError(null)
+              setRemainingRaw('')
+              setShowChargePayment(false)
+              setChargeOrder(o)
+            }}
             onEdit={() => openEdit(order)}
             onCancel={() => { setRegisterRefund(true); setConfirmCancel(order) }}
             onHardDelete={isAdmin ? () => setConfirmHardDelete(order) : undefined}
@@ -490,7 +547,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       {/* Create / Edit form modal */}
       {(showCreate || editingOrder) && (
         <div className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg bg-zinc-900 rounded-t-2xl sm:rounded-2xl border border-zinc-800 max-h-[92vh] overflow-y-auto">
+          <div className="w-full sm:max-w-lg bg-zinc-800 rounded-t-2xl sm:rounded-2xl border border-zinc-700 max-h-[92vh] overflow-y-auto">
             <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
               <h2 className="text-base font-semibold">
                 {editingOrder ? 'Editar pedido' : 'Nuevo pedido'}
@@ -505,7 +562,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   <select
                     value={form.storeId}
                     onChange={e => setForm(f => ({ ...f, storeId: e.target.value }))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
                   >
                     <option value="">— Seleccioná un local —</option>
                     {availableStores.map(s => (
@@ -533,7 +590,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
                   placeholder="Ej: Restaurante El Sol"
                   maxLength={100}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                 />
               </Field>
 
@@ -545,7 +602,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   onChange={e => setForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) }))}
                   placeholder="+54 9 11 1234-5678"
                   maxLength={30}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                 />
               </Field>
 
@@ -556,7 +613,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   placeholder="Ej: 2 kg de asado, 1 pollo entero…"
                   rows={3}
                   maxLength={500}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 resize-none"
                 />
               </Field>
 
@@ -566,7 +623,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   value={form.pickupDate}
                   min={todayDateStr()}
                   onChange={e => setForm(f => ({ ...f, pickupDate: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                 />
               </Field>
 
@@ -581,7 +638,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                       onClick={() => setForm(f => ({ ...f, timeSlot: f.timeSlot === slot ? '' : slot }))}
                       className={`py-2 rounded-lg text-xs font-medium transition-colors border ${
                         form.timeSlot === slot
-                          ? 'bg-blue-600 border-blue-500 text-white'
+                          ? 'bg-emerald-600 border-emerald-500 text-white'
                           : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
                       }`}
                     >
@@ -594,7 +651,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                     type="time"
                     value={form.pickupTime}
                     onChange={e => setForm(f => ({ ...f, pickupTime: e.target.value }))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                   />
                 )}
               </div>
@@ -615,7 +672,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                         value={getDepositRaw(m)}
                         onChange={v => setDepositForMethod(m, v)}
                         placeholder="0"
-                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                       />
                     </div>
                   ))}
@@ -629,7 +686,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                   placeholder="Observaciones del pedido…"
                   rows={2}
                   maxLength={300}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 resize-none"
                 />
               </Field>
 
@@ -656,6 +713,50 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
         </div>
       )}
 
+      {/* Cobro de pedido (resto − seña) */}
+      {chargeOrder && !showChargePayment && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-800 p-5 space-y-3">
+            <h2 className="text-sm font-bold text-white">Cobrar pedido</h2>
+            <p className="text-xs text-zinc-400">
+              {chargeOrder.customerName} · seña {formatARS(chargeOrder.depositAmount)}.
+              Ingresá el resto a cobrar (0 si la seña cubrió todo).
+            </p>
+            <NumericInput
+              value={remainingRaw}
+              onChange={setRemainingRaw}
+              placeholder="0"
+              className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white"
+            />
+            {chargeError && <p className="text-xs text-red-400">{chargeError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setChargeOrder(null); setChargeError(null) }}
+                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleChargeContinue}
+                disabled={chargePaying}
+                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {chargePaying ? 'Guardando…' : 'Continuar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {chargeOrder && showChargePayment && (
+        <PaymentModal
+          total={parseNumericInput(remainingRaw) ?? 0}
+          onConfirm={(payments) => void executeCharge(payments)}
+          onClose={() => setShowChargePayment(false)}
+        />
+      )}
+
       {/* Modales de confirmación de estado */}
       {confirmStatus && (
         <ConfirmModal
@@ -667,7 +768,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
             </>
           }
           confirmLabel={confirmStatus.status === 'ready' ? 'Sí, marcar listo' : confirmStatus.status === 'delivered' ? 'Sí, marcar entregado' : 'Sí, revertir'}
-          confirmClassName={confirmStatus.status === 'delivered' ? 'bg-emerald-600 hover:bg-emerald-700' : confirmStatus.status === 'ready' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700'}
+          confirmClassName={confirmStatus.status === 'delivered' ? 'bg-emerald-600 hover:bg-emerald-700' : confirmStatus.status === 'ready' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}
           onConfirm={() => void executeStatusChange(confirmStatus.order, confirmStatus.status)}
           onCancel={() => setConfirmStatus(null)}
         />
@@ -719,7 +820,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       {/* Modal de confirmación de seña antes de guardar */}
       {showDepositConfirm && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-800 w-full max-w-sm p-6 space-y-4">
+          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4">
             <h2 className="text-base font-semibold text-white">
               {editingOrder ? 'Confirmar cambios en el pedido' : 'Confirmar pedido con seña'}
             </h2>
@@ -797,23 +898,20 @@ interface OrderCardProps {
   isAdmin: boolean
   isNew?: boolean
   onRequestStatusChange: (order: OrderRow, status: OrderStatus) => void
+  onCharge: (order: OrderRow) => void
   onEdit: () => void
   onCancel: () => void
   onHardDelete?: () => void
 }
 
-function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdit, onCancel, onHardDelete }: OrderCardProps) {
+function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCharge, onEdit, onCancel, onHardDelete }: OrderCardProps) {
   const [expanded, setExpanded] = useState(false)
 
   const today = isToday(order.pickupDate)
   const tomorrow = isTomorrow(order.pickupDate)
   const overdue = isOverdue(order.pickupDate, order.status)
 
-  const depositPayments: DepositPayment[] = order.depositPayments
-    ? order.depositPayments
-    : order.depositMethod && order.depositAmount > 0
-      ? [{ method: order.depositMethod, amount: order.depositAmount }]
-      : []
+  const depositPayments: DepositPayment[] = paymentsForOrder(order)
 
   const formattedDate = new Date(order.pickupDate + 'T00:00:00').toLocaleDateString('es-AR', {
     weekday: 'short', day: 'numeric', month: 'short',
@@ -828,18 +926,18 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
   return (
     <div
       id={`order-${order.id}`}
-      className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-900/40' : ''} ${
+      className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-emerald-500 shadow-lg shadow-emerald-900/40' : ''} ${
         order.status === 'cancelled'
-          ? 'border-zinc-800 bg-zinc-900/30 opacity-60'
+          ? 'border-zinc-700 bg-zinc-800/40 opacity-60'
           : overdue
           ? 'border-red-900/50 bg-red-950/20'
           : today
           ? 'border-amber-900/50 bg-amber-950/20'
           : tomorrow
-          ? 'border-zinc-700/60 bg-zinc-900/50'
+          ? 'border-zinc-600 bg-zinc-800'
           : order.priority
-          ? 'border-zinc-700/50 bg-zinc-900/50'
-          : 'border-zinc-800 bg-zinc-900'
+          ? 'border-zinc-600 bg-zinc-800'
+          : 'border-zinc-700 bg-zinc-800'
       }`}
     >
       {/* Row principal */}
@@ -910,20 +1008,12 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onEdi
           {/* Acciones de estado — con doble confirmación */}
           {order.status !== 'cancelled' && (
             <div className="flex flex-wrap gap-2">
-              {order.status === 'pending' && (
-                <button
-                  onClick={() => onRequestStatusChange(order, 'ready')}
-                  className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-xs font-semibold transition-colors"
-                >
-                  Marcar listo
-                </button>
-              )}
               {(order.status === 'pending' || order.status === 'ready') && (
                 <button
-                  onClick={() => onRequestStatusChange(order, 'delivered')}
+                  onClick={() => onCharge(order)}
                   className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-xs font-semibold transition-colors"
                 >
-                  Marcar entregado
+                  Cobrar
                 </button>
               )}
               {(order.status === 'ready' || order.status === 'delivered') && (

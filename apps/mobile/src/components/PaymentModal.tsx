@@ -1,9 +1,13 @@
 /**
  * Modal de pago para el POS móvil.
- * Permite cobrar con uno o varios medios de pago (efectivo, débito, billetera, crédito).
- * Espejo del PaymentModal del desktop, adaptado para pantalla de celular.
+ * Campos vacíos; cada medio tiene un botón para cubrir el resto (como en PC).
  */
 import { useState } from 'react'
+import { useBackLayer } from '../lib/backStack'
+import { useKeyboardInset } from '../lib/keyboardInset'
+import NumericInput from './NumericInput'
+import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
+import { paidTotal, remainderForField } from '../lib/paymentSplit'
 import type { PaymentMethod, SalePaymentDraft } from '../types/pos'
 
 interface Props {
@@ -23,83 +27,106 @@ function formatARS(n: number): string {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n)
 }
 
+const EMPTY: Record<PaymentMethod, string> = {
+  cash: '', debit: '', wallet: '', credit: '',
+}
+
 export function PaymentModal({ total, onConfirm, onCancel }: Props) {
-  const [amounts, setAmounts] = useState<Record<PaymentMethod, string>>({
-    cash: String(total), debit: '', wallet: '', credit: '',
-  })
+  useBackLayer(true, onCancel)
+  const keyboardInset = useKeyboardInset()
+  const [amounts, setAmounts] = useState<Record<PaymentMethod, string>>(EMPTY)
   const [notes, setNotes] = useState('')
 
-  const paid = METHODS.reduce((s, m) => s + (parseFloat(amounts[m.id].replace(',', '.')) || 0), 0)
+  const paid = paidTotal(amounts)
   const remaining = Math.round((total - paid) * 100) / 100
   const isReady = Math.abs(remaining) < 0.5
 
-  function handleAmountChange(method: PaymentMethod, value: string) {
-    const clean = value.replace(/[^0-9.,]/g, '')
-    setAmounts(prev => ({ ...prev, [method]: clean }))
+  function fillRemainder(method: PaymentMethod) {
+    const rem = remainderForField(total, amounts, method)
+    if (rem <= 0) return
+    setAmounts(prev => ({ ...prev, [method]: formatNumericInputValue(String(rem)) }))
   }
 
   function handleConfirm() {
     const payments: SalePaymentDraft[] = METHODS
-      .map(m => ({ paymentMethod: m.id, amount: parseFloat(amounts[m.id].replace(',', '.')) || 0 }))
+      .map(m => ({ paymentMethod: m.id, amount: parseNumericInput(amounts[m.id]) ?? 0 }))
       .filter(p => p.amount > 0)
     onConfirm(payments, notes)
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-end">
-      <div className="w-full bg-gray-900 rounded-t-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/80"
+      style={{ paddingBottom: keyboardInset }}
+    >
+      <div className="max-h-[90vh] w-full space-y-4 overflow-y-auto rounded-t-2xl bg-gray-900 p-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-white font-bold text-lg">Cobro</h2>
-          <button onClick={onCancel} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+          <h2 className="text-lg font-bold text-white">Cobro</h2>
+          <button type="button" onClick={onCancel} className="text-2xl leading-none text-gray-400 hover:text-white">×</button>
         </div>
 
-        <div className="bg-gray-800 rounded-xl px-4 py-3 flex justify-between items-center">
-          <span className="text-gray-300 text-sm">Total</span>
-          <span className="text-white font-bold text-xl">{formatARS(total)}</span>
+        <div className="flex items-center justify-between rounded-xl bg-gray-800 px-4 py-3">
+          <span className="text-sm text-gray-300">Total</span>
+          <span className="text-xl font-bold text-white">{formatARS(total)}</span>
         </div>
 
         <div className="space-y-3">
-          {METHODS.map(m => (
-            <div key={m.id} className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-800 rounded-lg flex items-center justify-center text-xl shrink-0">
-                {m.icon}
+          {METHODS.map(m => {
+            const rem = remainderForField(total, amounts, m.id)
+            const thisAmount = parseNumericInput(amounts[m.id]) ?? 0
+            const showFill = !isReady && rem > 0 && thisAmount <= 0
+            return (
+              <div key={m.id} className="flex min-w-0 items-end gap-2">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-800 text-xl">
+                  {m.icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <label className="mb-0.5 block truncate text-xs text-gray-400">{m.label}</label>
+                  <NumericInput
+                    value={amounts[m.id]}
+                    onChange={v => setAmounts(prev => ({ ...prev, [m.id]: v }))}
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-base text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                    placeholder="0"
+                  />
+                </div>
+                {showFill && (
+                  <button
+                    type="button"
+                    onClick={() => fillRemainder(m.id)}
+                    className="shrink-0 rounded-lg border border-gray-600 bg-gray-800 px-2 py-2 text-[11px] font-semibold text-gray-300"
+                    title="Completar con el monto restante"
+                  >
+                    ← {formatARS(rem)}
+                  </button>
+                )}
               </div>
-              <div className="flex-1">
-                <label className="block text-xs text-gray-400 mb-0.5">{m.label}</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={amounts[m.id]}
-                  onChange={e => handleAmountChange(m.id, e.target.value)}
-                  className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-red-500"
-                  placeholder="0"
-                />
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Nota (opcional)</label>
+          <label className="mb-1 block text-xs text-gray-400">Nota (opcional)</label>
           <input
             type="text"
             value={notes}
-            onChange={e => setNotes(e.target.value)}
-            className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-500"
+            onChange={e => setNotes(e.target.value.slice(0, 200))}
+            maxLength={200}
+            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-gray-500"
             placeholder="Observaciones..."
           />
         </div>
 
         {!isReady && (
-          <div className={`text-sm text-center font-medium ${remaining > 0 ? 'text-orange-400' : 'text-yellow-400'}`}>
+          <div className={`text-center text-sm font-medium ${remaining > 0 ? 'text-orange-400' : 'text-yellow-400'}`}>
             {remaining > 0 ? `Faltan ${formatARS(remaining)}` : `Sobran ${formatARS(-remaining)}`}
           </div>
         )}
 
         <button
+          type="button"
           onClick={handleConfirm}
           disabled={!isReady}
-          className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-xl px-4 py-4 text-lg transition-colors"
+          className="w-full rounded-xl bg-red-600 px-4 py-4 text-lg font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-700"
         >
           Confirmar venta
         </button>

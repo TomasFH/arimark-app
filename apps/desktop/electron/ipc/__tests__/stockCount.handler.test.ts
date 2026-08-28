@@ -117,6 +117,16 @@ describe('stockCount.handler', () => {
       expect(res.data.storeName).toBe('Local B')
     })
 
+    it('admin sin storeId en payload → INVALID_PAYLOAD (no usa el local default de sesión)', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const res = getHandler('ipc:create-stock-count')(null, validPayload) as {
+        ok: boolean
+        code?: string
+      }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+
     it('cajera sin turno → NO_SHIFT', () => {
       vi.mocked(getActiveSession).mockReturnValue({
         ...CASHIER_SESSION,
@@ -230,6 +240,169 @@ describe('stockCount.handler', () => {
         ok: boolean
         code?: string
       }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+  })
+
+  describe('borrador de conteo', () => {
+    const draftPayload = {
+      countDate: '2026-08-26',
+      status: 'draft' as const,
+      items: [{ productId: 1, productName: 'Asado', quantityKg: 10000 }],
+    }
+
+    it('guarda un borrador y lo reanuda', () => {
+      const saved = getHandler('ipc:create-stock-count')(null, draftPayload) as {
+        ok: boolean
+        data: StockCountDetail
+      }
+      expect(saved.ok).toBe(true)
+      expect(saved.data.status).toBe('draft')
+      expect(saved.data.items[0].quantityKg).toBe(10000)
+
+      const draft = getHandler('ipc:get-draft-stock-count')(null, {}) as {
+        ok: boolean
+        data: StockCountDetail | null
+      }
+      expect(draft.ok).toBe(true)
+      expect(draft.data?.id).toBe(saved.data.id)
+      expect(draft.data?.items).toHaveLength(1)
+    })
+
+    it('un segundo borrador del mismo local actualiza el mismo id', () => {
+      const first = getHandler('ipc:create-stock-count')(null, draftPayload) as {
+        ok: boolean
+        data: StockCountDetail
+      }
+      const second = getHandler('ipc:create-stock-count')(null, {
+        countDate: '2026-08-26',
+        status: 'draft',
+        items: [
+          { productId: 1, productName: 'Asado', quantityKg: 8000 },
+          { productId: 2, productName: 'Vacío', quantityKg: 1500 },
+        ],
+      }) as { ok: boolean; data: StockCountDetail }
+
+      expect(second.ok).toBe(true)
+      expect(second.data.id).toBe(first.data.id)
+      expect(second.data.items).toHaveLength(2)
+      expect(db.select().from(stockCounts).all()).toHaveLength(1)
+    })
+
+    it('finalizar convierte el borrador; con countDate se reanuda para editar', () => {
+      const draft = getHandler('ipc:create-stock-count')(null, draftPayload) as {
+        ok: boolean
+        data: StockCountDetail
+      }
+      const final = getHandler('ipc:create-stock-count')(null, {
+        id: draft.data.id,
+        countDate: '2026-08-26',
+        status: 'final',
+        items: [{ productId: 1, productName: 'Asado', quantityKg: 8000 }],
+      }) as { ok: boolean; data: StockCountDetail }
+
+      expect(final.ok).toBe(true)
+      expect(final.data.status).toBe('final')
+      expect(final.data.id).toBe(draft.data.id)
+
+      const onlyDraft = getHandler('ipc:get-draft-stock-count')(null, {}) as {
+        ok: boolean
+        data: StockCountDetail | null
+      }
+      expect(onlyDraft.data).toBeNull()
+
+      const open = getHandler('ipc:get-draft-stock-count')(null, { countDate: '2026-08-26' }) as {
+        ok: boolean
+        data: StockCountDetail | null
+      }
+      expect(open.data?.id).toBe(draft.data.id)
+      expect(open.data?.status).toBe('final')
+      expect(open.data?.items[0].quantityKg).toBe(8000)
+    })
+
+    it('permite actualizar un conteo ya finalizado sin cambiar el autor original', () => {
+      const created = getHandler('ipc:create-stock-count')(null, {
+        countDate: '2026-08-26',
+        items: [{ productId: 1, productName: 'Asado', quantityKg: 1000 }],
+      }) as { ok: boolean; data: StockCountDetail }
+      expect(created.data.status).toBe('final')
+      expect(created.data.recordedBy).toBe('user-001')
+
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const res = getHandler('ipc:create-stock-count')(null, {
+        id: created.data.id,
+        countDate: '2026-08-26',
+        storeId: 'store-001',
+        status: 'final',
+        items: [{ productId: 1, productName: 'Asado', quantityKg: 2000 }],
+      }) as { ok: boolean; data: StockCountDetail }
+
+      expect(res.ok).toBe(true)
+      expect(res.data.recordedBy).toBe('user-001')
+      expect(res.data.lastEditedBy).toBe('admin-001')
+      expect(res.data.items[0].quantityKg).toBe(2000)
+      expect(res.data.originalItems?.[0].quantityKg).toBe(1000)
+      expect(res.data.lastEditedByName).toBe('Admin')
+    })
+
+    it('un segundo guardado del mismo día sin id actualiza el conteo existente', () => {
+      const first = getHandler('ipc:create-stock-count')(null, {
+        countDate: '2026-08-26',
+        items: [{ productId: 1, productName: 'Asado', quantityKg: 9000 }],
+      }) as { ok: boolean; data: StockCountDetail }
+
+      const second = getHandler('ipc:create-stock-count')(null, {
+        countDate: '2026-08-26',
+        items: [
+          { productId: 1, productName: 'Asado', quantityKg: 9000 },
+          { productId: 2, productName: 'Tapa de asado', quantityKg: 10200 },
+        ],
+      }) as { ok: boolean; data: StockCountDetail }
+
+      expect(second.ok).toBe(true)
+      expect(second.data.id).toBe(first.data.id)
+      expect(second.data.items).toHaveLength(2)
+      expect(db.select().from(stockCounts).all()).toHaveLength(1)
+    })
+
+    it('admin reanuda el conteo del día con storeId y countDate', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const created = getHandler('ipc:create-stock-count')(null, {
+        countDate: '2026-08-26',
+        storeId: 'store-002',
+        items: [{ productId: 1, productName: 'Asado', quantityKg: 9000 }],
+      }) as { ok: boolean; data: StockCountDetail }
+
+      const open = getHandler('ipc:get-draft-stock-count')(null, {
+        storeId: 'store-002',
+        countDate: '2026-08-26',
+      }) as { ok: boolean; data: StockCountDetail | null }
+
+      expect(open.ok).toBe(true)
+      expect(open.data?.id).toBe(created.data.id)
+      expect(open.data?.items[0].quantityKg).toBe(9000)
+    })
+
+    it('descarta un borrador', () => {
+      const draft = getHandler('ipc:create-stock-count')(null, draftPayload) as {
+        ok: boolean
+        data: StockCountDetail
+      }
+      const res = getHandler('ipc:discard-stock-count-draft')(null, {
+        stockCountId: draft.data.id,
+      }) as { ok: boolean }
+      expect(res.ok).toBe(true)
+      expect(db.select().from(stockCounts).all()).toHaveLength(0)
+      expect(db.select().from(stockCountItems).all()).toHaveLength(0)
+    })
+
+    it('zod rechaza un conteo final sin ítems', () => {
+      const res = getHandler('ipc:create-stock-count')(null, {
+        countDate: '2026-08-26',
+        status: 'final',
+        items: [],
+      }) as { ok: boolean; code?: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('INVALID_PAYLOAD')
     })

@@ -41,6 +41,20 @@ function fmtARS(n: number) {
   return `$${n.toLocaleString('es-AR')}`
 }
 
+function CatalogColgroup() {
+  return (
+    <colgroup>
+      <col className="w-16" />
+      <col />
+      <col className="w-28" />
+      <col className="w-20" />
+      <col className="w-28" />
+      <col className="w-24" />
+      <col className="w-20" />
+    </colgroup>
+  )
+}
+
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('es-AR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -89,6 +103,8 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   // Filtro
   const [filterText, setFilterText] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const [sortKey, setSortKey] = useState<'plu' | 'name' | 'category' | 'unit' | 'price' | 'available'>('plu')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   useEffect(() => {
     window.hw.getStores().then(r => {
@@ -125,7 +141,33 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
   const filtered = products.filter(p => {
     const q = normalize(filterText)
     return normalize(p.name).includes(q) || String(p.pluNumber ?? '').includes(q)
+  }).slice().sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    const cmp = (av: string | number | boolean | null, bv: string | number | boolean | null): number => {
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+      if (typeof av === 'boolean' && typeof bv === 'boolean') return (Number(av) - Number(bv)) * dir
+      return String(av).localeCompare(String(bv), 'es') * dir
+    }
+    switch (sortKey) {
+      case 'plu': return cmp(a.pluNumber, b.pluNumber)
+      case 'name': return cmp(a.name, b.name)
+      case 'category': return cmp(CATEGORY_LABELS[a.category], CATEGORY_LABELS[b.category])
+      case 'unit': return cmp(a.unit, b.unit)
+      case 'price': return cmp(a.price, b.price)
+      case 'available': return cmp(a.available, b.available)
+    }
   })
+
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
 
   async function handleToggleAvailability(p: AdminProductRow) {
     const next = !p.available
@@ -197,8 +239,8 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
 
   return (
     <div className="flex flex-col h-screen bg-zinc-950 text-white">
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+      {/* Header — chrome de página, no una barra extra del mismo gris que la tabla */}
+      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 px-6 py-3">
         <BackButton onClick={onReturnToHub} />
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-zinc-100 truncate">Administración — Productos</h1>
@@ -217,7 +259,7 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
                     setSelectedStoreId(next)
                   }
                 }}
-                className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-zinc-300"
+                className="text-[10px] bg-zinc-800 border border-zinc-600 rounded px-2 py-0.5 text-zinc-300"
               >
                 {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -230,29 +272,30 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
         </button>
       </header>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-zinc-800">
+      <div className="flex shrink-0 items-center gap-2 px-6 pt-4 pb-3">
         <input
           type="text"
           placeholder="Buscar por nombre o PLU…"
           value={filterText}
           onChange={e => setFilterText(e.target.value)}
-          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+          className="min-w-0 flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
         />
 
         {bulkMode ? (
           <>
             <button
+              type="button"
               onClick={() => { setBulkMode(false); setBulkDraft(new Map()) }}
               disabled={bulkSaving}
-              className="border border-zinc-700 hover:border-zinc-500 text-zinc-400 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={() => void handleBulkSave()}
               disabled={bulkSaving || pendingChanges === 0}
-              className="bg-amber-600 hover:bg-amber-700 disabled:bg-zinc-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:bg-zinc-700"
             >
               {bulkSaving
                 ? 'Guardando…'
@@ -264,29 +307,33 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
         ) : (
           <>
             <button
+              type="button"
               onClick={() => setShowRevisions(true)}
-              className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
               title="Restaurar una versión anterior del catálogo publicado"
             >
               Versiones
             </button>
             <button
+              type="button"
               onClick={() => { setBulkMode(true); setBulkDraft(new Map()) }}
-              className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
               title="Editar varios precios de una vez"
             >
               Editar precios
             </button>
             <button
+              type="button"
               onClick={() => setShowSync(true)}
-              className="border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
               title="Enviar el catálogo del local a la balanza conectada por USB"
             >
               Cargar en balanza
             </button>
             <button
+              type="button"
               onClick={() => setShowCreate(true)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
             >
               + Nuevo producto
             </button>
@@ -295,109 +342,143 @@ export default function AdminScreen({ onLogout, onReturnToHub }: Props) {
       </div>
 
       {bulkMode && (
-        <div className="mx-6 mt-3 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-2 text-xs text-amber-400/90">
+        <div className="mx-6 mb-3 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-2 text-xs text-amber-400/90">
           Modo edición masiva activo — modificá los precios en la tabla y guardá todos los cambios de una vez.
         </div>
       )}
 
       {error && (
-        <div className="mx-6 mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-2 text-sm text-red-400/90">
+        <div className="mx-6 mb-3 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-2 text-sm text-red-400/90">
           {error}
         </div>
       )}
 
-      {/* Tabla */}
-      <div ref={listRef} className="flex-1 overflow-auto px-6 py-3">
-        {loading ? (
-                  <div className="flex items-center justify-center h-40">
-            <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <p className="text-center text-zinc-500 mt-16 text-sm">
-            {filterText ? 'Sin resultados para esa búsqueda.' : 'No hay productos cargados.'}
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-zinc-400 text-left border-b border-zinc-800">
-                <th className="pb-2 pr-3 font-medium w-12">PLU</th>
-                <th className="pb-2 pr-3 font-medium">Nombre</th>
-                <th className="pb-2 pr-3 font-medium">Categoría</th>
-                <th className="pb-2 pr-3 font-medium">Unidad</th>
-                <th className="pb-2 pr-3 font-medium text-right">Precio</th>
-                <th className="pb-2 pr-3 font-medium text-center">Disponible</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(p => {
-                const draftRaw = bulkDraft.get(p.id)
-                const draftParsed = draftRaw !== undefined ? parseNumericInput(draftRaw) : null
-                const isChanged = draftParsed !== null && draftParsed !== (p.price ?? null)
-
-                return (
-                  <tr
-                    key={p.id}
-                    className={`border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors ${isChanged ? 'bg-amber-900/10' : ''}`}
-                  >
-                    <td className="py-2 pr-3 tabular-nums text-zinc-400">
-                      {p.pluNumber ?? <span className="text-zinc-600">—</span>}
-                    </td>
-                    <td className="py-2 pr-3 font-medium min-w-0">
-                      <span className="truncate block max-w-xs" title={p.name}>{p.name}</span>
-                    </td>
-                    <td className="py-2 pr-3 text-zinc-400">{CATEGORY_LABELS[p.category]}</td>
-                    <td className="py-2 pr-3 text-zinc-400">{p.unit === 'kg' ? 'kg' : 'unidad'}</td>
-
-                    <td className="py-1 pr-3 text-right">
-                      {bulkMode ? (
-                        <NumericInput
-                          value={draftRaw ?? (p.price != null ? formatNumericInputValue(String(p.price)) : '')}
-                          onChange={v => handleBulkDraftChange(p.id, v)}
-                          className={`w-28 bg-zinc-800 border rounded px-2 py-1 text-sm text-white text-right focus:outline-none focus:ring-1 ${isChanged ? 'border-amber-500 focus:ring-amber-500' : 'border-zinc-600 focus:ring-red-500'}`}
-                          placeholder="—"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-end gap-1">
+      <div className="min-h-0 flex-1 px-6 pb-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-800">
+          {loading ? (
+            <div className="flex h-40 items-center justify-center">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-500 border-t-transparent" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="mt-16 text-center text-sm text-zinc-500">
+              {filterText ? 'Sin resultados para esa búsqueda.' : 'No hay productos cargados.'}
+            </p>
+          ) : (
+            <>
+              <div className="shrink-0 [scrollbar-gutter:stable]">
+                <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+                  <CatalogColgroup />
+                  <thead>
+                    <tr className="text-left text-zinc-300">
+                      {([
+                        { key: 'plu' as const, label: 'PLU' },
+                        { key: 'name' as const, label: 'Nombre' },
+                        { key: 'category' as const, label: 'Categoría' },
+                        { key: 'unit' as const, label: 'Unidad' },
+                        { key: 'price' as const, label: 'Precio', cls: 'text-right' },
+                        { key: 'available' as const, label: 'Disponible', cls: 'text-center' },
+                      ]).map(col => (
+                        <th
+                          key={col.key}
+                          className={`bg-zinc-700 px-3 py-2.5 font-medium first:pl-4 ${col.cls ?? ''}`}
+                        >
                           <button
-                            onClick={() => setPriceProduct(p)}
-                            className="text-white hover:text-red-400 transition-colors tabular-nums"
-                            title="Cambiar precio"
+                            type="button"
+                            onClick={() => toggleSort(col.key)}
+                            className="inline-flex items-center gap-1 hover:text-white"
                           >
-                            {p.price != null ? fmtARS(p.price) : <span className="text-zinc-500 text-xs">Sin precio</span>}
+                            {col.label}
+                            {sortKey === col.key && (
+                              <span className="text-[10px] text-zinc-400">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                            )}
                           </button>
-                          <button
-                            onClick={() => setHistoryProduct(p)}
-                            className="text-zinc-600 hover:text-zinc-400 text-xs transition-colors"
-                            title="Ver historial de precios"
-                          >
-                            ↓
-                          </button>
-                        </div>
-                      )}
-                    </td>
+                        </th>
+                      ))}
+                      <th className="bg-zinc-700 px-3 py-2.5 pr-4" />
+                    </tr>
+                  </thead>
+                </table>
+              </div>
+              <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+                  <CatalogColgroup />
+                  <tbody>
+                {filtered.map((p, i) => {
+                  const draftRaw = bulkDraft.get(p.id)
+                  const draftParsed = draftRaw !== undefined ? parseNumericInput(draftRaw) : null
+                  const isChanged = draftParsed !== null && draftParsed !== (p.price ?? null)
+                  const rowBg = isChanged
+                    ? 'bg-emerald-950/40 group-hover:bg-emerald-900/40'
+                    : i % 2 === 0
+                      ? 'bg-zinc-800 group-hover:bg-zinc-700'
+                      : 'bg-zinc-800/60 group-hover:bg-zinc-700'
 
-                    <td className="py-2 pr-3 text-center">
-                      <Toggle checked={p.available} onChange={() => void handleToggleAvailability(p)} />
-                    </td>
-                    <td className="py-2 text-right">
-                      {!bulkMode && (
-                        <div className="flex items-center justify-end gap-1">
+                  return (
+                    <tr key={p.id} className="group">
+                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 pl-4 tabular-nums text-zinc-400 ${rowBg}`}>
+                        {p.pluNumber ?? <span className="text-zinc-600">—</span>}
+                      </td>
+                      <td className={`min-w-0 border-t border-zinc-700/60 px-3 py-2.5 font-medium ${rowBg}`}>
+                        <span className="block truncate" title={p.name}>{p.name}</span>
+                      </td>
+                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-zinc-400 ${rowBg}`}>
+                        {CATEGORY_LABELS[p.category]}
+                      </td>
+                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-zinc-400 ${rowBg}`}>
+                        {p.unit === 'kg' ? 'kg' : 'unidad'}
+                      </td>
+                      <td className={`border-t border-zinc-700/60 px-3 py-1.5 text-right ${rowBg}`}>
+                        {bulkMode ? (
+                          <NumericInput
+                            value={draftRaw ?? (p.price != null ? formatNumericInputValue(String(p.price)) : '')}
+                            onChange={v => handleBulkDraftChange(p.id, v)}
+                            className={`w-28 rounded border bg-zinc-700 px-2 py-1 text-right text-sm text-white focus:outline-none focus:ring-1 ${isChanged ? 'border-emerald-500 focus:ring-emerald-500' : 'border-zinc-500 focus:ring-emerald-700/50'}`}
+                            placeholder="—"
+                          />
+                        ) : (
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setPriceProduct(p)}
+                              className="tabular-nums text-zinc-100 hover:text-emerald-400 transition-colors"
+                              title="Cambiar precio"
+                            >
+                              {p.price != null ? fmtARS(p.price) : <span className="text-xs text-zinc-500">Sin precio</span>}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setHistoryProduct(p)}
+                              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                              title="Ver historial de precios"
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-center ${rowBg}`}>
+                        <Toggle checked={p.available} onChange={() => void handleToggleAvailability(p)} />
+                      </td>
+                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 pr-4 text-right ${rowBg}`}>
+                        {!bulkMode && (
                           <button
+                            type="button"
                             onClick={() => setEditProduct(p)}
-                            className="text-zinc-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-zinc-700 transition-colors"
+                            className="rounded-lg px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-600 hover:text-white transition-colors"
                           >
                             Editar
                           </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Modales */}
@@ -505,6 +586,27 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!isEdit || !product) return
+    let cancelled = false
+    void (async () => {
+      const results = await Promise.all(stores.map(s => window.hw.getAllProducts(s.id)))
+      if (cancelled) return
+      const prices: Record<string, string> = {}
+      stores.forEach((s, i) => {
+        const res = results[i]
+        const row = res?.ok ? res.data.find(p => p.id === product.id) : undefined
+        prices[s.id] = row?.price != null ? formatNumericInputValue(String(row.price)) : ''
+      })
+      setPerStorePriceRaw(prices)
+      const vals = Object.values(prices).filter(v => v !== '')
+      const allSame = vals.length > 0 && vals.every(v => v === vals[0])
+      setSamePriceAll(allSame || stores.length <= 1)
+      if (allSame) setSharedPriceRaw(vals[0] ?? '')
+      else if (prices[storeId]) setSharedPriceRaw(prices[storeId] ?? '')
+    })()
+    return () => { cancelled = true }
+  }, [isEdit, product, stores, storeId])
   const unitLabel = unit === 'kg' ? 'kg' : 'unidad'
   const sharedPriceValue = parseNumericInput(sharedPriceRaw)
   const anyPriceOverLimit = samePriceAll
@@ -568,13 +670,13 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
       productId = r.data.id
     }
 
-    // Aplicar precios iniciales por local (solo en creación)
-    if (!isEdit && productId) {
+    // Aplicar precios por local (alta y edición)
+    if (productId) {
       const targets = resolvePriceTargets()
       for (const t of targets) {
         const pr = await window.hw.setProductPrice({ productId, storeId: t.storeId, price: t.price })
         if (!pr.ok) {
-          setError(`El producto fue creado pero falló al guardar el precio en un local: ${pr.error}`)
+          setError(`No se pudo guardar el precio en un local: ${pr.error}`)
           setSaving(false)
           return
         }
@@ -587,7 +689,7 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-5">{isEdit ? 'Editar producto' : 'Nuevo producto'}</h2>
         <div className="space-y-4">
           <Field label="Nombre">
@@ -616,11 +718,10 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
               placeholder="Sin asignar" />
           </Field>
-          {!isEdit && (
-            <div className="space-y-3">
+          <div className="space-y-3">
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <p className="text-xs font-medium text-zinc-400 shrink-0">
-                  Precio inicial ($/{unitLabel}, opcional)
+                  Precio ($/{unitLabel}{isEdit ? '' : ', opcional'})
                 </p>
                 {stores.length > 1 && (
                   <label className="flex items-center gap-1.5 cursor-pointer select-none min-w-0">
@@ -666,7 +767,6 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
                 <p className="text-xs text-zinc-600">Dejá en blanco los locales sin precio por ahora.</p>
               )}
             </div>
-          )}
         </div>
         {error && <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/90">{error}</div>}
         <div className="flex gap-3 mt-6">
@@ -727,7 +827,7 @@ function PriceModal({ product, storeId, onClose, onSaved }: PriceModalProps) {
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1">Cambiar precio</h2>
         <p className="text-sm text-zinc-400 mb-5">{product.name}</p>
         <Field label={`Precio ($/${product.unit === 'kg' ? 'kg' : 'unidad'})`}>
@@ -778,7 +878,7 @@ function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1">Historial de precios</h2>
         <p className="text-sm text-zinc-400 mb-4">{product.name}</p>
 
@@ -847,7 +947,7 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
 
   return (
     <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-md p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1">Versiones del catálogo</h2>
         <p className="text-sm text-zinc-400 mb-4 truncate" title={storeName}>
           {storeName || 'Local seleccionado'} — se guardan las últimas 10 publicaciones.
@@ -955,7 +1055,7 @@ interface GlobalDeleteProductModalProps {
 function GlobalDeleteProductModal({ product, deleting, onConfirm, onCancel }: GlobalDeleteProductModalProps) {
   return (
     <ModalOverlay onClose={onCancel}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-2">Quitar del catálogo</h2>
         <p className="text-sm text-zinc-400 mb-1">
           ¿Quitar{' '}
@@ -1008,7 +1108,7 @@ interface UnsavedChangesModalProps {
 function UnsavedChangesModal({ pendingChanges, onSave, onDiscard, onCancel }: UnsavedChangesModalProps) {
   return (
     <ModalOverlay onClose={onCancel}>
-      <div className="bg-zinc-900 rounded-xl w-full max-w-sm p-6 shadow-xl">
+      <div className="bg-zinc-800 rounded-xl w-full max-w-sm p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-2">Cambios sin guardar</h2>
         <p className="text-sm text-zinc-400 mb-5">
           Tenés {pendingChanges} cambio{pendingChanges !== 1 ? 's' : ''} de precio sin guardar en este local.

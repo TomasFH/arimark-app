@@ -73,6 +73,7 @@ Casos típicos donde aplica sin excepción: nombres de clientes en modales de fi
 El repo es un **monorepo pnpm** (`pnpm-workspace.yaml`):
 - `apps/desktop` — app Electron (proceso main + renderer React). Nunca se ejecuta código de red ni Firebase en el renderer.
 - `apps/mobile` — app React empaquetada como **nativa instalable con Capacitor** (`.apk` en Android; proyecto iOS preparado). Los assets web se empaquetan dentro del instalador (`webDir: 'dist'`), por lo que la app siempre abre offline, incluso recién instalada. El proyecto nativo Android vive en `apps/mobile/android/`. **Excepción legítima:** esta app accede a Firebase/Firestore directamente desde su WebView porque es un cliente web, no un proceso Electron. No rompe la regla "Firebase solo en main" porque esa regla aplica al desktop Electron. El acceso offline se resuelve con **sesión persistente de Firebase Auth** (login una sola vez con internet), no con PIN.
+- **Deploy PWA para testeo en celu:** el checklist y el admin en el teléfono usan Firebase Hosting (`pnpm mobile:deploy`). Si el agente cambia `apps/mobile` (o algo que el celu deba re-probar), **hace el deploy él**, no espera a que el desarrollador lo recuerde. El **APK** no se actualiza con ese deploy: lleva el `dist` del instalador; hace falta un APK nuevo.
 - `packages/shared` — código TypeScript puro sin dependencias de runtime: `kretzBarcode.ts`, `relay.ts` (tipos + helpers de path). Consumido como TS source por ambas apps (Vite lo transpila; no hay build step en shared).
 
 Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediante `pnpm --filter`.
@@ -113,6 +114,13 @@ Los **proveedores** y sus **eventos de deuda** son la primera categoría de dato
 Mecanismo: **outbox pattern** con columna `syncedAt`. Las PCs escriben en SQLite con `syncedAt=null`, un worker en background pushea a `licenses/{key}/providers/{id}` y `licenses/{key}/providerDebtEvents/{id}` marcando `syncedAt` al confirmar. Un listener `onSnapshot` mantiene el cache local de proveedores actualizado (para autocomplete global).
 **La tabla `providers` en SQLite es un cache local** sincronizable; Firestore es la fuente de verdad compartida. La deuda del propio local sigue calculándose 100% localmente (sin depender de conexión); solo la vista combinada admin requiere Firestore.
 Esto no viola la regla "Firebase solo en main" — toda la sincronización ocurre en el proceso main de Electron.
+
+**Firestore — lecturas (Spark, acordado 2026-08-24):**
+- Una **lectura** = un **documento** que vuelve. No es “abrir una colección = 1”. `getDocs` de N docs = N lecturas.
+- Colecciones **chicas y estables** (locales, empleados, clientes especiales, fichas de proveedores, catálogo): `getDocs` al entrar o `onSnapshot` en PC está bien. El **catálogo** es 1 documento por local (`catalog/{storeId}` con el array `products` adentro), no 1 doc por producto.
+- Colecciones que **crecen todos los días** (`sales`, `providerDebtEvents`, `customerDebtEvents`, `expenses`, `shifts` a largo plazo): **prohibido** bajar la colección entera (`getDocs` sin `where`/`limit`, o `onSnapshot` de toda la colección) en código nuevo. Pedir por turno, fecha o página. Detalle y números: `PLAN.md` DT-07 (proveedores) y **DT-08** (ventas / principio general).
+- Los usuarios de la app **no** reciben cupos ni “no uses esto más de X veces”. Si una pantalla puede agotar las 50.000 lecturas/día de Spark con uso normal, el bug es de la consulta, no de la persona. Objetivo de DT-08: que **un humano** (admin, cajera, carnicero, o todos a la vez) no pueda agotar el cupo a propósito a base de clics; un script automático no es el threat model y Spark no nos deja rate-limitar el servidor.
+- **No implementar DT-07/DT-08** hasta que el desarrollador lo pida (no mezclar con el testeo de la checklist). El núcleo (caja, catálogo, ABM chico) ya escala; el riesgo aparece a los **6–12 meses** si el Historial sigue pidiendo todo.
 
 ## IPC y validación
 

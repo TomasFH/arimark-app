@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import NumericInput from '../components/NumericInput'
+import { detectShiftType } from '../lib/detectShiftType'
 import { parseNumericInput } from '../lib/numericInput'
 import type { ShiftInfo, ShiftType } from '../types/hw-api'
 
@@ -16,33 +17,6 @@ interface Props {
   cancelLabel?: string
 }
 
-/** Compara "HH:MM" string con los minutos totales del día. */
-function timeToMinutes(hhmm: string): number {
-  const [hh, mm] = hhmm.split(':').map(Number)
-  return (hh ?? 0) * 60 + (mm ?? 0)
-}
-
-/** Devuelve el tipo de turno detectado según la hora actual y los rangos configurados. */
-function detectShiftType(
-  nowMinutes: number,
-  morningStart: string | null | undefined,
-  morningEnd: string | null | undefined,
-  afternoonStart: string | null | undefined,
-  afternoonEnd: string | null | undefined,
-): ShiftType | null {
-  if (morningStart && morningEnd) {
-    const start = timeToMinutes(morningStart)
-    const end = timeToMinutes(morningEnd)
-    if (nowMinutes >= start && nowMinutes <= end) return 'morning'
-  }
-  if (afternoonStart && afternoonEnd) {
-    const start = timeToMinutes(afternoonStart)
-    const end = timeToMinutes(afternoonEnd)
-    if (nowMinutes >= start && nowMinutes <= end) return 'evening'
-  }
-  return null
-}
-
 export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, userId, canForceClose = false, cancelLabel = '← Cambiar local' }: Props) {
   const [shiftType, setShiftType] = useState<ShiftType>('morning')
   const [openingCash, setOpeningCash] = useState('')
@@ -54,11 +28,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   // Guard síncrono contra spam-click: se setea a true antes del await, sin esperar
   // al re-render de React, para que ningún click adicional dispare un IPC duplicado.
   const submittingRef = useRef(false)
-
-  // Autodetección de tipo de turno por horario
-  const [detectedShiftType, setDetectedShiftType] = useState<ShiftType | null>(null)
-  const [detectedLabel, setDetectedLabel] = useState('')
-  const [showManual, setShowManual] = useState(false)
 
   async function checkExistingShift(): Promise<boolean> {
     setError('')
@@ -108,14 +77,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
         store.afternoonStart,
         store.afternoonEnd,
       )
-
-      if (detected) {
-        setDetectedShiftType(detected)
-        setShiftType(detected)
-        const startLabel = detected === 'morning' ? store.morningStart : store.afternoonStart
-        const endLabel = detected === 'morning' ? store.morningEnd : store.afternoonEnd
-        setDetectedLabel(`${startLabel} – ${endLabel}`)
-      }
+      setShiftType(detected)
     })
   }, [storeId])
 
@@ -157,8 +119,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     }
   }
 
-  const isAutoDetected = detectedShiftType !== null && !showManual
-
   return (
     <div className="flex flex-1 items-center justify-center bg-zinc-900 px-4">
       <div className="w-full max-w-md space-y-6">
@@ -167,70 +127,34 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
           <p className="mt-1 text-sm text-zinc-400">Ingresá el efectivo inicial antes de comenzar</p>
         </div>
 
-        {/* Banner de autodetección */}
-        {isAutoDetected && (
-          <div className="rounded-xl bg-amber-900/30 border border-amber-700/50 px-4 py-3 space-y-2">
-            <p className="text-sm text-amber-300 font-medium">
-              Turno detectado automáticamente:{' '}
-              <span className="font-bold">
-                {detectedShiftType === 'morning' ? '🌅 Mañana' : '🌙 Tarde'}
-              </span>{' '}
-              ({detectedLabel})
-            </p>
-            <p className="text-xs text-amber-400">¿Confirmar o preferís elegir manualmente?</p>
-            <button
-              type="button"
-              onClick={() => setShowManual(true)}
-              className="text-xs text-amber-400 underline hover:text-amber-300 transition-colors"
-            >
-              Elegir manualmente
-            </button>
-          </div>
-        )}
-
         <form onSubmit={handleSubmit} className="space-y-4 rounded-xl bg-zinc-800 p-6 shadow-lg">
-          {/* Selector de turno — solo si no hay autodetección o se eligió manualmente */}
-          {(!isAutoDetected) && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-zinc-300">Turno</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShiftType('morning')}
-                  className={`rounded-lg py-3 text-sm font-semibold transition-colors ${
-                    shiftType === 'morning'
-                      ? 'bg-zinc-700 text-zinc-100'
-                      : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
-                  }`}
-                >
-                  🌅 Mañana
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShiftType('evening')}
-                  className={`rounded-lg py-3 text-sm font-semibold transition-colors ${
-                    shiftType === 'evening'
-                      ? 'bg-zinc-700 text-zinc-100'
-                      : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
-                  }`}
-                >
-                  🌙 Tarde
-                </button>
-              </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-zinc-300">Turno</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShiftType('morning')}
+                className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
+                  shiftType === 'morning'
+                    ? 'border-emerald-500 bg-emerald-700/40 text-emerald-100'
+                    : 'border-transparent bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+                }`}
+              >
+                🌅 Mañana
+              </button>
+              <button
+                type="button"
+                onClick={() => setShiftType('evening')}
+                className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
+                  shiftType === 'evening'
+                    ? 'border-emerald-500 bg-emerald-700/40 text-emerald-100'
+                    : 'border-transparent bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+                }`}
+              >
+                🌙 Tarde
+              </button>
             </div>
-          )}
-
-          {/* Turno confirmado por autodetección (solo lectura) */}
-          {isAutoDetected && (
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-zinc-300">Turno</label>
-              <div className={`rounded-lg py-3 text-sm font-semibold text-center ${
-                detectedShiftType === 'morning' ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-700 text-zinc-100'
-              }`}>
-                {detectedShiftType === 'morning' ? '🌅 Mañana' : '🌙 Tarde'}
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Efectivo inicial */}
           <div className="space-y-2">
@@ -302,7 +226,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
             disabled={loading || !!blockingShift}
             className="w-full rounded-lg bg-emerald-600 py-3 font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
           >
-            {loading ? 'Abriendo turno…' : isAutoDetected ? 'Confirmar y abrir turno' : 'Abrir turno'}
+            {loading ? 'Abriendo turno…' : 'Abrir turno'}
           </button>
           {onCancel && (
             <button

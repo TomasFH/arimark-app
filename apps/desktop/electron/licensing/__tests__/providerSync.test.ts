@@ -63,6 +63,7 @@ describe('providerSync', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    stopProviderSyncListener()
     const instance = await createInMemoryDb()
     db = instance.db
 
@@ -211,7 +212,7 @@ describe('providerSync', () => {
 
       startProviderSyncListener(LICENSE)
 
-      expect(mockOnSnapshot).toHaveBeenCalledTimes(1)
+      expect(mockOnSnapshot).toHaveBeenCalledTimes(2)
     })
 
     it('stopProviderSyncListener cancela el listener', () => {
@@ -221,17 +222,18 @@ describe('providerSync', () => {
       startProviderSyncListener(LICENSE)
       stopProviderSyncListener()
 
-      expect(mockUnsub).toHaveBeenCalledTimes(1)
+      expect(mockUnsub).toHaveBeenCalledTimes(2)
     })
 
     it('el callback de onSnapshot upsertea providers en la cache local', () => {
-      let capturedCallback: (snapshot: unknown) => void = () => {}
+      const callbacks: Array<(snapshot: unknown) => void> = []
       mockOnSnapshot.mockImplementation((_col: unknown, cb: (s: unknown) => void) => {
-        capturedCallback = cb
+        callbacks.push(cb)
         return vi.fn()
       })
 
       startProviderSyncListener(LICENSE)
+      const capturedCallback = callbacks[0]!
 
       const pid = providerIdFromName('nuevo desde firestore')
       const now = new Date().toISOString()
@@ -277,13 +279,14 @@ describe('providerSync', () => {
         syncedAt: null,
       }).run()
 
-      let capturedCallback: (snapshot: unknown) => void = () => {}
+      const callbacks: Array<(snapshot: unknown) => void> = []
       mockOnSnapshot.mockImplementation((_col: unknown, cb: (s: unknown) => void) => {
-        capturedCallback = cb
+        callbacks.push(cb)
         return vi.fn()
       })
 
       startProviderSyncListener(LICENSE)
+      const capturedCallback = callbacks[0]!
 
       capturedCallback({
         docChanges: () => [
@@ -315,13 +318,14 @@ describe('providerSync', () => {
     })
 
     it('ignora cambios de tipo "removed"', () => {
-      let capturedCallback: (snapshot: unknown) => void = () => {}
+      const callbacks: Array<(snapshot: unknown) => void> = []
       mockOnSnapshot.mockImplementation((_col: unknown, cb: (s: unknown) => void) => {
-        capturedCallback = cb
+        callbacks.push(cb)
         return vi.fn()
       })
 
       startProviderSyncListener(LICENSE)
+      const capturedCallback = callbacks[0]!
 
       capturedCallback({
         docChanges: () => [
@@ -335,6 +339,125 @@ describe('providerSync', () => {
       // No debe haberse insertado nada
       const cached = db.select().from(providers).all()
       expect(cached).toHaveLength(0)
+    })
+
+    it('acepta un proveedor móvil sin nameKey ni createdAt', () => {
+      const callbacks: Array<(snapshot: unknown) => void> = []
+      mockOnSnapshot.mockImplementation((_col: unknown, cb: (s: unknown) => void) => {
+        callbacks.push(cb)
+        return vi.fn()
+      })
+      startProviderSyncListener(LICENSE)
+      const capturedCallback = callbacks[0]!
+
+      capturedCallback({
+        docChanges: () => [
+          {
+            type: 'added',
+            doc: {
+              id: 'prov-mobile',
+              data: () => ({ id: 'prov-mobile', name: 'Desde Celu' }),
+            },
+          },
+        ],
+      })
+
+      const cached = db.select().from(providers).all()
+      expect(cached).toHaveLength(1)
+      expect(cached[0]?.name).toBe('Desde Celu')
+      expect(cached[0]?.nameKey).toBe('desde celu')
+    })
+
+    it('upsertea eventos de deuda remotos (listener 2)', () => {
+      const callbacks: Array<(snapshot: unknown) => void> = []
+      mockOnSnapshot.mockImplementation((_col: unknown, cb: (s: unknown) => void) => {
+        callbacks.push(cb)
+        return vi.fn()
+      })
+      startProviderSyncListener(LICENSE)
+      const providerCb = callbacks[0]!
+      const eventCb = callbacks[1]!
+
+      const pid = providerIdFromName('oso sync')
+      const now = new Date().toISOString()
+      providerCb({
+        docChanges: () => [
+          {
+            type: 'added',
+            doc: { id: pid, data: () => ({ id: pid, name: 'Oso Sync', nameKey: 'oso sync', createdAt: now }) },
+          },
+        ],
+      })
+
+      eventCb({
+        docChanges: () => [
+          {
+            type: 'added',
+            doc: {
+              id: 'evt-1',
+              data: () => ({
+                id: 'evt-1',
+                providerId: pid,
+                storeId: 'store-001',
+                type: 'payment',
+                amount: 400000,
+                date: now,
+              }),
+            },
+          },
+        ],
+      })
+
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.amount).toBe(400000)
+      expect(events[0]?.type).toBe('payment')
+      expect(events[0]?.createdAt).toBe(now)
+    })
+
+    it('borra el evento local cuando Firestore lo marca deleted', () => {
+      const callbacks: Array<(snapshot: unknown) => void> = []
+      mockOnSnapshot.mockImplementation((_col: unknown, cb: (s: unknown) => void) => {
+        callbacks.push(cb)
+        return vi.fn()
+      })
+      startProviderSyncListener(LICENSE)
+      const eventCb = callbacks[1]!
+
+      const pid = providerIdFromName('oso deleted')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Oso Deleted', nameKey: 'oso deleted', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-gone',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Oso Deleted',
+        type: 'debt',
+        amount: 1000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      eventCb({
+        docChanges: () => [
+          {
+            type: 'modified',
+            doc: {
+              id: 'evt-gone',
+              data: () => ({
+                id: 'evt-gone',
+                providerId: pid,
+                storeId: 'store-001',
+                type: 'debt',
+                amount: 1000,
+                deleted: true,
+              }),
+            },
+          },
+        ],
+      })
+
+      expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
     })
   })
 })

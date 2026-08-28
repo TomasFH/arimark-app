@@ -1,12 +1,13 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { eq, and, sum, count, gte, lte, asc } from 'drizzle-orm'
+import { eq, and, sum, count, gte, lte, asc, desc } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
   shifts, sales, salePayments, saleItems, expenses,
-  debtEvents, orders, users, products, providers,
+  debtEvents, orders, users, products, providers, customers,
+  employeeVales, employees,
 } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { isFirebaseAvailable } from '../licensing/firebase'
@@ -15,13 +16,18 @@ import {
   fetchHistoryShiftDetailFromFirestore,
   fetchEmployeeValesFromFirestore,
   mergeHistoryShiftRows,
+  sortHistoryShiftRowsNewestFirst,
+  historyShiftDetailIsEmpty,
 } from '../licensing/historyFirestore'
 import type {
   IpcResult,
   HistoryShiftRow,
   HistoryShiftDetail,
+  HistoryValeRow,
   RemoteEmployeeValeRow,
+  ValeItem,
 } from '../../src/types/hw-api'
+import { cashAmountFromDeposit, digitalAmountFromDeposit } from '../lib/depositPayments'
 
 const getHistoryShiftsSchema = z.object({
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -76,14 +82,12 @@ export function registerHistoryHandlers(): void {
       if (filter.fromDate) conditions.push(gte(shifts.startedAt, filter.fromDate))
       if (filter.toDate) conditions.push(lte(shifts.startedAt, filter.toDate + 'T23:59:59.999Z'))
 
-      // Con Firebase: traer más filas locales y paginar después del merge
       const shiftRows = db
         .select()
         .from(shifts)
         .where(and(...conditions))
-        .orderBy(asc(shifts.startedAt))
-        .limit(useRemote ? 500 : pageLimit)
-        .offset(useRemote ? 0 : pageOffset)
+        .orderBy(desc(shifts.startedAt))
+        .limit(500)
         .all()
 
       if (shiftRows.length === 0 && !useRemote) return { ok: true, data: [] }
@@ -159,21 +163,24 @@ export function registerHistoryHandlers(): void {
         expensesByShift.set(r.shiftId, Number(r.total ?? 0))
       }
 
-      // Señas en efectivo por turno
+      // Señas en efectivo por turno (parsea depositPayments mixto, igual que el cierre)
       const depositsByShift = new Map<string, number>()
-      const depositData = db
-        .select({
-          shiftId: orders.depositShiftId,
-          total: sum(orders.depositAmount),
-        })
-        .from(orders)
-        .where(eq(orders.depositMethod, 'cash'))
-        .groupBy(orders.depositShiftId)
-        .all()
-        .filter(r => r.shiftId && shiftIds.includes(r.shiftId))
+      if (shiftIds.length > 0) {
+        const depositRows = db
+          .select({
+            shiftId: orders.depositShiftId,
+            depositAmount: orders.depositAmount,
+            depositMethod: orders.depositMethod,
+            depositPayments: orders.depositPayments,
+          })
+          .from(orders)
+          .all()
+          .filter(r => r.shiftId && shiftIds.includes(r.shiftId) && r.depositAmount > 0)
 
-      for (const r of depositData) {
-        if (r.shiftId) depositsByShift.set(r.shiftId, Number(r.total ?? 0))
+        for (const r of depositRows) {
+          if (!r.shiftId) continue
+          depositsByShift.set(r.shiftId, (depositsByShift.get(r.shiftId) ?? 0) + cashAmountFromDeposit(r))
+        }
       }
 
       // Cobranzas de fiado en efectivo por turno (amount negativo en ledger)
@@ -213,7 +220,12 @@ export function registerHistoryHandlers(): void {
         }
       })
 
-      if (!useRemote) return { ok: true, data: localResult }
+      if (!useRemote) {
+        return {
+          ok: true,
+          data: sortHistoryShiftRowsNewestFirst(localResult).slice(pageOffset, pageOffset + pageLimit),
+        }
+      }
 
       try {
         const remote = await fetchHistoryShiftsFromFirestore({
@@ -221,11 +233,14 @@ export function registerHistoryHandlers(): void {
           toDate: filter.toDate,
           effectiveStoreId,
         })
-        const merged = mergeHistoryShiftRows(localResult, remote)
+        const merged = sortHistoryShiftRowsNewestFirst(mergeHistoryShiftRows(localResult, remote))
         return { ok: true, data: merged.slice(pageOffset, pageOffset + pageLimit) }
       } catch (fbErr) {
         log.warn('[ipc:get-history-shifts] Firestore no disponible; se usa solo local', fbErr)
-        return { ok: true, data: localResult.slice(pageOffset, pageOffset + pageLimit) }
+        return {
+          ok: true,
+          data: sortHistoryShiftRowsNewestFirst(localResult).slice(pageOffset, pageOffset + pageLimit),
+        }
       }
     } catch (err) {
       log.error('[ipc:get-history-shifts] Error inesperado', err)
@@ -401,15 +416,39 @@ export function registerHistoryHandlers(): void {
         createdBy: expUserMap.get(r.createdBy) ?? r.createdBy,
       }))
 
-      // ---- Fiados del turno ----
-      const debtRows = db
+      // ---- Fiados del turno (eventos con shiftId + fiados creados desde ventas del turno) ----
+      type DebtRow = {
+        id: string
+        createdAt: string
+        eventType: string
+        amount: number
+        notes: string | null
+        customerId: string
+      }
+      const debtById = new Map<string, DebtRow>()
+
+      const byShiftDebt = db
         .select({
           id: debtEvents.id,
           createdAt: debtEvents.createdAt,
           eventType: debtEvents.eventType,
           amount: debtEvents.amount,
           notes: debtEvents.notes,
-          saleId: debtEvents.saleId,
+          customerId: debtEvents.customerId,
+        })
+        .from(debtEvents)
+        .where(eq(debtEvents.shiftId, shiftId))
+        .all()
+      for (const r of byShiftDebt) debtById.set(r.id, r)
+
+      const bySaleDebt = db
+        .select({
+          id: debtEvents.id,
+          createdAt: debtEvents.createdAt,
+          eventType: debtEvents.eventType,
+          amount: debtEvents.amount,
+          notes: debtEvents.notes,
+          customerId: debtEvents.customerId,
         })
         .from(debtEvents)
         .innerJoin(sales, eq(debtEvents.saleId, sales.id))
@@ -417,29 +456,30 @@ export function registerHistoryHandlers(): void {
           eq(sales.shiftId, shiftId),
           eq(debtEvents.eventType, 'created'),
         ))
-        .orderBy(asc(debtEvents.createdAt))
         .all()
-
-      // Resolver nombres de clientes de fiados
-      const debtSaleIds = debtRows.map(r => r.saleId).filter(Boolean) as string[]
-      const saleCustomerMap = new Map<string, string | null>()
-      if (debtSaleIds.length > 0) {
-        const saleCustRows = db
-          .select({ id: sales.id, customerId: sales.customerId })
-          .from(sales)
-          .all()
-          .filter(r => debtSaleIds.includes(r.id))
-        for (const r of saleCustRows) saleCustomerMap.set(r.id, r.customerId)
+      for (const r of bySaleDebt) {
+        if (!debtById.has(r.id)) debtById.set(r.id, r)
       }
 
-      const historyDebts = debtRows.map(r => ({
-        id: r.id,
-        createdAt: r.createdAt,
-        customerName: '(cliente)', // se resuelve abajo
-        amount: r.amount,
-        eventType: r.eventType as 'created',
-        notes: r.notes,
-      }))
+      const customerNameById = new Map<string, string>()
+      const customerIds = [...new Set([...debtById.values()].map(r => r.customerId))]
+      if (customerIds.length > 0) {
+        const custRows = db.select({ id: customers.id, name: customers.name }).from(customers).all()
+        for (const c of custRows) {
+          if (customerIds.includes(c.id)) customerNameById.set(c.id, c.name)
+        }
+      }
+
+      const historyDebts = [...debtById.values()]
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map(r => ({
+          id: r.id,
+          createdAt: r.createdAt,
+          customerName: customerNameById.get(r.customerId) ?? '(cliente)',
+          amount: r.amount,
+          eventType: r.eventType as HistoryShiftDetail['debts'][number]['eventType'],
+          notes: r.notes,
+        }))
 
       // ---- Señas del turno ----
       const depositRows = db
@@ -452,6 +492,7 @@ export function registerHistoryHandlers(): void {
           depositMethod: orders.depositMethod,
           depositPayments: orders.depositPayments,
           createdAt: orders.createdAt,
+          status: orders.status,
         })
         .from(orders)
         .where(and(
@@ -460,9 +501,9 @@ export function registerHistoryHandlers(): void {
         .orderBy(asc(orders.createdAt))
         .all()
 
-      const historyDeposits = depositRows
-        .filter(r => r.depositAmount > 0)
-        .map(r => {
+      const depositRowsWithAmount = depositRows.filter(r => r.depositAmount > 0)
+
+      const historyDeposits = depositRowsWithAmount.map(r => {
           let parsedPayments: import('../../src/types/hw-api').DepositPayment[] | null = null
           if (r.depositPayments) {
             try { parsedPayments = JSON.parse(r.depositPayments) } catch { /* ignore */ }
@@ -476,8 +517,41 @@ export function registerHistoryHandlers(): void {
             depositPayments: parsedPayments,
             depositMethod: r.depositMethod as HistoryShiftDetail['deposits'][number]['depositMethod'],
             createdAt: r.createdAt,
+            status: r.status as HistoryShiftDetail['deposits'][number]['status'],
           }
         })
+
+      // ---- Vales del turno ----
+      const valeRows = db
+        .select()
+        .from(employeeVales)
+        .where(eq(employeeVales.shiftId, shiftId))
+        .all()
+      const employeeIds = [...new Set(valeRows.map(v => v.employeeId))]
+      const employeeNameById = new Map<string, string>()
+      if (employeeIds.length > 0) {
+        const empRows = db.select({ id: employees.id, name: employees.name }).from(employees).all()
+        for (const e of empRows) {
+          if (employeeIds.includes(e.id)) employeeNameById.set(e.id, e.name)
+        }
+      }
+      const historyVales: HistoryValeRow[] = valeRows
+        .map(r => {
+          let parsedItems: ValeItem[] | null = null
+          if (r.items) {
+            try { parsedItems = JSON.parse(r.items) as ValeItem[] } catch { parsedItems = null }
+          }
+          return {
+            id: r.id,
+            employeeName: employeeNameById.get(r.employeeId) ?? '(empleado)',
+            amount: r.amount,
+            description: r.description ?? null,
+            items: parsedItems,
+            cancelledAt: r.cancelledAt ?? null,
+            createdAt: r.createdAt,
+          }
+        })
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
       // ---- Resumen ----
       const confirmedSales = historySales.filter(s => s.status === 'confirmed')
@@ -487,8 +561,8 @@ export function registerHistoryHandlers(): void {
       const totalWalletSales = confirmedSales.reduce((a, s) => a + (s.paymentMethods.includes('wallet') ? s.digitalAmount : 0), 0)
       const totalCreditSales = confirmedSales.reduce((a, s) => a + (s.paymentMethods.includes('credit') ? s.digitalAmount : 0), 0)
       const totalExpenses = historyExpenses.reduce((a, e) => a + e.amount, 0)
-      const cashDeposits = historyDeposits.filter(d => d.depositMethod === 'cash').reduce((a, d) => a + d.depositAmount, 0)
-      const digitalDeposits = historyDeposits.filter(d => d.depositMethod && d.depositMethod !== 'cash').reduce((a, d) => a + d.depositAmount, 0)
+      const cashDeposits = depositRowsWithAmount.reduce((a, r) => a + cashAmountFromDeposit(r), 0)
+      const digitalDeposits = depositRowsWithAmount.reduce((a, r) => a + digitalAmountFromDeposit(r), 0)
       const cashDebtRows = db
         .select({ amount: debtEvents.amount })
         .from(debtEvents)
@@ -500,41 +574,52 @@ export function registerHistoryHandlers(): void {
       const cashDebtPayments = cashDebtRows.reduce((a, r) => a + Math.abs(Number(r.amount)), 0)
       const cashInHand = shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments - totalExpenses
 
-      return {
-        ok: true,
-        data: {
-          shift: {
-            id: shift.id,
-            shiftType: shift.shiftType,
-            startedAt: shift.startedAt,
-            closedAt: shift.closedAt ?? null,
-            cashierName,
-            openingCash: shift.openingCash,
-            closingCash: shift.closingCash,
-            deliveredAmount: shift.deliveredAmount,
-            deliveredTo: shift.deliveredTo,
-            notes: shift.notes,
-          },
-          sales: historySales,
-          expenses: historyExpenses,
-          debts: historyDebts,
-          deposits: historyDeposits,
-          summary: {
-            salesCount: confirmedSales.length,
-            totalRevenue,
-            totalCashSales,
-            totalDebitSales,
-            totalWalletSales,
-            totalCreditSales,
-            totalExpenses,
-            cashDeposits,
-            digitalDeposits,
-            cashInHand,
-            debtsCount: historyDebts.length,
-            totalDebts: historyDebts.reduce((a, d) => a + d.amount, 0),
-          },
+      const localDetail: HistoryShiftDetail = {
+        shift: {
+          id: shift.id,
+          shiftType: shift.shiftType,
+          startedAt: shift.startedAt,
+          closedAt: shift.closedAt ?? null,
+          cashierName,
+          openingCash: shift.openingCash,
+          closingCash: shift.closingCash,
+          deliveredAmount: shift.deliveredAmount,
+          deliveredTo: shift.deliveredTo,
+          notes: shift.notes,
+        },
+        sales: historySales,
+        expenses: historyExpenses,
+        debts: historyDebts,
+        deposits: historyDeposits,
+        vales: historyVales,
+        summary: {
+          salesCount: confirmedSales.length,
+          totalRevenue,
+          totalCashSales,
+          totalDebitSales,
+          totalWalletSales,
+          totalCreditSales,
+          totalExpenses,
+          cashDeposits,
+          digitalDeposits,
+          cashInHand,
+          debtsCount: historyDebts.length,
+          totalDebts: historyDebts.reduce((a, d) => a + d.amount, 0),
         },
       }
+
+      // SQLite remoto a menudo tiene el turno (reconcile) pero no las ventas.
+      // Si no hay movimientos locales, el detalle sale de Firestore.
+      if (isFirebaseAvailable() && historyShiftDetailIsEmpty(localDetail)) {
+        try {
+          const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId)
+          if (remoteDetail) return { ok: true, data: remoteDetail }
+        } catch (fbErr) {
+          log.warn('[ipc:get-history-shift-detail] Firestore no disponible; se usa detalle local', fbErr)
+        }
+      }
+
+      return { ok: true, data: localDetail }
     } catch (err) {
       log.error('[ipc:get-history-shift-detail] Error inesperado', err)
       return { ok: false, error: 'Error al obtener el detalle del turno.' }

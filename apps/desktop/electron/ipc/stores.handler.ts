@@ -81,7 +81,7 @@ export function registerStoresHandlers(): void {
       const store = db.select({ id: stores.id, archivedAt: stores.archivedAt })
         .from(stores).where(eq(stores.id, storeId)).all()[0]
       if (!store) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
-      if (store.archivedAt) return { ok: false, error: 'El local está archivado y no puede seleccionarse.', code: 'STORE_ARCHIVED' }
+      if (store.archivedAt) return { ok: false, error: 'El local está eliminado y no puede seleccionarse.', code: 'STORE_ARCHIVED' }
 
       // Actualizar sesión activa con el local elegido
       updateActiveStore(storeId)
@@ -371,7 +371,7 @@ export function registerStoresHandlers(): void {
   // --------------------------------------------------------------------------
   // ARCHIVE_STORE — marca el local como archivado; preserva todos sus datos
   // --------------------------------------------------------------------------
-  ipcMain.handle(IPC.ARCHIVE_STORE, (_event, payload: unknown): IpcResult<StoreRow> => {
+  ipcMain.handle(IPC.ARCHIVE_STORE, async (_event, payload: unknown): Promise<IpcResult<StoreRow>> => {
     const parsed = storeIdSchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:archive-store] Payload inválido', parsed.error)
@@ -389,7 +389,7 @@ export function registerStoresHandlers(): void {
 
       const existing = db.select().from(stores).where(eq(stores.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
-      if (existing.archivedAt) return { ok: false, error: 'El local ya está archivado.', code: 'CONFLICT' }
+      if (existing.archivedAt) return { ok: false, error: 'El local ya está eliminado.', code: 'CONFLICT' }
 
       // No permitir archivar el único local activo
       const activeStores = db.select({ id: stores.id }).from(stores).where(isNull(stores.archivedAt)).all()
@@ -400,10 +400,12 @@ export function registerStoresHandlers(): void {
       const archivedAt = new Date().toISOString()
       db.update(stores).set({ archivedAt, syncedAt: null }).where(eq(stores.id, id)).run()
 
-      const config = getBusinessConfig()
-      pushUnsyncedStores(config.tenant_id).catch(err =>
+      try {
+        const config = getBusinessConfig()
+        await pushUnsyncedStores(config.tenant_id)
+      } catch (err) {
         log.warn('[ipc:archive-store] pushUnsyncedStores falló (no bloqueante)', err)
-      )
+      }
 
       log.info('[ipc:archive-store] Local archivado', { id, name: existing.name })
       return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt } }
@@ -416,7 +418,7 @@ export function registerStoresHandlers(): void {
   // --------------------------------------------------------------------------
   // UNARCHIVE_STORE — reactiva un local archivado
   // --------------------------------------------------------------------------
-  ipcMain.handle(IPC.UNARCHIVE_STORE, (_event, payload: unknown): IpcResult<StoreRow> => {
+  ipcMain.handle(IPC.UNARCHIVE_STORE, async (_event, payload: unknown): Promise<IpcResult<StoreRow>> => {
     const parsed = storeIdSchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:unarchive-store] Payload inválido', parsed.error)
@@ -434,14 +436,16 @@ export function registerStoresHandlers(): void {
 
       const existing = db.select().from(stores).where(eq(stores.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
-      if (!existing.archivedAt) return { ok: false, error: 'El local no está archivado.', code: 'CONFLICT' }
+      if (!existing.archivedAt) return { ok: false, error: 'El local no está eliminado.', code: 'CONFLICT' }
 
       db.update(stores).set({ archivedAt: null, syncedAt: null }).where(eq(stores.id, id)).run()
 
-      const config = getBusinessConfig()
-      pushUnsyncedStores(config.tenant_id).catch(err =>
+      try {
+        const config = getBusinessConfig()
+        await pushUnsyncedStores(config.tenant_id)
+      } catch (err) {
         log.warn('[ipc:unarchive-store] pushUnsyncedStores falló (no bloqueante)', err)
-      )
+      }
 
       log.info('[ipc:unarchive-store] Local desarchivado', { id, name: existing.name })
       return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt: null } }

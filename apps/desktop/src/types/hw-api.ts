@@ -660,6 +660,13 @@ export interface UpdateOrderPayload {
   depositPayments?: DepositPayment[] | null
 }
 
+export interface ChargeOrderPayload {
+  orderId: string
+  remaining: number
+  payments: SalePaymentPayload[]
+  notes?: string
+}
+
 export interface ListOrdersPayload {
   status?: OrderStatus
   fromDate?: string
@@ -676,7 +683,7 @@ export interface ProviderDebtRow {
   provider: string
   /** ID del proveedor (para consultas y vinculación). */
   providerId: string
-  /** Saldo pendiente (positivo = deben pagarle; 0 = sin deuda) */
+  /** Saldo pendiente. >0 = le debemos al proveedor; <0 = saldo a favor del negocio. */
   balance: number
   lastEventAt: string
   /** Nombre del cajero/admin que realizó el último pago (si la deuda está saldada) */
@@ -685,6 +692,8 @@ export interface ProviderDebtRow {
   lastPaymentStoreName?: string
   /** ISO timestamp del último pago */
   lastPaymentAt?: string
+  /** Nota del último movimiento (p. ej. ajuste de admin), visible también para cajeras. */
+  lastEventNotes?: string | null
 }
 
 export interface RegisterExpensePayload {
@@ -732,6 +741,9 @@ export interface ProviderWithDebtRow {
   total: number
   /** Desglose por local (solo visible para admin). */
   perStore: Array<{ storeId: string; storeName: string; balance: number }>
+  archivedAt?: string
+  phone?: string
+  notes?: string
 }
 
 /** Un evento individual del ledger de deuda de un proveedor. */
@@ -746,6 +758,8 @@ export interface ProviderDebtEventRow {
   /** Nombre del usuario que registró el evento; fallback al userId si no se encuentra en SQLite. */
   createdByName: string
   expenseId: string | null
+  /** Nota visible (ajuste de admin, compensación, etc.). */
+  notes?: string | null
 }
 
 export interface SettleProviderDebtPayload {
@@ -770,11 +784,13 @@ export interface EmployeeRow {
   weeklyWage: number
   active: boolean
   createdAt: string
+  kind: 'butcher' | 'cashier'
 }
 
 export interface CreateEmployeePayload {
   name: string
   weeklyWage: number
+  kind?: 'butcher' | 'cashier'
 }
 
 export interface UpdateEmployeePayload {
@@ -826,6 +842,8 @@ export interface EmployeeValeRow {
   paidAt: string
   recordedBy: string
   createdAt: string
+  cancelledAt: string | null
+  cancelledBy: string | null
 }
 
 /** Ítem individual dentro de un vale con productos. */
@@ -867,6 +885,13 @@ export interface GetWeeklyValeSummaryPayload {
   weekStart: string
 }
 
+export interface SalaryValeSnapshotItem {
+  id: string
+  amount: number
+  description: string | null
+  paidAt: string
+}
+
 export interface SalaryPaymentRow {
   id: string
   employeeId: string
@@ -877,6 +902,8 @@ export interface SalaryPaymentRow {
   netPaid: number
   recordedBy: string
   paidAt: string
+  notes: string | null
+  valesSnapshot: SalaryValeSnapshotItem[] | null
 }
 
 export interface PayWeeklySalaryPayload {
@@ -884,11 +911,36 @@ export interface PayWeeklySalaryPayload {
   weekStart: string
   amount: number
   valesDeducted: number
+  notes?: string | null
+  valesSnapshot?: SalaryValeSnapshotItem[] | null
+}
+
+export interface ListSalaryPaymentsPayload {
+  weekStart: string
+}
+
+export interface GetRemoteSalaryWeekPayload {
+  weekStart: string
+}
+
+export interface RemoteSalaryWeek {
+  payments: SalaryPaymentRow[]
+  vales: RemoteEmployeeValeRow[]
 }
 
 // ---------------------------------------------------------------------------
 // Conteo de stock (Bloque E)
 // ---------------------------------------------------------------------------
+
+export type StockCountStatus = 'draft' | 'final'
+
+export interface StockCountItemSnapshot {
+  productId: number
+  productName: string
+  quantityKg: number | null
+  quantityUnits: number | null
+  notes: string | null
+}
 
 export interface StockCountItemRow {
   id: string
@@ -911,6 +963,12 @@ export interface StockCountRow {
   recordedByName: string
   itemCount: number
   createdAt: string
+  status: StockCountStatus
+  updatedAt: string | null
+  lastEditedBy: string | null
+  lastEditedByName: string | null
+  lastEditedAt: string | null
+  originalItems: StockCountItemSnapshot[] | null
 }
 
 export interface StockCountDetail extends StockCountRow {
@@ -926,9 +984,13 @@ export interface CreateStockCountItemPayload {
 }
 
 export interface CreateStockCountPayload {
+  /** Si hay un conteo en curso, se pasa su id para actualizarlo. */
+  id?: string
   countDate: string
   storeId?: string
   items: CreateStockCountItemPayload[]
+  /** draft = en curso; final = confirmado (sigue editable). Default final. */
+  status?: StockCountStatus
 }
 
 export interface ListStockCountsPayload {
@@ -939,6 +1001,12 @@ export interface ListStockCountsPayload {
 
 export interface GetStockCountDetailPayload {
   stockCountId: string
+}
+
+export interface GetDraftStockCountPayload {
+  storeId?: string
+  /** Si no hay borrador, reanuda el conteo de esta fecha (YYYY-MM-DD). */
+  countDate?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -977,6 +1045,7 @@ export interface RemoteEmployeeValeRow {
   }>
   paidAt: string
   createdAt: string
+  cancelledAt: string | null
 }
 
 export interface GetRemoteEmployeeValesPayload {
@@ -1025,6 +1094,16 @@ export interface HistoryDebtRow {
   notes: string | null
 }
 
+export interface HistoryValeRow {
+  id: string
+  employeeName: string
+  amount: number
+  description: string | null
+  items: ValeItem[] | null
+  cancelledAt: string | null
+  createdAt: string
+}
+
 export interface HistoryOrderRow {
   id: string
   customerName: string
@@ -1034,6 +1113,8 @@ export interface HistoryOrderRow {
   depositPayments: DepositPayment[] | null
   depositMethod: DepositMethod | null
   createdAt: string
+  /** Estado del pedido; los cancelados siguen visibles para auditoría. */
+  status?: 'pending' | 'ready' | 'delivered' | 'cancelled'
 }
 
 export interface HistoryShiftDetail {
@@ -1053,6 +1134,7 @@ export interface HistoryShiftDetail {
   expenses: HistoryExpenseRow[]
   debts: HistoryDebtRow[]
   deposits: HistoryOrderRow[]
+  vales: HistoryValeRow[]
   summary: {
     salesCount: number
     totalRevenue: number
@@ -1215,6 +1297,15 @@ export interface HwApi {
    */
   onShiftInactivityWarning: (cb: () => void) => () => void
 
+  /** Fiados remotos aplicados en SQLite (main → renderer). */
+  onDebtSyncUpdated: (cb: () => void) => () => void
+
+  /** Clientes especiales / precios remotos aplicados en SQLite (main → renderer). */
+  onSpecialCustomerSyncUpdated: (cb: () => void) => () => void
+
+  /** Zoom u otras preferencias cambiaron desde main (atajos Ctrl+/-). */
+  onUiSettingsChanged: (cb: (settings: UiSettings) => void) => () => void
+
   /** Descarta el aviso de inactividad y reinicia el timer */
   dismissInactivityWarning: () => Promise<void>
 
@@ -1328,17 +1419,42 @@ export interface HwApi {
   createProvider: (payload: { name: string; phone?: string; notes?: string }) => Promise<IpcResult<ProviderRow>>
   /** Edita nombre, teléfono o notas de un proveedor. */
   updateProvider: (payload: { id: string; name?: string; phone?: string | null; notes?: string | null }) => Promise<IpcResult<ProviderRow>>
-  /** Archiva un proveedor (soft-delete). */
+  /** Archiva un proveedor (lo oculta; conserva deuda e historial). */
   archiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>
+  /** Restaura un proveedor archivado. */
+  unarchiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>
+  /**
+   * Oculta el proveedor. Conserva deuda e historial para poder restaurarlo.
+   */
+  deleteProvider: (payload: { id: string }) => Promise<IpcResult<void>>
   /** Lista proveedores con deuda combinada cross-local (solo admin; lee Firestore). */
-  getProvidersWithDebt: () => Promise<IpcResult<ProviderWithDebtRow[]>>
+  getProvidersWithDebt: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<ProviderWithDebtRow[]>>
   /** Historial de eventos de deuda de un proveedor (solo admin). */
   getProviderDebtHistory: (payload: { providerId: string }) => Promise<IpcResult<ProviderDebtEventRow[]>>
   /**
-   * Registra un pago completo de la deuda con un proveedor (solo admin).
-   * Funciona fuera de turno: shiftId = null si no hay turno abierto.
+   * Registra un pago de deuda con un proveedor (solo admin, sin caja).
+   * El monto puede ser parcial.
    */
   settleProviderDebt: (payload: SettleProviderDebtPayload) => Promise<IpcResult<{ eventId: string }>>
+  /** Admin: registra deuda o pago manual en un local (sin mover caja). */
+  recordProviderLedger: (payload: {
+    providerId: string
+    storeId: string
+    type: 'debt' | 'payment'
+    amount: number
+    notes?: string
+  }) => Promise<IpcResult<{ eventId: string }>>
+  /** Admin: aplica saldos a favor contra deudas de otros locales. */
+  compensateProviderStores: (payload: { providerId: string }) => Promise<IpcResult<{ events: number }>>
+  /**
+   * Cajera con turno: el efectivo sale de esta caja y se imputa como pago
+   * en uno o varios locales.
+   */
+  payProviderFromShift: (payload: {
+    providerId: string
+    allocations: Array<{ storeId: string; amount: number }>
+    notes?: string
+  }) => Promise<IpcResult<{ expenseId: string }>>
 
   // ---- Empleados / carniceros (Bloque D) ----
   listEmployees: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<EmployeeRow[]>>
@@ -1356,14 +1472,19 @@ export interface HwApi {
   registerVale: (payload: RegisterValePayload) => Promise<IpcResult<EmployeeValeRow>>
   listVales: (payload: ListValesPayload) => Promise<IpcResult<EmployeeValeRow[]>>
   getWeeklyValeSummary: (payload: GetWeeklyValeSummaryPayload) => Promise<IpcResult<WeeklyValeSummary>>
+  cancelVale: (payload: { id: string }) => Promise<IpcResult<EmployeeValeRow>>
 
   // ---- Pago de salario semanal (Bloque D) ----
   payWeeklySalary: (payload: PayWeeklySalaryPayload) => Promise<IpcResult<SalaryPaymentRow>>
+  listSalaryPayments: (payload: ListSalaryPaymentsPayload) => Promise<IpcResult<SalaryPaymentRow[]>>
+  getRemoteSalaryWeek: (payload: GetRemoteSalaryWeekPayload) => Promise<IpcResult<RemoteSalaryWeek>>
 
   // ---- Conteo de stock (Bloque E) ----
   createStockCount: (payload: CreateStockCountPayload) => Promise<IpcResult<StockCountDetail>>
   listStockCounts: (payload?: ListStockCountsPayload) => Promise<IpcResult<StockCountRow[]>>
   getStockCountDetail: (payload: GetStockCountDetailPayload) => Promise<IpcResult<StockCountDetail>>
+  getDraftStockCount: (payload?: GetDraftStockCountPayload) => Promise<IpcResult<StockCountDetail | null>>
+  discardStockCountDraft: (payload: GetStockCountDetailPayload) => Promise<IpcResult>
 
   // ---- Clientes especiales (Fase 6) ----
   /** Crea un cliente nuevo */
@@ -1401,6 +1522,8 @@ export interface HwApi {
   updateOrder: (payload: UpdateOrderPayload) => Promise<IpcResult<OrderRow>>
   deleteOrder: (payload: { id: string }) => Promise<IpcResult>
   hardDeleteOrder: (payload: { id: string }) => Promise<IpcResult>
+  /** Cobra el resto del pedido (seña ya descontada) y lo marca entregado. */
+  chargeOrder: (payload: ChargeOrderPayload) => Promise<IpcResult<OrderRow>>
 
   // ---- Historial completo (Fase 7 — solo admin) ----
   getHistoryShifts: (payload?: GetHistoryShiftsPayload) => Promise<IpcResult<HistoryShiftRow[]>>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { DevBanner } from './components/SandboxBanner'
 import LoginScreen from './routes/LoginScreen'
 import StorePickerScreen from './routes/StorePickerScreen'
@@ -9,15 +9,15 @@ import CashierScreen from './routes/CashierScreen'
 import CloseShiftScreen from './routes/CloseShiftScreen'
 import AdminScreen from './routes/AdminScreen'
 import AdminHubScreen from './routes/AdminHubScreen'
-import CashierManagementScreen from './routes/CashierManagementScreen'
+import StaffScreen from './routes/StaffScreen'
 import StoreManagementScreen from './routes/StoreManagementScreen'
 import DebtsScreen from './routes/DebtsScreen'
 import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
 import OrdersScreen from './routes/OrdersScreen'
 import HistoryScreen from './routes/HistoryScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
-import EmployeesScreen from './routes/EmployeesScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
+import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
@@ -42,20 +42,33 @@ type AppState =
   | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
-  | { screen: 'cashier-management'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'staff'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'store-management'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
-  | { screen: 'employees'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
   const [inactivityCountdown, setInactivityCountdown] = useState(INACTIVITY_COUNTDOWN_SECONDS)
+  const prevScreenRef = useRef(state.screen)
+
+  useEffect(() => {
+    const prev = prevScreenRef.current
+    prevScreenRef.current = state.screen
+    const refreshScreens = new Set([
+      'admin-hub', 'admin', 'staff', 'store-management', 'debts',
+      'special-customers', 'orders', 'history', 'providers', 'stock-counts',
+      'cashier',
+    ])
+    if ((refreshScreens.has(prev) || refreshScreens.has(state.screen)) && window.hw?.refreshRemoteData) {
+      void window.hw.refreshRemoteData()
+    }
+  }, [state.screen])
 
   // Cuando la cajera navega a Fiados o Clientes especiales desde la caja,
   // CashierScreen permanece montado (oculto) para que el carrito no se pierda.
@@ -249,19 +262,14 @@ export default function App() {
     setState({ screen: 'admin', session: state.session, initStatus: state.initStatus })
   }
 
-  function handleGoToCashierManagement(): void {
+  function handleGoToStaff(): void {
     if (state.screen !== 'admin-hub') return
-    setState({ screen: 'cashier-management', session: state.session, initStatus: state.initStatus })
+    setState({ screen: 'staff', session: state.session, initStatus: state.initStatus })
   }
 
   function handleGoToStoreManagement(): void {
     if (state.screen !== 'admin-hub') return
     setState({ screen: 'store-management', session: state.session, initStatus: state.initStatus })
-  }
-
-  function handleGoToEmployees(): void {
-    if (state.screen !== 'admin-hub') return
-    setState({ screen: 'employees', session: state.session, initStatus: state.initStatus })
   }
 
   function handleGoToStockCounts(): void {
@@ -274,6 +282,46 @@ export default function App() {
     const initStatus = 'initStatus' in state ? state.initStatus : null
     if (session && initStatus && session.role === 'admin') {
       setState({ screen: 'admin-hub', session, initStatus })
+    }
+  }
+
+  function handleReturnToPosFromCloseShift(): void {
+    if (state.screen !== 'close-shift') return
+    const session = state.session
+    const initStatus = state.initStatus
+    void window.hw.getActiveShift().then(r => {
+      if (r.ok && r.data) {
+        setState({ screen: 'cashier', session, shift: r.data, initStatus })
+      } else {
+        setState({ screen: 'shift-required', session, initStatus })
+      }
+    })
+  }
+
+  function handleRecoverFromScreenError(): void {
+    if (state.screen === 'close-shift') {
+      handleReturnToPosFromCloseShift()
+      return
+    }
+    if (
+      (state.screen === 'debts' || state.screen === 'special-customers' || state.screen === 'orders')
+      && 'fromCashier' in state
+      && state.fromCashier
+    ) {
+      setState({
+        screen: 'cashier',
+        session: state.session,
+        shift: state.fromCashier,
+        initStatus: state.initStatus,
+      })
+      return
+    }
+    if (state.screen === 'cashier' || state.screen === 'shift-required') {
+      void handleLogout()
+      return
+    }
+    if ('session' in state && state.session.role === 'admin') {
+      handleReturnToAdminHub()
     }
   }
 
@@ -322,8 +370,10 @@ export default function App() {
   const countdownDisplay = `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       <DevBanner />
+
+      <ScreenErrorBoundary resetKey={state.screen} onReset={handleRecoverFromScreenError}>
 
       {state.screen === 'loading' && (
         <div className="flex flex-1 items-center justify-center bg-zinc-950 animate-fade-in">
@@ -413,17 +463,7 @@ export default function App() {
         <Page>
           <CloseShiftScreen
             onConfirmed={() => void handleShiftClosed()}
-            onCancel={() => {
-              const session = state.session
-              const initStatus = state.initStatus
-              void window.hw.getActiveShift().then(r => {
-                if (r.ok && r.data) {
-                  setState({ screen: 'cashier', session, shift: r.data, initStatus })
-                } else {
-                  setState({ screen: 'shift-required', session, initStatus })
-                }
-              })
-            }}
+            onCancel={handleReturnToPosFromCloseShift}
           />
         </Page>
       )}
@@ -435,14 +475,13 @@ export default function App() {
             initStatus={state.initStatus}
             onGoToAdminPanel={handleAdminGoToPanel}
             onGoToCashier={() => void handleAdminGoToCashier()}
-            onGoToCashierManagement={handleGoToCashierManagement}
+            onGoToStaff={handleGoToStaff}
             onGoToStoreManagement={handleGoToStoreManagement}
             onGoToDebts={() => setState({ screen: 'debts', session: state.session, initStatus: state.initStatus })}
             onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
             onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
             onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
             onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
-            onGoToEmployees={handleGoToEmployees}
             onGoToStockCounts={handleGoToStockCounts}
             onLogout={handleLogout}
           />
@@ -459,9 +498,9 @@ export default function App() {
         </Page>
       )}
 
-      {state.screen === 'cashier-management' && (
+      {state.screen === 'staff' && (
         <Page>
-          <CashierManagementScreen onBack={handleReturnToAdminHub} />
+          <StaffScreen onBack={handleReturnToAdminHub} />
         </Page>
       )}
 
@@ -529,17 +568,13 @@ export default function App() {
         </Page>
       )}
 
-      {state.screen === 'employees' && (
-        <Page>
-          <EmployeesScreen onBack={handleReturnToAdminHub} />
-        </Page>
-      )}
-
       {state.screen === 'stock-counts' && (
         <Page>
           <StockCountHistoryScreen onBack={handleReturnToAdminHub} />
         </Page>
       )}
+
+      </ScreenErrorBoundary>
 
       {/* Modal de aviso de inactividad — overlay global */}
       {showInactivityWarning && (

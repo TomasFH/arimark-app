@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { sqliteTable, text, real, integer, index, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // ---------------------------------------------------------------------------
@@ -516,6 +517,11 @@ export const providerDebtEvents = sqliteTable(
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id),
+    /**
+     * Nota visible en el historial (ej. ajuste de admin).
+     * En Firestore se sincroniza como `description` para coincidir con móvil.
+     */
+    notes: text('notes'),
     /** null = pendiente de push a Firestore; ISO string = ya sincronizado. */
     syncedAt: text('synced_at'),
   },
@@ -533,6 +539,11 @@ export const employees = sqliteTable('employees', {
   name: text('name').notNull().unique(),
   /** Sueldo semanal en pesos enteros. */
   weeklyWage: integer('weekly_wage').notNull().default(0),
+  /**
+   * 'butcher' = carnicero (alta en Personal).
+   * 'cashier' = ficha de sueldo/vales de una cajera (cuenta Firebase aparte).
+   */
+  kind: text('kind', { enum: ['butcher', 'cashier'] }).notNull().default('butcher'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
   /** null = pendiente de push a Firestore (maestro compartido entre PCs). */
@@ -591,6 +602,8 @@ export const employeeVales = sqliteTable(
       .references(() => users.id),
     createdAt: text('created_at').notNull(),
     syncedAt: text('synced_at'),
+    cancelledAt: text('cancelled_at'),
+    cancelledBy: text('cancelled_by').references(() => users.id),
   },
   table => [index('idx_employee_vales_employee').on(table.employeeId, table.paidAt)],
 )
@@ -611,13 +624,19 @@ export const salaryPayments = sqliteTable(
     weekStart: text('week_start').notNull(),
     valesDeducted: integer('vales_deducted').notNull().default(0),
     netPaid: integer('net_paid').notNull(),
+    /** Nota opcional (ej. “le pagué menos porque llegó tarde”). */
+    notes: text('notes'),
+    /** JSON: vales descontados al momento del pago. No se reescribe si después anulan uno. */
+    valesSnapshot: text('vales_snapshot'),
     recordedBy: text('recorded_by')
       .notNull()
       .references(() => users.id),
     paidAt: text('paid_at').notNull(),
     syncedAt: text('synced_at'),
   },
-  table => [index('idx_salary_payments_employee_week').on(table.employeeId, table.weekStart)],
+  table => [
+    uniqueIndex('idx_salary_payments_employee_week').on(table.employeeId, table.weekStart),
+  ],
 )
 
 // ---------------------------------------------------------------------------
@@ -636,9 +655,17 @@ export const stockCounts = sqliteTable(
       .notNull()
       .references(() => users.id),
     createdAt: text('created_at').notNull(),
+    /** draft = en curso; final = confirmado (sigue editable). */
+    status: text('status', { enum: ['draft', 'final'] }).notNull().default('final'),
+    updatedAt: text('updated_at'),
+    /** Snapshot de ítems al primer finalize (para mostrar ediciones posteriores). */
+    originalItems: text('original_items'),
+    lastEditedBy: text('last_edited_by'),
+    lastEditedAt: text('last_edited_at'),
   },
   table => [
     index('idx_stock_counts_store_date').on(table.storeId, table.countDate),
+    uniqueIndex('idx_stock_counts_one_draft').on(table.storeId).where(sql`${table.status} = 'draft'`),
   ],
 )
 

@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import {
-  stores, users, products, orders, customers, debtEvents,
+  stores, users, products, orders, customers, debtEvents, shifts, sales,
   specialCustomers, specialCustomerPrices,
 } from '../../db/schema'
 import { isNull } from 'drizzle-orm'
@@ -39,16 +39,20 @@ vi.mock('../../db/client', () => ({
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { pushUnsyncedOrders, pullOrdersFromFirestore, stopOrderSyncListener } from '../orderSync'
+import { pushUnsyncedOrders, pullOrdersFromFirestore, stopOrderSyncListener, REMOTE_ORDER_UNKNOWN_USER } from '../orderSync'
 import {
   pushUnsyncedCustomers,
   pushUnsyncedCustomerDebtEvents,
   pullCustomersFromFirestore,
+  pullCustomerDebtEventsFromFirestore,
   stopCustomerDebtSyncListener,
+  backfillDebtEventShiftIdsFromSales,
 } from '../customerDebtSync'
 import {
   pushUnsyncedSpecialCustomers,
   pushUnsyncedSpecialCustomerPrices,
+  pullSpecialCustomersFromFirestore,
+  pullSpecialCustomerPricesFromFirestore,
   stopSpecialCustomerSyncListener,
 } from '../specialCustomerSync'
 
@@ -143,6 +147,118 @@ describe('ops sync (orders / debts / special customers)', () => {
     expect(db.select().from(debtEvents).where(isNull(debtEvents.syncedAt)).all()).toHaveLength(0)
   })
 
+  it('backfill de shiftId en fiados viejos y re-push', async () => {
+    const now = new Date().toISOString()
+    db.insert(shifts).values({
+      id: 'shift-bf',
+      storeId: 'store-001',
+      userId: 'user-001',
+      shiftType: 'morning',
+      startedAt: now,
+      openingCash: 0,
+    }).run()
+    db.insert(customers).values({
+      id: 'cust-bf',
+      storeId: 'store-001',
+      name: 'Cliente BF',
+      active: true,
+      createdAt: now,
+      createdBy: 'user-001',
+      syncedAt: now,
+    }).run()
+    db.insert(sales).values({
+      id: 'sale-bf',
+      storeId: 'store-001',
+      shiftId: 'shift-bf',
+      total: 15000,
+      status: 'confirmed',
+      isDebt: true,
+      customerId: 'cust-bf',
+      manualEntry: false,
+      createdAt: now,
+      createdBy: 'user-001',
+    }).run()
+    db.insert(debtEvents).values({
+      id: 'debt-bf',
+      customerId: 'cust-bf',
+      saleId: 'sale-bf',
+      storeId: 'store-001',
+      eventType: 'created',
+      amount: 15000,
+      shiftId: null,
+      createdAt: now,
+      createdBy: 'user-001',
+      syncedAt: now,
+    }).run()
+
+    expect(backfillDebtEventShiftIdsFromSales()).toBe(1)
+    const local = db.select().from(debtEvents).all().find(e => e.id === 'debt-bf')
+    expect(local!.shiftId).toBe('shift-bf')
+    expect(local!.syncedAt).toBeNull()
+
+    await pushUnsyncedCustomerDebtEvents(TENANT)
+    const pushed = mockSetDoc.mock.calls.find(c => {
+      const payload = c[1] as { id?: string; shiftId?: string }
+      return payload?.id === 'debt-bf'
+    })
+    expect(pushed).toBeDefined()
+    expect((pushed![1] as { shiftId: string }).shiftId).toBe('shift-bf')
+  })
+
+  it('no pisa un fiado local con syncedAt=null al hacer pull', async () => {
+    const now = new Date().toISOString()
+    db.insert(shifts).values({
+      id: 'shift-outbox',
+      storeId: 'store-001',
+      userId: 'user-001',
+      shiftType: 'morning',
+      startedAt: now,
+      openingCash: 0,
+    }).run()
+    db.insert(customers).values({
+      id: 'cust-outbox',
+      storeId: 'store-001',
+      name: 'Outbox',
+      active: true,
+      createdAt: now,
+      createdBy: 'user-001',
+      syncedAt: now,
+    }).run()
+    db.insert(debtEvents).values({
+      id: 'debt-outbox',
+      customerId: 'cust-outbox',
+      storeId: 'store-001',
+      eventType: 'created',
+      amount: 8000,
+      shiftId: 'shift-outbox',
+      createdAt: now,
+      createdBy: 'user-001',
+      syncedAt: null,
+    }).run()
+
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'debt-outbox',
+        data: () => ({
+          id: 'debt-outbox',
+          customerId: 'cust-outbox',
+          storeId: 'store-001',
+          eventType: 'created',
+          amount: 8000,
+          shiftId: null,
+          createdAt: now,
+          createdBy: 'user-001',
+        }),
+      }],
+    })
+
+    await pullCustomerDebtEventsFromFirestore(TENANT)
+    const row = db.select().from(debtEvents).all().find(e => e.id === 'debt-outbox')
+    expect(row!.shiftId).toBe('shift-outbox')
+    expect(row!.syncedAt).toBeNull()
+  })
+
   it('pushea special customers y precios', async () => {
     const now = new Date().toISOString()
     db.insert(specialCustomers).values({
@@ -216,5 +332,169 @@ describe('ops sync (orders / debts / special customers)', () => {
 
     const rows = db.select().from(orders).all()
     expect(rows.some(r => r.id === 'ord-remote')).toBe(true)
+  })
+
+  it('pull de order sin createdBy no rompe NOT NULL: usa stub remoto', async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'ord-mobile-legacy',
+        data: () => ({
+          id: 'ord-mobile-legacy',
+          storeId: 'store-001',
+          customerName: 'Ana',
+          items: 'vacío',
+          pickupDate: '2026-08-18',
+          status: 'pending',
+          depositAmount: 1500,
+          depositPayments: [{ method: 'cash', amount: 1500 }],
+          priority: 'high',
+          createdAt: new Date().toISOString(),
+        }),
+      }],
+    })
+
+    await pullOrdersFromFirestore(TENANT)
+
+    const row = db.select().from(orders).all().find(r => r.id === 'ord-mobile-legacy')
+    expect(row).toBeDefined()
+    expect(row!.createdBy).toBe(REMOTE_ORDER_UNKNOWN_USER)
+    expect(row!.priority).toBe(true)
+    expect(row!.depositPayments).toBe(JSON.stringify([{ method: 'cash', amount: 1500 }]))
+
+    const stub = db.select().from(users).all().find(u => u.id === REMOTE_ORDER_UNKNOWN_USER)
+    expect(stub).toBeDefined()
+  })
+
+  it('pull de order con createdBy vacío tampoco falla el FK', async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'ord-empty-author',
+        data: () => ({
+          id: 'ord-empty-author',
+          storeId: 'store-001',
+          customerName: 'Luis',
+          items: 'pollo',
+          pickupDate: '2026-08-18',
+          status: 'pending',
+          depositAmount: 0,
+          createdAt: new Date().toISOString(),
+          createdBy: '   ',
+        }),
+      }],
+    })
+
+    await pullOrdersFromFirestore(TENANT)
+
+    const row = db.select().from(orders).all().find(r => r.id === 'ord-empty-author')
+    expect(row).toBeDefined()
+    expect(row!.createdBy).toBe(REMOTE_ORDER_UNKNOWN_USER)
+  })
+
+  it('debt event sin cliente queda en cola y se aplica al llegar el customer', async () => {
+    const now = new Date().toISOString()
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'evt-orphan',
+        data: () => ({
+          id: 'evt-orphan',
+          customerId: 'cust-later',
+          storeId: 'store-001',
+          eventType: 'partial_payment',
+          amount: -2000,
+          createdAt: now,
+          createdBy: 'user-001',
+        }),
+      }],
+    })
+    await pullCustomerDebtEventsFromFirestore(TENANT)
+    expect(db.select().from(debtEvents).all().some(e => e.id === 'evt-orphan')).toBe(false)
+
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'cust-later',
+        data: () => ({
+          id: 'cust-later',
+          storeId: 'store-001',
+          name: 'Llega después',
+          active: true,
+          createdAt: now,
+          createdBy: 'user-001',
+        }),
+      }],
+    })
+    await pullCustomersFromFirestore(TENANT)
+    const evt = db.select().from(debtEvents).all().find(e => e.id === 'evt-orphan')
+    expect(evt).toBeDefined()
+    expect(evt!.amount).toBe(-2000)
+    expect(evt!.eventType).toBe('partial_payment')
+  })
+
+  it('precio especial sin cliente queda en cola y se aplica al llegar el cliente', async () => {
+    const now = new Date().toISOString()
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'scp-orphan',
+        data: () => ({
+          id: 'scp-orphan',
+          specialCustomerId: 'sc-later',
+          productId: 'prod-001',
+          price: 8000,
+          updatedAt: now,
+          updatedBy: 'user-001',
+        }),
+      }],
+    })
+    await pullSpecialCustomerPricesFromFirestore(TENANT)
+    expect(db.select().from(specialCustomerPrices).all().some(p => p.id === 'scp-orphan')).toBe(false)
+
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'sc-later',
+        data: () => ({
+          id: 'sc-later',
+          name: 'Resto tardío',
+          createdAt: now,
+          createdBy: 'user-001',
+        }),
+      }],
+    })
+    await pullSpecialCustomersFromFirestore(TENANT)
+    const price = db.select().from(specialCustomerPrices).all().find(p => p.id === 'scp-orphan')
+    expect(price).toBeDefined()
+    expect(price!.price).toBe(8000)
+  })
+
+  it('baja un cliente especial creado por un admin cuyo local no está en esta PC', async () => {
+    const now = new Date().toISOString()
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: '0654ac98-abb4-4c34-a104-09eebd094eed',
+        data: () => ({
+          id: '0654ac98-abb4-4c34-a104-09eebd094eed',
+          name: 'Resto otro local',
+          storeId: 'store-que-no-existe',
+          createdAt: now,
+          createdBy: 'admin-firebase-uid',
+        }),
+      }],
+    })
+
+    await pullSpecialCustomersFromFirestore(TENANT)
+
+    const row = db.select().from(specialCustomers).all()
+      .find(r => r.id === '0654ac98-abb4-4c34-a104-09eebd094eed')
+    expect(row).toBeDefined()
+    expect(row!.name).toBe('Resto otro local')
+    expect(row!.storeId).toBeNull()
+    const stub = db.select().from(users).all().find(u => u.id === 'admin-firebase-uid')
+    expect(stub).toBeDefined()
+    expect(stub!.storeId).toBeNull()
   })
 })

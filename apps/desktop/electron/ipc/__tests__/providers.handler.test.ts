@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, providers, providerDebtEvents, shifts } from '../../db/schema'
+import { stores, users, providers, providerDebtEvents, shifts, expenses } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -25,6 +25,13 @@ vi.mock('../../businessConfig', () => ({
 vi.mock('../../licensing/providerSync', () => ({
   pushUnsyncedProviders: vi.fn().mockResolvedValue(undefined),
   pushUnsyncedDebtEvents: vi.fn().mockResolvedValue(undefined),
+  markDebtEventsDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
+  restoreProviderLedgerInFirestore: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../licensing/expenseSync', () => ({
+  pushUnsyncedExpenses: vi.fn().mockResolvedValue(undefined),
+  markExpensesDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
 }))
 
 // GET_PROVIDERS_WITH_DEBT usa Firebase o fallback local; en tests usa fallback local.
@@ -37,6 +44,9 @@ vi.mock('firebase/firestore', () => ({
   getFirestore: vi.fn(),
   collection: vi.fn(),
   getDocs: vi.fn(),
+  query: vi.fn(),
+  where: vi.fn(),
+  updateDoc: vi.fn(),
 }))
 
 import { ipcMain } from 'electron'
@@ -160,6 +170,24 @@ describe('providers.handler', () => {
       expect(all).toHaveLength(1)
     })
 
+    it('reactiva un proveedor archivado al crear el mismo nombre', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const id = providerIdFromName('oso')
+      db.insert(providers).values({
+        id,
+        name: 'Oso',
+        nameKey: 'oso',
+        createdAt: new Date().toISOString(),
+        archivedAt: new Date().toISOString(),
+      }).run()
+
+      const handler = getHandler('ipc:create-provider')
+      const result = await (handler(null, { name: 'Oso' }) as Promise<{ ok: boolean; data: { archivedAt?: string } }>)
+      expect(result.ok).toBe(true)
+      expect(result.data.archivedAt).toBeFalsy()
+      expect(db.select().from(providers).all()[0]?.archivedAt).toBeNull()
+    })
+
     it('dedup case-insensitive: "OSO" y "oso" son el mismo proveedor', async () => {
       vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:create-provider')
@@ -228,6 +256,61 @@ describe('providers.handler', () => {
     })
   })
 
+  describe('UNARCHIVE_PROVIDER (ipc:unarchive-provider)', () => {
+    it('restaura un proveedor archivado', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const id = providerIdFromName('a restaurar')
+      db.insert(providers).values({
+        id,
+        name: 'A Restaurar',
+        nameKey: 'a restaurar',
+        createdAt: new Date().toISOString(),
+        archivedAt: new Date().toISOString(),
+      }).run()
+
+      const handler = getHandler('ipc:unarchive-provider')
+      const result = await (handler(null, { id }) as Promise<{ ok: boolean }>)
+      expect(result.ok).toBe(true)
+      expect(db.select().from(providers).all()[0]?.archivedAt).toBeNull()
+    })
+  })
+
+  describe('DELETE_PROVIDER (ipc:delete-provider)', () => {
+    it('oculta el proveedor y conserva el historial de deuda', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const id = providerIdFromName('oso borrar')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id, name: 'Oso Borrar', nameKey: 'oso borrar', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-del-1',
+        storeId: 'store-001',
+        providerId: id,
+        provider: 'Oso Borrar',
+        type: 'debt',
+        amount: 500000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:delete-provider')
+      const result = await (handler(null, { id }) as Promise<{ ok: boolean }>)
+      expect(result.ok).toBe(true)
+
+      const row = db.select().from(providers).all()[0]
+      expect(row?.archivedAt).toBeTruthy()
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.amount).toBe(500000)
+    })
+
+    it('cajera recibe FORBIDDEN', async () => {
+      const handler = getHandler('ipc:delete-provider')
+      const result = await (handler(null, { id: 'x' }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('FORBIDDEN')
+    })
+  })
+
   // -------------------------------------------------------------------------
   describe('GET_PROVIDERS_WITH_DEBT (ipc:get-providers-with-debt)', () => {
     it('rechaza si no es admin', async () => {
@@ -244,6 +327,106 @@ describe('providers.handler', () => {
       const result = await (handler(null) as Promise<{ ok: boolean; data: unknown[] }>)
       expect(result.ok).toBe(true)
       expect(result.data).toBeInstanceOf(Array)
+    })
+
+    it('incluye teléfono y notas del proveedor', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('frigorifico')
+      const now = new Date().toISOString()
+      db.insert(providers).values({
+        id: pid,
+        name: 'Frigorifico',
+        nameKey: 'frigorifico',
+        phone: '1145678901',
+        notes: 'martes y viernes',
+        createdAt: now,
+      }).run()
+
+      const handler = getHandler('ipc:get-providers-with-debt')
+      const result = await (handler(null) as Promise<{
+        ok: boolean
+        data: Array<{ name: string; phone?: string; notes?: string }>
+      }>)
+      expect(result.ok).toBe(true)
+      const row = result.data.find(p => p.name === 'Frigorifico')
+      expect(row?.phone).toBe('1145678901')
+      expect(row?.notes).toBe('martes y viernes')
+    })
+
+    it('el total es la suma de locales; un saldo a favor no se oculta como sin deuda', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('oso')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Oso', nameKey: 'oso', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-debt-sm',
+        storeId: 'store-002',
+        providerId: pid,
+        provider: 'Oso',
+        type: 'debt',
+        amount: 500000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-pay-cam',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Oso',
+        type: 'payment',
+        amount: 475000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:get-providers-with-debt')
+      const result = await (handler(null) as Promise<{
+        ok: boolean
+        data: Array<{ total: number; perStore: Array<{ storeId: string; balance: number }> }>
+      }>)
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].total).toBe(25000)
+      const cam = result.data[0].perStore.find(s => s.storeId === 'store-001')
+      const sm = result.data[0].perStore.find(s => s.storeId === 'store-002')
+      expect(cam?.balance).toBe(-475000)
+      expect(sm?.balance).toBe(500000)
+    })
+
+    it('excluye archivados salvo que se pida includeArchived', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('archivado debt')
+      const now = new Date().toISOString()
+      db.insert(providers).values({
+        id: pid,
+        name: 'Archivado Debt',
+        nameKey: 'archivado debt',
+        createdAt: now,
+        archivedAt: now,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-arch',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Archivado Debt',
+        type: 'debt',
+        amount: 1000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:get-providers-with-debt')
+      const hidden = await (handler(null) as Promise<{ ok: boolean; data: Array<{ id: string }> }>)
+      expect(hidden.data.find(p => p.id === pid)).toBeUndefined()
+
+      const shown = await (handler(null, { includeArchived: true }) as Promise<{
+        ok: boolean
+        data: Array<{ id: string; archivedAt?: string; total: number }>
+      }>)
+      const row = shown.data.find(p => p.id === pid)
+      expect(row).toBeTruthy()
+      expect(row?.archivedAt).toBeTruthy()
+      expect(row?.total).toBe(1000)
     })
   })
 
@@ -424,6 +607,224 @@ describe('providers.handler', () => {
       expect(evt.storeId).toBe('store-001')
       expect(evt.shiftId).toBeNull()
       expect(evt.syncedAt).toBeNull()
+    })
+  })
+
+  describe('RECORD_PROVIDER_LEDGER (ipc:record-provider-ledger)', () => {
+    it('rechaza payload malformado', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:record-provider-ledger')
+      const result = await (handler(null, { providerId: '', storeId: 'store-001', type: 'debt', amount: 1 }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('cajera recibe FORBIDDEN', async () => {
+      const handler = getHandler('ipc:record-provider-ledger')
+      const result = await (handler(null, {
+        providerId: 'x',
+        storeId: 'store-001',
+        type: 'debt',
+        amount: 1000,
+      }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('FORBIDDEN')
+    })
+
+    it('admin registra deuda manual sin caja', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('manual debt')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Manual Debt', nameKey: 'manual debt', createdAt: now }).run()
+
+      const handler = getHandler('ipc:record-provider-ledger')
+      const result = await (handler(null, {
+        providerId: pid,
+        storeId: 'store-001',
+        type: 'debt',
+        amount: 350000,
+      }) as Promise<{ ok: boolean; data: { eventId: string } }>)
+      expect(result.ok).toBe(true)
+      const evt = db.select().from(providerDebtEvents).all()[0]
+      expect(evt?.type).toBe('debt')
+      expect(evt?.amount).toBe(350000)
+      expect(evt?.expenseId).toBeNull()
+    })
+
+    it('guarda la nota de ajuste de admin', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('ajuste nota')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Ajuste Nota', nameKey: 'ajuste nota', createdAt: now }).run()
+
+      const handler = getHandler('ipc:record-provider-ledger')
+      const result = await (handler(null, {
+        providerId: pid,
+        storeId: 'store-001',
+        type: 'payment',
+        amount: 80000,
+        notes: 'Ajuste de admin: dejó la deuda en $ 10.000',
+      }) as Promise<{ ok: boolean }>)
+      expect(result.ok).toBe(true)
+      expect(db.select().from(providerDebtEvents).all()[0]?.notes).toBe(
+        'Ajuste de admin (Admin): dejó la deuda en $ 10.000',
+      )
+    })
+  })
+
+  describe('COMPENSATE_PROVIDER_STORES (ipc:compensate-provider-stores)', () => {
+    it('cajera sin turno recibe FORBIDDEN', async () => {
+      const handler = getHandler('ipc:compensate-provider-stores')
+      const result = await (handler(null, { providerId: 'x' }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('FORBIDDEN')
+    })
+
+    it('cajera con turno puede compensar', async () => {
+      const now = new Date().toISOString()
+      db.insert(shifts).values({
+        id: 'shift-comp',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 10000,
+        source: 'desktop',
+      }).run()
+      vi.mocked(getActiveSession).mockReturnValue({
+        ...CASHIER_SESSION,
+        shiftId: 'shift-comp',
+      } as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('compenso cajera')
+      db.insert(providers).values({ id: pid, name: 'Compenso Cajera', nameKey: 'compenso cajera', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-cred-c',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Compenso Cajera',
+        type: 'payment',
+        amount: 50000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-debt-c',
+        storeId: 'store-002',
+        providerId: pid,
+        provider: 'Compenso Cajera',
+        type: 'debt',
+        amount: 50000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:compensate-provider-stores')
+      const result = await (handler(null, { providerId: pid }) as Promise<{ ok: boolean; data: { events: number } }>)
+      expect(result.ok).toBe(true)
+      expect(result.data.events).toBe(2)
+    })
+
+    it('aplica crédito de un local contra deuda de otro', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const pid = providerIdFromName('compenso')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Compenso', nameKey: 'compenso', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-cred',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Compenso',
+        type: 'payment',
+        amount: 50000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-debt',
+        storeId: 'store-002',
+        providerId: pid,
+        provider: 'Compenso',
+        type: 'debt',
+        amount: 50000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:compensate-provider-stores')
+      const result = await (handler(null, { providerId: pid }) as Promise<{ ok: boolean; data: { events: number } }>)
+      expect(result.ok).toBe(true)
+      expect(result.data.events).toBe(2)
+
+      const debtHandler = getHandler('ipc:get-providers-with-debt')
+      const debt = await (debtHandler(null) as Promise<{
+        ok: boolean
+        data: Array<{ total: number; perStore: Array<{ storeId: string; balance: number }> }>
+      }>)
+      expect(debt.data[0].total).toBe(0)
+      expect(debt.data[0].perStore.every(s => s.balance === 0)).toBe(true)
+    })
+  })
+
+  describe('PAY_PROVIDER_FROM_SHIFT (ipc:pay-provider-from-shift)', () => {
+    it('sin turno retorna NO_SHIFT', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:pay-provider-from-shift')
+      const result = await (handler(null, {
+        providerId: 'x',
+        allocations: [{ storeId: 'store-001', amount: 1000 }],
+      }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SHIFT')
+    })
+
+    it('rechaza payload sin allocations', async () => {
+      vi.mocked(getActiveSession).mockReturnValue({
+        ...CASHIER_SESSION,
+        shiftId: 'shift-001',
+      } as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:pay-provider-from-shift')
+      const result = await (handler(null, { providerId: 'x', allocations: [] }) as Promise<{ ok: boolean; code: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('crea gasto de caja y pagos por local', async () => {
+      const now = new Date().toISOString()
+      db.insert(shifts).values({
+        id: 'shift-pay',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 10000,
+        source: 'desktop',
+      }).run()
+      const pid = providerIdFromName('pago turno')
+      db.insert(providers).values({ id: pid, name: 'Pago Turno', nameKey: 'pago turno', createdAt: now }).run()
+      vi.mocked(getActiveSession).mockReturnValue({
+        ...CASHIER_SESSION,
+        shiftId: 'shift-pay',
+      } as ReturnType<typeof getActiveSession>)
+
+      const handler = getHandler('ipc:pay-provider-from-shift')
+      const result = await (handler(null, {
+        providerId: pid,
+        allocations: [
+          { storeId: 'store-001', amount: 50000 },
+          { storeId: 'store-002', amount: 300000 },
+        ],
+      }) as Promise<{ ok: boolean; data: { expenseId: string } }>)
+      expect(result.ok).toBe(true)
+
+      const expenseRows = db.select().from(expenses).all()
+      expect(expenseRows).toHaveLength(1)
+      expect(expenseRows[0]?.amount).toBe(350000)
+      expect(expenseRows[0]?.providerId).toBe(pid)
+
+      const payEvents = db.select().from(providerDebtEvents).all()
+      expect(payEvents).toHaveLength(2)
+      expect(payEvents.every(e => e.type === 'payment')).toBe(true)
+      expect(payEvents.reduce((s, e) => s + e.amount, 0)).toBe(350000)
     })
   })
 })

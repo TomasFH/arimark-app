@@ -155,6 +155,30 @@ describe('employeeSync', () => {
       expect(row!.name).toBe('Remoto')
       expect(row!.weeklyWage).toBe(80000)
     })
+
+    it('acepta salary y createdAt omitido (docs móviles)', async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [
+          {
+            id: 'emp-mobile',
+            data: () => ({
+              id: 'emp-mobile',
+              name: 'Desde Celu',
+              salary: 55000,
+              archivedAt: null,
+            }),
+          },
+        ],
+      })
+
+      await pullEmployeesFromFirestore(TENANT)
+      const row = db.select().from(employees).all().find(e => e.id === 'emp-mobile')
+      expect(row).toBeDefined()
+      expect(row!.weeklyWage).toBe(55000)
+      expect(row!.active).toBe(true)
+      expect(row!.createdAt).toBeTruthy()
+    })
   })
 
   describe('ensureEmployeesSynced', () => {
@@ -266,6 +290,7 @@ describe('employeeSync', () => {
         employeeName: 'Carnicero Uno',
         amount: 5000,
         description: 'adelanto',
+        cancelledAt: null,
       })
       expect(db.select().from(employeeVales).where(isNull(employeeVales.syncedAt)).all()).toHaveLength(0)
     })

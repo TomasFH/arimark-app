@@ -18,15 +18,17 @@ import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { specialCustomers, specialCustomerPrices, products } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
-import { ensureUserStub } from './syncUserStub'
+import { ensureUserStub, existingStoreIdOrNull } from './syncUserStub'
+import { notifyRenderer } from './notifyRenderer'
+import { IPC } from '../ipc/channels'
 
 interface RemoteSpecialCustomerDoc {
   id: string
   storeId?: string | null
   name: string
   notes?: string | null
-  createdAt: string
-  createdBy: string
+  createdAt?: string
+  createdBy?: string
   updatedAt?: string | null
   updatedBy?: string | null
   deleted?: boolean
@@ -36,21 +38,30 @@ interface RemoteSpecialPriceDoc {
   id: string
   specialCustomerId: string
   productId: string
-  price: number
+  price?: number
+  specialPrice?: number
   notes?: string | null
-  updatedAt: string
-  updatedBy: string
+  updatedAt?: string
+  updatedBy?: string
   deleted?: boolean
 }
 
 const customerListeners: Unsubscribe[] = []
 const priceListeners: Unsubscribe[] = []
 
+const MAX_PENDING_PRICES = 500
+const pendingSpecialPrices = new Map<string, { data: RemoteSpecialPriceDoc; docId: string }>()
+
+function notifySpecialCustomersUpdated(): void {
+  notifyRenderer(IPC.SPECIAL_CUSTOMER_SYNC_UPDATED)
+}
+
 function upsertSpecialCustomerFromRemote(data: RemoteSpecialCustomerDoc, docId: string): void {
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
-  const fallbackStore = data.storeId || '00000000-0000-0000-0000-000000000001'
+  const createdBy = data.createdBy || 'remote-special-unknown'
+  const createdAt = data.createdAt || now
 
   if (data.deleted) {
     db.delete(specialCustomerPrices).where(eq(specialCustomerPrices.specialCustomerId, id)).run()
@@ -58,17 +69,23 @@ function upsertSpecialCustomerFromRemote(data: RemoteSpecialCustomerDoc, docId: 
     return
   }
 
-  ensureUserStub(data.createdBy, fallbackStore)
-  if (data.updatedBy) ensureUserStub(data.updatedBy, fallbackStore)
+  if (!data.name) {
+    log.warn('[specialCustomerSync] Cliente especial sin nombre — omitido', { id })
+    return
+  }
+
+  const storeId = existingStoreIdOrNull(data.storeId)
+  ensureUserStub(createdBy, storeId)
+  if (data.updatedBy) ensureUserStub(data.updatedBy, storeId)
 
   db.insert(specialCustomers)
     .values({
       id,
-      storeId: data.storeId ?? null,
+      storeId,
       name: data.name,
       notes: data.notes ?? null,
-      createdAt: data.createdAt,
-      createdBy: data.createdBy,
+      createdAt,
+      createdBy,
       updatedAt: data.updatedAt ?? null,
       updatedBy: data.updatedBy ?? null,
       syncedAt: now,
@@ -76,7 +93,7 @@ function upsertSpecialCustomerFromRemote(data: RemoteSpecialCustomerDoc, docId: 
     .onConflictDoUpdate({
       target: specialCustomers.id,
       set: {
-        storeId: data.storeId ?? null,
+        storeId,
         name: data.name,
         notes: data.notes ?? null,
         updatedAt: data.updatedAt ?? null,
@@ -85,16 +102,41 @@ function upsertSpecialCustomerFromRemote(data: RemoteSpecialCustomerDoc, docId: 
       },
     })
     .run()
+
+  retryPendingSpecialPrices()
+  notifySpecialCustomersUpdated()
 }
 
-function upsertSpecialPriceFromRemote(data: RemoteSpecialPriceDoc, docId: string): void {
+function queuePendingSpecialPrice(data: RemoteSpecialPriceDoc, docId: string): void {
+  if (pendingSpecialPrices.size >= MAX_PENDING_PRICES && !pendingSpecialPrices.has(docId)) {
+    const oldest = pendingSpecialPrices.keys().next().value
+    if (oldest) pendingSpecialPrices.delete(oldest)
+  }
+  pendingSpecialPrices.set(docId, { data, docId })
+}
+
+function retryPendingSpecialPrices(): void {
+  for (const [id, item] of [...pendingSpecialPrices.entries()]) {
+    if (upsertSpecialPriceFromRemote(item.data, item.docId, false)) {
+      pendingSpecialPrices.delete(id)
+    }
+  }
+}
+
+function upsertSpecialPriceFromRemote(
+  data: RemoteSpecialPriceDoc,
+  docId: string,
+  enqueueIfOrphan = true,
+): boolean {
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
 
   if (data.deleted) {
     db.delete(specialCustomerPrices).where(eq(specialCustomerPrices.id, id)).run()
-    return
+    pendingSpecialPrices.delete(id)
+    notifySpecialCustomersUpdated()
+    return true
   }
 
   const parent = db.select({ id: specialCustomers.id })
@@ -102,30 +144,35 @@ function upsertSpecialPriceFromRemote(data: RemoteSpecialPriceDoc, docId: string
     .where(eq(specialCustomers.id, data.specialCustomerId))
     .all()[0]
   if (!parent) {
-    log.warn('[specialCustomerSync] Precio sin cliente especial local — omitido', {
+    log.warn('[specialCustomerSync] Precio sin cliente especial local — en cola', {
       id,
       specialCustomerId: data.specialCustomerId,
     })
-    return
+    if (enqueueIfOrphan) queuePendingSpecialPrice(data, docId)
+    return false
   }
 
   const product = db.select({ id: products.id }).from(products).where(eq(products.id, data.productId)).all()[0]
   if (!product) {
-    log.warn('[specialCustomerSync] Precio sin producto local — omitido', { id, productId: data.productId })
-    return
+    log.warn('[specialCustomerSync] Precio sin producto local — en cola', { id, productId: data.productId })
+    if (enqueueIfOrphan) queuePendingSpecialPrice(data, docId)
+    return false
   }
 
-  ensureUserStub(data.updatedBy, '00000000-0000-0000-0000-000000000001')
+  const price = data.price ?? data.specialPrice ?? 0
+  const updatedAt = data.updatedAt || now
+  const updatedBy = data.updatedBy || 'remote-special-unknown'
+  ensureUserStub(updatedBy)
 
   db.insert(specialCustomerPrices)
     .values({
       id,
       specialCustomerId: data.specialCustomerId,
       productId: data.productId,
-      price: data.price,
+      price,
       notes: data.notes ?? null,
-      updatedAt: data.updatedAt,
-      updatedBy: data.updatedBy,
+      updatedAt,
+      updatedBy,
       syncedAt: now,
     })
     .onConflictDoUpdate({
@@ -133,14 +180,17 @@ function upsertSpecialPriceFromRemote(data: RemoteSpecialPriceDoc, docId: string
       set: {
         specialCustomerId: data.specialCustomerId,
         productId: data.productId,
-        price: data.price,
+        price,
         notes: data.notes ?? null,
-        updatedAt: data.updatedAt,
-        updatedBy: data.updatedBy,
+        updatedAt,
+        updatedBy,
         syncedAt: now,
       },
     })
     .run()
+
+  notifySpecialCustomersUpdated()
+  return true
 }
 
 export async function pushUnsyncedSpecialCustomers(tenantId: string): Promise<void> {
@@ -340,6 +390,7 @@ export function stopSpecialCustomerSyncListener(): void {
   }
   customerListeners.length = 0
   priceListeners.length = 0
+  pendingSpecialPrices.clear()
   log.info('[specialCustomerSync] Listeners detenidos')
 }
 
@@ -348,7 +399,9 @@ export async function ensureSpecialCustomersSynced(tenantId: string): Promise<vo
   await pushUnsyncedSpecialCustomerPrices(tenantId)
   await pullSpecialCustomersFromFirestore(tenantId)
   await pullSpecialCustomerPricesFromFirestore(tenantId)
+  retryPendingSpecialPrices()
   startSpecialCustomerSyncListener(tenantId)
+  notifySpecialCustomersUpdated()
 }
 
 export async function pushUnsyncedSpecialCustomerOps(tenantId: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts } from '../../db/schema'
+import { stores, users, shifts, products, sales } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -22,9 +22,12 @@ vi.mock('../../businessConfig', () => ({
   getBusinessConfig: vi.fn(() => ({ tenant_id: 'test-key' })),
 }))
 
-vi.mock('../../licensing/orderSync', () => ({
-  pushUnsyncedOrders: vi.fn().mockResolvedValue(undefined),
-  markOrderDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../licensing/saleSync', () => ({
+  pushUnsyncedSales: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../inactivityDaemon', () => ({
+  notifySaleOccurred: vi.fn(),
 }))
 
 import { ipcMain } from 'electron'
@@ -69,6 +72,15 @@ describe('orders.handler', () => {
       startedAt: now,
       openingCash: 0,
       source: 'desktop',
+    }).run()
+    db.insert(products).values({
+      id: '00000000-0000-0000-0000-000000000099',
+      name: 'Pedido',
+      category: 'other',
+      unit: 'unit',
+      pluNumber: 999,
+      active: true,
+      createdAt: now,
     }).run()
   })
 
@@ -177,6 +189,21 @@ describe('orders.handler', () => {
       }) as { ok: boolean; data: { storeId: string } }
       expect(res.ok).toBe(true)
       expect(res.data.storeId).toBe(STORE_ID_2)
+    })
+
+    it('acepta storeId que no es UUID RFC (ids reales de locales)', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: 'local1', name: 'Local Uno', createdAt: now }).run()
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Cliente C',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+        storeId: 'local1',
+      }) as { ok: boolean; data: { storeId: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.storeId).toBe('local1')
     })
 
     it('rechaza si no hay sesión', () => {
@@ -299,7 +326,7 @@ describe('orders.handler', () => {
     it('cancela el pedido como admin (soft delete)', () => {
       vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const createHandler = getHandler('ipc:create-order')
-      const created = createHandler(null, { customerName: 'Para cancelar', items: 'Algo', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
+      const created = createHandler(null, { customerName: 'Para cancelar', items: 'Algo', pickupDate: '2026-12-01' }) as { ok: boolean; data: { id: string } }
       expect(created.ok).toBe(true)
 
       const handler = getHandler('ipc:delete-order')
@@ -346,6 +373,85 @@ describe('orders.handler', () => {
       const list = getHandler('ipc:list-orders')
       const listRes = list(null) as { ok: boolean; data: { id: string }[] }
       expect(listRes.data.find(o => o.id === created.data.id)).toBeUndefined()
+    })
+  })
+
+  describe('CHARGE_ORDER', () => {
+    it('marca entregado sin venta si remaining es 0', () => {
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Ana',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      const res = getHandler('ipc:charge-order')(null, {
+        orderId: created.data.id,
+        remaining: 0,
+        payments: [],
+      }) as { ok: boolean; data: { status: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.status).toBe('delivered')
+      expect(db.select().from(sales).all()).toHaveLength(0)
+    })
+
+    it('crea venta por el resto y marca entregado', () => {
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Luis',
+        items: 'Vacío',
+        pickupDate: '2026-07-25',
+        depositAmount: 40000,
+        depositPayments: [{ method: 'cash', amount: 40000 }],
+      }) as { ok: boolean; data: { id: string } }
+      const res = getHandler('ipc:charge-order')(null, {
+        orderId: created.data.id,
+        remaining: 20000,
+        payments: [{ paymentMethod: 'cash', amount: 20000 }],
+      }) as { ok: boolean; data: { status: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.status).toBe('delivered')
+      expect(db.select().from(sales).all()).toHaveLength(1)
+      expect(db.select().from(sales).all()[0].total).toBe(20000)
+    })
+
+    it('rechaza segundo cobro', () => {
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Eva',
+        items: 'Pollo',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      getHandler('ipc:charge-order')(null, { orderId: created.data.id, remaining: 0, payments: [] })
+      const res = getHandler('ipc:charge-order')(null, {
+        orderId: created.data.id,
+        remaining: 1000,
+        payments: [{ paymentMethod: 'cash', amount: 1000 }],
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_STATUS')
+    })
+
+    it('resto > 0 sin turno → NO_SHIFT', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT as unknown as ReturnType<typeof getActiveSession>)
+      const res = getHandler('ipc:charge-order')(null, {
+        orderId: '00000000-0000-0000-0000-000000000001',
+        remaining: 1000,
+        payments: [{ paymentMethod: 'cash', amount: 1000 }],
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('NO_SHIFT')
+    })
+
+    it('rechaza pagos que no cubren el resto', () => {
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Nora',
+        items: 'Bondiola',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      const res = getHandler('ipc:charge-order')(null, {
+        orderId: created.data.id,
+        remaining: 5000,
+        payments: [{ paymentMethod: 'cash', amount: 1000 }],
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
     })
   })
 })

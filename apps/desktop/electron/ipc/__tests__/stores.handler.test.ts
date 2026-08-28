@@ -280,53 +280,53 @@ describe('stores.handler', () => {
   // ARCHIVE_STORE / UNARCHIVE_STORE
   // --------------------------------------------------------------------------
   describe('ARCHIVE_STORE', () => {
-    it('archiva un local activo cuando hay más de uno', () => {
+    it('archiva un local activo cuando hay más de uno', async () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now }).run()
       const handler = getHandler('ipc:archive-store')
-      const res = handler(null, { id: STORE2_ID }) as { ok: boolean; data: { archivedAt: string } }
+      const res = await handler(null, { id: STORE2_ID }) as { ok: boolean; data: { archivedAt: string } }
       expect(res.ok).toBe(true)
       expect(res.data.archivedAt).toBeTruthy()
     })
 
-    it('rechaza archivar el único local activo', () => {
+    it('rechaza archivar el único local activo', async () => {
       const handler = getHandler('ipc:archive-store')
-      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      const res = await handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('CONFLICT')
     })
 
-    it('rechaza archivar un local ya archivado', () => {
+    it('rechaza archivar un local ya archivado', async () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now, archivedAt: now }).run()
       const handler = getHandler('ipc:archive-store')
-      const res = handler(null, { id: STORE2_ID }) as { ok: boolean; code: string }
+      const res = await handler(null, { id: STORE2_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('CONFLICT')
     })
 
-    it('rechaza si no es admin', () => {
+    it('rechaza si no es admin', async () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:archive-store')
-      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      const res = await handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('FORBIDDEN')
     })
   })
 
   describe('UNARCHIVE_STORE', () => {
-    it('desarchiva un local archivado', () => {
+    it('desarchiva un local archivado', async () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', createdAt: now, archivedAt: now }).run()
       const handler = getHandler('ipc:unarchive-store')
-      const res = handler(null, { id: STORE2_ID }) as { ok: boolean; data: { archivedAt: null } }
+      const res = await handler(null, { id: STORE2_ID }) as { ok: boolean; data: { archivedAt: null } }
       expect(res.ok).toBe(true)
       expect(res.data.archivedAt).toBeNull()
     })
 
-    it('rechaza desarchivar un local ya activo', () => {
+    it('rechaza desarchivar un local ya activo', async () => {
       const handler = getHandler('ipc:unarchive-store')
-      const res = handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
+      const res = await handler(null, { id: STORE_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('CONFLICT')
     })

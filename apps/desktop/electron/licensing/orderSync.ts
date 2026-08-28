@@ -35,10 +35,32 @@ interface RemoteOrderDoc {
   depositPayments?: string | null
   depositShiftId?: string | null
   createdAt: string
-  createdBy: string
+  /** Pedidos viejos de móvil podían omitirlo; SQLite exige NOT NULL + FK. */
+  createdBy?: string | null
   updatedAt?: string | null
   updatedBy?: string | null
   deleted?: boolean
+}
+
+/** Autor sintético para docs remotos sin createdBy (no romper el pull). */
+export const REMOTE_ORDER_UNKNOWN_USER = 'remote-order-unknown'
+
+function resolveRemoteCreatedBy(raw: unknown, storeId: string): string {
+  const id = typeof raw === 'string' ? raw.trim() : ''
+  const createdBy = id || REMOTE_ORDER_UNKNOWN_USER
+  ensureUserStub(createdBy, storeId)
+  return createdBy
+}
+
+function resolveRemotePriority(raw: unknown): boolean {
+  return raw === true || raw === 'high'
+}
+
+function resolveRemoteDepositPayments(raw: unknown): string | null {
+  if (raw == null || raw === 0 || raw === '') return null
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) return JSON.stringify(raw)
+  return null
 }
 
 const listeners: Unsubscribe[] = []
@@ -53,7 +75,7 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
     return
   }
 
-  ensureUserStub(data.createdBy, data.storeId)
+  const createdBy = resolveRemoteCreatedBy(data.createdBy, data.storeId)
   if (data.updatedBy) ensureUserStub(data.updatedBy, data.storeId)
 
   // FK opcional a shift: nullificar si el turno no existe en esta PC
@@ -73,15 +95,15 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
       pickupDate: data.pickupDate,
       timeSlot: (data.timeSlot as 'morning' | 'afternoon' | 'specific' | null) ?? null,
       pickupTime: data.pickupTime ?? null,
-      priority: data.priority ?? false,
+      priority: resolveRemotePriority(data.priority),
       status: data.status,
       notes: data.notes ?? null,
       depositAmount: data.depositAmount ?? 0,
       depositMethod: (data.depositMethod as 'cash' | 'debit' | 'wallet' | 'credit' | null) ?? null,
-      depositPayments: data.depositPayments ?? null,
+      depositPayments: resolveRemoteDepositPayments(data.depositPayments),
       depositShiftId,
       createdAt: data.createdAt,
-      createdBy: data.createdBy,
+      createdBy,
       updatedAt: data.updatedAt ?? null,
       updatedBy: data.updatedBy ?? null,
       syncedAt: now,
@@ -96,12 +118,12 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
         pickupDate: data.pickupDate,
         timeSlot: (data.timeSlot as 'morning' | 'afternoon' | 'specific' | null) ?? null,
         pickupTime: data.pickupTime ?? null,
-        priority: data.priority ?? false,
+        priority: resolveRemotePriority(data.priority),
         status: data.status,
         notes: data.notes ?? null,
         depositAmount: data.depositAmount ?? 0,
         depositMethod: (data.depositMethod as 'cash' | 'debit' | 'wallet' | 'credit' | null) ?? null,
-        depositPayments: data.depositPayments ?? null,
+        depositPayments: resolveRemoteDepositPayments(data.depositPayments),
         depositShiftId,
         updatedAt: data.updatedAt ?? null,
         updatedBy: data.updatedBy ?? null,

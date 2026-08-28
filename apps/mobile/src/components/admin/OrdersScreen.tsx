@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useOnlineStatus } from '../../lib/connectivity'
+import { useBackLayer } from '../../lib/backStack'
 import {
   ScreenHeader,
   OfflineBanner,
@@ -7,6 +8,7 @@ import {
   Spinner,
   EmptyState,
   Modal,
+  ConfirmModal,
   Btn,
   LabeledInput,
   LabeledTextarea,
@@ -23,13 +25,27 @@ import {
   formatDate,
   type Order,
   type OrderStatus,
-  type OrderPriority,
   type StoreDoc,
 } from '../../lib/adminFirestore'
+import {
+  DEPOSIT_METHOD_LABELS,
+  TIME_SLOT_LABELS,
+  defaultCreateStoreId,
+  depositTotal,
+  parseDepositPayments,
+  formatPickupSlotLine,
+  toMobileOrderRecord,
+  validateMobileOrderDraft,
+  type DepositMethod,
+  type DepositPayment,
+  type OrderTimeSlot,
+} from '../../lib/orderMapping'
+import { todayLocalYmd } from '../../lib/week'
 
 interface Props {
   onBack: () => void
   stores: StoreDoc[]
+  createdBy: string
 }
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
@@ -49,7 +65,7 @@ const STATUS_BADGE: Record<OrderStatus, string> = {
 }
 
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  pending: ['ready', 'cancelled'],
+  pending: ['delivered', 'cancelled'],
   ready: ['delivered', 'cancelled'],
   delivered: [],
   cancelled: ['pending'],
@@ -57,11 +73,12 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 
 type Filter = 'active' | 'all'
 
-export function OrdersScreen({ onBack, stores }: Props) {
+export function OrdersScreen({ onBack, stores, createdBy }: Props) {
   const online = useOnlineStatus()
   const activeStores = stores.filter(s => !s.archivedAt)
+  useBackLayer(true, onBack)
 
-  const [storeId, setStoreId] = useState<string>(() => activeStores[0]?.id ?? '')
+  const [storeId, setStoreId] = useState<string>('')
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +86,7 @@ export function OrdersScreen({ onBack, stores }: Props) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Order | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Order | null>(null)
 
   const load = useCallback(async (sid: string) => {
     setLoading(true)
@@ -107,14 +125,7 @@ export function OrdersScreen({ onBack, stores }: Props) {
   }
 
   const handleDelete = async (order: Order) => {
-    if (!confirm(`¿Eliminar el pedido de ${order.customerName}?`)) return
-    try {
-      await softDeleteOrder(order.id)
-      setOrders(prev => prev.filter(o => o.id !== order.id))
-      setSelected(null)
-    } catch {
-      setError('No se pudo eliminar el pedido.')
-    }
+    setPendingDelete(order)
   }
 
   const displayed = orders.filter(o => {
@@ -125,7 +136,7 @@ export function OrdersScreen({ onBack, stores }: Props) {
   })
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
       <ScreenHeader
         title="Pedidos"
         onBack={onBack}
@@ -189,7 +200,7 @@ export function OrdersScreen({ onBack, stores }: Props) {
                 <button
                   type="button"
                   onClick={() => setSelected(order)}
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left hover:border-zinc-700 transition-colors"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-left hover:border-zinc-500 transition-colors"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span
@@ -203,9 +214,9 @@ export function OrdersScreen({ onBack, stores }: Props) {
                     >
                       {STATUS_LABEL[order.status]}
                     </span>
-                    {order.priority === 'high' && (
+                    {order.priority && (
                       <span className="shrink-0 rounded-full bg-red-950/50 border border-red-900/40 px-1.5 py-0.5 text-xs text-red-400/80">
-                        Urgente
+                        Prioritario
                       </span>
                     )}
                   </div>
@@ -219,6 +230,9 @@ export function OrdersScreen({ onBack, stores }: Props) {
                   )}
                   <div className="mt-1 flex items-center gap-3 text-xs text-zinc-500">
                     <span>Retiro: {formatDate(order.pickupDate)}</span>
+                    {formatPickupSlotLine(order.timeSlot, order.pickupTime) && (
+                      <span>{formatPickupSlotLine(order.timeSlot, order.pickupTime)}</span>
+                    )}
                     {order.depositAmount > 0 && (
                       <span className="font-mono">
                         Seña: {formatMoney(order.depositAmount)}
@@ -246,12 +260,28 @@ export function OrdersScreen({ onBack, stores }: Props) {
       {showCreate && (
         <CreateOrderModal
           stores={activeStores}
-          defaultStoreId={storeId}
+          defaultStoreId={defaultCreateStoreId(storeId)}
+          createdBy={createdBy}
           onClose={() => setShowCreate(false)}
           onCreate={async order => {
             await createOrder(order)
             setShowCreate(false)
             void load(storeId)
+          }}
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmModal
+          title="Eliminar pedido"
+          message={`¿Eliminar el pedido de ${pendingDelete.customerName}?`}
+          confirmLabel="Eliminar"
+          danger
+          onClose={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            await softDeleteOrder(pendingDelete.id)
+            setOrders(prev => prev.filter(o => o.id !== pendingDelete.id))
+            setSelected(null)
           }}
         />
       )}
@@ -300,14 +330,19 @@ function OrderActionsModal({
             </p>
           )}
           <p className="mt-1 text-zinc-500">Retiro: {formatDate(order.pickupDate)}</p>
-          {order.timeSlot && (
-            <p className="text-zinc-500">Turno: {order.timeSlot}</p>
+          {timeSlotLabel(order.timeSlot, order.pickupTime) && (
+            <p className="text-zinc-500">{timeSlotLabel(order.timeSlot, order.pickupTime)}</p>
           )}
           {order.phone && <p className="text-zinc-500">Tel: {order.phone}</p>}
           {order.depositAmount > 0 && (
-            <p className="font-mono text-zinc-400">
-              Seña: {formatMoney(order.depositAmount)}
-            </p>
+            <div className="font-mono text-zinc-400">
+              <p>Seña: {formatMoney(order.depositAmount)}</p>
+              {(parseDepositPayments(order.depositPayments) ?? []).map(p => (
+                <p key={p.method} className="text-xs text-zinc-500">
+                  {DEPOSIT_METHOD_LABELS[p.method]}: {formatMoney(p.amount)}
+                </p>
+              ))}
+            </div>
           )}
           {order.notes && <p className="mt-1 text-zinc-400 italic">{order.notes}</p>}
         </div>
@@ -346,9 +381,14 @@ function OrderActionsModal({
 // Create order modal
 // ---------------------------------------------------------------------------
 
+function timeSlotLabel(slot: string | null, pickupTime: string | null): string | null {
+  return formatPickupSlotLine(slot, pickupTime)
+}
+
 interface CreateOrderModalProps {
   stores: StoreDoc[]
   defaultStoreId: string
+  createdBy: string
   onClose: () => void
   onCreate: (order: Omit<Order, 'id'>) => Promise<void>
 }
@@ -356,6 +396,7 @@ interface CreateOrderModalProps {
 function CreateOrderModal({
   stores,
   defaultStoreId,
+  createdBy,
   onClose,
   onCreate,
 }: CreateOrderModalProps) {
@@ -363,47 +404,55 @@ function CreateOrderModal({
   const [customerName, setCustomerName] = useState('')
   const [phone, setPhone] = useState('')
   const [items, setItems] = useState('')
-  const [pickupDate, setPickupDate] = useState(
-    new Date().toISOString().split('T')[0] ?? '',
-  )
-  const [timeSlot, setTimeSlot] = useState('')
-  const [priority, setPriority] = useState<OrderPriority>('normal')
-  const [depositInput, setDepositInput] = useState('')
+  const [pickupDate, setPickupDate] = useState(todayLocalYmd())
+  const [timeSlot, setTimeSlot] = useState<OrderTimeSlot | ''>('')
+  const [pickupTime, setPickupTime] = useState('')
+  const [priority, setPriority] = useState(false)
+  const [depositByMethod, setDepositByMethod] = useState<Record<DepositMethod, string>>({
+    cash: '',
+    debit: '',
+    wallet: '',
+    credit: '',
+  })
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (stores.length === 1 && stores[0] && !storeId) {
+      setStoreId(stores[0].id)
+    }
+  }, [stores, storeId])
+
+  const payments: DepositPayment[] = (['cash', 'debit', 'wallet', 'credit'] as const)
+    .map(method => ({ method, amount: parseDigits(depositByMethod[method]) }))
+    .filter(p => p.amount > 0)
+  const totalDeposit = depositTotal(payments)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!customerName.trim()) {
-      setErr('El nombre del cliente es obligatorio.')
-      return
+    const draft = {
+      storeId,
+      customerName,
+      phone,
+      items,
+      pickupDate,
+      timeSlot,
+      pickupTime,
+      priority,
+      payments,
+      notes,
+      createdBy,
     }
-    if (!storeId) {
-      setErr('Seleccioná un local.')
+    const validationError = validateMobileOrderDraft(draft)
+    if (validationError) {
+      setErr(validationError)
       return
     }
     setSaving(true)
     setErr(null)
     try {
-      const now = new Date().toISOString()
-      await onCreate({
-        storeId,
-        customerName: customerName.trim(),
-        phone: phone.trim() || null,
-        items: items.trim(),
-        pickupDate,
-        timeSlot: timeSlot || null,
-        pickupTime: null,
-        priority,
-        status: 'pending',
-        depositAmount: parseDigits(depositInput),
-        depositPayments: 0,
-        notes: notes.trim() || null,
-        deleted: false,
-        createdAt: now,
-        updatedAt: now,
-      })
+      await onCreate(toMobileOrderRecord(draft, new Date().toISOString()))
     } catch {
       setErr('No se pudo crear el pedido.')
       setSaving(false)
@@ -415,12 +464,13 @@ function CreateOrderModal({
       <form onSubmit={handleSubmit} className="space-y-3">
         {stores.length > 1 && (
           <label className="block">
-            <span className="mb-1 block text-sm text-zinc-400">Local</span>
+            <span className="mb-1 block text-sm text-zinc-400">Local *</span>
             <select
               value={storeId}
               onChange={e => setStoreId(e.target.value)}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
             >
+              <option value="">Elegir un local</option>
               {stores.map(s => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -429,9 +479,24 @@ function CreateOrderModal({
             </select>
           </label>
         )}
+        {stores.length === 1 && stores[0] && (
+          <p className="text-sm text-zinc-400">
+            Local: <span className="text-zinc-200">{stores[0].name}</span>
+          </p>
+        )}
+
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={priority}
+            onChange={e => setPriority(e.target.checked)}
+            className="h-4 w-4 accent-emerald-500"
+          />
+          <span className="text-sm font-medium text-zinc-400">⚡ Pedido prioritario / importante</span>
+        </label>
 
         <LabeledInput
-          label="Cliente *"
+          label="Nombre del cliente *"
           value={customerName}
           onChange={setCustomerName}
           placeholder="Nombre del cliente"
@@ -447,14 +512,14 @@ function CreateOrderModal({
           maxLength={30}
         />
         <LabeledTextarea
-          label="Detalle del pedido"
+          label="Descripción del pedido *"
           value={items}
           onChange={setItems}
-          placeholder="Ej: 2 kg vacío, 1 kg costilla..."
+          placeholder="Ej: 2 kg de asado, 1 pollo entero…"
           maxLength={500}
         />
         <label className="block">
-          <span className="mb-1 block text-sm text-zinc-400">Fecha de retiro</span>
+          <span className="mb-1 block text-sm text-zinc-400">Fecha de retiro *</span>
           <input
             type="date"
             value={pickupDate}
@@ -462,49 +527,66 @@ function CreateOrderModal({
             className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
           />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-zinc-400">Turno</span>
-          <select
-            value={timeSlot}
-            onChange={e => setTimeSlot(e.target.value)}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
-          >
-            <option value="">Sin especificar</option>
-            <option value="mañana">Mañana</option>
-            <option value="tarde">Tarde</option>
-            <option value="todo el día">Todo el día</option>
-          </select>
-        </label>
 
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm text-zinc-400">Urgente</span>
-          <button
-            type="button"
-            onClick={() => setPriority(p => (p === 'high' ? 'normal' : 'high'))}
-            className={`relative h-6 w-11 rounded-full transition-colors ${
-              priority === 'high' ? 'bg-red-600' : 'bg-zinc-700'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                priority === 'high' ? 'left-5' : 'left-0.5'
-              }`}
+        <div className="space-y-2">
+          <p className="text-sm text-zinc-400">Horario de retiro (opcional)</p>
+          <div className="grid grid-cols-3 gap-2">
+            {(['morning', 'afternoon', 'specific'] as const).map(slot => (
+              <button
+                key={slot}
+                type="button"
+                onClick={() => setTimeSlot(s => (s === slot ? '' : slot))}
+                className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                  timeSlot === slot
+                    ? 'border-emerald-700 bg-emerald-950/40 text-emerald-300'
+                    : 'border-zinc-700 bg-zinc-800 text-zinc-300'
+                }`}
+              >
+                {TIME_SLOT_LABELS[slot]}
+              </button>
+            ))}
+          </div>
+          {timeSlot === 'specific' && (
+            <input
+              type="time"
+              value={pickupTime}
+              onChange={e => setPickupTime(e.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
             />
-          </button>
+          )}
         </div>
 
-        <LabeledInput
-          label="Seña ($)"
-          value={depositInput}
-          onChange={v => setDepositInput(filterDigits(v))}
-          placeholder="0"
-          inputMode="numeric"
-        />
+        <div className="space-y-2 rounded-xl border border-zinc-700/60 bg-zinc-800/50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-zinc-300">Seña (opcional)</p>
+            {totalDeposit > 0 && (
+              <span className="shrink-0 font-mono text-sm text-zinc-100">{formatMoney(totalDeposit)}</span>
+            )}
+          </div>
+          {(['cash', 'debit', 'wallet', 'credit'] as const).map(method => (
+            <div key={method} className="flex items-center gap-2 min-w-0">
+              <span className="w-28 shrink-0 truncate text-xs text-zinc-400" title={DEPOSIT_METHOD_LABELS[method]}>
+                {DEPOSIT_METHOD_LABELS[method]}
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={depositByMethod[method]}
+                onChange={e =>
+                  setDepositByMethod(prev => ({ ...prev, [method]: filterDigits(e.target.value) }))
+                }
+                placeholder="0"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none"
+              />
+            </div>
+          ))}
+        </div>
+
         <LabeledTextarea
           label="Notas"
           value={notes}
           onChange={setNotes}
-          placeholder="Observaciones..."
+          placeholder="Observaciones del pedido…"
           rows={2}
           maxLength={300}
         />

@@ -47,6 +47,14 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
   const now = new Date().toISOString()
   const id = data.id || docId
 
+  const existing = db
+    .select({ syncedAt: stores.syncedAt })
+    .from(stores)
+    .where(eq(stores.id, id))
+    .get()
+  // Outbox local pendiente: no pisar con un snapshot viejo (ej. archivar y luego pull).
+  if (existing && existing.syncedAt === null) return
+
   db.insert(stores).values({
     id,
     name: data.name,

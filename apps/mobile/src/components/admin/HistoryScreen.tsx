@@ -5,22 +5,30 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useOnlineStatus } from '../../lib/connectivity'
+import { useBackLayer } from '../../lib/backStack'
 import { ScreenHeader, OfflineBanner, ErrorBanner, Spinner, EmptyState, StoreSelector } from './shared'
 import {
   fetchAdminShifts,
   fetchAdminSalesForShift,
+  fetchDebtsForShift,
+  fetchDepositsForShift,
+  fetchValesForShift,
   sumPaymentTotals,
   type AdminShift,
   type AdminSale,
+  type AdminShiftDebt,
+  type AdminShiftDeposit,
+  type AdminVale,
   type PaymentTotals,
 } from '../../lib/adminHistory'
 import {
   fetchExpensesForShift,
   formatMoney,
-  formatDate,
   type Expense,
   type StoreDoc,
 } from '../../lib/adminFirestore'
+import { expenseNote, expenseTitle } from '../../lib/adminLedger'
+import { formatDepositPaymentsLine } from '../../lib/orderMapping'
 import type { PaymentMethod } from '../../types/pos'
 
 interface Props {
@@ -52,7 +60,8 @@ function formatDateTime(iso: string | null | undefined): string {
 export function HistoryScreen({ onBack, stores }: Props) {
   const online = useOnlineStatus()
   const activeStores = stores.filter(s => !s.archivedAt)
-  const [storeId, setStoreId] = useState<string>(() => activeStores[0]?.id ?? '')
+  useBackLayer(true, onBack)
+  const [storeId, setStoreId] = useState<string>('')
   const [shifts, setShifts] = useState<AdminShift[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,14 +70,10 @@ export function HistoryScreen({ onBack, stores }: Props) {
   const [selectedShift, setSelectedShift] = useState<AdminShift | null>(null)
 
   const loadShifts = useCallback(async (sid: string) => {
-    if (!sid) {
-      setShifts([])
-      return
-    }
     setLoading(true)
     setError(null)
     try {
-      const list = await fetchAdminShifts(sid)
+      const list = await fetchAdminShifts(sid || undefined)
       setShifts(list)
     } catch {
       setError('No se pudieron cargar los turnos.')
@@ -99,7 +104,7 @@ export function HistoryScreen({ onBack, stores }: Props) {
   })
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
       <ScreenHeader title="Historial" onBack={onBack} />
 
       {!online && <OfflineBanner />}
@@ -108,10 +113,11 @@ export function HistoryScreen({ onBack, stores }: Props) {
         stores={activeStores}
         value={storeId}
         onChange={id => { setStoreId(id); setSelectedShift(null) }}
+        allowAll
       />
 
       {/* Date filters */}
-      <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-4 py-2">
+      <div className="flex items-center gap-2 border-b border-zinc-700 bg-zinc-800 px-4 py-2">
         <label className="flex flex-1 flex-col">
           <span className="mb-0.5 text-xs text-zinc-500">Desde</span>
           <input
@@ -144,10 +150,7 @@ export function HistoryScreen({ onBack, stores }: Props) {
       <main className="flex-1 px-4 py-4">
         {error && <ErrorBanner message={error} onRetry={() => void loadShifts(storeId)} />}
         {loading && <Spinner />}
-        {!storeId && !loading && (
-          <EmptyState message="Seleccioná un local para ver los turnos." />
-        )}
-        {storeId && !loading && !error && filteredShifts.length === 0 && (
+        {!loading && !error && filteredShifts.length === 0 && (
           <EmptyState
             message={
               dateFrom || dateTo
@@ -163,7 +166,7 @@ export function HistoryScreen({ onBack, stores }: Props) {
                 <button
                   type="button"
                   onClick={() => setSelectedShift(shift)}
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left hover:border-zinc-700 transition-colors"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-left hover:border-zinc-500 transition-colors"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span
@@ -208,25 +211,36 @@ interface ShiftDetailScreenProps {
 }
 
 function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
+  useBackLayer(true, onBack)
   const [sales, setSales] = useState<AdminSale[]>([])
   const [totals, setTotals] = useState<PaymentTotals>(sumPaymentTotals([]))
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [debts, setDebts] = useState<AdminShiftDebt[]>([])
+  const [deposits, setDeposits] = useState<AdminShiftDeposit[]>([])
+  const [vales, setVales] = useState<AdminVale[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'sales' | 'expenses'>('sales')
+  const [tab, setTab] = useState<'sales' | 'expenses' | 'debts' | 'deposits' | 'vales'>('sales')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [salesList, expensesList] = await Promise.all([
-        fetchAdminSalesForShift(shift.id),
+      const salesList = await fetchAdminSalesForShift(shift.id)
+      const saleIds = salesList.map(s => s.id)
+      const [expensesList, debtsList, depositsList, valesList] = await Promise.all([
         fetchExpensesForShift(shift.id),
+        fetchDebtsForShift(shift.id, saleIds),
+        fetchDepositsForShift(shift.id),
+        fetchValesForShift(shift.id),
       ])
       const confirmed = salesList.filter(s => s.status === 'confirmed')
       setSales(confirmed)
       setTotals(sumPaymentTotals(salesList))
       setExpenses(expensesList)
+      setDebts(debtsList)
+      setDeposits(depositsList)
+      setVales(valesList)
     } catch {
       setError('No se pudieron cargar los datos del turno.')
     } finally {
@@ -242,35 +256,13 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
   const netBalance = totals.total - totalExpenses
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100">
-      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900/80 px-4 py-3 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Volver"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
-          >
-            ←
-          </button>
-          <div className="min-w-0 flex-1">
-            <h1
-              className="truncate text-base font-semibold text-zinc-100"
-              title={shift.cashierName}
-            >
-              {shift.cashierName}
-            </h1>
-            <p className="text-xs text-zinc-500">
-              {shift.shiftType === 'morning' ? 'Mañana' : 'Tarde'}
-              {' · '}{formatDateTime(shift.startedAt)}
-              {shift.closedAt ? ` → ${formatDateTime(shift.closedAt)}` : ' · abierto'}
-            </p>
-          </div>
-        </div>
-        {!online && (
-          <p className="mt-1.5 text-xs text-amber-400/80">Sin conexión</p>
-        )}
-      </header>
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
+      <ScreenHeader
+        title={shift.cashierName}
+        subtitle={`${shift.shiftType === 'morning' ? 'Mañana' : 'Tarde'} · ${formatDateTime(shift.startedAt)}${shift.closedAt ? ` → ${formatDateTime(shift.closedAt)}` : ' · abierto'}`}
+        onBack={onBack}
+      />
+      {!online && <OfflineBanner />}
 
       <main className="flex-1 px-4 py-4 space-y-4">
         {error && <ErrorBanner message={error} onRetry={load} />}
@@ -279,7 +271,7 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
         {!loading && !error && (
           <>
             {/* Summary card */}
-            <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+            <section className="rounded-xl border border-zinc-700 bg-zinc-800 p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold text-zinc-100">Resumen del turno</h2>
                 <button
@@ -326,25 +318,27 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
             </section>
 
             {/* Tab selector */}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setTab('sales')}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                  tab === 'sales' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400'
-                }`}
-              >
-                Ventas ({sales.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('expenses')}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                  tab === 'expenses' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400'
-                }`}
-              >
-                Gastos ({expenses.length})
-              </button>
+            <div className="flex gap-1 overflow-x-auto">
+              {(
+                [
+                  { key: 'sales' as const, label: `Ventas (${sales.length})` },
+                  { key: 'expenses' as const, label: `Gastos (${expenses.length})` },
+                  { key: 'debts' as const, label: `Fiados (${debts.length})` },
+                  { key: 'deposits' as const, label: `Señas (${deposits.length})` },
+                  { key: 'vales' as const, label: `Vales (${vales.length})` },
+                ]
+              ).map(t => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    tab === t.key ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
 
             {/* Sales list */}
@@ -362,7 +356,7 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                       return (
                         <li
                           key={sale.id}
-                          className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
+                            className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span
@@ -394,34 +388,155 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                   <EmptyState message="Sin gastos registrados en este turno." />
                 ) : (
                   <ul className="space-y-2">
-                    {expenses.map(exp => (
+                    {expenses.map(exp => {
+                      const title = expenseTitle(exp)
+                      const note = expenseNote(exp)
+                      return (
+                        <li
+                          key={exp.id}
+                            className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+                              title={title}
+                            >
+                              {title}
+                            </span>
+                            <span className="shrink-0 font-mono font-semibold text-red-400/80">
+                              -{formatMoney(exp.amount)}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-zinc-500" title={note ?? undefined}>
+                            {formatDateTime(exp.createdAt)}
+                            {note ? ` · ${note}` : ''}
+                          </p>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </section>
+            )}
+
+            {tab === 'debts' && (
+              <section>
+                {debts.length === 0 ? (
+                  <EmptyState message="Sin fiados en este turno." />
+                ) : (
+                  <ul className="space-y-2">
+                    {debts.map(debt => (
                       <li
-                        key={exp.id}
-                        className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
+                        key={debt.id}
+                            className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span
-                            className="min-w-0 flex-1 truncate text-sm text-zinc-300"
-                            title={exp.description ?? exp.category}
+                            className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+                            title={debt.customerName}
                           >
-                            {exp.description ?? exp.category}
+                            {debt.customerName}
                           </span>
-                          <span className="shrink-0 font-mono font-semibold text-red-400/80">
-                            -{formatMoney(exp.amount)}
+                          <span className="shrink-0 font-mono font-semibold text-zinc-100">
+                            {formatMoney(debt.amount)}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-2 min-w-0 text-xs text-zinc-500">
-                          <span className="shrink-0">{formatDate(exp.createdAt)}</span>
-                          <span
-                            className="min-w-0 truncate"
-                            title={[exp.category, exp.providerName].filter(Boolean).join(' · ')}
-                          >
-                            {exp.category}
-                            {exp.providerName ? ` · ${exp.providerName}` : ''}
-                          </span>
-                        </div>
+                        <p className="mt-0.5 truncate text-xs text-zinc-500" title={debt.notes ?? undefined}>
+                          {formatDateTime(debt.createdAt)}
+                          {debt.notes ? ` · ${debt.notes}` : ''}
+                        </p>
                       </li>
                     ))}
+                  </ul>
+                )}
+              </section>
+            )}
+
+            {tab === 'deposits' && (
+              <section>
+                {deposits.length === 0 ? (
+                  <EmptyState message="Sin señas en este turno." />
+                ) : (
+                  <ul className="space-y-2">
+                    {deposits.map(dep => {
+                      const breakdown = formatDepositPaymentsLine(dep.depositPayments, {
+                        fallbackMethod: dep.depositMethod,
+                        fallbackAmount: dep.depositAmount,
+                        formatAmount: formatMoney,
+                      })
+                      return (
+                        <li
+                          key={dep.id}
+                            className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+                              title={dep.customerName}
+                            >
+                              {dep.customerName}
+                            </span>
+                            <span className="shrink-0 font-mono font-semibold text-zinc-100">
+                              {formatMoney(dep.depositAmount)}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-zinc-500" title={dep.items}>
+                            {formatDateTime(dep.createdAt)}
+                            {dep.items ? ` · ${dep.items}` : ''}
+                          </p>
+                          {breakdown && (
+                            <p className="mt-0.5 truncate text-xs text-zinc-400" title={breakdown}>
+                              {breakdown}
+                            </p>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </section>
+            )}
+
+            {tab === 'vales' && (
+              <section>
+                {vales.length === 0 ? (
+                  <EmptyState message="Sin vales en este turno." />
+                ) : (
+                  <ul className="space-y-2">
+                    {vales.map(vale => {
+                      const detail = vale.items.length > 0
+                        ? vale.items.map(i => i.productName).join(', ')
+                        : vale.description
+                      return (
+                        <li
+                          key={vale.id}
+                            className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+                              title={vale.employeeName}
+                            >
+                              {vale.employeeName}
+                            </span>
+                            <span
+                              className={`shrink-0 font-mono font-semibold ${
+                                vale.cancelledAt ? 'text-zinc-500 line-through' : 'text-zinc-100'
+                              }`}
+                            >
+                              {formatMoney(vale.amount)}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-zinc-500" title={detail ?? undefined}>
+                            {formatDateTime(vale.createdAt)}
+                            {detail ? ` · ${detail}` : ' · Adelanto en efectivo'}
+                          </p>
+                          {vale.cancelledAt && (
+                            <p className="mt-0.5 text-[10px] text-red-400/80">Anulado</p>
+                          )}
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </section>

@@ -17,17 +17,21 @@ import { eq } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { providers, providerDebtEvents, stores, users } from '../db/schema'
+import { providers, providerDebtEvents, stores, users, expenses } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import type { ActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { providerIdFromName, providerNameKey } from './providerUtils'
 import {
   pushUnsyncedProviders,
   pushUnsyncedDebtEvents,
+  restoreProviderLedgerInFirestore,
 } from '../licensing/providerSync'
+import { pushUnsyncedExpenses } from '../licensing/expenseSync'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
 import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore'
 import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderDebtEventRow } from '../../src/types/hw-api'
+import { stampAdminAdjustAuthor } from '../../src/lib/providerLedgerNotes'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación
@@ -59,6 +63,27 @@ const settleProviderDebtSchema = z.object({
   amount: z.number().int().positive(),
   /** Local desde el que se registra el pago. Si no se provee, usa session.storeId. */
   storeId: z.string().min(1).optional(),
+})
+
+const recordProviderLedgerSchema = z.object({
+  providerId: z.string().min(1),
+  storeId: z.string().min(1),
+  type: z.enum(['debt', 'payment']),
+  amount: z.number().int().positive(),
+  notes: z.string().max(300).optional(),
+})
+
+const compensateProviderStoresSchema = z.object({
+  providerId: z.string().min(1),
+})
+
+const payProviderFromShiftSchema = z.object({
+  providerId: z.string().min(1),
+  notes: z.string().max(300).optional(),
+  allocations: z.array(z.object({
+    storeId: z.string().min(1),
+    amount: z.number().int().positive(),
+  })).min(1),
 })
 
 // ---------------------------------------------------------------------------
@@ -130,16 +155,30 @@ export function registerProvidersHandlers(): void {
       const db = getDb()
 
       // Si ya existe (mismo nameKey/id), retornar el existente sin duplicar.
+      // Si estaba archivado, se reactiva: el id es determinístico y es el mismo proveedor.
       const existing = db.select().from(providers).where(eq(providers.id, id)).get()
       if (existing) {
+        if (existing.archivedAt) {
+          db.update(providers).set({
+            archivedAt: null,
+            updatedAt: now,
+            updatedBy: session.userId,
+            syncedAt: null,
+          }).where(eq(providers.id, id)).run()
+          const config = getBusinessConfig()
+          pushUnsyncedProviders(config.tenant_id).catch(err =>
+            log.warn('[ipc:create-provider] push al reactivar falló (no bloqueante)', err)
+          )
+        }
+        const current = db.select().from(providers).where(eq(providers.id, id)).get()!
         return {
           ok: true,
           data: {
-            id: existing.id,
-            name: existing.name,
-            phone: existing.phone ?? undefined,
-            notes: existing.notes ?? undefined,
-            archivedAt: existing.archivedAt ?? undefined,
+            id: current.id,
+            name: current.name,
+            phone: current.phone ?? undefined,
+            notes: current.notes ?? undefined,
+            archivedAt: current.archivedAt ?? undefined,
           },
         }
       }
@@ -188,7 +227,7 @@ export function registerProvidersHandlers(): void {
       const db = getDb()
       const existing = db.select().from(providers).where(eq(providers.id, id)).get()
       if (!existing) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
-      if (existing.archivedAt) return { ok: false, error: 'El proveedor está archivado.', code: 'ARCHIVED' }
+      if (existing.archivedAt) return { ok: false, error: 'El proveedor está eliminado.', code: 'ARCHIVED' }
 
       const updates: Partial<typeof existing> = {
         updatedAt: now,
@@ -261,6 +300,96 @@ export function registerProvidersHandlers(): void {
     } catch (err) {
       log.error('[ipc:archive-provider] Error', err)
       return { ok: false, error: 'Error al archivar proveedor.' }
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // UNARCHIVE_PROVIDER — admin: reactiva un proveedor archivado
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.UNARCHIVE_PROVIDER, async (_event, payload: unknown): Promise<IpcResult<void>> => {
+    const parsed = archiveProviderSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:unarchive-provider] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
+
+    const { id } = parsed.data
+    const now = new Date().toISOString()
+
+    try {
+      const db = getDb()
+      const existing = db.select().from(providers).where(eq(providers.id, id)).get()
+      if (!existing) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+      if (!existing.archivedAt) return { ok: false, error: 'El proveedor no está eliminado.', code: 'CONFLICT' }
+
+      db.update(providers).set({
+        archivedAt: null,
+        updatedAt: now,
+        updatedBy: session.userId,
+        syncedAt: null,
+      }).where(eq(providers.id, id)).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
+        log.warn('[ipc:unarchive-provider] push falló (no bloqueante)', err)
+      )
+      restoreProviderLedgerInFirestore(config.tenant_id, id).catch(err =>
+        log.warn('[ipc:unarchive-provider] restore ledger Firestore falló (no bloqueante)', err)
+      )
+
+      log.info('[ipc:unarchive-provider] Proveedor restaurado', { id })
+      return { ok: true, data: undefined }
+    } catch (err) {
+      log.error('[ipc:unarchive-provider] Error', err)
+      return { ok: false, error: 'Error al restaurar proveedor.' }
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // DELETE_PROVIDER — admin: oculta el proveedor. Conserva el ledger
+  //   (deuda, pagos, historial) para poder restaurarlo. Los gastos de caja
+  //   no se tocan.
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.DELETE_PROVIDER, async (_event, payload: unknown): Promise<IpcResult<void>> => {
+    const parsed = archiveProviderSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:delete-provider] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
+
+    const { id } = parsed.data
+    const now = new Date().toISOString()
+
+    try {
+      const db = getDb()
+      const existing = db.select().from(providers).where(eq(providers.id, id)).get()
+      if (!existing) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+
+      db.update(providers).set({
+        archivedAt: now,
+        updatedAt: now,
+        updatedBy: session.userId,
+        syncedAt: null,
+      }).where(eq(providers.id, id)).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
+        log.warn('[ipc:delete-provider] push falló (no bloqueante)', err)
+      )
+
+      log.info('[ipc:delete-provider] Proveedor ocultado (ledger conservado)', { id })
+      return { ok: true, data: undefined }
+    } catch (err) {
+      log.error('[ipc:delete-provider] Error', err)
+      return { ok: false, error: 'Error al eliminar proveedor.' }
     }
   })
 
@@ -374,24 +503,265 @@ export function registerProvidersHandlers(): void {
   })
 
   // -----------------------------------------------------------------------
-  // GET_PROVIDERS_WITH_DEBT — admin: agrega deuda cross-local desde Firestore
-  //   Fallback a SQLite local si Firebase no disponible (dev / sin conexión).
+  // RECORD_PROVIDER_LEDGER — admin: deuda o pago manual en un local (sin caja).
   // -----------------------------------------------------------------------
-  ipcMain.handle(IPC.GET_PROVIDERS_WITH_DEBT, async (_event): Promise<IpcResult<ProviderWithDebtRow[]>> => {
+  ipcMain.handle(IPC.RECORD_PROVIDER_LEDGER, async (_event, payload: unknown): Promise<IpcResult<{ eventId: string }>> => {
+    const parsed = recordProviderLedgerSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:record-provider-ledger] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
 
+    const { providerId, storeId, type, amount, notes } = parsed.data
+    const now = new Date().toISOString()
+    const eventId = uuidv4()
+
+    try {
+      const db = getDb()
+      const providerRow = db.select({ name: providers.name }).from(providers).where(eq(providers.id, providerId)).get()
+      if (!providerRow) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+      const storeRow = db.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).get()
+      if (!storeRow) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
+
+      ensureLocalUser(db, session, now)
+
+      const authorName =
+        session.displayName
+        ?? db.select({ name: users.name }).from(users).where(eq(users.id, session.userId)).get()?.name
+        ?? 'admin'
+
+      db.insert(providerDebtEvents).values({
+        id: eventId,
+        storeId,
+        providerId,
+        provider: providerRow.name,
+        type,
+        amount,
+        expenseId: null,
+        shiftId: session.shiftId ?? null,
+        createdAt: now,
+        createdBy: session.userId,
+        notes: stampAdminAdjustAuthor(notes ?? null, authorName),
+        syncedAt: null,
+      }).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
+        log.warn('[ipc:record-provider-ledger] push falló (no bloqueante)', err)
+      )
+
+      log.info('[ipc:record-provider-ledger] Evento registrado', { providerId, storeId, type, amount, eventId })
+      return { ok: true, data: { eventId } }
+    } catch (err) {
+      log.error('[ipc:record-provider-ledger] Error', err)
+      return { ok: false, error: 'Error al registrar el movimiento.' }
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // COMPENSATE_PROVIDER_STORES — admin: aplica saldos a favor contra deudas
+  //   de otros locales (sin mover caja).
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.COMPENSATE_PROVIDER_STORES, async (_event, payload: unknown): Promise<IpcResult<{ events: number }>> => {
+    const parsed = compensateProviderStoresSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:compensate-provider-stores] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin' && !session.shiftId) {
+      return { ok: false, error: 'Solo disponible para admins o con turno abierto.', code: 'FORBIDDEN' }
+    }
+
+    const { providerId } = parsed.data
+    const now = new Date().toISOString()
+
+    try {
+      const db = getDb()
+      const providerRow = db.select({ name: providers.name }).from(providers).where(eq(providers.id, providerId)).get()
+      if (!providerRow) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+
+      const events = db.select({
+        storeId: providerDebtEvents.storeId,
+        type: providerDebtEvents.type,
+        amount: providerDebtEvents.amount,
+      }).from(providerDebtEvents).where(eq(providerDebtEvents.providerId, providerId)).all()
+
+      const byStore = new Map<string, number>()
+      for (const evt of events) {
+        const delta = evt.type === 'debt' ? evt.amount : -evt.amount
+        byStore.set(evt.storeId, (byStore.get(evt.storeId) ?? 0) + delta)
+      }
+
+      const credits = [...byStore.entries()]
+        .filter(([, bal]) => bal < 0)
+        .map(([storeId, bal]) => ({ storeId, remaining: -bal }))
+      const debts = [...byStore.entries()]
+        .filter(([, bal]) => bal > 0)
+        .map(([storeId, bal]) => ({ storeId, remaining: bal }))
+
+      if (credits.length === 0 || debts.length === 0) {
+        return { ok: false, error: 'No hay saldos a compensar entre locales.', code: 'CONFLICT' }
+      }
+
+      ensureLocalUser(db, session, now)
+
+      const toInsert: Array<{ id: string; storeId: string; type: 'debt' | 'payment'; amount: number }> = []
+      let i = 0
+      let j = 0
+      while (i < credits.length && j < debts.length) {
+        const take = Math.min(credits[i].remaining, debts[j].remaining)
+        toInsert.push({ id: uuidv4(), storeId: credits[i].storeId, type: 'debt', amount: take })
+        toInsert.push({ id: uuidv4(), storeId: debts[j].storeId, type: 'payment', amount: take })
+        credits[i].remaining -= take
+        debts[j].remaining -= take
+        if (credits[i].remaining === 0) i++
+        if (debts[j].remaining === 0) j++
+      }
+
+      db.transaction(tx => {
+        for (const row of toInsert) {
+          tx.insert(providerDebtEvents).values({
+            id: row.id,
+            storeId: row.storeId,
+            providerId,
+            provider: providerRow.name,
+            type: row.type,
+            amount: row.amount,
+            expenseId: null,
+            shiftId: session.shiftId ?? null,
+            createdAt: now,
+            createdBy: session.userId,
+            notes: 'Compensación entre locales',
+            syncedAt: null,
+          }).run()
+        }
+      })
+
+      const config = getBusinessConfig()
+      pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
+        log.warn('[ipc:compensate-provider-stores] push falló (no bloqueante)', err)
+      )
+
+      log.info('[ipc:compensate-provider-stores] Compensado', { providerId, events: toInsert.length })
+      return { ok: true, data: { events: toInsert.length } }
+    } catch (err) {
+      log.error('[ipc:compensate-provider-stores] Error', err)
+      return { ok: false, error: 'Error al compensar saldos.' }
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // PAY_PROVIDER_FROM_SHIFT — cajera/admin con turno: el efectivo sale de
+  //   esta caja y se imputa como pago en uno o varios locales.
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.PAY_PROVIDER_FROM_SHIFT, async (_event, payload: unknown): Promise<IpcResult<{ expenseId: string }>> => {
+    const parsed = payProviderFromShiftSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:pay-provider-from-shift] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (!session.shiftId) return { ok: false, error: 'No hay turno abierto.', code: 'NO_SHIFT' }
+
+    const { providerId, allocations, notes } = parsed.data
+    const total = allocations.reduce((s, a) => s + a.amount, 0)
+    const now = new Date().toISOString()
+    const expenseId = uuidv4()
+
+    try {
+      const db = getDb()
+      const providerRow = db.select({ name: providers.name }).from(providers).where(eq(providers.id, providerId)).get()
+      if (!providerRow) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+
+      for (const a of allocations) {
+        const storeRow = db.select({ id: stores.id }).from(stores).where(eq(stores.id, a.storeId)).get()
+        if (!storeRow) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
+      }
+
+      ensureLocalUser(db, session, now)
+
+      db.transaction(tx => {
+        tx.insert(expenses).values({
+          id: expenseId,
+          storeId: session.storeId,
+          shiftId: session.shiftId!,
+          concept: null,
+          providerId,
+          amount: total,
+          notes: notes ?? null,
+          createdAt: now,
+          createdBy: session.userId,
+          syncedAt: null,
+        }).run()
+
+        for (const a of allocations) {
+          tx.insert(providerDebtEvents).values({
+            id: uuidv4(),
+            storeId: a.storeId,
+            providerId,
+            provider: providerRow.name,
+            type: 'payment',
+            amount: a.amount,
+            expenseId,
+            shiftId: session.shiftId!,
+            createdAt: now,
+            createdBy: session.userId,
+            syncedAt: null,
+          }).run()
+        }
+      })
+
+      const config = getBusinessConfig()
+      pushUnsyncedExpenses(config.tenant_id).catch(err =>
+        log.warn('[ipc:pay-provider-from-shift] push gastos falló (no bloqueante)', err)
+      )
+      pushUnsyncedDebtEvents(config.tenant_id).catch(err =>
+        log.warn('[ipc:pay-provider-from-shift] push eventos falló (no bloqueante)', err)
+      )
+
+      log.info('[ipc:pay-provider-from-shift] Pago de turno', { providerId, total, expenseId })
+      return { ok: true, data: { expenseId } }
+    } catch (err) {
+      log.error('[ipc:pay-provider-from-shift] Error', err)
+      return { ok: false, error: 'Error al registrar el pago.' }
+    }
+  })
+
+  // -----------------------------------------------------------------------
+  // GET_PROVIDERS_WITH_DEBT — admin: agrega deuda cross-local desde Firestore
+  //   Fallback a SQLite local si Firebase no disponible (dev / sin conexión).
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.GET_PROVIDERS_WITH_DEBT, async (_event, payload: unknown): Promise<IpcResult<ProviderWithDebtRow[]>> => {
+    const parsed = z.object({ includeArchived: z.boolean().optional() }).safeParse(payload ?? {})
+    if (!parsed.success) {
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
+
+    const includeArchived = parsed.data.includeArchived === true
+
     try {
       if (isFirebaseAvailable()) {
-        return await getProvidersWithDebtFromFirestore()
+        return await getProvidersWithDebtFromFirestore(includeArchived)
       }
-      return getProvidersWithDebtLocal()
+      return getProvidersWithDebtLocal(includeArchived)
     } catch (err) {
       log.error('[ipc:get-providers-with-debt] Error', err)
       // Fallback gracioso a local si Firestore falla
       try {
-        return getProvidersWithDebtLocal()
+        return getProvidersWithDebtLocal(includeArchived)
       } catch (fallbackErr) {
         log.error('[ipc:get-providers-with-debt] Fallback local también falló', fallbackErr)
         return { ok: false, error: 'Error al obtener deuda de proveedores.' }
@@ -404,7 +774,25 @@ export function registerProvidersHandlers(): void {
 // Helpers privados
 // ---------------------------------------------------------------------------
 
-async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWithDebtRow[]>> {
+function ensureLocalUser(
+  db: ReturnType<typeof getDb>,
+  session: ActiveSession,
+  now: string,
+): void {
+  const existingUser = db.select({ id: users.id }).from(users).where(eq(users.id, session.userId)).get()
+  if (existingUser) return
+  db.insert(users).values({
+    id: session.userId,
+    storeId: session.storeId,
+    name: session.displayName ?? session.userId,
+    firebaseUid: session.userId,
+    role: 'cashier',
+    active: true,
+    createdAt: now,
+  }).run()
+}
+
+async function getProvidersWithDebtFromFirestore(includeArchived: boolean): Promise<IpcResult<ProviderWithDebtRow[]>> {
   const config = getBusinessConfig()
   const app = getFirebaseApp()
   const firestore = getFirestore(app)
@@ -415,8 +803,7 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
   const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]))
 
   // Cargar nombres de proveedores desde cache local
-  const providerRows = db.select({ id: providers.id, name: providers.name, archivedAt: providers.archivedAt }).from(providers).all()
-  const providerNameMap = new Map(providerRows.map(p => [p.id, p.name]))
+  const providerRows = db.select({ id: providers.id, name: providers.name, archivedAt: providers.archivedAt, phone: providers.phone, notes: providers.notes }).from(providers).all()
 
   // Leer todos los eventos de deuda desde Firestore
   const eventsCol = collection(firestore, 'licenses', config.tenant_id, 'providerDebtEvents')
@@ -436,8 +823,10 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
       deleted?: boolean
     }
 
-    // Ignorar eventos marcados como eliminados (borrado lógico al editar/eliminar gastos)
-    if (evt.deleted === true) continue
+    if (evt.deleted === true) {
+      firestoreIds.add(docSnap.id)
+      continue
+    }
 
     const pid = evt.providerId ?? null
     if (!pid) continue
@@ -479,36 +868,7 @@ async function getProvidersWithDebtFromFirestore(): Promise<IpcResult<ProviderWi
   }
 
   // Agregar por proveedor, construir perStore[]
-  const byProvider = new Map<string, ProviderWithDebtRow>()
-
-  for (const entry of balances.values()) {
-    const { providerId, storeId, balance } = entry
-    const storeName = storeNameMap.get(storeId) ?? storeId
-    const providerName = providerNameMap.get(providerId) ?? providerId
-
-    const existing = byProvider.get(providerId)
-    if (existing) {
-      existing.perStore.push({ storeId, storeName, balance })
-      existing.total += balance
-    } else {
-      byProvider.set(providerId, {
-        id: providerId,
-        name: providerName,
-        total: balance,
-        perStore: [{ storeId, storeName, balance }],
-      })
-    }
-  }
-
-  // Incluir proveedores sin deuda pendiente que existan en cache local
-  for (const p of providerRows) {
-    if (!p.archivedAt && !byProvider.has(p.id)) {
-      byProvider.set(p.id, { id: p.id, name: p.name, total: 0, perStore: [] })
-    }
-  }
-
-  const result = Array.from(byProvider.values())
-    .sort((a, b) => b.total - a.total)
+  const result = assembleProviderDebtRows(balances, storeNameMap, providerRows, includeArchived)
 
   return { ok: true, data: result }
 }
@@ -546,6 +906,8 @@ async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<
       createdBy: string
       expenseId?: string | null
       deleted?: boolean
+      description?: string | null
+      notes?: string | null
     }
 
     if (evt.deleted === true) continue
@@ -557,9 +919,10 @@ async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<
       amount: evt.amount,
       storeId: evt.storeId,
       storeName: storeNameMap.get(evt.storeId) ?? evt.storeId,
-      createdAt: evt.createdAt,
+      createdAt: evt.createdAt ?? (evt as { date?: string }).date ?? '',
       createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
       expenseId: evt.expenseId ?? null,
+      notes: evt.notes ?? evt.description ?? null,
     })
   }
 
@@ -575,7 +938,7 @@ async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<
     }
   }
 
-  result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  result.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
 
   return { ok: true, data: result }
 }
@@ -597,6 +960,7 @@ function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderDebt
     createdAt: providerDebtEvents.createdAt,
     createdBy: providerDebtEvents.createdBy,
     expenseId: providerDebtEvents.expenseId,
+    notes: providerDebtEvents.notes,
   })
     .from(providerDebtEvents)
     .where(eq(providerDebtEvents.providerId, providerId))
@@ -611,6 +975,7 @@ function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderDebt
     createdAt: evt.createdAt,
     createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
     expenseId: evt.expenseId ?? null,
+    notes: evt.notes ?? null,
   }))
 
   result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -618,14 +983,13 @@ function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderDebt
   return { ok: true, data: result }
 }
 
-function getProvidersWithDebtLocal(): IpcResult<ProviderWithDebtRow[]> {
+function getProvidersWithDebtLocal(includeArchived: boolean): IpcResult<ProviderWithDebtRow[]> {
   const db = getDb()
 
   const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).all()
   const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]))
 
-  const providerRows = db.select({ id: providers.id, name: providers.name, archivedAt: providers.archivedAt }).from(providers).all()
-  const providerNameMap = new Map(providerRows.map(p => [p.id, p.name]))
+  const providerRows = db.select({ id: providers.id, name: providers.name, archivedAt: providers.archivedAt, phone: providers.phone, notes: providers.notes }).from(providers).all()
 
   const events = db.select({
     providerId: providerDebtEvents.providerId,
@@ -648,12 +1012,29 @@ function getProvidersWithDebtLocal(): IpcResult<ProviderWithDebtRow[]> {
     }
   }
 
+  return {
+    ok: true,
+    data: assembleProviderDebtRows(balances, storeNameMap, providerRows, includeArchived),
+  }
+}
+
+function assembleProviderDebtRows(
+  balances: Map<string, { balance: number; providerId: string; storeId: string }>,
+  storeNameMap: Map<string, string>,
+  providerRows: Array<{ id: string; name: string; archivedAt: string | null; phone?: string | null; notes?: string | null }>,
+  includeArchived: boolean,
+): ProviderWithDebtRow[] {
+  const providerNameMap = new Map(providerRows.map(p => [p.id, p.name]))
+  const archivedAtMap = new Map(providerRows.map(p => [p.id, p.archivedAt ?? undefined]))
+  const phoneMap = new Map(providerRows.map(p => [p.id, p.phone ?? undefined]))
+  const notesMap = new Map(providerRows.map(p => [p.id, p.notes ?? undefined]))
   const byProvider = new Map<string, ProviderWithDebtRow>()
 
   for (const entry of balances.values()) {
     const { providerId, storeId, balance } = entry
     const storeName = storeNameMap.get(storeId) ?? storeId
     const providerName = providerNameMap.get(providerId) ?? providerId
+    const archivedAt = archivedAtMap.get(providerId)
 
     const existing = byProvider.get(providerId)
     if (existing) {
@@ -665,18 +1046,32 @@ function getProvidersWithDebtLocal(): IpcResult<ProviderWithDebtRow[]> {
         name: providerName,
         total: balance,
         perStore: [{ storeId, storeName, balance }],
+        archivedAt,
+        phone: phoneMap.get(providerId),
+        notes: notesMap.get(providerId),
       })
     }
   }
 
   for (const p of providerRows) {
-    if (!p.archivedAt && !byProvider.has(p.id)) {
-      byProvider.set(p.id, { id: p.id, name: p.name, total: 0, perStore: [] })
-    }
+    if (byProvider.has(p.id)) continue
+    if (p.archivedAt && !includeArchived) continue
+    byProvider.set(p.id, {
+      id: p.id,
+      name: p.name,
+      total: 0,
+      perStore: [],
+      archivedAt: p.archivedAt ?? undefined,
+      phone: p.phone ?? undefined,
+      notes: p.notes ?? undefined,
+    })
   }
 
-  return {
-    ok: true,
-    data: Array.from(byProvider.values()).sort((a, b) => b.total - a.total),
-  }
+  return Array.from(byProvider.values())
+    .filter(r => includeArchived || !r.archivedAt)
+    .map(r => ({
+      ...r,
+      perStore: [...r.perStore].sort((a, b) => a.storeName.localeCompare(b.storeName, 'es')),
+    }))
+    .sort((a, b) => b.total - a.total)
 }

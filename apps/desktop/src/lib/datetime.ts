@@ -65,6 +65,14 @@ export function todayLocalYmd(): string {
 }
 
 /**
+ * Día civil YYYY-MM-DD de un instante UTC, en el timezone de presentación.
+ */
+export function utcToLocalYmd(utcString: string): string {
+  if (!utcString) return ''
+  return new Date(utcString).toLocaleDateString('en-CA', { timeZone: _timezone })
+}
+
+/**
  * Convierte una fecha de calendario YYYY-MM-DD a dd/mm/aaaa.
  * No usa timezone: es un día civil, no un instante.
  */

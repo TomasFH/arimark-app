@@ -195,6 +195,40 @@ describe('storeSync', () => {
       expect(row!.address).toBe('Calle 1')
     })
 
+    it('no pisa un store local con syncedAt=null (outbox pendiente de push)', async () => {
+      const createdAt = new Date().toISOString()
+      const archivedAt = new Date().toISOString()
+      db.insert(stores).values({
+        id: 'store-pending-archive',
+        name: 'Archivado local',
+        createdAt,
+        archivedAt,
+        syncedAt: null,
+      }).run()
+
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [
+          {
+            id: 'store-pending-archive',
+            data: () => ({
+              id: 'store-pending-archive',
+              name: 'Nombre remoto viejo',
+              createdAt,
+              archivedAt: null,
+            }),
+          },
+        ],
+      })
+
+      await pullStoresFromFirestore(TENANT)
+
+      const row = db.select().from(stores).all().find(s => s.id === 'store-pending-archive')
+      expect(row!.name).toBe('Archivado local')
+      expect(row!.archivedAt).toBe(archivedAt)
+      expect(row!.syncedAt).toBeNull()
+    })
+
     it('actualiza nombre de un store ya existente', async () => {
       const createdAt = new Date().toISOString()
       db.insert(stores).values({

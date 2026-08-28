@@ -48,9 +48,13 @@ const employeeListeners: Unsubscribe[] = []
 interface RemoteEmployeeDoc {
   id: string
   name: string
-  weeklyWage: number
-  active: boolean
-  createdAt: string
+  weeklyWage?: number
+  salary?: number
+  kind?: 'butcher' | 'cashier' | string
+  active?: boolean
+  archivedAt?: string | null
+  deleted?: boolean
+  createdAt?: string
 }
 
 function employeeNameById(employeeId: string): string | null {
@@ -63,21 +67,27 @@ function upsertEmployeeFromRemote(data: RemoteEmployeeDoc, docId: string): void 
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
+  const weeklyWage = data.weeklyWage ?? data.salary ?? 0
+  const archived = Boolean(data.archivedAt) || data.active === false || data.deleted === true
+  const createdAt = data.createdAt || now
+  const kind = data.kind === 'cashier' ? 'cashier' as const : 'butcher' as const
 
   db.insert(employees).values({
     id,
     name: data.name,
-    weeklyWage: data.weeklyWage ?? 0,
-    active: data.active !== false,
-    createdAt: data.createdAt,
+    weeklyWage,
+    kind,
+    active: !archived,
+    createdAt,
     syncedAt: now,
   })
     .onConflictDoUpdate({
       target: employees.id,
       set: {
         name: data.name,
-        weeklyWage: data.weeklyWage ?? 0,
-        active: data.active !== false,
+        weeklyWage,
+        kind,
+        active: !archived,
         syncedAt: now,
       },
     })
@@ -106,6 +116,7 @@ export async function pushUnsyncedEmployees(tenantId: string): Promise<void> {
         id: row.id,
         name: row.name,
         weeklyWage: row.weeklyWage,
+        kind: row.kind === 'cashier' ? 'cashier' : 'butcher',
         active: row.active,
         createdAt: row.createdAt,
         deleted: false,
@@ -132,7 +143,7 @@ export async function pullEmployeesFromFirestore(tenantId: string): Promise<void
     for (const d of snap.docs) {
       try {
         const data = d.data() as RemoteEmployeeDoc
-        if (!data.name || !data.createdAt) {
+        if (!data.name) {
           log.warn('[employeeSync] Documento employee incompleto, omitido', { id: d.id })
           continue
         }
@@ -169,7 +180,7 @@ export function startEmployeeSyncListener(tenantId: string): void {
         if (change.type === 'removed') continue
         try {
           const data = change.doc.data() as RemoteEmployeeDoc
-          if (!data.name || !data.createdAt) continue
+          if (!data.name) continue
           upsertEmployeeFromRemote(data, change.doc.id)
         } catch (err) {
           log.error('[employeeSync] Error al upsertear employee desde snapshot', {
@@ -276,6 +287,8 @@ export async function pushUnsyncedVales(tenantId: string): Promise<void> {
         paidAt: row.paidAt,
         recordedBy: row.recordedBy,
         createdAt: row.createdAt,
+        cancelledAt: row.cancelledAt ?? null,
+        cancelledBy: row.cancelledBy ?? null,
         deleted: false,
       }, { merge: true })
 
@@ -313,6 +326,8 @@ export async function pushUnsyncedSalaryPayments(tenantId: string): Promise<void
         netPaid: row.netPaid,
         recordedBy: row.recordedBy,
         paidAt: row.paidAt,
+        notes: row.notes ?? null,
+        valesSnapshot: parseValeItemsJson(row.valesSnapshot),
         deleted: false,
       }, { merge: true })
 

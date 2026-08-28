@@ -28,6 +28,7 @@ const listSchema = z.object({
 const createSchema = z.object({
   name: z.string().min(1).max(100).transform(s => s.trim()),
   weeklyWage: z.number().int().min(0).max(999_999_999),
+  kind: z.enum(['butcher', 'cashier']).default('butcher'),
 })
 
 const updateSchema = z.object({
@@ -47,6 +48,7 @@ function toRow(row: typeof employees.$inferSelect): EmployeeRow {
     weeklyWage: row.weeklyWage,
     active: row.active,
     createdAt: row.createdAt,
+    kind: row.kind === 'cashier' ? 'cashier' : 'butcher',
   }
 }
 
@@ -126,7 +128,7 @@ export function registerEmployeesHandlers(): void {
     const denied = requireAdmin()
     if (denied) return denied
 
-    const { name, weeklyWage } = parsed.data
+    const { name, weeklyWage, kind } = parsed.data
 
     try {
       const db = getDb()
@@ -137,7 +139,7 @@ export function registerEmployeesHandlers(): void {
         if (archived) {
           return {
             ok: false,
-            error: `Ya existe un empleado archivado llamado "${name}". Restauralo desde “Ver archivados”.`,
+            error: `Ya existe un empleado eliminado llamado "${name}". Restauralo desde “Ver eliminados”.`,
             code: 'CONFLICT',
           }
         }
@@ -150,6 +152,7 @@ export function registerEmployeesHandlers(): void {
         id,
         name,
         weeklyWage,
+        kind,
         active: true,
         createdAt,
         syncedAt: null,
@@ -157,7 +160,9 @@ export function registerEmployeesHandlers(): void {
 
       log.info('[ipc:create-employee] Empleado creado', { id, name })
       scheduleEmployeePush('ipc:create-employee')
-      return { ok: true, data: { id, name, weeklyWage, active: true, createdAt } }
+      const created = db.select().from(employees).where(eq(employees.id, id)).all()[0]
+      if (!created) return { ok: false, error: 'Error al crear el empleado.' }
+      return { ok: true, data: toRow(created) }
     } catch (err) {
       log.error('[ipc:create-employee] Error inesperado', err)
       return { ok: false, error: 'Error al crear el empleado.' }
@@ -201,16 +206,9 @@ export function registerEmployeesHandlers(): void {
 
       log.info('[ipc:update-employee] Empleado actualizado', { id, name: updatedName })
       scheduleEmployeePush('ipc:update-employee')
-      return {
-        ok: true,
-        data: {
-          id,
-          name: updatedName,
-          weeklyWage: updatedWage,
-          active: existing.active,
-          createdAt: existing.createdAt,
-        },
-      }
+      const updated = db.select().from(employees).where(eq(employees.id, id)).all()[0]
+      if (!updated) return { ok: false, error: 'Error al actualizar el empleado.' }
+      return { ok: true, data: toRow(updated) }
     } catch (err) {
       log.error('[ipc:update-employee] Error inesperado', err)
       return { ok: false, error: 'Error al actualizar el empleado.' }
@@ -237,26 +235,17 @@ export function registerEmployeesHandlers(): void {
       const existing = db.select().from(employees).where(eq(employees.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Empleado no encontrado.', code: 'NOT_FOUND' }
       if (!existing.active) {
-        return { ok: false, error: 'El empleado ya está archivado.', code: 'CONFLICT' }
+        return { ok: false, error: 'El empleado ya está eliminado.', code: 'CONFLICT' }
       }
 
       db.update(employees).set({ active: false, syncedAt: null }).where(eq(employees.id, id)).run()
 
       log.info('[ipc:archive-employee] Empleado archivado', { id, name: existing.name })
       scheduleEmployeePush('ipc:archive-employee')
-      return {
-        ok: true,
-        data: {
-          id,
-          name: existing.name,
-          weeklyWage: existing.weeklyWage,
-          active: false,
-          createdAt: existing.createdAt,
-        },
-      }
+      return { ok: true, data: toRow({ ...existing, active: false }) }
     } catch (err) {
       log.error('[ipc:archive-employee] Error inesperado', err)
-      return { ok: false, error: 'Error al archivar el empleado.' }
+      return { ok: false, error: 'Error al eliminar el empleado.' }
     }
   })
 
@@ -287,16 +276,7 @@ export function registerEmployeesHandlers(): void {
 
       log.info('[ipc:unarchive-employee] Empleado restaurado', { id, name: existing.name })
       scheduleEmployeePush('ipc:unarchive-employee')
-      return {
-        ok: true,
-        data: {
-          id,
-          name: existing.name,
-          weeklyWage: existing.weeklyWage,
-          active: true,
-          createdAt: existing.createdAt,
-        },
-      }
+      return { ok: true, data: toRow({ ...existing, active: true }) }
     } catch (err) {
       log.error('[ipc:unarchive-employee] Error inesperado', err)
       return { ok: false, error: 'Error al restaurar el empleado.' }

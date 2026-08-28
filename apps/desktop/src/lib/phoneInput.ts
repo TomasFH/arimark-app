@@ -10,7 +10,7 @@
  * ser parte legítima de un número que realmente comienza con esas cifras.
  *
  * Formatos de salida si el número limpio tiene exactamente 10 dígitos:
- *   11 (CABA)             → "11 XXXX-XXXX"
+ *   11 (CABA)             → "11-XXXX-XXXX"
  *   Área de 3 dígitos     → "XXX XXX-XXXX"     (ej. 341, 351, 261)
  *   Área de 4 dígitos     → "XXXX XX-XXXX"     (ej. 2944, 3364)
  */
@@ -82,7 +82,7 @@ export function formatPhoneInput(value: string): string {
   const area3 = d.slice(0, 3)
 
   if (area2 === '11') {
-    return `11 ${d.slice(2, 6)}-${d.slice(6, 10)}`
+    return `11-${d.slice(2, 6)}-${d.slice(6, 10)}`
   }
 
   // Heurística área 3 vs 4 dígitos: si el 4to dígito es ≤ 4 → área 4

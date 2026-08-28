@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import BackButton from '../components/BackButton'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime } from '../lib/datetime'
-import type { HistoryShiftRow, HistoryShiftDetail, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
+import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
 import StoreFilter from '../components/StoreFilter'
 
 const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
@@ -17,6 +17,18 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   debit: 'Débito',
   wallet: 'Billetera Virtual',
   credit: 'Crédito',
+}
+
+function depositBreakdown(dep: HistoryOrderRow): string | null {
+  const payments = dep.depositPayments && dep.depositPayments.length > 0
+    ? dep.depositPayments
+    : dep.depositMethod && dep.depositAmount > 0
+      ? [{ method: dep.depositMethod, amount: dep.depositAmount }]
+      : []
+  if (payments.length === 0) return null
+  return payments
+    .map(p => `${PAYMENT_METHOD_LABELS[p.method] ?? p.method} ${formatARS(p.amount)}`)
+    .join(' · ')
 }
 
 interface Props {
@@ -90,7 +102,7 @@ export default function HistoryScreen({ onBack }: Props) {
   return (
     <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white overflow-hidden">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
         <BackButton onClick={onBack} />
         <h1 className="text-sm font-semibold text-zinc-100 min-w-0 flex-1">Historial de turnos</h1>
         {availableStores.length > 0 && (
@@ -104,9 +116,9 @@ export default function HistoryScreen({ onBack }: Props) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Panel izquierdo — lista de turnos */}
-        <div className="w-full sm:w-80 shrink-0 flex flex-col border-r border-zinc-800 overflow-hidden">
+        <div className="w-full sm:w-80 shrink-0 flex flex-col border-r border-zinc-700 bg-zinc-800 overflow-hidden">
           {/* Filtro de fechas */}
-          <div className="px-3 py-2 border-b border-zinc-800 space-y-2">
+          <div className="px-3 py-2 border-b border-zinc-700 space-y-2">
             <p className="text-xs text-zinc-500 uppercase tracking-wider">Filtrar por fecha</p>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -115,7 +127,7 @@ export default function HistoryScreen({ onBack }: Props) {
                   type="date"
                   value={fromDate}
                   onChange={e => setFromDate(e.target.value)}
-                  className="w-full mt-0.5 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
               <div>
@@ -124,7 +136,7 @@ export default function HistoryScreen({ onBack }: Props) {
                   type="date"
                   value={toDate}
                   onChange={e => setToDate(e.target.value)}
-                  className="w-full mt-0.5 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                  className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
             </div>
@@ -196,7 +208,7 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
     <button
       onClick={onClick}
       className={`w-full text-left px-3 py-3 border-b border-zinc-800/60 transition-colors ${
-        selected ? 'bg-zinc-800/60 border-l-2 border-l-zinc-500' : 'hover:bg-zinc-900/60'
+        selected ? 'bg-zinc-700 border-l-2 border-l-emerald-500' : 'hover:bg-zinc-700/50'
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -232,7 +244,8 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
 
 function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   const { shift, sales, expenses, debts, deposits, summary } = detail
-  const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'debts' | 'deposits'>('sales')
+  const vales = detail.vales ?? []
+  const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'debts' | 'deposits' | 'vales'>('sales')
 
   const shiftLabel = SHIFT_TYPE_LABEL[shift.shiftType]
   const start = toLocalDateTime(shift.startedAt)
@@ -241,7 +254,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   return (
     <div className="p-4 space-y-4">
       {/* Resumen financiero */}
-      <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-4 space-y-3">
+      <div className="bg-zinc-800 rounded-xl border border-zinc-700 p-4 space-y-3">
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-sm font-semibold text-white">
@@ -295,6 +308,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
           { key: 'expenses', label: `Gastos (${expenses.length})` },
           { key: 'debts', label: `Fiados (${debts.length})` },
           { key: 'deposits', label: `Señas (${deposits.length})` },
+          { key: 'vales', label: `Vales (${vales.length})` },
         ] as const).map(tab => (
           <button
             key={tab.key}
@@ -319,8 +333,8 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
               key={sale.id}
               className={`rounded-lg border p-3 text-sm ${
                 sale.status === 'cancelled'
-                  ? 'border-zinc-800 bg-zinc-900/30 opacity-50'
-                  : 'border-zinc-800 bg-zinc-900'
+                  ? 'border-zinc-700 bg-zinc-800/40 opacity-50'
+                  : 'border-zinc-700 bg-zinc-800'
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -366,7 +380,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
         <div className="space-y-2">
           {expenses.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin gastos en este turno.</p>}
           {expenses.map(exp => (
-            <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+            <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
               <div className="min-w-0">
                 <p className="text-white font-medium truncate" title={exp.provider ?? exp.concept ?? ''}>
                   {exp.provider ?? exp.concept ?? '—'}
@@ -387,7 +401,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
         <div className="space-y-2">
           {debts.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin fiados en este turno.</p>}
           {debts.map(debt => (
-            <div key={debt.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+            <div key={debt.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
               <div className="min-w-0">
                 <p className="text-white font-medium truncate" title={debt.customerName}>{debt.customerName}</p>
                 <div className="flex gap-3 text-xs text-zinc-500">
@@ -404,21 +418,58 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
       {activeTab === 'deposits' && (
         <div className="space-y-2">
           {deposits.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin señas en este turno.</p>}
-          {deposits.map(dep => (
-            <div key={dep.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+          {deposits.map(dep => {
+            const breakdown = depositBreakdown(dep)
+            return (
+            <div key={dep.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
               <div className="min-w-0">
                 <p className="text-white font-medium truncate" title={dep.customerName}>{dep.customerName}</p>
-                <div className="flex gap-3 text-xs text-zinc-500">
-                  <span>{toLocalTime(dep.createdAt)}</span>
+                <div className="flex gap-3 text-xs text-zinc-500 min-w-0">
+                  <span className="shrink-0">{toLocalTime(dep.createdAt)}</span>
                   <span className="truncate" title={dep.items}>{dep.items}</span>
                 </div>
+                {breakdown && (
+                  <p className="text-[10px] text-zinc-400 truncate" title={breakdown}>{breakdown}</p>
+                )}
               </div>
               <div className="shrink-0 text-right">
                 <p className="text-zinc-300 font-semibold font-mono">{formatARS(dep.depositAmount)}</p>
-                {dep.depositMethod && (
-                  <p className="text-[10px] text-zinc-500">{PAYMENT_METHOD_LABELS[dep.depositMethod]}</p>
+                {dep.status === 'cancelled' && (
+                  <p className="text-[10px] text-red-400/80">Pedido anulado</p>
                 )}
               </div>
+            </div>
+            )
+          })}
+        </div>
+      )}
+
+      {activeTab === 'vales' && (
+        <div className="space-y-2">
+          {vales.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin vales en este turno.</p>}
+          {vales.map(vale => (
+            <div key={vale.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <p className="text-white font-medium truncate" title={vale.employeeName}>{vale.employeeName}</p>
+                <div className="flex gap-3 text-xs text-zinc-500 min-w-0">
+                  <span className="shrink-0">{toLocalTime(vale.createdAt)}</span>
+                  {vale.items && vale.items.length > 0 ? (
+                    <span className="truncate" title={vale.items.map(i => i.productName).join(', ')}>
+                      {vale.items.map(i => i.productName).join(', ')}
+                    </span>
+                  ) : vale.description ? (
+                    <span className="truncate" title={vale.description}>{vale.description}</span>
+                  ) : (
+                    <span>Adelanto en efectivo</span>
+                  )}
+                </div>
+                {vale.cancelledAt && (
+                  <p className="text-[10px] text-red-400/80">Anulado</p>
+                )}
+              </div>
+              <span className={`text-zinc-300 font-semibold shrink-0 font-mono ${vale.cancelledAt ? 'line-through text-zinc-500' : ''}`}>
+                {formatARS(vale.amount)}
+              </span>
             </div>
           ))}
         </div>

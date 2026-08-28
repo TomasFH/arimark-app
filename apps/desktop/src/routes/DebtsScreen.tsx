@@ -95,7 +95,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
   const isDue = nextDueDate && new Date(nextDueDate) <= new Date()
 
   return (
-    <div className={`rounded-xl border ${isDue ? 'border-red-900/50 bg-red-950/20' : 'border-zinc-700 bg-zinc-900'} overflow-hidden`}>
+    <div className={`rounded-xl border ${isDue ? 'border-red-900/50 bg-red-950/20' : 'border-zinc-700 bg-zinc-800'} overflow-hidden`}>
       {/* Cabecera */}
       <div className="flex items-start gap-3 px-4 py-3">
         <div className="flex-1 min-w-0">
@@ -128,7 +128,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
       <div className="flex gap-2 px-4 pb-3">
         <button
           onClick={onPayment}
-          className="flex-1 rounded-lg bg-green-700/30 border border-green-700/50 py-1.5 text-xs font-semibold text-green-300 hover:bg-green-700/50 transition-colors"
+          className="flex-1 rounded-lg bg-emerald-700/30 border border-emerald-700/50 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-700/50 transition-colors"
         >
           💰 Registrar pago
         </button>
@@ -183,7 +183,7 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget && !loading) onClose() }}
     >
-      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-6 space-y-4">
+      <div className="w-full max-w-sm rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl p-6 space-y-4">
         <div>
           <h3 className="text-sm font-semibold text-zinc-300">Registrar pago</h3>
           <p className="text-lg font-bold text-white truncate" title={summary.customerName}>{summary.customerName}</p>
@@ -198,7 +198,7 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
               value={amountRaw}
               onChange={setAmountRaw}
               autoFocus
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2.5 text-white focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded-lg border border-zinc-600 bg-zinc-700 pl-7 pr-3 py-2.5 text-white focus:border-emerald-500 focus:outline-none"
             />
           </div>
           <button
@@ -299,8 +299,8 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
     })
   }, [isAdmin])
 
-  const loadDebts = useCallback(async () => {
-    setLoadingList(true)
+  const loadDebts = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoadingList(true)
     setListError(null)
     const res = await window.hw.getDebts(isAdmin ? { storeIdFilter } : undefined)
     setLoadingList(false)
@@ -308,7 +308,11 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
     else setListError(res.error ?? 'Error al cargar deudas.')
   }, [isAdmin, storeIdFilter])
 
-  useEffect(() => { loadDebts() }, [loadDebts])
+  useEffect(() => { void loadDebts() }, [loadDebts])
+
+  useEffect(() => {
+    return window.hw.onDebtSyncUpdated(() => { void loadDebts({ silent: true }) })
+  }, [loadDebts])
 
   async function handlePayment(
     amount: number,
@@ -368,7 +372,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
   return (
     <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
         {onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-semibold text-zinc-100">Fiados / Cuentas corrientes</h1>
@@ -394,7 +398,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
 
       {/* Alerta de vencimientos */}
       {dueSoonDebts.length > 0 && (
-        <div className="border-b border-zinc-800 bg-zinc-900/50 px-6 py-2.5">
+        <div className="border-b border-zinc-700 bg-zinc-800 px-6 py-2.5">
           <p className="text-xs text-zinc-500">
             {dueSoonDebts.length} deuda{dueSoonDebts.length > 1 ? 's' : ''} vencida{dueSoonDebts.length > 1 ? 's' : ''}: {dueSoonDebts.map(d => d.customerName).join(', ')}
           </p>
@@ -409,7 +413,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Filtrar por nombre de cliente..."
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
           />
         </div>
       )}
@@ -460,7 +464,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
           onClick={e => { if (e.target === e.currentTarget && !cancelLoading) setCancelTarget(null) }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-sm rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl p-6 space-y-4">
             <h3 className="text-sm font-semibold text-red-400">Cancelar deuda</h3>
             <p className="text-sm text-zinc-300">
               ¿Cancelar la deuda de <strong>{cancelTarget.customerName}</strong> por{' '}

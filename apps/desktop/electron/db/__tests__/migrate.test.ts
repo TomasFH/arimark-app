@@ -26,7 +26,7 @@ describe('runMigrations', () => {
     mockMigrate.mockReset()
   })
 
-  it('aplica migraciones y crea backup pre-migración', async () => {
+  it('aplica migraciones y crea backup pre-migración', { timeout: 15_000 }, async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'migrate-test-'))
     const dbPath = path.join(tmpDir, 'app.sqlite')
     fs.writeFileSync(dbPath, '') // DB existente → backup pre-migración

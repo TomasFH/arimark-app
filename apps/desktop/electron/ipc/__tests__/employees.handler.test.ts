@@ -120,13 +120,25 @@ describe('employees.handler', () => {
       const res = getHandler('ipc:create-employee')(null, {
         name: '  Juan Pérez  ',
         weeklyWage: 150000,
-      }) as { ok: boolean; data: { id: string; name: string; weeklyWage: number; active: boolean } }
+      }) as { ok: boolean; data: { id: string; name: string; weeklyWage: number; active: boolean; kind: string } }
 
       expect(res.ok).toBe(true)
       expect(res.data.name).toBe('Juan Pérez')
       expect(res.data.weeklyWage).toBe(150000)
       expect(res.data.active).toBe(true)
+      expect(res.data.kind).toBe('butcher')
       expect(res.data.id).toBeTruthy()
+    })
+
+    it('crea ficha de cajera para sueldo y vales', () => {
+      const res = getHandler('ipc:create-employee')(null, {
+        name: 'Cajera María',
+        weeklyWage: 120000,
+        kind: 'cashier',
+      }) as { ok: boolean; data: { kind: string; name: string } }
+      expect(res.ok).toBe(true)
+      expect(res.data.kind).toBe('cashier')
+      expect(res.data.name).toBe('Cajera María')
     })
 
     it('rechaza payload inválido', () => {

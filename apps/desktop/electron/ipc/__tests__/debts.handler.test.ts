@@ -103,6 +103,8 @@ describe('debts.handler', () => {
       expect(result.data.eventType).toBe('created')
       expect(result.data.amount).toBe(15000)
       expect(result.data.customerId).toBe(CUST_ID)
+      const row = db.select().from(debtEvents).all()[0]
+      expect(row?.shiftId).toBe('shift-001')
     })
 
     it('crea deuda con cliente nuevo inline', () => {
