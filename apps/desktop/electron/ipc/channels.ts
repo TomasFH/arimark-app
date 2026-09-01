@@ -58,6 +58,7 @@ export const IPC = {
 
   // Gastos del turno
   REGISTER_EXPENSE: 'ipc:register-expense',
+  REGISTER_CASH_INJECT: 'ipc:register-cash-inject',
   UPDATE_EXPENSE: 'ipc:update-expense',
   DELETE_EXPENSE: 'ipc:delete-expense',
   GET_SHIFT_EXPENSES: 'ipc:get-shift-expenses',
@@ -179,6 +180,10 @@ export const IPC = {
   /** Sync de fiados / clientes especiales listo en SQLite (push main → renderer). */
   DEBT_SYNC_UPDATED: 'ipc:debt-sync-updated',
   SPECIAL_CUSTOMER_SYNC_UPDATED: 'ipc:special-customer-sync-updated',
+  /** Merge de catálogo remoto aplicado en SQLite (push main → renderer). BLOQUE I-A. */
+  CATALOG_SYNC_UPDATED: 'ipc:catalog-sync-updated',
+  /** Auditoría de ficha / visibilidad / retiro global. BLOQUE I-B. */
+  LIST_CATALOG_AUDIT: 'ipc:list-catalog-audit',
   UI_SETTINGS_CHANGED: 'ipc:ui-settings-changed',
 
   // Preferencias de UI (zoom, etc.) — persisten entre sesiones

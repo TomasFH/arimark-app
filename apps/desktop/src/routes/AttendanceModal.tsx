@@ -1,20 +1,25 @@
 /**
  * Modal para registrar asistencia del día (cajera o admin).
- * Carga empleados activos + registros de hoy; guarda con RECORD_ATTENDANCE (upsert).
+ * Filtra por local habitual; “Agregar visitante” suma a alguien de otro local.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { isVisibleForAttendance, visitorCandidates, type TodayAttendanceMark } from '@carniceria/shared'
 import { todayLocalYmd, toLocalDate } from '../lib/datetime'
-import type { AttendanceStatus } from '../types/hw-api'
+import type { AttendanceStatus, EmployeeRow, StoreRow } from '../types/hw-api'
 
 interface Props {
   onClose: () => void
+  /** Si viene (caja), no se elige local. Admin hub: se elige. */
+  storeId?: string
 }
 
 interface EmployeeDraft {
   employeeId: string
   name: string
+  homeStoreId: string | null
   status: AttendanceStatus | null
   note: string
+  visitor: boolean
 }
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
@@ -28,25 +33,43 @@ function needsNote(status: AttendanceStatus | null): boolean {
   return status === 'absent' || status === 'early_departure'
 }
 
-export default function AttendanceModal({ onClose }: Props) {
+export default function AttendanceModal({ onClose, storeId }: Props) {
   const date = todayLocalYmd()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [stores, setStores] = useState<StoreRow[]>([])
+  const [chosenStoreId, setChosenStoreId] = useState(storeId ?? '')
+  const [allEmployees, setAllEmployees] = useState<EmployeeRow[]>([])
   const [rows, setRows] = useState<EmployeeDraft[]>([])
+  const [visitorIds, setVisitorIds] = useState<Set<string>>(new Set())
+  const [todayMarks, setTodayMarks] = useState<TodayAttendanceMark[]>([])
+  const [showVisitors, setShowVisitors] = useState(false)
 
-  async function load() {
+  const needsStorePicker = !storeId
+  const effectiveStoreId = storeId || chosenStoreId
+
+  async function load(currentStoreId: string, visitors: Set<string>) {
     setLoading(true)
     setError(null)
     setSuccess(null)
 
-    const [empRes, attRes] = await Promise.all([
+    const [empRes, attRes, storesRes] = await Promise.all([
       window.hw.listEmployees(),
       window.hw.listAttendance({ startDate: date, endDate: date }),
+      needsStorePicker ? window.hw.getStores({ includeArchived: false }) : Promise.resolve(null),
     ])
 
     setLoading(false)
+
+    if (storesRes && storesRes.ok) {
+      const active = storesRes.data.filter(s => !s.archivedAt)
+      setStores(active)
+      if (!storeId && active.length === 1 && !chosenStoreId) {
+        setChosenStoreId(active[0]!.id)
+      }
+    }
 
     if (!empRes.ok) {
       setError(empRes.error ?? 'Error al cargar empleados.')
@@ -57,25 +80,56 @@ export default function AttendanceModal({ onClose }: Props) {
       return
     }
 
+    setAllEmployees(empRes.data)
+    const marks: TodayAttendanceMark[] = attRes.data.map(a => ({
+      employeeId: a.employeeId,
+      storeId: a.storeId,
+    }))
+    setTodayMarks(marks)
     const byEmployee = new Map(attRes.data.map(a => [a.employeeId, a]))
+    const visible = empRes.data.filter(emp =>
+      isVisibleForAttendance({
+        personId: emp.id,
+        homeStoreId: emp.homeStoreId,
+        currentStoreId,
+        visitorIds: visitors,
+        todayMark: byEmployee.has(emp.id)
+          ? { employeeId: emp.id, storeId: byEmployee.get(emp.id)!.storeId }
+          : undefined,
+      }),
+    )
     setRows(
-      empRes.data.map(emp => {
+      visible.map(emp => {
         const existing = byEmployee.get(emp.id)
         return {
           employeeId: emp.id,
           name: emp.name,
+          homeStoreId: emp.homeStoreId,
           status: existing?.status ?? null,
           note: existing?.note ?? '',
+          visitor: visitors.has(emp.id),
         }
       }),
     )
   }
 
   useEffect(() => {
-    void load()
-    // Solo al montar (fecha del día)
+    if (!effectiveStoreId) {
+      void (async () => {
+        setLoading(true)
+        const storesRes = await window.hw.getStores({ includeArchived: false })
+        setLoading(false)
+        if (storesRes.ok) {
+          const active = storesRes.data.filter(s => !s.archivedAt)
+          setStores(active)
+          if (active.length === 1) setChosenStoreId(active[0]!.id)
+        }
+      })()
+      return
+    }
+    void load(effectiveStoreId, visitorIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [effectiveStoreId])
 
   function updateRow(employeeId: string, patch: Partial<Pick<EmployeeDraft, 'status' | 'note'>>) {
     setRows(prev =>
@@ -83,6 +137,25 @@ export default function AttendanceModal({ onClose }: Props) {
     )
     setError(null)
     setSuccess(null)
+  }
+
+  const candidates = useMemo(() => {
+    if (!effectiveStoreId) return []
+    return visitorCandidates({
+      people: allEmployees.map(e => ({ id: e.id, name: e.name, homeStoreId: e.homeStoreId })),
+      currentStoreId: effectiveStoreId,
+      visitorIds,
+      todayMarks,
+      hideIfMarkedToday: true,
+    })
+  }, [allEmployees, effectiveStoreId, visitorIds, todayMarks])
+
+  function addVisitor(id: string) {
+    const next = new Set(visitorIds)
+    next.add(id)
+    setVisitorIds(next)
+    setShowVisitors(false)
+    if (effectiveStoreId) void load(effectiveStoreId, next)
   }
 
   async function handleSave() {
@@ -107,6 +180,7 @@ export default function AttendanceModal({ onClose }: Props) {
         date,
         status,
         note: needsNote(status) && noteTrim ? noteTrim : null,
+        storeId: effectiveStoreId || null,
       })
       if (!res.ok) {
         failures.push(`${r.name}: ${res.error ?? 'error'}`)
@@ -117,7 +191,7 @@ export default function AttendanceModal({ onClose }: Props) {
 
     if (failures.length > 0) {
       setError(`Algunos registros fallaron:\n${failures.join('\n')}`)
-      await load()
+      if (effectiveStoreId) await load(effectiveStoreId, visitorIds)
       return
     }
 
@@ -126,6 +200,7 @@ export default function AttendanceModal({ onClose }: Props) {
   }
 
   const dateLabel = toLocalDate(`${date}T12:00:00.000Z`)
+  const storeName = stores.find(s => s.id === effectiveStoreId)?.name
 
   return (
     <div
@@ -139,7 +214,8 @@ export default function AttendanceModal({ onClose }: Props) {
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-white truncate">Asistencia</h2>
             <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={dateLabel}>
-              {dateLabel} · carniceros activos
+              {dateLabel}
+              {storeName ? ` · ${storeName}` : ' · carniceros del local'}
             </p>
           </div>
           <button
@@ -160,15 +236,35 @@ export default function AttendanceModal({ onClose }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          {needsStorePicker && stores.length > 1 && (
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Local</label>
+              <select
+                value={chosenStoreId}
+                onChange={e => setChosenStoreId(e.target.value)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+              >
+                <option value="">Elegí un local…</option>
+                {stores.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {loading && (
             <p className="text-sm text-zinc-500 text-center py-8">Cargando…</p>
           )}
 
-          {!loading && rows.length === 0 && !error && (
+          {!loading && !effectiveStoreId && (
+            <p className="text-sm text-zinc-500 text-center py-8">Elegí el local para ver la lista.</p>
+          )}
+
+          {!loading && effectiveStoreId && rows.length === 0 && !error && (
             <div className="text-center py-8 space-y-1">
-              <p className="text-sm text-zinc-500">No hay empleados activos.</p>
+              <p className="text-sm text-zinc-500">Nadie para marcar en este local.</p>
               <p className="text-xs text-zinc-600">
-                El admin debe crearlos en Empleados antes de marcar asistencia.
+                Si vino alguien de otro local, agregalo como visitante.
               </p>
             </div>
           )}
@@ -179,9 +275,16 @@ export default function AttendanceModal({ onClose }: Props) {
                 key={row.employeeId}
                 className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-3 space-y-2"
               >
-                <p className="text-sm font-medium text-white truncate" title={row.name}>
-                  {row.name}
-                </p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="min-w-0 flex-1 text-sm font-medium text-white truncate" title={row.name}>
+                    {row.name}
+                  </p>
+                  {row.visitor && (
+                    <span className="shrink-0 rounded-md bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                      Visitante
+                    </span>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {STATUS_OPTIONS.map(opt => {
                     const selected = row.status === opt.value
@@ -232,6 +335,33 @@ export default function AttendanceModal({ onClose }: Props) {
               </div>
             ))}
 
+          {effectiveStoreId && candidates.length > 0 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowVisitors(v => !v)}
+                className="text-xs text-emerald-400 hover:text-emerald-300"
+              >
+                {showVisitors ? 'Ocultar visitantes' : 'Agregar visitante'}
+              </button>
+              {showVisitors && (
+                <ul className="mt-2 space-y-1">
+                  {candidates.map(c => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => addVisitor(c.id)}
+                        className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 hover:border-zinc-600"
+                      >
+                        <span className="truncate block" title={c.name}>{c.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {error && (
             <div className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2">
               <p className="text-sm text-red-300 whitespace-pre-line">{error}</p>
@@ -256,8 +386,8 @@ export default function AttendanceModal({ onClose }: Props) {
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={saving || loading || rows.length === 0}
-            className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={saving || loading || rows.length === 0 || !effectiveStoreId}
+            className="shrink-0 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-40"
           >
             {saving ? 'Guardando…' : 'Guardar'}
           </button>

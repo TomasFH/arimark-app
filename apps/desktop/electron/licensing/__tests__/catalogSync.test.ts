@@ -2,19 +2,25 @@
  * Tests de syncCatalogWithFirestore: merge por producto (altas/precios/bajas)
  * y no pisar el catálogo local con un snapshot incompleto.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, products, productPrices, storeProducts } from '../../db/schema'
 
-const { mockGetDoc, mockPublishCatalog } = vi.hoisted(() => ({
+const { mockGetDoc, mockPublishCatalog, mockOnSnapshot, mockNotifyRenderer } = vi.hoisted(() => ({
   mockGetDoc: vi.fn(),
   mockPublishCatalog: vi.fn().mockResolvedValue(undefined),
+  mockOnSnapshot: vi.fn().mockReturnValue(vi.fn()),
+  mockNotifyRenderer: vi.fn(),
 }))
 
 vi.mock('firebase/firestore', () => ({
   getFirestore: vi.fn(() => ({})),
-  doc: (...args: unknown[]) => ({ path: args.join('/') }),
+  doc: (...args: unknown[]) => {
+    const parts = args.filter((a): a is string => typeof a === 'string')
+    return { path: parts.join('/') }
+  },
   getDoc: mockGetDoc,
+  onSnapshot: mockOnSnapshot,
 }))
 
 vi.mock('../firebase', () => ({
@@ -25,6 +31,10 @@ vi.mock('../firebase', () => ({
 vi.mock('../catalogPublish', () => ({
   publishCatalog: mockPublishCatalog,
   publishCatalogForAllStores: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../notifyRenderer', () => ({
+  notifyRenderer: mockNotifyRenderer,
 }))
 
 vi.mock('../../activeSession', () => ({
@@ -51,7 +61,13 @@ vi.mock('uuid', () => {
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { syncCatalogWithFirestore, syncAllStoreCatalogs, pullCatalogFromFirestore } from '../catalogSync'
+import {
+  syncCatalogWithFirestore,
+  syncAllStoreCatalogs,
+  pullCatalogFromFirestore,
+  startCatalogSyncListener,
+  stopCatalogSyncListener,
+} from '../catalogSync'
 
 const TENANT = 'test-tenant'
 const STORE = 'store-001'
@@ -71,8 +87,10 @@ describe('catalogSync', () => {
   let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']
 
   beforeEach(async () => {
+    stopCatalogSyncListener()
     vi.clearAllMocks()
     mockPublishCatalog.mockResolvedValue(undefined)
+    mockOnSnapshot.mockReturnValue(vi.fn())
     vi.mocked(isFirebaseAvailable).mockReturnValue(true)
     mockGetDoc.mockResolvedValue(missingSnap())
 
@@ -484,5 +502,254 @@ describe('catalogSync', () => {
 
     const row = db.select().from(storeProducts).all().find(r => r.productId === 'prod-a' && r.storeId === STORE)
     expect(row?.available).toBe(false)
+  })
+
+  describe('startCatalogSyncListener', () => {
+    function snapshotHandler(): (snap: unknown) => Promise<unknown> {
+      const call = mockOnSnapshot.mock.calls[0]
+      if (!call) throw new Error('onSnapshot no registrado')
+      return call[1] as (snap: unknown) => Promise<unknown>
+    }
+
+    async function emitSnap(
+      productsList: unknown[],
+      updatedAt: string,
+      deletedProductIds: string[] = [],
+    ): Promise<void> {
+      await snapshotHandler()(remoteSnap(productsList, updatedAt, deletedProductIds))
+    }
+
+    afterEach(() => {
+      stopCatalogSyncListener()
+    })
+
+    it('registra onSnapshot en licenses/{tenant}/catalog/{storeId}', () => {
+      startCatalogSyncListener(TENANT)
+      expect(mockOnSnapshot).toHaveBeenCalledTimes(1)
+      expect(mockOnSnapshot.mock.calls[0]?.[0]).toEqual({
+        path: `licenses/${TENANT}/catalog/${STORE}`,
+      })
+    })
+
+    it('inserta un producto nuevo desconocido en SQLite', async () => {
+      startCatalogSyncListener(TENANT)
+      await emitSnap([{
+        productId: 'prod-nuevo',
+        pluNumber: 7,
+        name: 'Matambre',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 22000,
+        updatedAt: '2026-08-20T00:00:00.000Z',
+      }], '2026-08-20T00:00:00.000Z')
+
+      const row = db.select().from(products).all().find(r => r.id === 'prod-nuevo')
+      expect(row?.name).toBe('Matambre')
+      expect(row?.pluNumber).toBe(7)
+      expect(row?.active).toBe(true)
+    })
+
+    it('snapshot incompleto no borra el producto local y republica el union', async () => {
+      db.insert(products).values({
+        id: 'prod-local',
+        name: 'Vacío',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 2,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }).run()
+      addPrice('prod-local')
+
+      startCatalogSyncListener(TENANT)
+      await emitSnap([{
+        productId: 'prod-remoto',
+        pluNumber: 9,
+        name: 'Pollo',
+        category: 'poultry',
+        unit: 'kg',
+        price: 9000,
+        updatedAt: '2026-08-20T00:00:00.000Z',
+      }], '2026-08-20T00:00:00.000Z')
+
+      const local = db.select().from(products).all().find(r => r.id === 'prod-local')
+      expect(local?.active).toBe(true)
+      expect(local?.name).toBe('Vacío')
+      expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    })
+
+    it('snapshot eco (mismos ids/precios, local ≥ remoto) no llama publishCatalog', async () => {
+      db.insert(products).values({
+        id: 'prod-a',
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 1,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-08-20T12:00:00.000Z',
+      }).run()
+      addPrice('prod-a', STORE, 'price-a', '2026-08-20T12:00:00.000Z', 18000)
+
+      startCatalogSyncListener(TENANT)
+      await emitSnap([{
+        productId: 'prod-a',
+        pluNumber: 1,
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 18000,
+        updatedAt: '2026-08-20T12:00:00.000Z',
+        priceUpdatedAt: '2026-08-20T12:00:00.000Z',
+      }], '2026-08-20T12:00:00.000Z')
+
+      expect(mockPublishCatalog).not.toHaveBeenCalled()
+    })
+
+    it('no pisa identidad local más nueva (products.updatedAt > remoto)', async () => {
+      db.insert(products).values({
+        id: 'prod-a',
+        name: 'Asado local',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 1,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-08-28T00:00:00.000Z',
+      }).run()
+      addPrice('prod-a', STORE, 'price-a', '2026-08-28T00:00:00.000Z', 50000)
+
+      startCatalogSyncListener(TENANT)
+      await emitSnap([{
+        productId: 'prod-a',
+        pluNumber: 1,
+        name: 'Asado viejo',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 10000,
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        priceUpdatedAt: '2026-08-01T00:00:00.000Z',
+      }], '2026-08-01T00:00:00.000Z')
+
+      const row = db.select().from(products).all().find(r => r.id === 'prod-a')
+      expect(row?.name).toBe('Asado local')
+      expect(mockPublishCatalog).not.toHaveBeenCalled()
+    })
+
+    it('aplica precio remoto más nuevo y conserva el local más nuevo', async () => {
+      db.insert(products).values([
+        {
+          id: 'prod-remote-wins',
+          name: 'Asado',
+          category: 'beef_cut',
+          unit: 'kg',
+          pluNumber: 1,
+          active: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        },
+        {
+          id: 'prod-local-wins',
+          name: 'Vacío',
+          category: 'beef_cut',
+          unit: 'kg',
+          pluNumber: 2,
+          active: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:00.000Z',
+        },
+      ]).run()
+      addPrice('prod-remote-wins', STORE, 'price-r', '2026-08-01T00:00:00.000Z', 10000)
+      addPrice('prod-local-wins', STORE, 'price-l', '2026-08-20T00:00:00.000Z', 40000)
+
+      startCatalogSyncListener(TENANT)
+      await emitSnap([
+        {
+          productId: 'prod-remote-wins',
+          pluNumber: 1,
+          name: 'Asado',
+          category: 'beef_cut',
+          unit: 'kg',
+          price: 18000,
+          updatedAt: '2026-08-01T00:00:00.000Z',
+          priceUpdatedAt: '2026-08-25T00:00:00.000Z',
+        },
+        {
+          productId: 'prod-local-wins',
+          pluNumber: 2,
+          name: 'Vacío',
+          category: 'beef_cut',
+          unit: 'kg',
+          price: 9000,
+          updatedAt: '2026-08-20T00:00:00.000Z',
+          priceUpdatedAt: '2026-08-01T00:00:00.000Z',
+        },
+      ], '2026-08-25T00:00:00.000Z')
+
+      const precioRemoto = db.select().from(productPrices).all()
+        .find(r => r.productId === 'prod-remote-wins' && r.validTo == null)
+      const precioLocal = db.select().from(productPrices).all()
+        .find(r => r.productId === 'prod-local-wins' && r.validTo == null)
+      expect(precioRemoto?.price).toBe(18000)
+      expect(precioLocal?.price).toBe(40000)
+    })
+
+    it('deletedProductIds desactiva el producto local y libera el PLU', async () => {
+      db.insert(products).values({
+        id: 'prod-b',
+        name: 'Vacío',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 2,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }).run()
+      addPrice('prod-b')
+
+      startCatalogSyncListener(TENANT)
+      await emitSnap([], '2026-08-20T00:00:00.000Z', ['prod-b'])
+
+      const b = db.select().from(products).all().find(r => r.id === 'prod-b')
+      expect(b?.active).toBe(false)
+      expect(b?.pluNumber).toBeNull()
+    })
+
+    it('stopCatalogSyncListener llama unsubscribe y el segundo start no duplica', () => {
+      const unsub = vi.fn()
+      mockOnSnapshot.mockReturnValue(unsub)
+
+      startCatalogSyncListener(TENANT)
+      startCatalogSyncListener(TENANT)
+      expect(mockOnSnapshot).toHaveBeenCalledTimes(1)
+
+      stopCatalogSyncListener()
+      expect(unsub).toHaveBeenCalledTimes(1)
+
+      mockOnSnapshot.mockClear()
+      mockOnSnapshot.mockReturnValue(vi.fn())
+      startCatalogSyncListener(TENANT)
+      expect(mockOnSnapshot).toHaveBeenCalledTimes(1)
+    })
+
+    it('isFirebaseAvailable() === false no registra listener', () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      startCatalogSyncListener(TENANT)
+      expect(mockOnSnapshot).not.toHaveBeenCalled()
+    })
+
+    it('tras merge con applied > 0 llama notifyRenderer', async () => {
+      startCatalogSyncListener(TENANT)
+      await emitSnap([{
+        productId: 'prod-aviso',
+        pluNumber: 11,
+        name: 'Bondiola',
+        category: 'pork',
+        unit: 'kg',
+        price: 15000,
+        updatedAt: '2026-08-20T00:00:00.000Z',
+      }], '2026-08-20T00:00:00.000Z')
+
+      expect(mockNotifyRenderer).toHaveBeenCalledWith('ipc:catalog-sync-updated', { storeId: STORE })
+    })
   })
 })

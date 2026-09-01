@@ -62,7 +62,9 @@ async function fetchAndCacheProfile(
 
   const profile: LocalProfile = {
     uid,
-    displayName: data['displayName'] ?? email,
+    displayName: (typeof data['displayName'] === 'string' && data['displayName'].trim())
+      ? data['displayName'].trim()
+      : (email.split('@')[0] || email),
     role,
     authorizedStores: data['authorizedStores'] ?? [],
     email,

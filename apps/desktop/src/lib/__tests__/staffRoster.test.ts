@@ -5,7 +5,7 @@ describe('buildStaffRoster', () => {
   it('une cajera de login con ficha de sueldo por nombre', () => {
     const roster = buildStaffRoster(
       [{ uid: 'u1', displayName: 'Ana Pérez', email: 'ana@x.com', active: true }],
-      [{ id: 'e1', name: 'ana pérez', weeklyWage: 80000, active: true, kind: 'cashier' }],
+      [{ id: 'e1', name: 'ana pérez', weeklyWage: 80000, active: true, kind: 'cashier', homeStoreId: 's1' }],
     )
     expect(roster.cashiers).toHaveLength(1)
     expect(roster.cashiers[0]).toMatchObject({
@@ -13,6 +13,7 @@ describe('buildStaffRoster', () => {
       cashierUid: 'u1',
       employeeId: 'e1',
       email: 'ana@x.com',
+      homeStoreId: 's1',
     })
     expect(roster.butchers).toHaveLength(0)
   })

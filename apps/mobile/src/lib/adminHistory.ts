@@ -36,6 +36,7 @@ export interface AdminShift {
   closedAt: string | null
   openingCash: number
   closingCash: number | null
+  source: 'desktop' | 'mobile'
 }
 
 export interface AdminSalePayment {
@@ -173,8 +174,6 @@ export async function fetchAdminShifts(storeId?: string): Promise<AdminShift[]> 
       source?: string
     }
     if (storeId && data.storeId !== storeId) continue
-    // Solo turnos operativos de PC (mismo criterio que historyFirestore desktop).
-    if (data.source && data.source !== 'desktop') continue
     if (!data.storeId) continue
     const userId = data.userId ?? ''
     shifts.push({
@@ -187,6 +186,7 @@ export async function fetchAdminShifts(storeId?: string): Promise<AdminShift[]> 
       closedAt: data.closedAt ?? null,
       openingCash: data.openingCash ?? 0,
       closingCash: data.closingCash ?? null,
+      source: data.source === 'mobile' ? 'mobile' : 'desktop',
     })
   }
   shifts.sort((a, b) => b.startedAt.localeCompare(a.startedAt))

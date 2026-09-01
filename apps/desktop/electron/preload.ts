@@ -65,6 +65,12 @@ const hw: HwApi = {
     return () => ipcRenderer.removeListener(IPC.SPECIAL_CUSTOMER_SYNC_UPDATED, listener)
   },
 
+  onCatalogSyncUpdated: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, payload?: { storeId?: string }) => cb(payload)
+    ipcRenderer.on(IPC.CATALOG_SYNC_UPDATED, listener)
+    return () => ipcRenderer.removeListener(IPC.CATALOG_SYNC_UPDATED, listener)
+  },
+
   onUiSettingsChanged: cb => {
     const listener = (_event: Electron.IpcRendererEvent, settings: UiSettings) => cb(settings)
     ipcRenderer.on(IPC.UI_SETTINGS_CHANGED, listener)
@@ -91,6 +97,8 @@ const hw: HwApi = {
 
   listCatalogRevisions: (payload) => ipcRenderer.invoke(IPC.LIST_CATALOG_REVISIONS, payload),
 
+  listCatalogAudit: (payload) => ipcRenderer.invoke(IPC.LIST_CATALOG_AUDIT, payload),
+
   restoreCatalogRevision: (payload) => ipcRenderer.invoke(IPC.RESTORE_CATALOG_REVISION, payload),
 
   listCashiers: () => ipcRenderer.invoke(IPC.LIST_CASHIERS),
@@ -107,6 +115,8 @@ const hw: HwApi = {
   devGenerateSales: payload => ipcRenderer.invoke(IPC.DEV_GENERATE_SALES, payload),
 
   registerExpense: payload => ipcRenderer.invoke(IPC.REGISTER_EXPENSE, payload),
+
+  registerCashInject: payload => ipcRenderer.invoke(IPC.REGISTER_CASH_INJECT, payload),
 
   updateExpense: payload => ipcRenderer.invoke(IPC.UPDATE_EXPENSE, payload),
 

@@ -12,15 +12,35 @@ import { db } from '../lib/db'
 import { triggerSync } from '../lib/sync'
 import { PaymentModal } from './PaymentModal'
 import { ManualEntry } from './ManualEntry'
+import { ShiftExpenseModal, type ShiftExpensePayload } from './ShiftExpenseModal'
+import { CashInjectModal } from './CashInjectModal'
+import { ShiftSalesList } from './ShiftSalesList'
+import { DebtSaleModal } from './DebtSaleModal'
+import { ShiftValesModal } from './ShiftValesModal'
+import { ShiftPayrollModal } from './ShiftPayrollModal'
 import { useBackLayer } from '../lib/backStack'
 import { expectedCashInHand, shiftRevenue } from '../lib/shiftCash'
-import type { CatalogProduct, LocalSale, LocalShift, SaleItemDraft, SalePaymentDraft } from '../types/pos'
+import { CASH_INJECT_CONCEPT } from '../types/pos'
+import { debtEventId } from '../lib/expenseVisit'
+import { refreshPosCaches, upsertCachedProvider } from '../lib/posCaches'
+import { addDaysYmd, weekStartMondayLocalYmd } from '../lib/week'
+import type {
+  CatalogProduct,
+  LocalExpense,
+  LocalSale,
+  LocalShift,
+  SaleItemDraft,
+  SalePaymentDraft,
+} from '../types/pos'
 
 interface Props {
   shift: LocalShift
   catalog: CatalogProduct[]
   storeName: string
+  viewerRole: 'admin' | 'cashier'
+  viewerName: string
   onCloseShift: () => void
+  onReturnToAdmin?: () => void
 }
 
 function beep(ok: boolean) {
@@ -44,18 +64,27 @@ function formatARS(n: number): string {
   }).format(n)
 }
 
-export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
+export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, onCloseShift, onReturnToAdmin }: Props) {
   const [items, setItems] = useState<SaleItemDraft[]>([])
   const [showScanner, setShowScanner] = useState(false)
   const [showManual, setShowManual] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+  const [showCloseRecap, setShowCloseRecap] = useState(false)
+  const [showExpense, setShowExpense] = useState(false)
+  const [showInject, setShowInject] = useState(false)
+  const [showSalesList, setShowSalesList] = useState(false)
+  const [showDebt, setShowDebt] = useState(false)
+  const [showVales, setShowVales] = useState(false)
+  const [showPayroll, setShowPayroll] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [lastScan, setLastScan] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [success, setSuccess] = useState(false)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [pendingDup, setPendingDup] = useState<SaleItemDraft | null>(null)
   const [shiftSales, setShiftSales] = useState<LocalSale[]>([])
+  const [shiftExpenses, setShiftExpenses] = useState<LocalExpense[]>([])
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const stopScanRef = useRef<(() => void) | null>(null)
@@ -63,22 +92,37 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
   const itemsRef = useRef<SaleItemDraft[]>([])
 
   const total = items.reduce((s, i) => s + i.subtotal, 0)
-  const cashInHand = expectedCashInHand(shift.openingCash, shiftSales)
+  const cashInHand = expectedCashInHand(shift.openingCash, shiftSales, shiftExpenses)
   const soldTotal = shiftRevenue(shiftSales)
+  const expenseTotal = shiftExpenses
+    .filter(e => e.kind !== 'inject')
+    .reduce((s, e) => s + e.amount, 0)
+  const injectTotal = shiftExpenses
+    .filter(e => e.kind === 'inject')
+    .reduce((s, e) => s + e.amount, 0)
 
   useBackLayer(showScanner, closeScanner)
   useBackLayer(Boolean(pendingDup), cancelDuplicate)
   useBackLayer(showCloseConfirm, () => setShowCloseConfirm(false))
+  useBackLayer(showCloseRecap, () => onCloseShift())
 
-  async function refreshShiftSales(): Promise<void> {
-    const rows = await db.sales.where('shiftId').equals(shift.id).toArray()
-    setShiftSales(rows)
+  async function refreshShiftData(): Promise<void> {
+    const [salesRows, expenseRows] = await Promise.all([
+      db.sales.where('shiftId').equals(shift.id).toArray(),
+      db.expenses.where('shiftId').equals(shift.id).toArray(),
+    ])
+    setShiftSales(salesRows)
+    setShiftExpenses(expenseRows)
   }
 
   useEffect(() => {
-    void refreshShiftSales()
+    void refreshShiftData()
+    const weekStart = weekStartMondayLocalYmd()
+    void refreshPosCaches(weekStart, addDaysYmd(weekStart, 6)).catch(err => {
+      console.error('[pos] No se pudo refrescar caché de proveedores/empleados', err)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shift.id, success])
+  }, [shift.id])
 
   // Espejo de items para leer el estado actual dentro de handleBarcode
   // (que se memoiza y de otro modo capturaría un items obsoleto).
@@ -198,42 +242,229 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
     setItems(prev => prev.filter((_, i) => i !== index))
   }
 
-  async function confirmSale(payments: SalePaymentDraft[], notes: string) {
+  async function persistSale(opts: {
+    payments: SalePaymentDraft[]
+    notes: string
+    isDebt: boolean
+    customerId: string | null
+    customerName: string | null
+    customerPhone: string | null
+  }): Promise<void> {
     setSaving(true)
     setShowPayment(false)
+    setShowDebt(false)
+    setSaveError(null)
 
     const saleId = uuidv4()
-    await db.sales.put({
-      id: saleId,
-      shiftId: shift.id,
-      storeId: shift.storeId,
-      total,
-      items,
+    try {
+      await db.sales.put({
+        id: saleId,
+        shiftId: shift.id,
+        storeId: shift.storeId,
+        total,
+        items,
+        payments: opts.payments,
+        notes: opts.notes || null,
+        manualEntry: items.some(i => i.manualEntry),
+        createdAt: new Date().toISOString(),
+        createdBy: shift.userId,
+        syncStatus: 'pending',
+        syncedAt: null,
+        status: 'confirmed',
+        isDebt: opts.isDebt,
+        customerId: opts.customerId,
+        customerName: opts.customerName,
+        customerPhone: opts.customerPhone,
+      })
+      setItems([])
+      setSaveError(null)
+      setSuccess(opts.isDebt ? 'Fiado registrado' : 'Venta confirmada')
+      setTimeout(() => setSuccess(null), 2000)
+      await refreshShiftData()
+      triggerSync().catch((err: unknown) => {
+        console.error('[pos] Error al disparar sync tras venta', err)
+      })
+    } catch (err) {
+      console.error('[pos] Error al guardar venta', err)
+      setSuccess(null)
+      setSaveError('No se pudo guardar la venta. Reintentá.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function confirmSale(payments: SalePaymentDraft[], notes: string) {
+    await persistSale({
       payments,
-      notes: notes || null,
-      manualEntry: items.some(i => i.manualEntry),
-      createdAt: new Date().toISOString(),
-      createdBy: shift.userId,
-      syncStatus: 'pending',
-      syncedAt: null,
+      notes,
+      isDebt: false,
+      customerId: null,
+      customerName: null,
+      customerPhone: null,
     })
+  }
 
-    setSaving(false)
-    setItems([])
-    setSuccess(true)
-    setTimeout(() => setSuccess(false), 2000)
-    void refreshShiftSales()
+  async function confirmDebtSale(payload: {
+    customerName: string
+    customerPhone: string | null
+    payments: SalePaymentDraft[]
+    notes: string
+  }) {
+    await persistSale({
+      payments: payload.payments,
+      notes: payload.notes,
+      isDebt: true,
+      customerId: uuidv4(),
+      customerName: payload.customerName,
+      customerPhone: payload.customerPhone,
+    })
+  }
 
-    // Disparar sync en background — no bloquea la UI.
-    triggerSync().catch(() => { /* silencioso */ })
+  async function saveExpense(payload: ShiftExpensePayload) {
+    setShowExpense(false)
+    setSaveError(null)
+    try {
+      const expenseId = uuidv4()
+      const now = new Date().toISOString()
+      await db.expenses.put({
+        id: expenseId,
+        shiftId: shift.id,
+        storeId: shift.storeId,
+        kind: 'expense',
+        concept: payload.concept,
+        amount: payload.amount,
+        notes: payload.notes,
+        createdAt: now,
+        createdBy: shift.userId,
+        syncStatus: 'pending',
+        syncedAt: null,
+        providerId: payload.providerId,
+        providerName: payload.providerName,
+        newDebtAmount: payload.newDebtAmount,
+        paysOldDebt: payload.paysOldDebt,
+      })
+      if (payload.providerId && payload.providerName) {
+        await upsertCachedProvider({
+          id: payload.providerId,
+          name: payload.providerName,
+          createdBy: shift.userId,
+        })
+        const events: Array<{
+          id: string
+          expenseId: string
+          shiftId: string
+          storeId: string
+          providerId: string
+          providerName: string
+          type: 'debt' | 'payment'
+          amount: number
+          createdAt: string
+          createdBy: string
+          syncStatus: 'pending'
+          syncedAt: null
+        }> = []
+        if (payload.newDebtAmount > 0) {
+          events.push({
+            id: debtEventId(expenseId, 'debt'),
+            expenseId,
+            shiftId: shift.id,
+            storeId: shift.storeId,
+            providerId: payload.providerId,
+            providerName: payload.providerName,
+            type: 'debt' as const,
+            amount: payload.newDebtAmount,
+            createdAt: now,
+            createdBy: shift.userId,
+            syncStatus: 'pending' as const,
+            syncedAt: null,
+          })
+        }
+        if (payload.paysOldDebt > 0) {
+          events.push({
+            id: debtEventId(expenseId, 'payment'),
+            expenseId,
+            shiftId: shift.id,
+            storeId: shift.storeId,
+            providerId: payload.providerId,
+            providerName: payload.providerName,
+            type: 'payment' as const,
+            amount: payload.paysOldDebt,
+            createdAt: now,
+            createdBy: shift.userId,
+            syncStatus: 'pending' as const,
+            syncedAt: null,
+          })
+        }
+        if (events.length > 0) await db.providerDebtEvents.bulkPut(events)
+      }
+      setSuccess('Gasto registrado')
+      setTimeout(() => setSuccess(null), 2000)
+      await refreshShiftData()
+      triggerSync().catch((err: unknown) => {
+        console.error('[pos] Error al disparar sync tras gasto', err)
+      })
+    } catch (err) {
+      console.error('[pos] Error al guardar gasto', err)
+      setSaveError('No se pudo guardar el gasto. Reintentá.')
+    }
+  }
+
+  async function saveInject(payload: { amount: number; notes: string | null }) {
+    setShowInject(false)
+    setSaveError(null)
+    try {
+      await db.expenses.put({
+        id: uuidv4(),
+        shiftId: shift.id,
+        storeId: shift.storeId,
+        kind: 'inject',
+        concept: CASH_INJECT_CONCEPT,
+        amount: payload.amount,
+        notes: payload.notes,
+        createdAt: new Date().toISOString(),
+        createdBy: shift.userId,
+        syncStatus: 'pending',
+        syncedAt: null,
+      })
+      setSuccess('Ingreso registrado')
+      setTimeout(() => setSuccess(null), 2000)
+      await refreshShiftData()
+      triggerSync().catch((err: unknown) => {
+        console.error('[pos] Error al disparar sync tras aporte', err)
+      })
+    } catch (err) {
+      console.error('[pos] Error al guardar ingreso', err)
+      setSaveError('No se pudo guardar el ingreso. Reintentá.')
+    }
+  }
+
+  async function cancelSale(sale: LocalSale): Promise<void> {
+    await db.sales.update(sale.id, {
+      status: 'cancelled',
+      syncStatus: 'pending',
+    })
+    await refreshShiftData()
+    triggerSync().catch((err: unknown) => {
+      console.error('[pos] Error al disparar sync tras anular', err)
+    })
   }
 
   async function closeShift() {
-    await db.shifts.update(shift.id, {
-      closedAt: new Date().toISOString(),
-      closingCash: cashInHand,
-    })
-    onCloseShift()
+    try {
+      await db.shifts.update(shift.id, {
+        closedAt: new Date().toISOString(),
+        closingCash: cashInHand,
+        syncStatus: 'pending',
+      })
+      triggerSync().catch((err: unknown) => {
+        console.error('[pos] Error al disparar sync al cerrar turno', err)
+      })
+      setShowCloseConfirm(false)
+      setShowCloseRecap(true)
+    } catch (err) {
+      console.error('[pos] Error al cerrar turno', err)
+      setSaveError('No se pudo cerrar el turno. Reintentá.')
+    }
   }
 
   return (
@@ -245,6 +476,15 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
           <p className="truncate text-xs text-gray-400" title={storeName}>{storeName} · POS móvil</p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          {onReturnToAdmin && (
+            <button
+              type="button"
+              onClick={onReturnToAdmin}
+              className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-zinc-500 hover:text-white"
+            >
+              Hub admin
+            </button>
+          )}
           <span className="font-mono text-xs text-emerald-400" title="Efectivo estimado en caja">
             {formatARS(cashInHand)} en caja
           </span>
@@ -269,9 +509,14 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
           ✕ {scanError}
         </div>
       )}
+      {saveError && (
+        <div className="bg-red-900 text-red-200 text-sm font-semibold text-center py-2 px-4">
+          ✕ {saveError}
+        </div>
+      )}
       {success && (
         <div className="bg-green-700 text-white text-sm font-bold text-center py-2 px-4">
-          ✓ Venta confirmada
+          ✓ {success}
         </div>
       )}
 
@@ -286,10 +531,10 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
           items.map((item, idx) => (
             <div
               key={idx}
-              className="bg-gray-900 rounded-xl px-4 py-3 flex items-center gap-3"
+              className="bg-gray-900 rounded-xl px-4 py-3 flex items-center gap-2 min-w-0"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-medium truncate">{item.productName}</p>
+                <p className="text-white text-sm font-medium truncate" title={item.productName}>{item.productName}</p>
                 <p className="text-gray-400 text-xs">
                   {item.weightKg !== null
                     ? `${item.weightKg.toFixed(3)} kg · ${formatARS(item.unitPrice)}/kg`
@@ -353,6 +598,47 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
 
         <div className="grid grid-cols-3 gap-2">
           <button
+            type="button"
+            onClick={() => setShowExpense(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            💸 Gasto
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowInject(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            💵 Ingreso
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSalesList(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            🧾 Ventas
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setShowVales(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            Vales
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowPayroll(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            Liquidación
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <button
             onClick={() => showScanner ? closeScanner() : openScanner()}
             className={`py-3 rounded-xl font-semibold text-sm transition-colors ${
               showScanner
@@ -393,6 +679,70 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
           total={total}
           onConfirm={confirmSale}
           onCancel={() => setShowPayment(false)}
+          onFiado={() => {
+            setShowPayment(false)
+            setShowDebt(true)
+          }}
+        />
+      )}
+
+      {showDebt && (
+        <DebtSaleModal
+          total={total}
+          onConfirm={payload => { void confirmDebtSale(payload) }}
+          onCancel={() => setShowDebt(false)}
+        />
+      )}
+
+      {showExpense && (
+        <ShiftExpenseModal
+          storeId={shift.storeId}
+          onConfirm={payload => { void saveExpense(payload) }}
+          onClose={() => setShowExpense(false)}
+        />
+      )}
+
+      {showInject && (
+        <CashInjectModal
+          onConfirm={payload => { void saveInject(payload) }}
+          onClose={() => setShowInject(false)}
+        />
+      )}
+
+      {showVales && (
+        <ShiftValesModal
+          shift={shift}
+          catalog={catalog}
+          viewerRole={viewerRole}
+          viewerName={viewerName}
+          onSaved={() => {
+            void refreshShiftData()
+            triggerSync().catch((err: unknown) => {
+              console.error('[pos] Error al disparar sync tras vale', err)
+            })
+          }}
+          onClose={() => setShowVales(false)}
+        />
+      )}
+
+      {showPayroll && (
+        <ShiftPayrollModal
+          shift={shift}
+          onSaved={() => {
+            void refreshShiftData()
+            triggerSync().catch((err: unknown) => {
+              console.error('[pos] Error al disparar sync tras liquidación', err)
+            })
+          }}
+          onClose={() => setShowPayroll(false)}
+        />
+      )}
+
+      {showSalesList && (
+        <ShiftSalesList
+          sales={shiftSales}
+          onCancelSale={cancelSale}
+          onClose={() => setShowSalesList(false)}
         />
       )}
 
@@ -437,6 +787,18 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
                 <span className="text-gray-400">Total vendido</span>
                 <span className="font-semibold text-white">{formatARS(soldTotal)}</span>
               </div>
+              {expenseTotal > 0 && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Gastos</span>
+                  <span className="font-semibold text-orange-300">−{formatARS(expenseTotal)}</span>
+                </div>
+              )}
+              {injectTotal > 0 && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Ingresos</span>
+                  <span className="font-semibold text-emerald-300">+{formatARS(injectTotal)}</span>
+                </div>
+              )}
               <div className="flex justify-between gap-2">
                 <span className="text-gray-400">Efectivo esperado</span>
                 <span className="font-semibold text-emerald-400">{formatARS(cashInHand)}</span>
@@ -458,6 +820,48 @@ export function PosScreen({ shift, catalog, storeName, onCloseShift }: Props) {
                 Cerrar turno
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {showCloseRecap && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
+          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-gray-900 p-5">
+            <h2 className="text-lg font-bold text-emerald-400">Caja cerrada</h2>
+            <p className="text-sm text-gray-400">
+              El turno quedó registrado. Este es el resumen del cierre.
+            </p>
+            <div className="space-y-2 rounded-xl bg-gray-800/80 p-4 text-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Resumen del cierre
+              </p>
+              <div className="flex justify-between gap-2">
+                <span className="text-gray-400">Total vendido</span>
+                <span className="font-semibold text-white">{formatARS(soldTotal)}</span>
+              </div>
+              {expenseTotal > 0 && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Gastos</span>
+                  <span className="font-semibold text-orange-300">−{formatARS(expenseTotal)}</span>
+                </div>
+              )}
+              {injectTotal > 0 && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-400">Ingresos</span>
+                  <span className="font-semibold text-emerald-300">+{formatARS(injectTotal)}</span>
+                </div>
+              )}
+              <div className="flex justify-between gap-2">
+                <span className="text-gray-400">Efectivo esperado</span>
+                <span className="font-semibold text-emerald-400">{formatARS(cashInHand)}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onCloseShift}
+              className="w-full rounded-xl bg-emerald-600 py-3 font-bold text-white transition-colors hover:bg-emerald-700"
+            >
+              Finalizar
+            </button>
           </div>
         </div>
       )}

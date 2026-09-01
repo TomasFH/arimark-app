@@ -58,6 +58,7 @@ export async function pushUnsyncedExpenses(tenantId: string): Promise<void> {
         createdAt: e.createdAt,
         createdBy: e.createdBy,
         deleted: false,
+        kind: e.kind ?? 'expense',
       }, { merge: true })
 
       db.update(expenses)

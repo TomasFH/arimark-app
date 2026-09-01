@@ -93,6 +93,7 @@ describe('expense.handler', () => {
       expect(row.concept).toBe('Insumos')
       expect(row.amount).toBe(1500)
       expect(row.shiftId).toBe('shift-001')
+      expect(row.kind).toBe('expense')
     })
 
     it('registra gasto con proveedor nuevo por nombre — crea proveedor en cache', () => {
@@ -304,6 +305,131 @@ describe('expense.handler', () => {
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NO_SESSION')
     })
+
+    it('no lista aportes (kind inject) junto a los gastos', () => {
+      const now = new Date().toISOString()
+      db.insert(expenses).values([
+        {
+          id: 'exp-gasto',
+          storeId: 'store-001',
+          shiftId: 'shift-001',
+          kind: 'expense',
+          concept: 'Insumos',
+          amount: 500,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+        {
+          id: 'exp-aporte',
+          storeId: 'store-001',
+          shiftId: 'shift-001',
+          kind: 'inject',
+          concept: 'Aporte',
+          amount: 2000,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+      ]).run()
+
+      const handler = getHandler('ipc:get-shift-expenses')
+      const result = handler(null) as { ok: boolean; data: Array<{ id: string; concept?: string }> }
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0].id).toBe('exp-gasto')
+      expect(result.data[0].concept).toBe('Insumos')
+    })
+
+    it('si el turno solo tiene aportes, la lista de gastos queda vacía', () => {
+      db.insert(expenses).values({
+        id: 'exp-solo-inject',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        kind: 'inject',
+        concept: 'Aporte',
+        amount: 8000,
+        createdAt: new Date().toISOString(),
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:get-shift-expenses')
+      const result = handler(null) as { ok: boolean; data: unknown[] }
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(0)
+    })
+  })
+
+  describe('REGISTER_CASH_INJECT (ipc:register-cash-inject)', () => {
+    it('registra un aporte con kind inject y concepto Aporte', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 2000, notes: 'Cambio inicial' }) as { ok: boolean; data: { id: string } }
+      expect(result.ok).toBe(true)
+      expect(result.data.id).toBeTruthy()
+      expect(mockPushUnsyncedExpenses).toHaveBeenCalledWith('test-license')
+
+      const row = db.select().from(expenses).all()[0]
+      expect(row.kind).toBe('inject')
+      expect(row.concept).toBe('Aporte')
+      expect(row.amount).toBe(2000)
+      expect(row.notes).toBe('Cambio inicial')
+      expect(row.shiftId).toBe('shift-001')
+      expect(row.storeId).toBe('store-001')
+      expect(row.syncedAt).toBeNull()
+    })
+
+    it('rechaza payload inválido — monto no positivo', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 0 }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('rechaza payload inválido — notas demasiado largas', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 100, notes: 'x'.repeat(201) }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('rechaza si no hay sesión activa', () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 1000 }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SESSION')
+    })
+
+    it('rechaza si no hay turno activo', () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 1000 }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SHIFT')
+    })
+
+    it('retorna error si la DB falla', () => {
+      vi.mocked(getDb).mockImplementation(() => { throw new Error('db down') })
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 1000 }) as { ok: boolean; error: string }
+      expect(result.ok).toBe(false)
+      expect(result.error).toBe('Error al registrar el aporte.')
+    })
+
+    it('acepta nota de exactamente 200 caracteres y omite notes vacías', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      const ok200 = handler(null, { amount: 1, notes: 'n'.repeat(200) }) as { ok: boolean }
+      expect(ok200.ok).toBe(true)
+      const noNotes = handler(null, { amount: 2 }) as { ok: boolean; data: { id: string } }
+      expect(noNotes.ok).toBe(true)
+      const rows = db.select().from(expenses).all().filter(e => e.kind === 'inject')
+      expect(rows.some(r => r.notes === 'n'.repeat(200))).toBe(true)
+      expect(rows.some(r => r.amount === 2 && r.notes === null)).toBe(true)
+    })
+
+    it('rechaza monto negativo o ausente', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      expect((handler(null, { amount: -5 }) as { ok: boolean }).ok).toBe(false)
+      expect((handler(null, {}) as { ok: boolean }).ok).toBe(false)
+    })
   })
 
   describe('GET_EXPENSE_CATEGORIES (ipc:get-expense-categories)', () => {
@@ -347,6 +473,25 @@ describe('expense.handler', () => {
       expect(result.data.some(c => c.startsWith('Vale:'))).toBe(false)
       expect(result.data.some(c => c.startsWith('Pago:'))).toBe(false)
       expect(result.data).toContain('Servicios')
+    })
+
+    it('no sugiere el concepto de un aporte (kind inject)', () => {
+      const now = new Date().toISOString()
+      db.insert(expenses).values({
+        id: 'exp-inj-cat',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        kind: 'inject',
+        concept: 'PlataDelAdmin',
+        amount: 9000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const handler = getHandler('ipc:get-expense-categories')
+      const result = handler(null) as { ok: boolean; data: string[] }
+      expect(result.ok).toBe(true)
+      expect(result.data).not.toContain('PlataDelAdmin')
     })
 
     it('retorna error si no hay sesión', () => {

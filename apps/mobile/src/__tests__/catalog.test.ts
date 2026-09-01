@@ -1,9 +1,11 @@
 /**
  * Tests de la lógica de búsqueda del catálogo.
  */
-import { describe, it, expect } from 'vitest'
-import { findByPlu, searchCatalog, mergeCatalogProducts, catalogTypeaheadMatches } from '../lib/catalog'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { findByPlu, searchCatalog, mergeCatalogProducts, catalogTypeaheadMatches, productsFromCatalogSnapshot, persistCatalogSnapshot, startCatalogLiveListener, stopCatalogLiveListener, getCatalog } from '../lib/catalog'
 import type { CatalogProduct } from '../types/pos'
+import { db } from '../lib/db'
+import { onSnapshot } from 'firebase/firestore'
 
 const catalog: CatalogProduct[] = [
   { productId: 'p1', pluNumber: 5, name: 'Vacío', category: 'beef_cut', unit: 'kg', price: 21000 },
@@ -45,9 +47,16 @@ describe('catalog - searchCatalog', () => {
     expect(results[0]?.pluNumber).toBe(250)
   })
 
-  it('retorna múltiples resultados parciales', () => {
-    const results = searchCatalog(catalog, 'a')
-    expect(results.length).toBeGreaterThan(1)
+  it('pone Asado exacto primero entre muchos cortes que contienen la palabra', () => {
+    const manyAsado: CatalogProduct[] = [
+      { productId: 't', pluNumber: 1, name: 'Tapa de asado', category: 'beef_cut', unit: 'kg', price: 1 },
+      { productId: 'a', pluNumber: 99, name: 'Asado', category: 'beef_cut', unit: 'kg', price: 1 },
+      { productId: 'c', pluNumber: 2, name: 'Asado corto', category: 'beef_cut', unit: 'kg', price: 1 },
+      { productId: 'f', pluNumber: 3, name: 'Falda de asado', category: 'beef_cut', unit: 'kg', price: 1 },
+    ]
+    const results = searchCatalog(manyAsado, 'Asado')
+    expect(results[0]?.name).toBe('Asado')
+    expect(results.length).toBe(4)
   })
 })
 
@@ -133,5 +142,69 @@ describe('catalogTypeaheadMatches', () => {
   it('omite productos ya asignados', () => {
     const matches = catalogTypeaheadMatches(catalog, '', ['p1'])
     expect(matches.map(p => p.productId)).toEqual(['p3', 'p2'])
+  })
+})
+
+describe('catalog - snapshot en vivo', () => {
+  beforeEach(async () => {
+    stopCatalogLiveListener()
+    await db.catalog.clear()
+    vi.mocked(onSnapshot).mockReset()
+  })
+
+  afterEach(() => {
+    stopCatalogLiveListener()
+  })
+
+  it('aplica productos del snapshot y omite bajas globales', () => {
+    const ghost: CatalogProduct = {
+      productId: 'gone',
+      pluNumber: 999,
+      name: 'Prueba 999',
+      category: 'other',
+      unit: 'unit',
+      price: 1,
+    }
+    const applied = productsFromCatalogSnapshot({
+      products: [...catalog, ghost],
+      deletedProductIds: ['gone'],
+      updatedAt: '2026-08-20T00:00:00.000Z',
+    })
+    expect(applied.map(p => p.productId)).toEqual(['p1', 'p2', 'p3'])
+    expect(applied.find(p => p.productId === 'gone')).toBeUndefined()
+  })
+
+  it('actualiza el cache IndexedDB', async () => {
+    await persistCatalogSnapshot('store-1', {
+      products: catalog,
+      updatedAt: '2026-08-20T00:00:00.000Z',
+      deletedProductIds: [],
+    })
+    const cached = await getCatalog('store-1')
+    expect(cached).toHaveLength(3)
+    expect(cached.find(p => p.productId === 'p3')?.name).toBe('Asado')
+  })
+
+  it('baja global desaparece del cache al persistir', async () => {
+    await persistCatalogSnapshot('store-1', {
+      products: catalog,
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    })
+    await persistCatalogSnapshot('store-1', {
+      products: catalog,
+      updatedAt: '2026-08-20T00:00:00.000Z',
+      deletedProductIds: ['p1'],
+    })
+    const cached = await getCatalog('store-1')
+    expect(cached.map(p => p.productId)).toEqual(['p2', 'p3'])
+  })
+
+  it('el listener se puede detener', () => {
+    const unsub = vi.fn()
+    vi.mocked(onSnapshot).mockReturnValue(unsub)
+    startCatalogLiveListener('store-1', () => {})
+    expect(onSnapshot).toHaveBeenCalled()
+    stopCatalogLiveListener()
+    expect(unsub).toHaveBeenCalledTimes(1)
   })
 })

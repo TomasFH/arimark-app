@@ -8,9 +8,11 @@
  *  - Precio/nombre más nuevo gana por ítem.
  *  - Baja global (soft-delete) se propaga vía deletedProductIds.
  *  - Visibilidad por local (`available`) viaja en cada ítem del catálogo de ese local.
- * Después del merge se republica el union para que el resto reciba lo local-only.
+ * Después del merge one-shot se republica el union. El listener en vivo
+ * solo republica si el snapshot está incompleto (altas locales con precio
+ * que el remoto no trae); un eco de nuestra publicación no vuelve a publicar.
  */
-import { getFirestore, doc, getDoc } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { and, eq, isNull, ne } from 'drizzle-orm'
@@ -19,6 +21,14 @@ import { products, productPrices, storeProducts, stores } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { getActiveSession } from '../activeSession'
 import { publishCatalog } from './catalogPublish'
+import { notifyRenderer } from './notifyRenderer'
+import { IPC } from '../ipc/channels'
+
+/**
+ * Listener en vivo (BLOQUE I-A). El renderer recarga lista/POS con
+ * `useCatalogSyncReload` (`apps/desktop/src/lib/useCatalogSyncReload.ts`).
+ * AdminScreen (otro agente / I-B): usar ese hook; no mutar ítems ya en el ticket.
+ */
 
 interface CatalogProduct {
   productId: string
@@ -105,20 +115,22 @@ function applyRemoteIdentity(tx: DbTx, p: CatalogProduct, now: string): void {
     .run()
 }
 
-function applyRemoteAvailability(tx: DbTx, productId: string, storeId: string, available: boolean): void {
+function applyRemoteAvailability(tx: DbTx, productId: string, storeId: string, available: boolean): boolean {
   const existing = tx
-    .select({ productId: storeProducts.productId })
+    .select({ productId: storeProducts.productId, available: storeProducts.available })
     .from(storeProducts)
     .where(and(eq(storeProducts.storeId, storeId), eq(storeProducts.productId, productId)))
     .get()
   if (existing) {
+    if (Boolean(existing.available) === Boolean(available)) return false
     tx.update(storeProducts)
       .set({ available })
       .where(and(eq(storeProducts.storeId, storeId), eq(storeProducts.productId, productId)))
       .run()
-  } else {
-    tx.insert(storeProducts).values({ storeId, productId, available }).run()
+    return true
   }
+  tx.insert(storeProducts).values({ storeId, productId, available }).run()
+  return true
 }
 
 function applyRemoteProduct(
@@ -180,30 +192,24 @@ function hasPricedLocalCatalog(storeId: string): boolean {
   return active.length > 0
 }
 
+function parseRemoteCatalogData(data: unknown): RemoteCatalog {
+  const raw = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+  const productsList = Array.isArray(raw['products']) ? (raw['products'] as CatalogProduct[]) : []
+  const deletedRaw = raw['deletedProductIds']
+  const deletedProductIds = Array.isArray(deletedRaw)
+    ? deletedRaw.filter((id): id is string => typeof id === 'string')
+    : []
+  const updatedAt = typeof raw['updatedAt'] === 'string' ? raw['updatedAt'] : null
+  return { products: productsList, updatedAt, deletedProductIds }
+}
+
 async function readRemoteCatalog(licenseKey: string, storeId: string): Promise<RemoteCatalog | null> {
   const app = getFirebaseApp()
   const firestore = getFirestore(app)
   const catalogRef = doc(firestore, 'licenses', licenseKey, 'catalog', storeId)
   const snap = await getDoc(catalogRef)
   if (!snap.exists()) return null
-
-  const data = snap.data() as {
-    products?: CatalogProduct[]
-    updatedAt?: string
-    deletedProductIds?: string[]
-  }
-  if (!Array.isArray(data.products) || data.products.length === 0) {
-    return {
-      products: [],
-      updatedAt: data.updatedAt ?? null,
-      deletedProductIds: Array.isArray(data.deletedProductIds) ? data.deletedProductIds : [],
-    }
-  }
-  return {
-    products: data.products,
-    updatedAt: data.updatedAt ?? null,
-    deletedProductIds: Array.isArray(data.deletedProductIds) ? data.deletedProductIds : [],
-  }
+  return parseRemoteCatalogData(snap.data())
 }
 
 /**
@@ -251,13 +257,14 @@ function mergeRemoteIntoLocal(
   storeId: string,
   remote: RemoteCatalog,
   userId: string,
-): { applied: number; keptLocal: number; deleted: number } {
+): { applied: number; keptLocal: number; deleted: number; availabilityChanged: number } {
   const db = getDb()
   const now = new Date().toISOString()
   const remoteIds = new Set(remote.products.map(p => p.productId))
   let applied = 0
   let keptLocal = 0
   let deleted = 0
+  let availabilityChanged = 0
 
   db.transaction(tx => {
     const t = tx as unknown as DbTx
@@ -292,7 +299,9 @@ function mergeRemoteIntoLocal(
 
       if (identityFromRemote) applyRemoteIdentity(t, p, now)
       if (priceFromRemote) applyRemotePrice(t, p.productId, storeId, p.price, userId, now)
-      if (p.available !== undefined) applyRemoteAvailability(t, p.productId, storeId, p.available)
+      if (p.available !== undefined && applyRemoteAvailability(t, p.productId, storeId, p.available)) {
+        availabilityChanged += 1
+      }
 
       if (identityFromRemote || priceFromRemote) applied += 1
       else keptLocal += 1
@@ -310,7 +319,67 @@ function mergeRemoteIntoLocal(
     }
   })
 
-  return { applied, keptLocal, deleted }
+  return { applied, keptLocal, deleted, availabilityChanged }
+}
+
+/** Productos locales con precio vigente que el snapshot no trae y no marca como baja. */
+function hasLocalOnlyPricedProducts(storeId: string, remote: RemoteCatalog): boolean {
+  const remoteIds = new Set(remote.products.map(p => p.productId))
+  const deleted = new Set(remote.deletedProductIds)
+  const db = getDb()
+  const priced = db
+    .select({ productId: productPrices.productId })
+    .from(productPrices)
+    .where(and(eq(productPrices.storeId, storeId), isNull(productPrices.validTo)))
+    .all()
+
+  for (const row of priced) {
+    if (remoteIds.has(row.productId) || deleted.has(row.productId)) continue
+    const prod = db
+      .select({ id: products.id, active: products.active })
+      .from(products)
+      .where(eq(products.id, row.productId))
+      .get()
+    if (prod?.active) return true
+  }
+  return false
+}
+
+interface CatalogDocSnap {
+  exists: () => boolean
+  data: () => unknown
+}
+
+async function applyLiveCatalogSnapshot(
+  licenseKey: string,
+  storeId: string,
+  snap: CatalogDocSnap,
+): Promise<void> {
+  const session = getActiveSession()
+  if (!session) {
+    log.warn('[catalogSync] Sin sesión — snapshot de catálogo omitido', { storeId })
+    return
+  }
+
+  const remote = snap.exists()
+    ? parseRemoteCatalogData(snap.data())
+    : { products: [], updatedAt: null, deletedProductIds: [] }
+
+  const stats = mergeRemoteIntoLocal(storeId, remote, session.userId)
+  const incomplete = hasLocalOnlyPricedProducts(storeId, remote)
+
+  // Anti-loop: republicar SOLO si el snapshot no trae altas locales (union incompleto).
+  // Un eco de nuestra propia publicación ya es el union → applied/deleted 0 y no incompleto.
+  if (incomplete) {
+    log.info('[catalogSync] Snapshot incompleto — republicar union', { storeId, ...stats })
+    await publishCatalog(licenseKey, storeId)
+  } else {
+    log.info('[catalogSync] Snapshot aplicado sin republicar', { storeId, ...stats, remoteCount: remote.products.length })
+  }
+
+  if (stats.applied > 0 || stats.deleted > 0 || stats.availabilityChanged > 0) {
+    notifyRenderer(IPC.CATALOG_SYNC_UPDATED, { storeId })
+  }
 }
 
 /**
@@ -375,4 +444,103 @@ export async function syncAllStoreCatalogs(licenseKey: string): Promise<void> {
   for (const row of rows) {
     await syncCatalogWithFirestore(licenseKey, row.id)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Listener en vivo (BLOQUE I-A) — 1 doc por local, no 1 por producto
+// ---------------------------------------------------------------------------
+
+const catalogUnsubs: Unsubscribe[] = []
+let catalogListenerTenant: string | null = null
+let catalogListenerStoreKey = ''
+
+function catalogStoreKey(ids: string[]): string {
+  return [...ids].sort().join(',')
+}
+
+function resolveCatalogListenerStoreIds(): string[] {
+  const session = getActiveSession()
+  if (session?.role === 'cashier' && session.storeId) {
+    return [session.storeId]
+  }
+  const db = getDb()
+  return db
+    .select({ id: stores.id })
+    .from(stores)
+    .where(isNull(stores.archivedAt))
+    .all()
+    .map(r => r.id)
+}
+
+/**
+ * onSnapshot de `licenses/{tenant}/catalog/{storeId}`.
+ * Cajera: el local de sesión. Admin o sin store: todos los locales activos.
+ * Idempotente: mismo tenant + mismos locales → no duplica.
+ */
+export function startCatalogSyncListener(tenantId: string): void {
+  if (!isFirebaseAvailable()) {
+    log.info('[catalogSync] Firebase no disponible — listener de catálogo omitido')
+    return
+  }
+
+  const storeIds = resolveCatalogListenerStoreIds()
+  const storeKey = catalogStoreKey(storeIds)
+  if (catalogUnsubs.length > 0 && catalogListenerTenant === tenantId && catalogListenerStoreKey === storeKey) {
+    log.info('[catalogSync] Listener de catálogo ya activo — omitido')
+    return
+  }
+
+  stopCatalogSyncListener()
+
+  if (storeIds.length === 0) {
+    log.info('[catalogSync] Sin locales para listener de catálogo')
+    return
+  }
+
+  try {
+    const app = getFirebaseApp()
+    const firestore = getFirestore(app)
+
+    for (const storeId of storeIds) {
+      const catalogRef = doc(firestore, 'licenses', tenantId, 'catalog', storeId)
+      const unsub = onSnapshot(
+        catalogRef,
+        snapshot => applyLiveCatalogSnapshot(tenantId, storeId, snapshot).catch(err => {
+          log.error('[catalogSync] Error aplicando snapshot de catálogo', { storeId, err })
+        }),
+        err => {
+          log.error('[catalogSync] Error en listener de catálogo', { storeId, err })
+        },
+      )
+      catalogUnsubs.push(unsub)
+    }
+
+    catalogListenerTenant = tenantId
+    catalogListenerStoreKey = storeKey
+    log.info('[catalogSync] Listener de catálogo iniciado', { tenantId, storeIds })
+  } catch (err) {
+    stopCatalogSyncListener()
+    log.error('[catalogSync] No se pudo iniciar el listener de catálogo', err)
+  }
+}
+
+export function stopCatalogSyncListener(): void {
+  for (const unsub of catalogUnsubs) {
+    try {
+      unsub()
+    } catch (err) {
+      log.warn('[catalogSync] Error al detener listener de catálogo', err)
+    }
+  }
+  catalogUnsubs.length = 0
+  catalogListenerTenant = null
+  catalogListenerStoreKey = ''
+  log.info('[catalogSync] Listener de catálogo detenido')
+}
+
+/** Sync one-shot existente + arranque del listener. */
+export async function ensureCatalogSynced(tenantId: string, storeId?: string): Promise<void> {
+  if (storeId) await syncCatalogWithFirestore(tenantId, storeId)
+  else await syncAllStoreCatalogs(tenantId)
+  startCatalogSyncListener(tenantId)
 }

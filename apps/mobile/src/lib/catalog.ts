@@ -7,12 +7,40 @@
  *
  * Ruta en Firestore: licenses/{licenseKey}/catalog/{storeId}
  */
-import { getFirestore, doc, getDoc, getDocs, collection } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, getDocs, collection, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import { db } from './db'
 import type { CatalogProduct } from '../types/pos'
+import { searchProductsByQuery } from '@carniceria/shared'
 
 const firestore = getFirestore(firebaseApp)
+
+export interface CatalogSnapshotData {
+  products?: unknown
+  updatedAt?: unknown
+  deletedProductIds?: unknown
+}
+
+/** Aplica un snapshot de catálogo (sin Firebase) para tests y para el listener. */
+export function productsFromCatalogSnapshot(data: CatalogSnapshotData): CatalogProduct[] {
+  const deletedIds = new Set(
+    Array.isArray(data.deletedProductIds)
+      ? data.deletedProductIds.filter((id): id is string => typeof id === 'string')
+      : [],
+  )
+  const raw = Array.isArray(data.products) ? data.products : []
+  return (raw as CatalogProduct[]).filter(p => p?.productId && !deletedIds.has(p.productId))
+}
+
+export async function persistCatalogSnapshot(
+  storeId: string,
+  data: CatalogSnapshotData,
+): Promise<CatalogProduct[]> {
+  const products = productsFromCatalogSnapshot(data)
+  const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString()
+  await db.catalog.put({ storeId, products, updatedAt })
+  return products
+}
 
 /**
  * Descarga el catálogo del local desde Firestore y lo guarda en IndexedDB.
@@ -23,18 +51,7 @@ export async function syncCatalog(storeId: string): Promise<void> {
     const catalogRef = doc(firestore, 'licenses', LICENSE_KEY, 'catalog', storeId)
     const snap = await getDoc(catalogRef)
     if (!snap.exists()) return
-
-    const data = snap.data()
-    const deletedIds = new Set(
-      Array.isArray(data['deletedProductIds']) ? (data['deletedProductIds'] as string[]) : [],
-    )
-    const products = ((data['products'] ?? []) as CatalogProduct[])
-      .filter(p => p?.productId && !deletedIds.has(p.productId))
-    await db.catalog.put({
-      storeId,
-      products,
-      updatedAt: data['updatedAt'] as string,
-    })
+    await persistCatalogSnapshot(storeId, snap.data() as CatalogSnapshotData)
   } catch {
     // Sin internet o error transitorio — el cache sigue siendo válido.
   }
@@ -54,24 +71,15 @@ export function findByPlu(
   return catalog.find(p => p.pluNumber === pluNumber)
 }
 
-/** Búsqueda por nombre (normaliza tildes y mayúsculas). */
+/** Búsqueda por nombre (normaliza tildes y mayúsculas) o PLU. Exacto primero. */
 export function searchCatalog(
   catalog: CatalogProduct[],
   query: string
 ): CatalogProduct[] {
-  const q = normalize(query)
-  return catalog.filter(
-    p =>
-      normalize(p.name).includes(q) ||
-      String(p.pluNumber).startsWith(q)
-  )
-}
-
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  return searchProductsByQuery(catalog, query, {
+    nameOf: p => p.name,
+    pluOf: p => p.pluNumber,
+  })
 }
 
 export function sortCatalogByPlu(products: CatalogProduct[]): CatalogProduct[] {
@@ -147,4 +155,52 @@ export async function fetchMergedCatalogFromFirestore(): Promise<CatalogProduct[
     }
   }
   return mergeCatalogProducts(groups, deletedIds)
+}
+
+let catalogLiveUnsub: Unsubscribe | null = null
+let catalogLiveStoreId: string | null = null
+
+/**
+ * Listener en vivo del doc `licenses/{LICENSE_KEY}/catalog/{storeId}`.
+ * Offline: el cache IndexedDB sigue; los errores se loguean.
+ */
+export function startCatalogLiveListener(storeId: string, onUpdate: () => void): void {
+  stopCatalogLiveListener()
+  catalogLiveStoreId = storeId
+
+  try {
+    const catalogRef = doc(firestore, 'licenses', LICENSE_KEY, 'catalog', storeId)
+    catalogLiveUnsub = onSnapshot(
+      catalogRef,
+      snapshot => {
+        void (async () => {
+          try {
+            if (!snapshot.exists()) return
+            await persistCatalogSnapshot(storeId, snapshot.data() as CatalogSnapshotData)
+            if (catalogLiveStoreId === storeId) onUpdate()
+          } catch (err) {
+            console.error('[catalog] Error aplicando snapshot', err)
+          }
+        })()
+      },
+      err => {
+        console.error('[catalog] Error en listener de catálogo', err)
+      },
+    )
+  } catch (err) {
+    catalogLiveUnsub = null
+    catalogLiveStoreId = null
+    console.error('[catalog] No se pudo iniciar el listener de catálogo', err)
+  }
+}
+
+export function stopCatalogLiveListener(): void {
+  catalogLiveStoreId = null
+  if (!catalogLiveUnsub) return
+  try {
+    catalogLiveUnsub()
+  } catch (err) {
+    console.error('[catalog] Error al detener listener de catálogo', err)
+  }
+  catalogLiveUnsub = null
 }

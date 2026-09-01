@@ -33,6 +33,7 @@ import {
   type AdminUser,
   type Employee,
   type EmployeeVale,
+  type StoreDoc,
 } from '../../lib/adminFirestore'
 import { parseNumericInput, formatNumericInputValue } from '../../lib/numericInput'
 import { buildStaffRoster, type StaffKind, type StaffMember } from '../../lib/staffRoster'
@@ -41,9 +42,10 @@ import type { LocalProfile } from '../../types/pos'
 interface Props {
   onBack: () => void
   profile: LocalProfile
+  stores: StoreDoc[]
 }
 
-export function StaffScreen({ onBack, profile }: Props) {
+export function StaffScreen({ onBack, profile, stores }: Props) {
   useBackLayer(true, onBack)
   const online = useOnlineStatus()
   const [cashiers, setCashiers] = useState<AdminUser[]>([])
@@ -59,25 +61,39 @@ export function StaffScreen({ onBack, profile }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const [cashierList, empList] = await Promise.all([
+      const [cashierList, empListRaw] = await Promise.all([
         fetchCashierUsers(),
         fetchEmployees(),
       ])
-      const names = new Set(empList.map(e => e.name.trim().toLowerCase()))
-      let createdAny = false
+      let empList = empListRaw
+      let mutated = false
       for (const cashier of cashierList) {
         const name = cashier.displayName.trim()
-        if (!name || names.has(name.toLowerCase())) continue
-        try {
-          await createEmployee({ name, weeklyWage: 0, createdBy: profile.uid, kind: 'cashier' })
-          names.add(name.toLowerCase())
-          createdAny = true
-        } catch {
-          /* nombre en conflicto u offline */
+        if (!name) continue
+        const existing = empList.find(
+          e => e.kind === 'cashier' && e.name.trim().toLowerCase() === name.toLowerCase(),
+        )
+        if (!existing) {
+          if (!cashier.active) continue
+          try {
+            await createEmployee({ name, weeklyWage: 0, createdBy: profile.uid, kind: 'cashier' })
+            mutated = true
+          } catch {
+            /* nombre en conflicto u offline */
+          }
+          continue
+        }
+        if (cashier.active && existing.archivedAt) {
+          try {
+            await unarchiveEmployee(existing.id)
+            mutated = true
+          } catch {
+            /* offline */
+          }
         }
       }
       setCashiers(cashierList)
-      setEmployees(createdAny ? await fetchEmployees() : empList)
+      setEmployees(mutated ? await fetchEmployees() : empList)
     } catch {
       setError('No se pudieron cargar los empleados.')
     } finally {
@@ -98,6 +114,7 @@ export function StaffScreen({ onBack, profile }: Props) {
         weeklyWage: e.weeklyWage,
         active: !e.archivedAt,
         kind: e.kind,
+        homeStoreId: e.homeStoreId,
       })),
     ),
     [cashiers, employees],
@@ -175,6 +192,7 @@ export function StaffScreen({ onBack, profile }: Props) {
               hint="Acceso a la app · cobran de la caja el fin de semana"
               empty={showArchived ? 'No hay cajeras inactivas.' : 'No hay cajeras.'}
               members={visibleCashiers}
+              stores={stores}
               onSelect={setSelected}
             />
             <StaffSection
@@ -182,6 +200,7 @@ export function StaffScreen({ onBack, profile }: Props) {
               hint="Registro para sueldo y vales · cobran de la caja el fin de semana"
               empty={showArchived ? 'No hay carniceros eliminados.' : 'No hay carniceros.'}
               members={visibleButchers}
+              stores={stores}
               onSelect={setSelected}
             />
           </div>
@@ -192,6 +211,7 @@ export function StaffScreen({ onBack, profile }: Props) {
         <EmployeeDetailModal
           member={selected}
           createdBy={profile.uid}
+          stores={stores}
           onClose={() => setSelected(null)}
           onChanged={async () => {
             await load()
@@ -203,6 +223,7 @@ export function StaffScreen({ onBack, profile }: Props) {
       {showCreate && (
         <CreateEmployeeModal
           createdBy={profile.uid}
+          stores={stores}
           onClose={() => setShowCreate(false)}
           onCreate={async () => {
             setShowCreate(false)
@@ -219,12 +240,14 @@ function StaffSection({
   hint,
   empty,
   members,
+  stores,
   onSelect,
 }: {
   title: string
   hint: string
   empty: string
   members: StaffMember[]
+  stores: StoreDoc[]
   onSelect: (m: StaffMember) => void
 }) {
   return (
@@ -235,7 +258,11 @@ function StaffSection({
         <p className="mt-3 text-sm text-zinc-600">{empty}</p>
       ) : (
         <div className="mt-3 flex flex-col gap-2">
-          {members.map(m => (
+          {members.map(m => {
+            const homeLabel = m.homeStoreId
+              ? (stores.find(s => s.id === m.homeStoreId)?.name ?? 'Local')
+              : null
+            return (
             <button
               key={m.key}
               type="button"
@@ -252,6 +279,11 @@ function StaffSection({
               <p className="mt-1 text-xs tabular-nums text-zinc-400">
                 {formatMoney(m.weeklyWage)}/semana
               </p>
+              {homeLabel && (
+                <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={homeLabel}>
+                  Habitual: {homeLabel}
+                </p>
+              )}
               {m.email && (
                 <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={m.email}>
                   {m.email}
@@ -263,7 +295,8 @@ function StaffSection({
                 </p>
               )}
             </button>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>
@@ -273,11 +306,13 @@ function StaffSection({
 function EmployeeDetailModal({
   member,
   createdBy,
+  stores,
   onClose,
   onChanged,
 }: {
   member: StaffMember
   createdBy: string
+  stores: StoreDoc[]
   onClose: () => void
   onChanged: () => Promise<void>
 }) {
@@ -286,6 +321,7 @@ function EmployeeDetailModal({
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(member.name)
   const [editWage, setEditWage] = useState(formatNumericInputValue(String(member.weeklyWage)))
+  const [editHome, setEditHome] = useState(member.homeStoreId ?? '')
   const [saving, setSaving] = useState(false)
   const [confirm, setConfirm] = useState<'toggle' | 'archive' | 'restore' | null>(null)
 
@@ -317,9 +353,19 @@ function EmployeeDetailModal({
       await updateUserDisplayName(member.cashierUid, name)
     }
     if (member.employeeId) {
-      await updateEmployee(member.employeeId, { name, weeklyWage })
+      await updateEmployee(member.employeeId, {
+        name,
+        weeklyWage,
+        homeStoreId: editHome || null,
+      })
     } else {
-      await createEmployee({ name, weeklyWage, createdBy, kind: 'cashier' })
+      await createEmployee({
+        name,
+        weeklyWage,
+        createdBy,
+        kind: 'cashier',
+        homeStoreId: editHome || null,
+      })
     }
     setSaving(false)
     await onChanged()
@@ -360,6 +406,7 @@ function EmployeeDetailModal({
               value={editWage}
               onChange={setEditWage}
             />
+            <HomeStoreField stores={stores} value={editHome} onChange={setEditHome} />
             <div className="flex gap-2">
               <Btn className="flex-1" onClick={() => void handleSaveEdit()} loading={saving}>
                 Guardar
@@ -371,6 +418,7 @@ function EmployeeDetailModal({
                   setEditing(false)
                   setEditName(member.name)
                   setEditWage(formatNumericInputValue(String(member.weeklyWage)))
+                  setEditHome(member.homeStoreId ?? '')
                 }}
               >
                 Cancelar
@@ -385,6 +433,11 @@ function EmployeeDetailModal({
                 {formatMoney(member.weeklyWage)}/semana
               </span>
             </p>
+            {member.homeStoreId && (
+              <p className="mt-1 truncate text-sm text-zinc-400" title={stores.find(s => s.id === member.homeStoreId)?.name ?? 'Local'}>
+                Habitual: {stores.find(s => s.id === member.homeStoreId)?.name ?? 'Local'}
+              </p>
+            )}
             <button
               type="button"
               onClick={() => setEditing(true)}
@@ -481,16 +534,19 @@ function EmployeeDetailModal({
 
 function CreateEmployeeModal({
   createdBy,
+  stores,
   onClose,
   onCreate,
 }: {
   createdBy: string
+  stores: StoreDoc[]
   onClose: () => void
   onCreate: () => Promise<void>
 }) {
   const [kind, setKind] = useState<StaffKind | null>(null)
   const [name, setName] = useState('')
   const [wageInput, setWageInput] = useState('')
+  const [homeStoreId, setHomeStoreId] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -509,6 +565,7 @@ function CreateEmployeeModal({
         weeklyWage: parseNumericInput(wageInput) ?? 0,
         createdBy,
         kind,
+        homeStoreId: homeStoreId || null,
       })
       await onCreate()
     } catch {
@@ -561,6 +618,7 @@ function CreateEmployeeModal({
             onChange={setWageInput}
             placeholder="0"
           />
+          <HomeStoreField stores={stores} value={homeStoreId} onChange={setHomeStoreId} />
           {err && (
             <p className="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/80">
               {err}
@@ -577,5 +635,34 @@ function CreateEmployeeModal({
         </form>
       )}
     </Modal>
+  )
+}
+
+function HomeStoreField({
+  stores,
+  value,
+  onChange,
+}: {
+  stores: StoreDoc[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm text-zinc-300">Local habitual</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white"
+      >
+        <option value="">Ambos / sin asignar</option>
+        {stores.filter(s => !s.archivedAt).map(s => (
+          <option key={s.id} value={s.id}>{s.name}</option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Si no asignás, aparece en asistencia y vales de todos los locales.
+      </p>
+    </div>
   )
 }

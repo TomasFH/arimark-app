@@ -307,37 +307,34 @@ Archivos clave a leer antes de empezar cualquier tarea:
 - **Rol carnicero:** no existe; conteo de stock lo usan admin/cajera de momento.
 - **Pago a empleado (cajera):** Menú → **Liquidación / pago de sueldo**. Neto = sueldo − vales (no monto libre). Gasto `Salario: {nombre}`. Nota opcional. Reemplaza el gasto suelto `Pago: {nombre}`.
 - **Tickets balanza / barcode “emergencia”:** el bloqueo de AGENTS.md (decodificar ticket KRETZ) **no es prioritario**. En operación real, si el lector no trae datos, ya existe **carga manual** (producto + kg/precio). Eso cubre el caso del local.
-- **App móvil ≠ port del desktop:** POS de **emergencia** (seguir vendiendo y no perder la plata). Recorte: `PLAN.md` **FEAT-MOB-EMERGENCY-01**. Paridad total con PC no conviene: sería un segundo sistema de caja + DT-06.
+- **App móvil ≠ port completo del desktop:** el POS es de **emergencia** (sin conteo, cierre con arqueo, saldar dedicado ni deuda cross-local). Sí tiene cobro, vuelto, fiado, gasto **con proveedor**, ingreso, vales, liquidación de la semana y historial de cierres con etiqueta Móvil. Recorte: `PLAN.md` **FEAT-MOB-EMERGENCY-01**. Unificar caja en vivo = DT-06.
 - **Locales de cajera (`authorizedStores`):** editable en hub → Gestión de cajeras (crear + botón Locales). En móvil, el selector de local usa esa lista; con 1 solo local salta directo a abrir turno.
 - **Catálogo ago 2026:** fuente `apps/desktop/scripts/catalog-2026-08.json`; PDF `LISTA_PRECIOS.pdf`. Wipe total (pruebas): `pnpm --filter desktop db:wipe:prod` (conserva locales, borra ventas/fiados/etc. y deja solo catálogo nuevo).
 
 ---
 
-## BLOQUE H — Local habitual de carniceros / cajeras (PENDIENTE — no implementar aún)
+## BLOQUE H — Local habitual de carniceros / cajeras ✅ HECHA (2026-08-28)
 
-> **Estado:** Idea acordada (ago 2026). **No implementar** hasta decidir prioridad vs. otras features.
-> Motivo del aplazamiento: no sumar features nuevas antes del testeo en carnicería.
+> **Estado:** Completada. Checklist de prueba: `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md`.
 
 ### Problema
-Hay carniceros (y cajeras) que suelen trabajar en un local, pero a veces van al otro. Hoy la lista de asistencia/vales muestra todos los activos en ambos locales. Se quiere filtrar sin perder el caso excepcional.
+Hay carniceros (y cajeras) que suelen trabajar en un local, pero a veces van al otro. La lista de asistencia/vales no debe mostrar a todo el mundo en ambos locales, sin perder el caso excepcional.
 
-### Invariante de sync (ya vigente — no romper)
+### Invariante de sync (no se rompió)
 - El **maestro `employees` es único y compartido** entre locales (Firestore + SQLite cache).
 - Un carnicero es **el mismo perfil** en A y en B (mismo `id`).
 - Asistencia, vales y salarios semanales se acumulan por `employeeId`, **no por local**.
-- Si el carnicero 4 saca un vale en A y otro en B la misma semana, el resumen semanal / pago de salario debe ver **la suma**.
-- Las cajeras ya eligen local al login; su identidad Auth es única. Este bloque no inventa un segundo perfil por local.
+- Las cajeras ya eligen local al login; su identidad Auth es única.
 
-### Diseño acordado (UI)
-1. Campo opcional en empleado: **local habitual** (`homeStoreId`: A | B | null = ambos).
-2. Lista de Asistencia en el local actual:
-   - Muestra: habitual = este local, sin asignar, o ya marcados hoy **en este** local.
-   - Oculta: quien ya tiene asistencia **hoy en otro** local.
-   - Botón **"Agregar visitante"** → carniceros de otro habitual aún no marcados hoy en ningún lado.
-3. Vales: mismo filtro por habitual + visitante (sin la regla “ya marcado en otro local”; un vale no implica asistencia).
-4. Admin Empleados: asignar/editar local habitual al crear/editar.
+### Qué se hizo
+- Campo opcional `employees.homeStoreId` (A | B | null = ambos). Migración `0034_employee_home_store`.
+- `attendance.storeId` para saber si la marca de hoy es de este local o del otro (unique sigue `(employeeId, date)`).
+- Asistencia (PC): habitual de este local, sin asignar, o ya marcados hoy **en este** local. Oculta quien ya marcó hoy en otro. **Agregar visitante**.
+- Vales (PC + celu): mismo filtro de habitual + visitante, **sin** la regla de asistencia.
+- Admin Personal: asignar/editar habitual al crear/editar.
+- Sync Firestore de `homeStoreId` y `storeId` de asistencia.
 
-### No hacer
+### No hacer (sigue vigente)
 - Inferir local por historial automático.
 - Duplicar empleados por local.
 - Bloquear vales/asistencia de forma dura por local.
@@ -358,75 +355,28 @@ Hay carniceros (y cajeras) que suelen trabajar en un local, pero a veces van al 
 
 ---
 
-## BLOQUE I — Catálogo en vivo + edición por cajera (PENDIENTE — no implementar aún)
+## BLOQUE I — Catálogo en vivo + edición por cajera ✅ HECHA (2026-08-30)
 
-> **Estado:** Decisiones 15–16 ago 2026. **No implementar** hasta que el desarrollador lo pida.
-> El **merge por ítem** del catálogo ya está en código (`catalogSync.ts`). Falta el **listener en vivo** y, aparte, la edición por cajera (más abajo).
+> **Estado:** Completada. Checklist de prueba: `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (reemplaza la ola de cierre/habitual, ya cerrada).
 
-### Problema
-Hoy el catálogo se publica a Firestore al guardar (con merge), pero el resto de PCs y el celular **no reciben el cambio en vivo** (hace falta ↺ o re-login). Empleados/locales/pedidos sí tienen `onSnapshot`. Las cajeras no tienen pantalla de catálogo.
+El merge por ítem ya existía (`catalogSync.ts`). Se agregó el **listener en vivo** (I-A) y la **edición por cajera en PC** (I-B).
 
-### A — Listener en vivo (prioridad; se puede hacer sin la parte B)
+### I-A — Listener en vivo
+- Desktop: `onSnapshot` de `licenses/{tenant}/catalog/{storeId}` (1 doc por local). Merge; republica el union **solo** si el snapshot está incompleto (anti-loop). IPC `CATALOG_SYNC_UPDATED` recarga POS/lista/vales sin mutar el ticket.
+- Celu: `onSnapshot` del mismo doc mientras hay local de POS. Cache IndexedDB. Sin panel de edición.
+- El ↺ sigue como respaldo.
 
-**Decisión (16 ago 2026):** el catálogo debe actualizarse en otras PCs/celular **igual que un empleado** (sin depender del ↺), quedando en el **plan gratis de Firebase (Spark)**. Costo objetivo: **$0**. No activar Blaze “por las dudas”.
+### I-B — Edición por cajera (PC)
+- Menú caja → **Catálogo** (distinto de Lista de productos). Carrito se conserva.
+- Cajera: crear ficha, editar nombre/PLU/categoría/unidad, precio y “quitar/mostrar” **solo su local**. Retiro global / KRETZ / versiones = solo admin.
+- Auditoría SQLite `catalog_audit_events` (migración `0035`).
 
-**Comportamiento**
-- `onSnapshot` del doc `licenses/{tenant}/catalog/{storeId}` (un documento por local, no una lectura por producto).
-- Al llegar un cambio: **merge** con SQLite (altas se unen, gana el dato más nuevo por ítem, bajas globales se propagan) y **republicar** el union si hace falta — **no** pisar con un snapshot incompleto.
-- Aviso IPC al renderer: POS, lista de productos y carga manual **releen** el catálogo.
-- **POS:** no cambiar precio/nombre de ítems **ya en el ticket**. Solo lista / altas nuevas / siguiente escaneo.
-- Celular: el mismo doc; al reconectar o con listener si hay red. Sigue sin **panel de edición** de catálogo (alta/baja/precio de lista). El typeahead de Clientes especiales **sí** usa el catálogo publicado completo (union por local, orden PLU); eso no es I-A ni 4.3.
-- El ↺ queda como respaldo (sin internet, listener caído, o para forzar).
+**No se hizo (sigue vigente):** edición de catálogo en el celu; FEAT-CAT-03 backup masivo; sync automático a la KRETZ; Blaze; DT-07/DT-08.
 
-**Cuota — no preocuparse de antemano; medir en jornada real**
-Cuando la app esté en uso real (varios días de caja), el desarrollador mira el consumo. Un día típico de esta escala debería ir por **cientos / pocos miles** de lecturas, lejos de las **50.000/día** del Spark. Si un día se llega cerca de ese techo, ahí sí hablar; Spark **no cobra**, corta el sync hasta el día siguiente.
-
-**Cómo ver el consumo (recordárselo al desarrollador al implementar / al primer deploy real):**
-1. [Firebase Console](https://console.firebase.google.com) → proyecto `arimark-7f418` (o el que esté en uso).
-2. Menú **Usage and billing** (o el proyecto → **Usage**). Ahí está el resumen del día: lecturas / escrituras Firestore vs cupo gratis.
-3. Más fino: **Build → Firestore Database → pestaña Usage** (gráfica de reads/writes/deletes por día).
-4. Qué mirar: lecturas de **un día de caja abierto** (no un domingo de pruebas). Si estás en ~1–5 % de 50.000, ignorar. Si un día saltás a decenas de miles, revisar listeners de colecciones grandes (no el catálogo: es 1 doc).
-5. Confirmar que el plan siga en **Spark (no Blaze)** en Configuración del proyecto → **Uso y facturación**. Si aparece Blaze y hay tarjeta, ahí sí puede haber cargo al pasarse del cupo.
-
-**No hacer en A:** activar facturación; listener de ventas/historial completo; sync automático a la KRETZ.
-
-### B — Edición por cajera (mismo bloque, no mezclar con A)
-
-Hoy solo el admin tiene pantalla de catálogo. Las cajeras no pueden ajustar precios ni productos si el admin está ocupado.
-
-**Fuente de verdad tras un guardado confirmado:** se publica (con merge) el local afectado. El resto lo recibe por el listener de A.
-
-**Quién edita**
-- **Admin y cajera** pueden crear productos, editar nombre/categoría/unidad/PLU, y cambiar precios.
-- Edición de catálogo en **PC**. El celular **recibe** la lista actualizada; no tiene panel de edición de ficha/precios. Clientes especiales en el celu lee esa lista publicada para el autocomplete.
-- Cajera: precio (y “borrar” de lista, ver abajo) solo del **local en el que está operando**.
-- Admin: puede cambiar precios de **cualquier** local.
-
-**Qué es global vs por local**
-- **Global (una sola ficha):** nombre, PLU, categoría, unidad, alta. Baja **global** (liberar PLU) = solo admin.
-- **Por local:** precio vigente y visibilidad (`store_products`). “Borrar” de cajera = ocultar en **ese** local, no `products.active = false`.
-
-**Auditoría (entra en B, no es extra futuro)**
-- Precios: ya hay historial por local (`product_prices` + `createdBy`).
-- Alta / edición de ficha / “quitar de este local” / retiro global: registrar quién, qué y cuándo.
-
-**Fuera de este bloque (anotado para más adelante)**
-- Backup / rollback de catálogo o lote masivo de precios (**FEAT-CAT-03**). **No implementar ahora.**
-- La balanza KRETZ **no** se actualiza sola; sigue “Cargar en balanza”.
-
-### Diseño técnico (cuando se implemente A)
-- Listener `onSnapshot` del doc de catálogo por local (mismo patrón que stores/providers/employees).
-- Reutilizar `syncCatalogWithFirestore` / merge; **no** volver a “Firestore pisa SQLite”.
-- IPC push al renderer para recargar lista sin ↺.
-- Tests: snapshot nuevo aplica merge; PC con lista corta no borra altas locales; UI recibe aviso.
-
-### No hacer
-- Soft-delete global (`active=false`) cuando una cajera “borra” (parte B).
-- Listener que pise un guardado local que **aún no** se publicó.
-- Edición de catálogo en la app móvil (alta/edición de ficha y precios de lista). Pedido 2026-08-24: **post 1.0** (admin quiere cambiar precios sin estar en la PC; no re-testear el módulo entero ahora). El autocomplete de Clientes especiales no cuenta como panel de catálogo.
-- Rollback / backup de precios masivos.
-- Sync automático a la KRETZ.
-- Plan Blaze “por si acaso”.
+**Spark (medir en jornada real, no en un domingo de pruebas):**
+1. Firebase Console → proyecto `arimark-7f418` → Usage / Firestore Usage.
+2. Un día de caja debería ir por cientos / pocos miles de lecturas (cupo 50.000/día). El catálogo es 1 doc por local.
+3. Confirmar plan **Spark (no Blaze)**. Spark no cobra: si se pasa del cupo, corta el sync hasta el día siguiente.
 
 ---
 
@@ -440,11 +390,11 @@ Hoy solo el admin tiene pantalla de catálogo. Las cajeras no pueden ajustar pre
 
 ---
 
-## BLOQUE K — Aporte de efectivo a caja (pendiente)
+## BLOQUE K — Aporte de efectivo a caja ✅ HECHA (2026-08-28)
 
-> **Estado:** Solo documentado. Pedido en testeo Parte 5 (2026-08-25). Producto: `PLAN.md` **FEAT-CASH-INJECT-01**. **No implementar hasta que se pida.**
+> **Estado:** Hecho. Producto: `PLAN.md` **FEAT-CASH-INJECT-01**. Pedido en testeo Parte 5; confirmado con el pack `FEAT-MOB-EMERGENCY-01`.
 
-Cajera sin efectivo suficiente para un proveedor; admin manda plata. Falta un movimiento que **suma** caja (monto + nota). Hoy solo hay gastos/saldar que restan.
+Cajera sin efectivo suficiente para un proveedor; admin manda plata. Movimiento que **suma** caja (monto + nota): `expenses.kind = 'inject'`. PC: sidebar Aporte. Celu: botón Aporte en el POS. No se lista junto a los gastos; entra a `cashInHand`.
 
 ---
 
@@ -458,8 +408,8 @@ Para maximizar valor entregable en orden:
 4. ~~D1–D8~~ ✅ código; **pendiente checklist manual** (`CHECKLIST_TEST_V1.md`)
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
-7. **Ahora:** completar checklist en local real — no abrir H ni I todavía. **J** (pago de sueldo) está hecho; re-probar Liquidación en PC y celu.
-8. **Después del testeo / cuando el desarrollador lo pida:** BLOQUE H (local habitual). BLOQUE I-A (listener catálogo en vivo, Spark $0) y I-B (edición cajera). Al implementar I-A, recordar cómo ver Usage en Firebase Console (instrucciones en el bloque). **No codear hasta que se pida:** `PLAN.md` **DT-07** (proveedores a escala) y **DT-08** (Historial de ventas / no `getDocs` de colecciones que crecen). Criterio: nadie dosifica clics; las queries piden turno/fecha/página; un humano martillando ↻ todo el día no debería poder agotar Spark (detalle en DT-08).
+7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
+8. **Siguiente (cuando el desarrollador lo pida):** `FEAT-ORDER-CART-01` (Tanda 3), DT-02 (login offline PC), DT-04 (local por defecto). **No codear hasta que se pida:** `PLAN.md` **DT-07** y **DT-08**. Fase 8 Stock sigue bloqueada.
 
 ---
 

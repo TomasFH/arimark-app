@@ -168,17 +168,69 @@ describe('sale.handler — CREATE_SALE', () => {
     expect(result.data.saleId).toBeTypeOf('string')
   })
 
-  it('registra venta multipago de forma local', async () => {
-    vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
-    const { db } = makeMockDb()
-    vi.mocked(getDb).mockReturnValue(db)
+    it('registra venta multipago de forma local', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+      const { db } = makeMockDb()
+      vi.mocked(getDb).mockReturnValue(db)
 
-    const handler = getHandler('ipc:create-sale')
-    const result = await handler({}, MULTI_PAYMENT_SALE) as { ok: boolean; data: { saleId: string; total: number } }
+      const handler = getHandler('ipc:create-sale')
+      const result = await handler({}, MULTI_PAYMENT_SALE) as { ok: boolean; data: { saleId: string; total: number } }
 
-    expect(result.ok).toBe(true)
-    expect(result.data.total).toBe(3000)
-  })
+      expect(result.ok).toBe(true)
+      expect(result.data.total).toBe(3000)
+    })
+
+    it('fiado permite pagos vacíos (el resto es deuda)', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+      const { db } = makeMockDb()
+      vi.mocked(getDb).mockReturnValue(db)
+
+      const handler = getHandler('ipc:create-sale')
+      const result = await handler({}, {
+        items: [{ productId: 'prod-001', quantity: 1, unitPrice: 5000, subtotal: 5000 }],
+        payments: [],
+        isDebt: true,
+      }) as { ok: boolean; data: { total: number } }
+
+      expect(result.ok).toBe(true)
+      expect(result.data.total).toBe(5000)
+    })
+
+    it('fiado admite seña parcial (pagos menores al total)', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+      const { db } = makeMockDb()
+      vi.mocked(getDb).mockReturnValue(db)
+
+      const handler = getHandler('ipc:create-sale')
+      const result = await handler({}, {
+        items: [{ productId: 'prod-001', quantity: 1, unitPrice: 8000, subtotal: 8000 }],
+        payments: [{ paymentMethod: 'cash', amount: 2000 }],
+        isDebt: true,
+      }) as { ok: boolean; data: { total: number } }
+
+      expect(result.ok).toBe(true)
+      expect(result.data.total).toBe(8000)
+    })
+
+    it('sin isDebt, pagos que no cubren el total siguen siendo inválidos', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+      const handler = getHandler('ipc:create-sale')
+      const result = await handler({}, {
+        items: [{ productId: 'prod-001', quantity: 1, unitPrice: 8000, subtotal: 8000 }],
+        payments: [{ paymentMethod: 'cash', amount: 2000 }],
+      })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
+
+    it('sin isDebt, pagos vacíos siguen siendo inválidos', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)
+      const handler = getHandler('ipc:create-sale')
+      const result = await handler({}, {
+        items: [{ productId: 'prod-001', quantity: 1, unitPrice: 5000, subtotal: 5000 }],
+        payments: [],
+      })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
 
   it('descarta la venta si falla la transacción de confirmación', async () => {
     vi.mocked(getActiveSession).mockReturnValue(ACTIVE_SESSION)

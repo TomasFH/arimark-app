@@ -6,8 +6,8 @@ import { eq, and, ne, isNull } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { stores, users, shifts, orders, storeProducts } from '../db/schema'
-import { getActiveSession, updateActiveStore } from '../activeSession'
-import { syncCatalogWithFirestore } from '../licensing/catalogSync'
+import { getActiveSession, updateActiveStore, setActiveSession } from '../activeSession'
+import { syncCatalogWithFirestore, startCatalogSyncListener } from '../licensing/catalogSync'
 import { startMobileSyncListener } from '../licensing/mobileSync'
 import {
   startProviderSyncListener,
@@ -88,14 +88,19 @@ export function registerStoresHandlers(): void {
 
       // Upsert del usuario en la tabla local (caché de perfil) con el storeId seleccionado
       const existing = db.select().from(users).where(eq(users.id, session.userId)).all()[0]
+      const resolvedDisplayName = (session.displayName?.trim() || existing?.name || '').trim()
+      const latest = getActiveSession()
+      if (latest && resolvedDisplayName && latest.displayName !== resolvedDisplayName) {
+        setActiveSession({ ...latest, displayName: resolvedDisplayName })
+      }
       if (existing) {
         const needsUpdate = existing.storeId !== storeId ||
-          (session.displayName && existing.name !== session.displayName)
+          (resolvedDisplayName && existing.name !== resolvedDisplayName)
         if (needsUpdate) {
           db.update(users)
             .set({
               storeId,
-              ...(session.displayName ? { name: session.displayName } : {}),
+              ...(resolvedDisplayName ? { name: resolvedDisplayName } : {}),
             })
             .where(eq(users.id, session.userId))
             .run()
@@ -104,7 +109,7 @@ export function registerStoresHandlers(): void {
         db.insert(users).values({
           id: session.userId,
           storeId,
-          name: session.displayName ?? session.userId,
+          name: resolvedDisplayName || session.userId,
           firebaseUid: session.userId,
           role: 'cashier',
           active: true,
@@ -120,6 +125,7 @@ export function registerStoresHandlers(): void {
         } catch (err) {
           log.warn('[ipc:select-store] syncCatalogWithFirestore falló (no bloqueante)', err)
         }
+        startCatalogSyncListener(config.tenant_id)
       }
 
       // Para cajeras: iniciar listeners de sincronización adicionales
@@ -192,6 +198,7 @@ export function registerStoresHandlers(): void {
           userId: session.userId,
           storeId,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          displayName: resolvedDisplayName || session.displayName,
         },
       }
     } catch (err) {

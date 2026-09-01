@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
+import { buildCloseShiftRecapLines } from '../lib/closeShiftRecap'
 import type { ShiftSummary } from '../types/hw-api'
 
 /** Denominaciones vigentes en Argentina (sin billete de $5.000). */
@@ -190,8 +191,8 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   }
 
   async function doCloseShift() {
-    setShowConfirm(false)
     setSaveError(null)
+    setSaving(true)
 
     const billDenominations = billRows
       .map(r => {
@@ -208,128 +209,65 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         ? countedRegister + deliveredAmount
         : undefined
 
-    const r = await window.hw.closeShift({
-      closingCash,
-      deliveredAmount: deliveredAmount > 0 ? deliveredAmount : undefined,
-      deliveredTo: deliveredTo.trim() || undefined,
-      notes: notes.trim() || undefined,
-      billDenominations: billDenominations.length > 0 ? billDenominations : undefined,
-    })
+    try {
+      const r = await window.hw.closeShift({
+        closingCash,
+        deliveredAmount: deliveredAmount > 0 ? deliveredAmount : undefined,
+        deliveredTo: deliveredTo.trim() || undefined,
+        notes: notes.trim() || undefined,
+        billDenominations: billDenominations.length > 0 ? billDenominations : undefined,
+      })
 
-    setSaving(false)
-    if (!r.ok) {
-      setSaveError(r.error)
-      return
+      if (!r.ok) {
+        setSaveError(r.error)
+        return
+      }
+
+      setClosedSummary({
+        deliveredAmount,
+        deliveredTo: deliveredTo.trim(),
+        countedRegister,
+        diff,
+        notes: notes.trim(),
+      })
+      setClosed(true)
+      setShowConfirm(false)
+    } catch (err) {
+      console.error('[CloseShiftScreen] closeShift falló', err)
+      setSaveError('No se pudo cerrar el turno. Reintentá.')
+    } finally {
+      setSaving(false)
     }
-
-    // Guardar resumen para la pantalla de confirmación
-    setClosedSummary({
-      deliveredAmount,
-      deliveredTo: deliveredTo.trim(),
-      countedRegister,
-      diff,
-      notes: notes.trim(),
-    })
-    setClosed(true)
   }
 
-  // ---------------------------------------------------------------------------
-  // Pantalla de confirmación post-cierre
-  // ---------------------------------------------------------------------------
-  if (closed && closedSummary && summary) {
-    const shiftLabel = summary.shiftType === 'morning' ? 'Mañana' : 'Tarde'
-    return (
-      <div className="flex flex-1 min-h-0 h-full bg-zinc-950 text-white items-center justify-center p-6 overflow-y-auto">
-        <div className="max-w-md w-full space-y-6">
-          <div className="text-center space-y-2">
-            <div className="text-5xl">✅</div>
-            <h1 className="text-2xl font-bold text-emerald-400">Caja cerrada</h1>
-            <p className="text-sm text-zinc-400">El turno quedó registrado correctamente.</p>
-          </div>
-
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 p-5 space-y-3 text-sm">
-            <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Resumen del cierre</h2>
-            <Row label="Turno" value={shiftLabel} />
-            <Row label="Ventas" value={String(summary.salesCount)} />
-            <Row label="Total vendido" value={fmt(summary.totalRevenue)} />
-            <Row label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
-            {summary.totalDebitSales > 0 && (
-              <Row label="Cobrado con Débito" value={fmt(summary.totalDebitSales)} />
-            )}
-            {summary.totalWalletSales > 0 && (
-              <Row label="Cobrado Billetera Virtual" value={fmt(summary.totalWalletSales)} />
-            )}
-            {summary.totalCreditSales > 0 && (
-              <Row label="Cobrado con Crédito" value={fmt(summary.totalCreditSales)} />
-            )}
-            {summary.totalExpenses > 0 && (
-              <Row label="Gastos" value={fmt(summary.totalExpenses)} />
-            )}
-            {summary.totalCashDebtPayments > 0 && (
-              <Row label="Cobranzas de fiado (efectivo)" value={fmt(summary.totalCashDebtPayments)} />
-            )}
-            {summary.debtsCount > 0 && (
-              <Row label={`Fiados (${summary.debtsCount})`} value={fmt(summary.totalDebts)} />
-            )}
-            {summary.depositsCount > 0 && (
-              <>
-                <Row label={`Señas (${summary.depositsCount})`} value={fmt(summary.totalCashDeposits + summary.totalDigitalDeposits)} />
-                {summary.totalCashDeposits > 0 && (
-                  <Row label="  · Señas en efectivo" value={fmt(summary.totalCashDeposits)} />
-                )}
-                {summary.totalDebitDeposits > 0 && (
-                  <Row label="  · Señas Débito" value={fmt(summary.totalDebitDeposits)} />
-                )}
-                {summary.totalWalletDeposits > 0 && (
-                  <Row label="  · Señas Billetera Virtual" value={fmt(summary.totalWalletDeposits)} />
-                )}
-                {summary.totalCreditDeposits > 0 && (
-                  <Row label="  · Señas Crédito" value={fmt(summary.totalCreditDeposits)} />
-                )}
-              </>
-            )}
-            <div className="border-t border-zinc-700 pt-2">
-              <Row label="Efectivo esperado" value={fmt(summary.cashInHand)} bold />
-            </div>
-            {closedSummary.deliveredAmount > 0 && (
-              <Row
-                label={closedSummary.deliveredTo ? `Entregado a ${closedSummary.deliveredTo}` : 'Monto entregado'}
-                value={fmt(closedSummary.deliveredAmount)}
-              />
-            )}
-            {closedSummary.countedRegister > 0 && (
-              <Row label="Contado en caja" value={fmt(closedSummary.countedRegister)} />
-            )}
-            {closedSummary.countedRegister > 0 && (
-              <div className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                closedSummary.diff === 0
-                  ? 'bg-emerald-900/40 text-emerald-300'
-                  : closedSummary.diff > 0
-                  ? 'bg-blue-900/40 text-blue-300'
-                  : 'bg-red-900/40 text-red-300'
-              }`}>
-                {closedSummary.diff === 0
-                  ? '✓ Caja cuadrada'
-                  : closedSummary.diff > 0
-                  ? `▲ Sobrante: ${fmt(closedSummary.diff)}`
-                  : `▼ Faltante: ${fmt(Math.abs(closedSummary.diff))}`}
-              </div>
-            )}
-            {closedSummary.notes && (
-              <Row label="Notas" value={closedSummary.notes} />
-            )}
-          </div>
-
-          <button
-            onClick={onConfirmed}
-            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors"
-          >
-            Finalizar sesión
-          </button>
-        </div>
-      </div>
-    )
-  }
+  const recapLines = closed && closedSummary && summary
+    ? buildCloseShiftRecapLines({
+        shiftType: summary.shiftType,
+        salesCount: summary.salesCount,
+        totalRevenue: summary.totalRevenue,
+        totalCashSales: summary.totalCashSales,
+        totalDebitSales: summary.totalDebitSales,
+        totalWalletSales: summary.totalWalletSales,
+        totalCreditSales: summary.totalCreditSales,
+        totalExpenses: summary.totalExpenses,
+        totalCashInjects: summary.totalCashInjects,
+        totalCashDebtPayments: summary.totalCashDebtPayments,
+        debtsCount: summary.debtsCount,
+        totalDebts: summary.totalDebts,
+        depositsCount: summary.depositsCount,
+        totalCashDeposits: summary.totalCashDeposits,
+        totalDebitDeposits: summary.totalDebitDeposits,
+        totalWalletDeposits: summary.totalWalletDeposits,
+        totalCreditDeposits: summary.totalCreditDeposits,
+        totalDigitalDeposits: summary.totalDigitalDeposits,
+        cashInHand: summary.cashInHand,
+        deliveredAmount: closedSummary.deliveredAmount,
+        deliveredTo: closedSummary.deliveredTo,
+        countedRegister: closedSummary.countedRegister,
+        diff: closedSummary.diff,
+        notes: closedSummary.notes,
+      })
+    : []
 
   // ---------------------------------------------------------------------------
   // Formulario de cierre
@@ -344,6 +282,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
 
   return (
     <>
+    {closed ? (
+      <div className="flex flex-1 min-h-0 h-full bg-zinc-950" aria-hidden />
+    ) : (
     <div className="flex flex-1 min-h-0 h-full flex-col bg-zinc-950 text-white overflow-hidden">
       <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-zinc-800">
         <h1 className="text-2xl font-bold">Cerrar caja</h1>
@@ -386,6 +327,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 )}
                 {summary.totalExpenses > 0 && (
                   <Stat label="Gastos" value={fmt(summary.totalExpenses)} />
+                )}
+                {summary.totalCashInjects > 0 && (
+                  <Stat label="Ingresos" value={fmt(summary.totalCashInjects)} />
                 )}
                 {summary.totalCashDebtPayments > 0 && (
                   <Stat label="Fiados cobrados (efectivo)" value={fmt(summary.totalCashDebtPayments)} />
@@ -661,6 +605,7 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         </div>
       </div>
     </div>
+    )}
 
     {showConfirm && summary && createPortal(
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
@@ -699,7 +644,8 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
             <button
               type="button"
               onClick={() => setShowConfirm(false)}
-              className="flex-1 py-2.5 rounded-xl border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm"
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-xl border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm disabled:opacity-40"
             >
               Volver
             </button>
@@ -712,6 +658,46 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
               {saving ? 'Cerrando…' : 'Cerrar turno'}
             </button>
           </div>
+        </div>
+      </div>,
+      document.body,
+    )}
+
+    {closed && recapLines.length > 0 && createPortal(
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
+        <div className="w-full max-w-md max-h-[min(90vh,100dvh)] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-800 p-6 space-y-4 animate-modal-enter">
+          <div className="text-center space-y-1">
+            <p className="text-3xl" aria-hidden>✅</p>
+            <h2 className="text-xl font-bold text-emerald-400">Caja cerrada</h2>
+            <p className="text-sm text-zinc-400">El turno quedó registrado. Este es el resumen del cierre.</p>
+          </div>
+          <div className="space-y-2 text-sm bg-zinc-700 rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Resumen del cierre</h3>
+            {recapLines.map(line => (
+              <div
+                key={line.label}
+                className={`flex justify-between gap-3 ${line.indent ? 'pl-3' : ''}`}
+              >
+                <span className="text-zinc-400 min-w-0 truncate" title={line.label}>{line.label}</span>
+                <span className={`shrink-0 font-medium ${
+                  line.tone === 'emphasis' ? 'text-emerald-400 font-semibold'
+                    : line.tone === 'ok' ? 'text-emerald-300'
+                      : line.tone === 'info' ? 'text-blue-300'
+                        : line.tone === 'bad' ? 'text-red-400'
+                          : 'text-white'
+                }`}>
+                  {line.value}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onConfirmed}
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors"
+          >
+            Finalizar sesión
+          </button>
         </div>
       </div>,
       document.body,
@@ -742,15 +728,6 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
     <div className="space-y-0.5">
       <p className="text-xs text-zinc-500">{label}</p>
       <p className={`text-base font-semibold ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value}</p>
-    </div>
-  )
-}
-
-function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-zinc-400">{label}</span>
-      <span className={bold ? 'font-bold text-white' : 'text-white'}>{value}</span>
     </div>
   )
 }

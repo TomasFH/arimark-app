@@ -7,6 +7,9 @@ import type { SessionInfo, InitStatus, UiSettings } from '../types/hw-api'
 import AttendanceModal from './AttendanceModal'
 import StockCountModal from './StockCountModal'
 
+/** Asistencia pausada: reactivar con `true`. No borrar AttendanceModal. */
+const SHOW_ATTENDANCE_UI = false
+
 interface Props {
   session: SessionInfo
   initStatus: InitStatus
@@ -357,7 +360,9 @@ export default function AdminHubScreen({
             </p>
             <div className="grid grid-cols-2 gap-2">
               <Tile icon="📊" accent="bg-sky-600/15" label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
-              <Tile icon="✓" accent="bg-teal-600/15" label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} />
+              {SHOW_ATTENDANCE_UI && (
+                <Tile icon="✓" accent="bg-teal-600/15" label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} />
+              )}
               <GroupTile
                 icon="⚖️"
                 accent="bg-cyan-600/15"
@@ -376,7 +381,7 @@ export default function AdminHubScreen({
         </div>
       </div>
 
-      {showAttendance && (
+      {SHOW_ATTENDANCE_UI && showAttendance && (
         <AttendanceModal onClose={() => setShowAttendance(false)} />
       )}
       {showStockCount && (

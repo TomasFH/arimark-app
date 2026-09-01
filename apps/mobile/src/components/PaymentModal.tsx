@@ -5,53 +5,36 @@
 import { useState } from 'react'
 import { useBackLayer } from '../lib/backStack'
 import { useKeyboardInset } from '../lib/keyboardInset'
-import NumericInput from './NumericInput'
-import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
-import { paidTotal, remainderForField } from '../lib/paymentSplit'
+import { settleSalePayments } from '../lib/paymentSplit'
+import {
+  EMPTY_PAYMENT_AMOUNTS,
+  PaymentMethodFields,
+} from './PaymentMethodFields'
 import type { PaymentMethod, SalePaymentDraft } from '../types/pos'
 
 interface Props {
   total: number
   onConfirm: (payments: SalePaymentDraft[], notes: string) => void
   onCancel: () => void
+  /** Abre el flujo de fiado (cierra este modal desde el padre). */
+  onFiado?: () => void
 }
-
-const METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
-  { id: 'cash',   label: 'Efectivo',  icon: '💵' },
-  { id: 'debit',  label: 'Débito',    icon: '💳' },
-  { id: 'wallet', label: 'Billetera', icon: '📱' },
-  { id: 'credit', label: 'Crédito',   icon: '🏦' },
-]
 
 function formatARS(n: number): string {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n)
 }
 
-const EMPTY: Record<PaymentMethod, string> = {
-  cash: '', debit: '', wallet: '', credit: '',
-}
-
-export function PaymentModal({ total, onConfirm, onCancel }: Props) {
+export function PaymentModal({ total, onConfirm, onCancel, onFiado }: Props) {
   useBackLayer(true, onCancel)
   const keyboardInset = useKeyboardInset()
-  const [amounts, setAmounts] = useState<Record<PaymentMethod, string>>(EMPTY)
+  const [amounts, setAmounts] = useState<Record<PaymentMethod, string>>(EMPTY_PAYMENT_AMOUNTS)
   const [notes, setNotes] = useState('')
 
-  const paid = paidTotal(amounts)
-  const remaining = Math.round((total - paid) * 100) / 100
-  const isReady = Math.abs(remaining) < 0.5
-
-  function fillRemainder(method: PaymentMethod) {
-    const rem = remainderForField(total, amounts, method)
-    if (rem <= 0) return
-    setAmounts(prev => ({ ...prev, [method]: formatNumericInputValue(String(rem)) }))
-  }
+  const settled = settleSalePayments(total, amounts)
 
   function handleConfirm() {
-    const payments: SalePaymentDraft[] = METHODS
-      .map(m => ({ paymentMethod: m.id, amount: parseNumericInput(amounts[m.id]) ?? 0 }))
-      .filter(p => p.amount > 0)
-    onConfirm(payments, notes)
+    if (!settled.canConfirm) return
+    onConfirm(settled.payments, notes)
   }
 
   return (
@@ -70,39 +53,7 @@ export function PaymentModal({ total, onConfirm, onCancel }: Props) {
           <span className="text-xl font-bold text-white">{formatARS(total)}</span>
         </div>
 
-        <div className="space-y-3">
-          {METHODS.map(m => {
-            const rem = remainderForField(total, amounts, m.id)
-            const thisAmount = parseNumericInput(amounts[m.id]) ?? 0
-            const showFill = !isReady && rem > 0 && thisAmount <= 0
-            return (
-              <div key={m.id} className="flex min-w-0 items-end gap-2">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-800 text-xl">
-                  {m.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <label className="mb-0.5 block truncate text-xs text-gray-400">{m.label}</label>
-                  <NumericInput
-                    value={amounts[m.id]}
-                    onChange={v => setAmounts(prev => ({ ...prev, [m.id]: v }))}
-                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-base text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                    placeholder="0"
-                  />
-                </div>
-                {showFill && (
-                  <button
-                    type="button"
-                    onClick={() => fillRemainder(m.id)}
-                    className="shrink-0 rounded-lg border border-gray-600 bg-gray-800 px-2 py-2 text-[11px] font-semibold text-gray-300"
-                    title="Completar con el monto restante"
-                  >
-                    ← {formatARS(rem)}
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        <PaymentMethodFields total={total} amounts={amounts} onChange={setAmounts} />
 
         <div>
           <label className="mb-1 block text-xs text-gray-400">Nota (opcional)</label>
@@ -116,16 +67,45 @@ export function PaymentModal({ total, onConfirm, onCancel }: Props) {
           />
         </div>
 
-        {!isReady && (
-          <div className={`text-center text-sm font-medium ${remaining > 0 ? 'text-orange-400' : 'text-yellow-400'}`}>
-            {remaining > 0 ? `Faltan ${formatARS(remaining)}` : `Sobran ${formatARS(-remaining)}`}
+        {settled.change > 0 && (
+          <div className="rounded-xl border border-green-700/50 bg-green-900/20 px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-green-300">Vuelto a entregar</span>
+              <span className="text-xl font-bold text-green-400">{formatARS(settled.change)}</span>
+            </div>
+            <p className="mt-1 text-xs text-green-500/80">
+              Se registra el cobro de {formatARS(total)}; el resto se devuelve.
+            </p>
           </div>
+        )}
+
+        {!settled.canConfirm && settled.remaining > 0.5 && (
+          <div className="text-center text-sm font-medium text-orange-400">
+            Faltan {formatARS(settled.remaining)}
+          </div>
+        )}
+
+        {settled.mixedOverage && (
+          <div className="text-center text-sm font-medium text-yellow-400">
+            Sobran {formatARS(-settled.remaining)}
+          </div>
+        )}
+
+        {onFiado && (
+          <button
+            type="button"
+            onClick={onFiado}
+            className="w-full rounded-xl border border-gray-600 bg-gray-800 px-4 py-3 text-base font-semibold text-white transition-colors hover:bg-gray-700"
+            title="El cliente se lleva la mercadería y paga después"
+          >
+            📒 Fiado
+          </button>
         )}
 
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!isReady}
+          disabled={!settled.canConfirm}
           className="w-full rounded-xl bg-red-600 px-4 py-4 text-lg font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-700"
         >
           Confirmar venta

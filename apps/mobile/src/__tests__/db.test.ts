@@ -9,7 +9,13 @@ describe('db - capa offline', () => {
   beforeEach(async () => {
     await db.shifts.clear()
     await db.sales.clear()
+    await db.expenses.clear()
     await db.catalog.clear()
+    await db.providers.clear()
+    await db.employees.clear()
+    await db.vales.clear()
+    await db.salaryPayments.clear()
+    await db.providerDebtEvents.clear()
   })
 
   it('persiste y recupera un turno', async () => {
@@ -120,5 +126,132 @@ describe('db - capa offline', () => {
     const stored = await db.catalog.get('local1')
     expect(stored?.products).toHaveLength(2)
     expect(stored?.products[0]?.name).toBe('Vacío')
+  })
+
+  it('persiste y recupera un gasto del store expenses (v3)', async () => {
+    await db.expenses.add({
+      id: 'exp-1',
+      shiftId: 'shift-1',
+      storeId: 'local1',
+      kind: 'expense',
+      concept: 'Bolsas',
+      amount: 2500,
+      notes: 'urgencia',
+      createdAt: '2026-08-28T10:00:00.000Z',
+      createdBy: 'uid-1',
+      syncStatus: 'pending',
+      syncedAt: null,
+    })
+
+    const stored = await db.expenses.get('exp-1')
+    expect(stored).toMatchObject({
+      id: 'exp-1',
+      kind: 'expense',
+      concept: 'Bolsas',
+      amount: 2500,
+    })
+
+    await db.expenses.add({
+      id: 'inj-1',
+      shiftId: 'shift-1',
+      storeId: 'local1',
+      kind: 'inject',
+      concept: 'Aporte',
+      amount: 4000,
+      notes: null,
+      createdAt: '2026-08-28T11:00:00.000Z',
+      createdBy: 'uid-1',
+      syncStatus: 'pending',
+      syncedAt: null,
+    })
+
+    const ofShift = await db.expenses.where('shiftId').equals('shift-1').toArray()
+    expect(ofShift).toHaveLength(2)
+  })
+
+  it('persiste status cancelled e isDebt en una venta', async () => {
+    await db.sales.add({
+      id: 'sale-debt',
+      shiftId: 'shift-1',
+      storeId: 'local1',
+      total: 8000,
+      items: [],
+      payments: [{ paymentMethod: 'cash', amount: 2000 }],
+      notes: null,
+      manualEntry: false,
+      createdAt: '2026-08-28T12:00:00.000Z',
+      createdBy: 'uid-1',
+      syncStatus: 'pending',
+      syncedAt: null,
+      status: 'confirmed',
+      isDebt: true,
+      customerId: 'cust-1',
+      customerName: 'Cliente de prueba',
+      customerPhone: null,
+    })
+    await db.sales.update('sale-debt', { status: 'cancelled', syncStatus: 'pending' })
+    const stored = await db.sales.get('sale-debt')
+    expect(stored?.status).toBe('cancelled')
+    expect(stored?.isDebt).toBe(true)
+    expect(stored?.customerName).toBe('Cliente de prueba')
+  })
+
+  it('gastos de un turno no aparecen en otro', async () => {
+    await db.expenses.bulkAdd([
+      {
+        id: 'exp-a',
+        shiftId: 'shift-a',
+        storeId: 'local1',
+        kind: 'expense',
+        concept: 'A',
+        amount: 1,
+        notes: null,
+        createdAt: '2026-08-28T10:00:00.000Z',
+        createdBy: 'uid-1',
+        syncStatus: 'pending',
+        syncedAt: null,
+      },
+      {
+        id: 'exp-b',
+        shiftId: 'shift-b',
+        storeId: 'local1',
+        kind: 'inject',
+        concept: 'Aporte',
+        amount: 2,
+        notes: null,
+        createdAt: '2026-08-28T10:00:00.000Z',
+        createdBy: 'uid-1',
+        syncStatus: 'error',
+        syncedAt: null,
+      },
+    ])
+    const ofA = await db.expenses.where('shiftId').equals('shift-a').toArray()
+    expect(ofA).toHaveLength(1)
+    expect(ofA[0]?.id).toBe('exp-a')
+
+    const pendingOrError = await db.expenses
+      .filter(e => e.syncStatus === 'pending' || e.syncStatus === 'error')
+      .toArray()
+    expect(pendingOrError).toHaveLength(2)
+  })
+
+  it('una venta vieja sin status se puede leer (compatibilidad)', async () => {
+    await db.sales.add({
+      id: 'sale-legacy',
+      shiftId: 'shift-1',
+      storeId: 'local1',
+      total: 100,
+      items: [],
+      payments: [{ paymentMethod: 'cash', amount: 100 }],
+      notes: null,
+      manualEntry: false,
+      createdAt: '2026-07-01T10:00:00.000Z',
+      createdBy: 'uid-1',
+      syncStatus: 'synced',
+      syncedAt: '2026-07-01T10:01:00.000Z',
+    })
+    const stored = await db.sales.get('sale-legacy')
+    expect(stored?.status).toBeUndefined()
+    expect(stored?.total).toBe(100)
   })
 })

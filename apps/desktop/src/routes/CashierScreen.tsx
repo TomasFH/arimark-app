@@ -4,6 +4,7 @@ import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
+import CashInjectModal from './CashInjectModal'
 import ExpenseListModal from './ExpenseListModal'
 import SettleProviderDebtModal from './SettleProviderDebtModal'
 import AttendanceModal from './AttendanceModal'
@@ -17,6 +18,7 @@ import { formatARS, formatKg } from '../lib/datetime'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
 import { applySpecialUnitPrice, buildItemFromBarcode } from '../lib/barcodeItem'
+import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 
 interface Props {
   session: SessionInfo
@@ -27,6 +29,7 @@ interface Props {
   onViewDebts?: () => void
   onViewSpecialCustomers?: () => void
   onViewOrders?: () => void
+  onViewCatalog?: () => void
   isActive?: boolean
 }
 
@@ -38,6 +41,9 @@ const FALLBACK_PRODUCT_ID = '00000000-0000-0000-0001-000000000099'
  * Para reactivar: `true`. Ver PLAN.md FEAT-SPECIAL-POS-SELECTOR-01.
  */
 const SHOW_SPECIAL_CUSTOMER_POS_SELECTOR = false
+
+/** Asistencia pausada: reactivar con `true`. No borrar AttendanceModal. */
+const SHOW_ATTENDANCE_UI = false
 
 interface CartItem extends SaleItemDraft {
   localId: string
@@ -80,6 +86,13 @@ const IconClock = () => (
 const IconSettle = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75h19.5M4.5 15.75l4.5-7.5 3 4.5 3.75-6 3.75 9" />
+  </svg>
+)
+
+const IconCashInject = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v9m0 0-3.75-3.75M12 13.5l3.75-3.75M3.75 19.5h16.5" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 16.5h13.5v2.25a.75.75 0 0 1-.75.75H6a.75.75 0 0 1-.75-.75V16.5Z" />
   </svg>
 )
 
@@ -166,6 +179,7 @@ export default function CashierScreen({
   onViewDebts,
   onViewSpecialCustomers,
   onViewOrders,
+  onViewCatalog,
   isActive = true,
 }: Props) {
   // ── Existing state ─────────────────────────────────────────────────────────
@@ -178,6 +192,7 @@ export default function CashierScreen({
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [showCashInjectModal, setShowCashInjectModal] = useState(false)
   const [showSettleDebtModal, setShowSettleDebtModal] = useState(false)
   const [showExpenseListModal, setShowExpenseListModal] = useState(false)
   const [showSalesModal, setShowSalesModal] = useState(false)
@@ -210,6 +225,12 @@ export default function CashierScreen({
       if (res.ok) setProducts(res.data)
     })
   }, [])
+
+  useCatalogSyncReload(() => {
+    void window.hw.getProducts().then(res => {
+      if (res.ok) setProducts(res.data)
+    })
+  })
 
   useEffect(() => {
     const storeId = session.storeId ?? shift.storeId
@@ -499,6 +520,7 @@ export default function CashierScreen({
         <SidebarBtn icon={<IconCart />} label="Venta" onClick={() => { setShowMenuPanel(false) }} active={!showMenuPanel} />
         <SidebarBtn icon={<IconBanknote />} label="Vales" onClick={() => setShowValesModal(true)} />
         <SidebarBtn icon={<IconReceipt />} label="Gastos" onClick={() => setShowExpenseModal(true)} />
+        <SidebarBtn icon={<IconCashInject />} label="Ingreso" onClick={() => setShowCashInjectModal(true)} />
         <SidebarBtn icon={<IconSettle />} label="Saldar" onClick={() => setShowSettleDebtModal(true)} />
         <SidebarBtn icon={<IconClock />} label="Turno" onClick={() => setShowSalesModal(true)} />
 
@@ -828,6 +850,9 @@ export default function CashierScreen({
 
             <div className="flex-1 overflow-y-auto py-1.5">
               <MenuAction emoji="📋" label="Lista de productos" onClick={() => { setShowProductsModal(true); closeMenu() }} />
+              {onViewCatalog && (
+                <MenuAction emoji="🏷️" label="Catálogo" onClick={() => { onViewCatalog(); closeMenu() }} />
+              )}
               {onViewOrders && (
                 <MenuAction emoji="📦" label="Pedidos" onClick={() => { onViewOrders(); closeMenu() }} />
               )}
@@ -841,7 +866,9 @@ export default function CashierScreen({
               <MenuAction emoji="💰" label="Liquidación / pago de sueldo" onClick={() => { setShowSalaryModal(true); closeMenu() }} />
               <MenuAction emoji="📋" label="Ver gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
               <MenuAction emoji="↺" label={refreshing ? 'Actualizando…' : 'Actualizar datos'} onClick={() => { void handleRefreshRemote(); closeMenu() }} muted={refreshing} />
-              <MenuAction emoji="✓" label="Asistencia (pausado)" onClick={() => { setShowAttendanceModal(true); closeMenu() }} muted />
+              {SHOW_ATTENDANCE_UI && (
+                <MenuAction emoji="✓" label="Asistencia" onClick={() => { setShowAttendanceModal(true); closeMenu() }} />
+              )}
             </div>
 
             <div className="shrink-0 border-t border-zinc-800 py-1.5">
@@ -880,12 +907,15 @@ export default function CashierScreen({
         <ProductsListModal onClose={() => setShowProductsModal(false)} />
       )}
 
-      {showAttendanceModal && (
-        <AttendanceModal onClose={() => setShowAttendanceModal(false)} />
+      {SHOW_ATTENDANCE_UI && showAttendanceModal && (
+        <AttendanceModal storeId={shift.storeId} onClose={() => setShowAttendanceModal(false)} />
       )}
 
       {showValesModal && (
         <ValesModal
+          storeId={shift.storeId}
+          viewerRole={session.role}
+          viewerName={session.displayName ?? ''}
           onClose={() => setShowValesModal(false)}
           onSaved={refreshBalance}
         />
@@ -910,6 +940,13 @@ export default function CashierScreen({
           onSaved={refreshBalance}
           onRegistered={() => setShowExpenseModal(false)}
           onCancel={() => setShowExpenseModal(false)}
+        />
+      )}
+
+      {showCashInjectModal && (
+        <CashInjectModal
+          onSaved={refreshBalance}
+          onCancel={() => setShowCashInjectModal(false)}
         />
       )}
 

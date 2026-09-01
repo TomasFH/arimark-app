@@ -51,6 +51,7 @@ interface RemoteEmployeeDoc {
   weeklyWage?: number
   salary?: number
   kind?: 'butcher' | 'cashier' | string
+  homeStoreId?: string | null
   active?: boolean
   archivedAt?: string | null
   deleted?: boolean
@@ -71,12 +72,16 @@ function upsertEmployeeFromRemote(data: RemoteEmployeeDoc, docId: string): void 
   const archived = Boolean(data.archivedAt) || data.active === false || data.deleted === true
   const createdAt = data.createdAt || now
   const kind = data.kind === 'cashier' ? 'cashier' as const : 'butcher' as const
+  const homeStoreId = typeof data.homeStoreId === 'string' && data.homeStoreId.trim()
+    ? data.homeStoreId.trim()
+    : null
 
   db.insert(employees).values({
     id,
     name: data.name,
     weeklyWage,
     kind,
+    homeStoreId,
     active: !archived,
     createdAt,
     syncedAt: now,
@@ -87,6 +92,7 @@ function upsertEmployeeFromRemote(data: RemoteEmployeeDoc, docId: string): void 
         name: data.name,
         weeklyWage,
         kind,
+        homeStoreId,
         active: !archived,
         syncedAt: now,
       },
@@ -117,6 +123,7 @@ export async function pushUnsyncedEmployees(tenantId: string): Promise<void> {
         name: row.name,
         weeklyWage: row.weeklyWage,
         kind: row.kind === 'cashier' ? 'cashier' : 'butcher',
+        homeStoreId: row.homeStoreId ?? null,
         active: row.active,
         createdAt: row.createdAt,
         deleted: false,
@@ -248,6 +255,7 @@ export async function pushUnsyncedAttendance(tenantId: string): Promise<void> {
         status: row.status,
         note: row.note ?? null,
         recordedBy: row.recordedBy,
+        storeId: row.storeId ?? null,
         createdAt: row.createdAt,
         deleted: false,
       }, { merge: true })

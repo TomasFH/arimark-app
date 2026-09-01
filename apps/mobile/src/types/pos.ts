@@ -6,6 +6,15 @@
 export type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 export type ShiftType = 'morning' | 'evening'
 export type SyncStatus = 'pending' | 'synced' | 'error'
+export type SaleStatus = 'confirmed' | 'cancelled'
+export type ExpenseKind = 'expense' | 'inject'
+
+/**
+ * Concepto persistido de un ingreso de efectivo a caja.
+ * La UI dice “Ingreso”; el valor en DB/Firestore sigue siendo este
+ * para no romper historial ni el import de la PC.
+ */
+export const CASH_INJECT_CONCEPT = 'Aporte'
 
 export interface LocalProfile {
   uid: string
@@ -67,6 +76,115 @@ export interface LocalSale {
   payments: SalePaymentDraft[]
   notes: string | null
   manualEntry: boolean
+  createdAt: string
+  createdBy: string
+  syncStatus: SyncStatus
+  syncedAt: string | null
+  /**
+   * Ausente en ventas guardadas antes del pack de emergencia:
+   * se trata como `'confirmed'`.
+   */
+  status?: SaleStatus
+  isDebt?: boolean
+  customerId?: string | null
+  customerName?: string | null
+  customerPhone?: string | null
+}
+
+export interface LocalExpense {
+  id: string
+  shiftId: string
+  storeId: string
+  kind: ExpenseKind
+  concept: string | null
+  amount: number
+  notes: string | null
+  createdAt: string
+  createdBy: string
+  syncStatus: SyncStatus
+  syncedAt: string | null
+  providerId?: string | null
+  providerName?: string | null
+  newDebtAmount?: number | null
+  paysOldDebt?: number | null
+}
+
+export interface CachedProvider {
+  id: string
+  name: string
+  archivedAt: string | null
+  updatedAt: string
+}
+
+export interface CachedEmployee {
+  id: string
+  name: string
+  weeklyWage: number
+  kind: 'butcher' | 'cashier'
+  homeStoreId: string | null
+  archivedAt: string | null
+  updatedAt: string
+}
+
+export interface ValeItem {
+  productId: string
+  productName: string
+  unit: 'kg' | 'unit'
+  quantity: number
+  unitPrice: number
+  subtotal: number
+}
+
+export interface LocalVale {
+  id: string
+  employeeId: string
+  employeeName: string
+  shiftId: string
+  storeId: string
+  amount: number
+  description: string | null
+  items: ValeItem[] | null
+  paidAt: string
+  recordedBy: string
+  createdAt: string
+  syncStatus: SyncStatus
+  syncedAt: string | null
+}
+
+export interface SalaryValeSnapshotItem {
+  id: string
+  amount: number
+  description: string | null
+  paidAt: string
+}
+
+export interface LocalSalaryPayment {
+  id: string
+  employeeId: string
+  employeeName: string
+  shiftId: string
+  storeId: string
+  amount: number
+  weekStart: string
+  valesDeducted: number
+  netPaid: number
+  notes: string | null
+  valesSnapshot: SalaryValeSnapshotItem[] | null
+  recordedBy: string
+  paidAt: string
+  syncStatus: SyncStatus
+  syncedAt: string | null
+}
+
+export interface LocalProviderDebtEvent {
+  id: string
+  expenseId: string
+  shiftId: string
+  storeId: string
+  providerId: string
+  providerName: string
+  type: 'debt' | 'payment'
+  amount: number
   createdAt: string
   createdBy: string
   syncStatus: SyncStatus

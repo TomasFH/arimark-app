@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
+import { parseKretzBarcode, centsToARS, searchProductsByQuery } from '@carniceria/shared'
 import NumericInput from './NumericInput'
 import DecimalInput from './DecimalInput'
 import {
@@ -66,21 +66,6 @@ function buildItemFromManual(
 }
 
 // ---------------------------------------------------------------------------
-// Helpers de búsqueda
-// ---------------------------------------------------------------------------
-
-/**
- * Normaliza un string para comparación insensible a mayúsculas y acentos.
- * Ejemplo: "Vacío" → "vacio", "Über" → "uber".
- */
-function normalizeSearch(str: string): string {
-  return str
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-}
-
-// ---------------------------------------------------------------------------
 // Constantes de UI
 // ---------------------------------------------------------------------------
 
@@ -129,14 +114,10 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   const suggestions: ProductRow[] = (() => {
     const query = pluRaw.trim()
     if (!query) return []
-    const digits = query.replace(/\./g, '')
-    if (/^\d+$/.test(digits)) {
-      // Búsqueda por número PLU
-      return products.filter(p => String(p.pluNumber).startsWith(digits)).slice(0, 6)
-    }
-    // Búsqueda por nombre (insensible a mayúsculas y acentos)
-    const normalizedQuery = normalizeSearch(query)
-    return products.filter(p => normalizeSearch(p.name).includes(normalizedQuery)).slice(0, 8)
+    return searchProductsByQuery(products, query, {
+      nameOf: p => p.name,
+      pluOf: p => p.pluNumber,
+    })
   })()
 
   const matchedProduct = pluNum !== null

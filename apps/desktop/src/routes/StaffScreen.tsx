@@ -45,14 +45,23 @@ export default function StaffScreen({ onBack }: Props) {
       return
     }
     let empList = empR.data
-    const names = new Set(empList.map(e => e.name.trim().toLowerCase()))
     for (const cashier of cashiersR.data) {
       const name = cashier.displayName.trim()
-      if (!name || names.has(name.toLowerCase())) continue
-      const created = await window.hw.createEmployee({ name, weeklyWage: 0, kind: 'cashier' })
-      if (created.ok) {
-        names.add(name.toLowerCase())
-        empList = [...empList, created.data]
+      if (!name) continue
+      const existing = empList.find(
+        e => e.kind === 'cashier' && e.name.trim().toLowerCase() === name.toLowerCase(),
+      )
+      if (!existing) {
+        if (!cashier.active) continue
+        const created = await window.hw.createEmployee({ name, weeklyWage: 0, kind: 'cashier' })
+        if (created.ok) empList = [...empList, created.data]
+        continue
+      }
+      if (cashier.active && !existing.active) {
+        const restored = await window.hw.unarchiveEmployee({ id: existing.id })
+        if (restored.ok) {
+          empList = empList.map(e => e.id === existing.id ? restored.data : e)
+        }
       }
     }
     setCashiers(cashiersR.data)
@@ -74,6 +83,7 @@ export default function StaffScreen({ onBack }: Props) {
         weeklyWage: e.weeklyWage,
         active: e.active,
         kind: e.kind,
+        homeStoreId: e.homeStoreId,
       })),
     ),
     [cashiers, employees],
@@ -275,6 +285,7 @@ function EmployeeDetailModal({
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(member.name)
   const [editWage, setEditWage] = useState(formatNumericInputValue(String(member.weeklyWage)))
+  const [editHome, setEditHome] = useState(member.homeStoreId ?? '')
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -327,14 +338,24 @@ function EmployeeDetailModal({
       }
     }
     if (member.employeeId) {
-      const r = await window.hw.updateEmployee({ id: member.employeeId, name, weeklyWage })
+      const r = await window.hw.updateEmployee({
+        id: member.employeeId,
+        name,
+        weeklyWage,
+        homeStoreId: editHome || null,
+      })
       if (!r.ok) {
         setSaving(false)
         setFormError(r.error ?? 'No se pudo actualizar el sueldo.')
         return
       }
     } else {
-      const r = await window.hw.createEmployee({ name, weeklyWage, kind: 'cashier' })
+      const r = await window.hw.createEmployee({
+        name,
+        weeklyWage,
+        kind: 'cashier',
+        homeStoreId: editHome || null,
+      })
       if (!r.ok) {
         setSaving(false)
         setFormError(r.error ?? 'No se pudo crear la ficha de sueldo.')
@@ -441,6 +462,19 @@ function EmployeeDetailModal({
                   className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-sm text-zinc-300">Local habitual</label>
+                <select
+                  value={editHome}
+                  onChange={e => setEditHome(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                >
+                  <option value="">Ambos / sin asignar</option>
+                  {stores.filter(s => !s.archivedAt).map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -448,6 +482,7 @@ function EmployeeDetailModal({
                     setEditing(false)
                     setEditName(member.name)
                     setEditWage(formatNumericInputValue(String(member.weeklyWage)))
+                    setEditHome(member.homeStoreId ?? '')
                     setFormError(null)
                   }}
                   className="flex-1 rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
@@ -470,6 +505,14 @@ function EmployeeDetailModal({
                 Sueldo:{' '}
                 <span className="font-semibold tabular-nums text-zinc-100">
                   {formatARS(member.weeklyWage)} / sem.
+                </span>
+              </p>
+              <p className="mt-1 text-sm text-zinc-400">
+                Local habitual:{' '}
+                <span className="text-zinc-100">
+                  {member.homeStoreId
+                    ? (stores.find(s => s.id === member.homeStoreId)?.name ?? 'Local')
+                    : 'Ambos'}
                 </span>
               </p>
               <button
@@ -613,6 +656,7 @@ function CreateEmployeeModal({
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [wage, setWage] = useState('')
+  const [homeStoreId, setHomeStoreId] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [createdEmail, setCreatedEmail] = useState<string | null>(null)
@@ -665,16 +709,30 @@ function CreateEmployeeModal({
         emp => emp.kind === 'cashier' && emp.name.trim().toLowerCase() === trimmed.toLowerCase(),
       )
       if (existing) {
-        await window.hw.updateEmployee({ id: existing.id, weeklyWage })
+        await window.hw.updateEmployee({
+          id: existing.id,
+          weeklyWage,
+          homeStoreId: homeStoreId || null,
+        })
       } else {
-        await window.hw.createEmployee({ name: trimmed, weeklyWage, kind: 'cashier' })
+        await window.hw.createEmployee({
+          name: trimmed,
+          weeklyWage,
+          kind: 'cashier',
+          homeStoreId: homeStoreId || null,
+        })
       }
       setSaving(false)
       setCreatedEmail(mail)
       return
     }
 
-    const r = await window.hw.createEmployee({ name: trimmed, weeklyWage, kind: 'butcher' })
+    const r = await window.hw.createEmployee({
+      name: trimmed,
+      weeklyWage,
+      kind: 'butcher',
+      homeStoreId: homeStoreId || null,
+    })
     setSaving(false)
     if (!r.ok) {
       setFormError(r.error ?? 'No se pudo crear el empleado.')
@@ -777,6 +835,22 @@ function CreateEmployeeModal({
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
                 placeholder="0"
               />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-zinc-300">Local habitual</label>
+              <select
+                value={homeStoreId}
+                onChange={e => setHomeStoreId(e.target.value)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+              >
+                <option value="">Ambos / sin asignar</option>
+                {stores.filter(s => !s.archivedAt).map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Si no asignás, aparece en asistencia y vales de todos los locales.
+              </p>
             </div>
             {formError && <p className="text-sm text-red-400/80">{formError}</p>}
             <div className="flex gap-2 pt-1">

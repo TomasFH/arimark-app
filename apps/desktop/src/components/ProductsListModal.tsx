@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProductRow } from '../types/hw-api'
 import { formatARS } from '../lib/datetime'
+import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 
 type SortKey = 'pluNumber' | 'name' | 'category' | 'price'
 
@@ -55,6 +56,12 @@ export default function ProductsListModal({ onClose }: Props) {
     })
     setTimeout(() => searchRef.current?.focus(), 50)
   }, [])
+
+  useCatalogSyncReload(() => {
+    void window.hw.getProducts().then(res => {
+      if (res.ok) setProducts(res.data)
+    })
+  })
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortAsc(prev => !prev)

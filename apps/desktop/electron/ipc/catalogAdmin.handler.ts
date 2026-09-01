@@ -1,13 +1,17 @@
 /**
- * Handlers IPC para la administración del catálogo de productos (solo admins).
+ * Handlers IPC para la administración del catálogo de productos.
  *
- * Operaciones disponibles:
+ * Admin y cajera pueden crear/editar ficha y precios. Cajera: solo su local.
+ * Baja global (`active: false`) y versiones: solo admin.
+ *
+ * Operaciones:
  *  - GET_ALL_PRODUCTS  — lista completa (con/sin PLU) + precio y disponibilidad por local
  *  - GET_STORES        — lista de locales del sistema
  *  - CREATE_PRODUCT    — crea un producto nuevo (global)
- *  - UPDATE_PRODUCT    — edita nombre/categoría/unidad/PLU/activo
+ *  - UPDATE_PRODUCT    — edita nombre/categoría/unidad/PLU; active:false solo admin
  *  - SET_PRODUCT_PRICE — cambia el precio vigente en un local (transacción atómica)
  *  - SET_PRODUCT_AVAILABILITY — toggle disponibilidad en un local
+ *  - LIST_CATALOG_AUDIT — alta / ficha / visibilidad / retiro global
  *
  * Regla de precios: el precio vigente se gestiona con fechas de validez
  * (valid_from / valid_to). Cambiar el precio NO sobreescribe la fila existente:
@@ -21,12 +25,13 @@ import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { products, productPrices, storeProducts, stores, users } from '../db/schema'
+import { products, productPrices, storeProducts, stores, users, catalogAuditEvents } from '../db/schema'
 import { getActiveSession } from '../activeSession'
+import type { ActiveSession } from '../activeSession'
 import { publishCatalog, publishCatalogForAllStores, listCatalogRevisions, restoreCatalogRevision } from '../licensing/catalogPublish'
 import { pullCatalogFromFirestore } from '../licensing/catalogSync'
 import { getBusinessConfig } from '../businessConfig'
-import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow, CatalogRevisionRow } from '../../src/types/hw-api'
+import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow, CatalogRevisionRow, CatalogAuditRow, CatalogAuditAction } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación Zod
@@ -71,6 +76,114 @@ const restoreCatalogRevisionSchema = z.object({
   storeId: z.string().min(1),
   revisionId: z.string().min(1),
 })
+
+const listCatalogAuditSchema = z.object({
+  productId: z.string().min(1).optional(),
+  storeId: z.string().min(1).optional(),
+})
+
+const CATEGORY_LABELS: Record<z.infer<typeof categoryEnum>, string> = {
+  beef_cut: 'vacuno',
+  poultry: 'aves',
+  pork: 'cerdo',
+  other: 'otros',
+}
+
+const UNIT_LABELS: Record<z.infer<typeof unitEnum>, string> = {
+  kg: 'kg',
+  unit: 'unidad',
+}
+
+// ---------------------------------------------------------------------------
+// Sesión / permisos
+// ---------------------------------------------------------------------------
+
+function unauthorized(): IpcResult<never> {
+  return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
+}
+
+function forbidden(message: string): IpcResult<never> {
+  return { ok: false, error: message, code: 'FORBIDDEN' }
+}
+
+function requireSession(): { session: ActiveSession } | { error: IpcResult<never> } {
+  const session = getActiveSession()
+  if (!session) return { error: unauthorized() }
+  return { session }
+}
+
+function requireAdminSession(): { session: ActiveSession } | { error: IpcResult<never> } {
+  const auth = requireSession()
+  if ('error' in auth) return auth
+  if (auth.session.role !== 'admin') {
+    return { error: forbidden('Solo los administradores pueden hacer esto.') }
+  }
+  return auth
+}
+
+function denyIfStoreNotAllowed(session: ActiveSession, storeId: string): IpcResult<never> | null {
+  if (session.role === 'admin') return null
+  if (!session.storeId) {
+    return forbidden('No hay un local asignado a la sesión.')
+  }
+  if (storeId !== session.storeId) {
+    return forbidden('Solo podés editar el catálogo de tu local.')
+  }
+  return null
+}
+
+type DbLike = ReturnType<typeof getDb>
+
+function clipSummary(text: string): string {
+  if (text.length <= 200) return text
+  return `${text.slice(0, 197)}…`
+}
+
+function writeCatalogAudit(
+  db: DbLike,
+  params: {
+    productId: string
+    storeId: string | null
+    action: CatalogAuditAction
+    actorUserId: string
+    summary: string
+  },
+): void {
+  db.insert(catalogAuditEvents).values({
+    id: uuidv4(),
+    productId: params.productId,
+    storeId: params.storeId,
+    action: params.action,
+    actorUserId: params.actorUserId,
+    summary: clipSummary(params.summary),
+    createdAt: new Date().toISOString(),
+  }).run()
+}
+
+function formatPlu(plu: number | null | undefined): string {
+  return plu == null ? 'sin PLU' : String(plu)
+}
+
+function identityChangeSummary(
+  before: { name: string; category: z.infer<typeof categoryEnum>; unit: z.infer<typeof unitEnum>; pluNumber: number | null },
+  after: { name?: string; category?: z.infer<typeof categoryEnum>; unit?: z.infer<typeof unitEnum>; pluNumber?: number | null },
+): string | null {
+  const bits: string[] = []
+  if (after.name !== undefined && after.name !== before.name) {
+    bits.push(`Nombre: ${before.name} → ${after.name}`)
+  }
+  if (after.category !== undefined && after.category !== before.category) {
+    bits.push(`Categoría: ${CATEGORY_LABELS[before.category]} → ${CATEGORY_LABELS[after.category]}`)
+  }
+  if (after.unit !== undefined && after.unit !== before.unit) {
+    bits.push(`Unidad: ${UNIT_LABELS[before.unit]} → ${UNIT_LABELS[after.unit]}`)
+  }
+  if (after.pluNumber !== undefined && after.pluNumber !== before.pluNumber) {
+    bits.push(`PLU: ${formatPlu(before.pluNumber)} → ${formatPlu(after.pluNumber)}`)
+  }
+  if (bits.length === 0) return null
+  return bits.join('; ')
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,6 +303,11 @@ export function registerCatalogAdminHandlers(): void {
       return { ok: false, error: 'storeId inválido.', code: 'VALIDATION_ERROR' }
     }
 
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const denied = denyIfStoreNotAllowed(auth.session, parsed.data)
+    if (denied) return denied
+
     try {
       const db = getDb()
       const now = new Date().toISOString()
@@ -247,6 +365,10 @@ export function registerCatalogAdminHandlers(): void {
       return { ok: false, error: 'Datos del producto inválidos.', code: 'VALIDATION_ERROR' }
     }
 
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const { session } = auth
+
     try {
       const db = getDb()
       const { name, category, unit, pluNumber } = parsed.data
@@ -265,16 +387,36 @@ export function registerCatalogAdminHandlers(): void {
 
       const id = uuidv4()
       const now = new Date().toISOString()
-      db.insert(products).values({
-        id,
-        name,
-        category,
-        unit,
-        pluNumber: pluNumber ?? undefined,
-        active: true,
-        createdAt: now,
-        updatedAt: now,
-      }).run()
+      const cashierStoreId = session.role === 'cashier' ? session.storeId || null : null
+
+      db.transaction(tx => {
+        tx.insert(products).values({
+          id,
+          name,
+          category,
+          unit,
+          pluNumber: pluNumber ?? undefined,
+          active: true,
+          createdAt: now,
+          updatedAt: now,
+        }).run()
+
+        if (cashierStoreId) {
+          tx.insert(storeProducts).values({
+            storeId: cashierStoreId,
+            productId: id,
+            available: true,
+          }).run()
+        }
+
+        writeCatalogAudit(tx as DbLike, {
+          productId: id,
+          storeId: null,
+          action: 'create',
+          actorUserId: session.userId,
+          summary: `Alta: ${name} (${formatPlu(pluNumber)})`,
+        })
+      })
 
       log.info(`[catalog-admin] Producto creado: ${name} (PLU ${pluNumber ?? '-'})`)
       void triggerCatalogPublishAll()
@@ -293,6 +435,14 @@ export function registerCatalogAdminHandlers(): void {
       return { ok: false, error: 'Datos del producto inválidos.', code: 'VALIDATION_ERROR' }
     }
 
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const { session } = auth
+
+    if (parsed.data.active === false && session.role !== 'admin') {
+      return forbidden('Solo un administrador puede retirar un producto del catálogo.')
+    }
+
     const { id, pluNumber, ...fields } = parsed.data
     // Nada que actualizar
     if (Object.keys(fields).length === 0 && pluNumber === undefined) {
@@ -302,8 +452,18 @@ export function registerCatalogAdminHandlers(): void {
     try {
       const db = getDb()
 
-      // Verificar que el producto existe
-      const existing = db.select({ id: products.id }).from(products).where(eq(products.id, id)).get()
+      const existing = db
+        .select({
+          id: products.id,
+          name: products.name,
+          category: products.category,
+          unit: products.unit,
+          pluNumber: products.pluNumber,
+          active: products.active,
+        })
+        .from(products)
+        .where(eq(products.id, id))
+        .get()
       if (!existing) {
         return { ok: false, error: 'Producto no encontrado.', code: 'NOT_FOUND' }
       }
@@ -330,7 +490,41 @@ export function registerCatalogAdminHandlers(): void {
         updateData['pluNumber'] = null
       }
 
-      db.update(products).set(updateData).where(eq(products.id, id)).run()
+      const identitySummary = identityChangeSummary(
+        {
+          name: existing.name,
+          category: existing.category,
+          unit: existing.unit,
+          pluNumber: existing.pluNumber ?? null,
+        },
+        {
+          name: fields.name,
+          category: fields.category,
+          unit: fields.unit,
+          pluNumber,
+        },
+      )
+
+      db.transaction(tx => {
+        tx.update(products).set(updateData).where(eq(products.id, id)).run()
+        if (fields.active === false) {
+          writeCatalogAudit(tx as DbLike, {
+            productId: id,
+            storeId: null,
+            action: 'retire_global',
+            actorUserId: session.userId,
+            summary: `Retiro global de "${existing.name}" (liberó PLU ${formatPlu(existing.pluNumber)})`,
+          })
+        } else if (identitySummary) {
+          writeCatalogAudit(tx as DbLike, {
+            productId: id,
+            storeId: null,
+            action: 'update_identity',
+            actorUserId: session.userId,
+            summary: identitySummary,
+          })
+        }
+      })
       log.info(`[catalog-admin] Producto actualizado: ${id}`)
       void triggerCatalogPublishAll()
       return { ok: true, data: undefined }
@@ -349,10 +543,11 @@ export function registerCatalogAdminHandlers(): void {
     }
 
     const { productId, storeId, price } = parsed.data
-    const session = getActiveSession()
-    if (!session) {
-      return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
-    }
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const storeDenied = denyIfStoreNotAllowed(auth.session, storeId)
+    if (storeDenied) return storeDenied
+    const { session } = auth
 
     try {
       const db = getDb()
@@ -405,32 +600,47 @@ export function registerCatalogAdminHandlers(): void {
   })
 
   // ---- SET_PRODUCT_AVAILABILITY ----
-  ipcMain.handle(IPC.SET_PRODUCT_AVAILABILITY, (_event, payload: unknown): IpcResult => {    const parsed = setProductAvailabilitySchema.safeParse(payload)
+  ipcMain.handle(IPC.SET_PRODUCT_AVAILABILITY, (_event, payload: unknown): IpcResult => {
+    const parsed = setProductAvailabilitySchema.safeParse(payload)
     if (!parsed.success) {
       log.warn('[ipc:set-product-availability] Payload inválido', parsed.error.flatten())
       return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
     }
 
     const { productId, storeId, available } = parsed.data
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const storeDenied = denyIfStoreNotAllowed(auth.session, storeId)
+    if (storeDenied) return storeDenied
+    const { session } = auth
 
     try {
       const db = getDb()
 
-      // Upsert en store_products
-      const existing = db
-        .select({ productId: storeProducts.productId })
-        .from(storeProducts)
-        .where(and(eq(storeProducts.storeId, storeId), eq(storeProducts.productId, productId)))
-        .get()
-
-      if (existing) {
-        db.update(storeProducts)
-          .set({ available })
+      db.transaction(tx => {
+        const existing = tx
+          .select({ productId: storeProducts.productId })
+          .from(storeProducts)
           .where(and(eq(storeProducts.storeId, storeId), eq(storeProducts.productId, productId)))
-          .run()
-      } else {
-        db.insert(storeProducts).values({ storeId, productId, available }).run()
-      }
+          .get()
+
+        if (existing) {
+          tx.update(storeProducts)
+            .set({ available })
+            .where(and(eq(storeProducts.storeId, storeId), eq(storeProducts.productId, productId)))
+            .run()
+        } else {
+          tx.insert(storeProducts).values({ storeId, productId, available }).run()
+        }
+
+        writeCatalogAudit(tx as DbLike, {
+          productId,
+          storeId,
+          action: available ? 'show_store' : 'hide_store',
+          actorUserId: session.userId,
+          summary: available ? 'Visible en este local' : 'Ocultado en este local',
+        })
+      })
 
       log.info(`[catalog-admin] Disponibilidad: producto=${productId} local=${storeId} disponible=${available}`)
       void triggerCatalogPublish(storeId)
@@ -473,7 +683,7 @@ export function registerCatalogAdminHandlers(): void {
       const userIds = [...new Set(rows.map(r => r.createdBy))]
       const userRows = userIds.length > 0
         ? db.select({ id: users.id, name: users.name }).from(users)
-            .where(or(...userIds.map(id => eq(users.id, id))))
+            .where(or(...userIds.map(uid => eq(users.id, uid))))
             .all()
         : []
       const userMap = new Map(userRows.map(u => [u.id, u.name]))
@@ -499,10 +709,8 @@ export function registerCatalogAdminHandlers(): void {
     if (!parsed.success) {
       return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
     }
-    const session = getActiveSession()
-    if (!session) {
-      return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
-    }
+    const auth = requireAdminSession()
+    if ('error' in auth) return auth.error
     try {
       const { tenant_id } = getBusinessConfig()
       const rows = await listCatalogRevisions(tenant_id, parsed.data.storeId)
@@ -518,10 +726,8 @@ export function registerCatalogAdminHandlers(): void {
     if (!parsed.success) {
       return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
     }
-    const session = getActiveSession()
-    if (!session) {
-      return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
-    }
+    const auth = requireAdminSession()
+    if ('error' in auth) return auth.error
     try {
       const { tenant_id } = getBusinessConfig()
       const result = await restoreCatalogRevision(tenant_id, parsed.data.storeId, parsed.data.revisionId)
@@ -535,6 +741,95 @@ export function registerCatalogAdminHandlers(): void {
       log.error('[ipc:restore-catalog-revision] Error', err)
       const message = err instanceof Error ? err.message : 'Error al restaurar el catálogo.'
       return { ok: false, error: message }
+    }
+  })
+
+  ipcMain.handle(IPC.LIST_CATALOG_AUDIT, (_event, payload: unknown): IpcResult<CatalogAuditRow[]> => {
+    const parsed = listCatalogAuditSchema.safeParse(payload ?? {})
+    if (!parsed.success) {
+      return { ok: false, error: 'Payload inválido.', code: 'VALIDATION_ERROR' }
+    }
+
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const { session } = auth
+
+    try {
+      const db = getDb()
+      const { productId, storeId } = parsed.data
+
+      const conditions = []
+      if (productId) {
+        conditions.push(eq(catalogAuditEvents.productId, productId))
+      }
+
+      if (session.role !== 'admin') {
+        if (session.storeId) {
+          conditions.push(
+            or(eq(catalogAuditEvents.storeId, session.storeId), isNull(catalogAuditEvents.storeId)),
+          )
+        } else {
+          conditions.push(isNull(catalogAuditEvents.storeId))
+        }
+      } else if (storeId) {
+        conditions.push(
+          or(eq(catalogAuditEvents.storeId, storeId), isNull(catalogAuditEvents.storeId)),
+        )
+      }
+
+      const rows = (
+        conditions.length > 0
+          ? db
+              .select({
+                id: catalogAuditEvents.id,
+                productId: catalogAuditEvents.productId,
+                storeId: catalogAuditEvents.storeId,
+                action: catalogAuditEvents.action,
+                actorUserId: catalogAuditEvents.actorUserId,
+                summary: catalogAuditEvents.summary,
+                createdAt: catalogAuditEvents.createdAt,
+              })
+              .from(catalogAuditEvents)
+              .where(and(...conditions))
+          : db
+              .select({
+                id: catalogAuditEvents.id,
+                productId: catalogAuditEvents.productId,
+                storeId: catalogAuditEvents.storeId,
+                action: catalogAuditEvents.action,
+                actorUserId: catalogAuditEvents.actorUserId,
+                summary: catalogAuditEvents.summary,
+                createdAt: catalogAuditEvents.createdAt,
+              })
+              .from(catalogAuditEvents)
+      )
+        .orderBy(desc(catalogAuditEvents.createdAt))
+        .all()
+
+      const userIds = [...new Set(rows.map(r => r.actorUserId))]
+      const userRows = userIds.length > 0
+        ? db.select({ id: users.id, name: users.name }).from(users)
+            .where(or(...userIds.map(uid => eq(users.id, uid))))
+            .all()
+        : []
+      const userMap = new Map(userRows.map(u => [u.id, u.name]))
+
+      return {
+        ok: true,
+        data: rows.map(r => ({
+          id: r.id,
+          productId: r.productId,
+          storeId: r.storeId ?? null,
+          action: r.action,
+          actorUserId: r.actorUserId,
+          actorName: userMap.get(r.actorUserId) ?? r.actorUserId,
+          summary: r.summary,
+          createdAt: r.createdAt,
+        })),
+      }
+    } catch (err) {
+      log.error('[ipc:list-catalog-audit] Error', err)
+      return { ok: false, error: 'Error al leer la auditoría del catálogo.', code: 'DB_ERROR' }
     }
   })
 }

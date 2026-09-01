@@ -12,7 +12,7 @@ import { getBusinessConfig } from '../businessConfig'
 import { ensureStoresSynced } from '../licensing/storeSync'
 import { reconcileStoreShifts } from '../licensing/shiftSync'
 import { ensureEmployeesSynced, pushUnsyncedEmployeeOps } from '../licensing/employeeSync'
-import { syncCatalogWithFirestore, syncAllStoreCatalogs } from '../licensing/catalogSync'
+import { syncCatalogWithFirestore, syncAllStoreCatalogs, startCatalogSyncListener } from '../licensing/catalogSync'
 import { ensureOrdersSynced, pushUnsyncedOrders } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
 import { ensureSpecialCustomersSynced, pushUnsyncedSpecialCustomerOps } from '../licensing/specialCustomerSync'
@@ -68,6 +68,7 @@ export function registerRefreshHandlers(): void {
           log.warn('[ipc:refresh-remote-data] syncCatalogWithFirestore falló (no bloqueante)', err)
         }
       }
+      startCatalogSyncListener(config.tenant_id)
 
       try {
         await ensureOrdersSynced(config.tenant_id)

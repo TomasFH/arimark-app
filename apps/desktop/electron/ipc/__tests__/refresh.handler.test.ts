@@ -28,6 +28,9 @@ vi.mock('../../licensing/employeeSync', () => ({
 vi.mock('../../licensing/catalogSync', () => ({
   syncCatalogWithFirestore: vi.fn().mockResolvedValue(undefined),
   syncAllStoreCatalogs: vi.fn().mockResolvedValue(undefined),
+  startCatalogSyncListener: vi.fn(),
+  stopCatalogSyncListener: vi.fn(),
+  ensureCatalogSynced: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../licensing/shiftSync', () => ({

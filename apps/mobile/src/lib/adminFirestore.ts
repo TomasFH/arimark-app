@@ -169,6 +169,8 @@ export interface Employee {
   archivedAt: string | null
   deleted: boolean
   kind: 'butcher' | 'cashier'
+  /** Local habitual. null = aparece en ambos. Distinto de storeId legado. */
+  homeStoreId: string | null
 }
 
 export interface EmployeeVale {
@@ -689,6 +691,9 @@ export async function fetchEmployees(): Promise<Employee[]> {
       archivedAt: inactive ? (archivedAt ?? data.createdAt ?? 'inactive') : null,
       deleted: false,
       kind: data.kind === 'cashier' ? 'cashier' : 'butcher',
+      homeStoreId: typeof data.homeStoreId === 'string' && data.homeStoreId.trim()
+        ? data.homeStoreId.trim()
+        : null,
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
@@ -719,17 +724,25 @@ export async function fetchEmployeeValesForEmployee(
 }
 
 export async function createEmployee(
-  data: { name: string; weeklyWage: number; createdBy: string; kind?: 'butcher' | 'cashier' },
+  data: {
+    name: string
+    weeklyWage: number
+    createdBy: string
+    kind?: 'butcher' | 'cashier'
+    homeStoreId?: string | null
+  },
 ): Promise<void> {
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   const kind = data.kind === 'cashier' ? 'cashier' : 'butcher'
+  const homeStoreId = data.homeStoreId && data.homeStoreId.trim() ? data.homeStoreId.trim() : null
   await setDoc(docRef('employees', id), {
     id,
     name: data.name,
     weeklyWage: data.weeklyWage,
     salary: data.weeklyWage,
     kind,
+    homeStoreId,
     active: true,
     archivedAt: null,
     deleted: false,
@@ -740,13 +753,16 @@ export async function createEmployee(
 
 export async function updateEmployee(
   id: string,
-  data: Partial<{ name: string; weeklyWage: number }>,
+  data: Partial<{ name: string; weeklyWage: number; homeStoreId: string | null }>,
 ): Promise<void> {
-  const payload: Record<string, string | number> = {}
+  const payload: Record<string, string | number | null> = {}
   if (data.name !== undefined) payload.name = data.name
   if (data.weeklyWage !== undefined) {
     payload.weeklyWage = data.weeklyWage
     payload.salary = data.weeklyWage
+  }
+  if (data.homeStoreId !== undefined) {
+    payload.homeStoreId = data.homeStoreId && data.homeStoreId.trim() ? data.homeStoreId.trim() : null
   }
   await updateDoc(docRef('employees', id), payload)
 }

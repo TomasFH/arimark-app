@@ -3,14 +3,14 @@
  *
  * Escucha la colección Firestore staging:
  *   licenses/{licenseKey}/sync/{storeId}/shifts/{shiftId}
- * y sus subcolecciones de ventas.
+ * y sus subcolecciones de ventas y gastos.
  *
- * Cuando detecta un turno nuevo (importedAt == null) lo importa
- * atómicamente a SQLite y lo marca como importado en Firestore.
+ * Un turno abierto se deja con importedAt=null para que los hijos posteriores
+ * (ventas, gastos, anulaciones) se importen cuando el celu actualiza el doc.
+ * Recién al cerrar se marca importedAt.
  *
- * Idempotente: si el shiftId o saleId ya existe en SQLite, se omite.
  * Los turnos importados tienen source='mobile' y NO interactúan con
- * la lógica de turno activo del desktop.
+ * la lógica de turno activo del desktop (DT-06).
  */
 import {
   getFirestore,
@@ -26,51 +26,32 @@ import {
 } from 'firebase/firestore'
 import log from 'electron-log'
 import { getDb } from '../db/client'
-import { shifts, sales, saleItems, salePayments, users } from '../db/schema'
-import { eq } from 'drizzle-orm'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
-import { v4 as uuidv4 } from 'uuid'
+import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedShifts } from './shiftSync'
+import { pushUnsyncedSales } from './saleSync'
+import { pushUnsyncedExpenses } from './expenseSync'
+import { pushUnsyncedVales, pushUnsyncedSalaryPayments } from './employeeSync'
+import { pushUnsyncedProviders, pushUnsyncedDebtEvents } from './providerSync'
+import {
+  applyMobileShiftImport,
+  type MobileExpenseImport,
+  type MobileSaleImport,
+  type MobileSalaryImport,
+  type MobileShiftImport,
+  type MobileValeImport,
+} from './mobileSyncImport'
 
-interface MobileSaleItem {
-  productId: string
-  productName: string
-  pluNumber: number | null
-  quantity: number
-  unitPrice: number
-  subtotal: number
-  weightKg: number | null
-  manualEntry: boolean
+interface MobileShift extends MobileShiftImport {
+  importedAt: Timestamp | string | null
 }
 
-interface MobileSalePayment {
-  paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit'
-  amount: number
+interface MobileSale extends MobileSaleImport {
+  importedAt?: Timestamp | string | null
 }
 
-interface MobileShift {
-  id: string
-  storeId: string
-  userId: string
-  displayName: string
-  shiftType: 'morning' | 'evening'
-  startedAt: string
-  closedAt: string | null
-  openingCash: number
-  closingCash: number | null
-  importedAt: Timestamp | null
-}
-
-interface MobileSale {
-  id: string
-  shiftId: string
-  total: number
-  items: MobileSaleItem[]
-  payments: MobileSalePayment[]
-  notes: string | null
-  manualEntry: boolean
-  createdAt: string
-  createdBy: string
-  importedAt: Timestamp | null
+interface MobileExpense extends MobileExpenseImport {
+  importedAt?: Timestamp | string | null
 }
 
 const listeners: Unsubscribe[] = []
@@ -99,7 +80,7 @@ export function startMobileSyncListener(
       'shifts'
     )
 
-    // Solo escucha turnos que aún no fueron importados.
+    // Turnos aún no cerrados-e-importados. Los abiertos quedan acá a propósito.
     const q = query(shiftsCol, where('importedAt', '==', null))
 
     const unsub = onSnapshot(q, async snapshot => {
@@ -132,18 +113,6 @@ async function importShift(
 ): Promise<void> {
   const db = getDb()
 
-  // Verificar idempotencia.
-  const existing = db.select().from(shifts).where(eq(shifts.id, shiftData.id)).get()
-  if (existing) {
-    // Ya importado — solo marcar en Firestore si no estaba marcado.
-    await markShiftImported(licenseKey, storeId, shiftData.id, firestore)
-    return
-  }
-
-  // Asegurar que el usuario existe en caché local.
-  await ensureUserCache(shiftData.userId, shiftData.displayName, storeId)
-
-  // Descargar ventas de este turno.
   const salesCol = collection(
     firestore,
     'licenses', licenseKey,
@@ -151,81 +120,88 @@ async function importShift(
     'shifts', shiftData.id,
     'sales'
   )
-  const salesSnap = await getDocs(salesCol)
+  const expensesCol = collection(
+    firestore,
+    'licenses', licenseKey,
+    'sync', storeId,
+    'shifts', shiftData.id,
+    'expenses'
+  )
+  const valesCol = collection(
+    firestore,
+    'licenses', licenseKey,
+    'sync', storeId,
+    'shifts', shiftData.id,
+    'vales'
+  )
+  const salaryCol = collection(
+    firestore,
+    'licenses', licenseKey,
+    'sync', storeId,
+    'shifts', shiftData.id,
+    'salaryPayments'
+  )
+
+  const [salesSnap, expensesSnap, valesSnap, salarySnap] = await Promise.all([
+    getDocs(salesCol),
+    getDocs(expensesCol),
+    getDocs(valesCol),
+    getDocs(salaryCol),
+  ])
   const salesData: MobileSale[] = salesSnap.docs.map(d => d.data() as MobileSale)
+  const expensesData: MobileExpense[] = expensesSnap.docs.map(d => d.data() as MobileExpense)
+  const valesData: MobileValeImport[] = valesSnap.docs.map(d => d.data() as MobileValeImport)
+  const salaryData: MobileSalaryImport[] = salarySnap.docs.map(d => d.data() as MobileSalaryImport)
 
-  // Importar todo en una transacción atómica.
-  const rawDb = db.$client as import('better-sqlite3').Database
-  rawDb.transaction(() => {
-    // Insertar turno.
-    db.insert(shifts).values({
-      id: shiftData.id,
-      storeId,
-      userId: shiftData.userId,
-      shiftType: shiftData.shiftType,
-      startedAt: shiftData.startedAt,
-      closedAt: shiftData.closedAt,
-      openingCash: shiftData.openingCash,
-      closingCash: shiftData.closingCash,
-      source: 'mobile',
-    }).run()
+  const shiftImport: MobileShiftImport = {
+    id: shiftData.id,
+    storeId: shiftData.storeId ?? storeId,
+    userId: shiftData.userId,
+    displayName: shiftData.displayName,
+    shiftType: shiftData.shiftType,
+    startedAt: shiftData.startedAt,
+    closedAt: shiftData.closedAt,
+    openingCash: shiftData.openingCash,
+    closingCash: shiftData.closingCash,
+  }
 
-    for (const sale of salesData) {
-      // Idempotencia por venta.
-      const existingSale = db.select().from(sales).where(eq(sales.id, sale.id)).get()
-      if (existingSale) continue
+  const result = applyMobileShiftImport(
+    db,
+    storeId,
+    shiftImport,
+    salesData,
+    expensesData,
+    valesData,
+    salaryData,
+  )
 
-      db.insert(sales).values({
-        id: sale.id,
-        storeId,
-        shiftId: shiftData.id,
-        total: sale.total,
-        status: 'confirmed',
-        manualEntry: sale.manualEntry,
-        notes: sale.notes,
-        createdAt: sale.createdAt,
-        createdBy: sale.createdBy,
-      }).run()
-
-      // Ítems.
-      for (const item of sale.items) {
-        // Si el productId no existe en SQLite (producto eliminado o desconoc.), lo omitimos
-        // para no romper el FK — la venta queda importada con los datos en notes.
-        try {
-          db.insert(saleItems).values({
-            id: uuidv4(),
-            saleId: sale.id,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            subtotal: item.subtotal,
-          }).run()
-        } catch {
-          log.warn('[mobileSync] Item omitido por FK inválido', { productId: item.productId, saleId: sale.id })
-        }
-      }
-
-      // Pagos.
-      const now = new Date().toISOString()
-      for (const payment of sale.payments) {
-        db.insert(salePayments).values({
-          id: uuidv4(),
-          saleId: sale.id,
-          paymentMethod: payment.paymentMethod,
-          amount: payment.amount,
-          createdAt: now,
-          createdBy: sale.createdBy,
-        }).run()
-      }
-    }
-  })()
-
-  log.info('[mobileSync] Turno importado', {
+  log.info('[mobileSync] Turno procesado', {
     shiftId: shiftData.id,
-    sales: salesData.length,
+    insertedShift: result.insertedShift,
+    salesInserted: result.salesInserted,
+    salesCancelled: result.salesCancelled,
+    expensesInserted: result.expensesInserted,
+    valesInserted: result.valesInserted,
+    salaryInserted: result.salaryInserted,
+    shouldMarkImported: result.shouldMarkImported,
   })
 
-  await markShiftImported(licenseKey, storeId, shiftData.id, firestore)
+  if (result.shouldMarkImported) {
+    await markShiftImported(licenseKey, storeId, shiftData.id, firestore)
+  }
+
+  try {
+    const tenantId = getBusinessConfig().tenant_id
+    await pushUnsyncedShifts(tenantId)
+    await pushUnsyncedSales(tenantId)
+    await pushUnsyncedExpenses(tenantId)
+    await pushUnsyncedProviders(tenantId)
+    await pushUnsyncedDebtEvents(tenantId)
+    await pushUnsyncedVales(tenantId)
+    await pushUnsyncedSalaryPayments(tenantId)
+  } catch (err) {
+    log.warn('[mobileSync] push operativo post-import falló (no bloqueante)', err)
+  }
 }
 
 async function markShiftImported(
@@ -244,25 +220,5 @@ async function markShiftImported(
     await updateDoc(shiftRef, { importedAt: new Date().toISOString() })
   } catch (err) {
     log.warn('[mobileSync] No se pudo marcar como importado', err)
-  }
-}
-
-async function ensureUserCache(
-  uid: string,
-  displayName: string,
-  storeId: string
-): Promise<void> {
-  const db = getDb()
-  const existing = db.select().from(users).where(eq(users.id, uid)).get()
-  if (!existing) {
-    db.insert(users).values({
-      id: uid,
-      storeId,
-      name: displayName,
-      firebaseUid: uid,
-      role: 'cashier',
-      active: true,
-      createdAt: new Date().toISOString(),
-    }).run()
   }
 }

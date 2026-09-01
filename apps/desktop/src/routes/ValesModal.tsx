@@ -7,6 +7,7 @@
  *   - Adelanto en efectivo: retiro simple de efectivo del sueldo (sin productos).
  */
 import { useEffect, useRef, useState } from 'react'
+import { isVisibleForVales, namesMatch, valeVisitorCandidates, searchProductsByQuery } from '@carniceria/shared'
 import DecimalInput from '../components/DecimalInput'
 import NumericInput from '../components/NumericInput'
 import {
@@ -17,14 +18,8 @@ import {
   weekStartMondayLocalYmd,
 } from '../lib/datetime'
 import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
+import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
-
-function normalizeSearch(str: string): string {
-  return str
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-}
 
 type Mode = 'products' | 'advance'
 
@@ -38,6 +33,9 @@ interface DraftItem {
 interface Props {
   onClose: () => void
   onSaved?: () => void
+  storeId: string
+  viewerRole: 'admin' | 'cashier'
+  viewerName: string
 }
 
 function draftItemToValeItem(d: DraftItem): ValeItem | null {
@@ -57,12 +55,15 @@ function draftItemToValeItem(d: DraftItem): ValeItem | null {
   }
 }
 
-export default function ValesModal({ onClose, onSaved }: Props) {
+export default function ValesModal({ onClose, onSaved, storeId, viewerRole, viewerName }: Props) {
   const weekStart = weekStartMondayLocalYmd()
   const weekEnd = addDaysYmd(weekStart, 6)
   const weekLabel = `${toLocalDate(`${weekStart}T12:00:00.000Z`)} – ${toLocalDate(`${weekEnd}T12:00:00.000Z`)}`
 
   const [employees, setEmployees] = useState<EmployeeRow[]>([])
+  const [allEmployees, setAllEmployees] = useState<EmployeeRow[]>([])
+  const [visitorIds, setVisitorIds] = useState<Set<string>>(new Set())
+  const [showVisitors, setShowVisitors] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [vales, setVales] = useState<EmployeeValeRow[]>([])
   const [summary, setSummary] = useState<WeeklyValeSummary | null>(null)
@@ -91,6 +92,9 @@ export default function ValesModal({ onClose, onSaved }: Props) {
   const [advanceAmountText, setAdvanceAmountText] = useState('')
   const [advanceDescription, setAdvanceDescription] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
+  const [valeViewerNames, setValeViewerNames] = useState<string[]>(
+    viewerName.trim() ? [viewerName.trim()] : [],
+  )
 
   const selected = employees.find(e => e.id === selectedId) ?? null
   const selectedProduct = products.find(p => p.id === selectedProductId) ?? null
@@ -99,14 +103,47 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     return sum + (item?.subtotal ?? 0)
   }, 0)
 
-  async function loadEmployees() {
+  async function resolveValeViewerNames(): Promise<string[]> {
+    const names = viewerName.trim() ? [viewerName.trim()] : []
+    if (viewerRole === 'cashier') {
+      const open = await window.hw.getStoreOpenShift()
+      const cached = open.ok ? open.data?.userName?.trim() : ''
+      if (cached && !names.some(n => n.toLowerCase() === cached.toLowerCase())) {
+        names.push(cached)
+      }
+    }
+    setValeViewerNames(names)
+    return names
+  }
+
+  async function loadEmployees(visitors: Set<string> = visitorIds) {
     setLoadingList(true)
     setError(null)
-    const res = await window.hw.listEmployees()
+    const viewerNames = await resolveValeViewerNames()
+    const primary = viewerNames[0] ?? viewerName
+    const res = await window.hw.listEmployees({ includeArchived: true })
     setLoadingList(false)
     if (!res.ok) { setError(res.error ?? 'Error al cargar empleados.'); return }
-    setEmployees(res.data)
-    if (res.data.length > 0 && !selectedId) setSelectedId(res.data[0].id)
+    setAllEmployees(res.data)
+    const visible = res.data.filter(e =>
+      isVisibleForVales({
+        personId: e.id,
+        personName: e.name,
+        personKind: e.kind,
+        homeStoreId: e.homeStoreId,
+        currentStoreId: storeId,
+        visitorIds: visitors,
+        viewerRole,
+        viewerName: primary,
+        viewerNames,
+        personActive: e.active,
+      }),
+    )
+    setEmployees(visible)
+    if (visible.length > 0 && !selectedId) setSelectedId(visible[0]!.id)
+    if (selectedId && !visible.some(e => e.id === selectedId)) {
+      setSelectedId(visible[0]?.id ?? null)
+    }
   }
 
   async function loadDetail(employeeId: string) {
@@ -124,10 +161,10 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     setSummary(summaryRes.data)
   }
 
-  async function loadProducts() {
-    setLoadingProducts(true)
+  async function loadProducts(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setLoadingProducts(true)
     const res = await window.hw.getProducts()
-    setLoadingProducts(false)
+    if (!opts?.silent) setLoadingProducts(false)
     if (!res.ok) return
     setProducts(res.data)
   }
@@ -137,6 +174,8 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     void loadProducts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useCatalogSyncReload(() => { void loadProducts({ silent: true }) })
 
   useEffect(() => {
     if (!selectedId) { setVales([]); setSummary(null); return }
@@ -156,16 +195,10 @@ export default function ValesModal({ onClose, onSaved }: Props) {
     setShowProductSuggestions(false)
   }
 
-  const productSuggestions: ProductRow[] = (() => {
-    const query = productQuery.trim()
-    if (!query) return []
-    const digits = query.replace(/\./g, '')
-    if (/^\d+$/.test(digits)) {
-      return products.filter(p => String(p.pluNumber).startsWith(digits)).slice(0, 8)
-    }
-    const normalizedQuery = normalizeSearch(query)
-    return products.filter(p => normalizeSearch(p.name).includes(normalizedQuery)).slice(0, 8)
-  })()
+  const productSuggestions: ProductRow[] = searchProductsByQuery(products, productQuery, {
+    nameOf: p => p.name,
+    pluOf: p => p.pluNumber,
+  })
 
   function handleAddItem() {
     setAddError(null)
@@ -300,7 +333,7 @@ export default function ValesModal({ onClose, onSaved }: Props) {
           <div className="w-40 shrink-0 border-r border-zinc-800 overflow-y-auto">
             {loadingList && <p className="text-xs text-zinc-500 p-3">Cargando…</p>}
             {!loadingList && employees.length === 0 && (
-              <p className="text-xs text-zinc-500 p-3">Sin empleados activos.</p>
+              <p className="text-xs text-zinc-500 p-3">Nadie para vales en este local.</p>
             )}
             {employees.map(emp => {
               const active = emp.id === selectedId
@@ -317,9 +350,58 @@ export default function ValesModal({ onClose, onSaved }: Props) {
                   {emp.kind === 'cashier' && (
                     <span className="block text-[10px] text-zinc-600">Cajera</span>
                   )}
+                  {!emp.active && !valeViewerNames.some(n => namesMatch(emp.name, n)) && (
+                    <span className="block text-[10px] text-zinc-600">Ficha inactiva</span>
+                  )}
+                  {visitorIds.has(emp.id) && (
+                    <span className="block text-[10px] text-zinc-600">Visitante</span>
+                  )}
                 </button>
               )
             })}
+            {valeVisitorCandidates({
+              people: allEmployees.map(e => ({ id: e.id, name: e.name, homeStoreId: e.homeStoreId, kind: e.kind, active: e.active })),
+              currentStoreId: storeId,
+              visitorIds,
+              viewerRole,
+              viewerName: valeViewerNames[0] ?? viewerName,
+              viewerNames: valeViewerNames,
+            }).length > 0 && (
+              <div className="p-2">
+                <button
+                  type="button"
+                  onClick={() => setShowVisitors(v => !v)}
+                  className="w-full text-left text-[11px] text-emerald-400 hover:text-emerald-300"
+                >
+                  {showVisitors ? 'Ocultar' : 'Agregar visitante'}
+                </button>
+                {showVisitors && valeVisitorCandidates({
+                  people: allEmployees.map(e => ({ id: e.id, name: e.name, homeStoreId: e.homeStoreId, kind: e.kind, active: e.active })),
+                  currentStoreId: storeId,
+                  visitorIds,
+                  viewerRole,
+                  viewerName: valeViewerNames[0] ?? viewerName,
+                  viewerNames: valeViewerNames,
+                }).map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      const next = new Set(visitorIds)
+                      next.add(c.id)
+                      setVisitorIds(next)
+                      setShowVisitors(false)
+                      void loadEmployees(next)
+                      setSelectedId(c.id)
+                    }}
+                    className="mt-1 w-full truncate rounded-md px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-800"
+                    title={c.name}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Detalle */}
@@ -454,7 +536,7 @@ export default function ValesModal({ onClose, onSaved }: Props) {
                                 className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
                               />
                               {showProductSuggestions && productSuggestions.length > 0 && (
-                                <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-44 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-xl">
+                                <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-56 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-xl">
                                   {productSuggestions.map(p => (
                                     <li key={p.id}>
                                       <button

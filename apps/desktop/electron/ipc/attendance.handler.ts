@@ -28,6 +28,7 @@ const recordSchema = z.object({
   date: dateSchema,
   status: z.enum(STATUS_VALUES),
   note: z.string().max(500).transform(s => s.trim()).optional().nullable(),
+  storeId: z.string().min(1).max(80).optional().nullable(),
 })
 
 const updateSchema = z.object({
@@ -55,6 +56,7 @@ function toRow(
     note: row.note ?? null,
     recordedBy: row.recordedBy,
     createdAt: row.createdAt,
+    storeId: row.storeId ?? null,
   }
 }
 
@@ -74,6 +76,7 @@ export function registerAttendanceHandlers(): void {
 
     const { employeeId, date, status } = parsed.data
     const note = parsed.data.note === undefined ? null : (parsed.data.note || null)
+    const payloadStoreId = parsed.data.storeId
 
     try {
       const db = getDb()
@@ -88,13 +91,16 @@ export function registerAttendanceHandlers(): void {
         .all()[0]
 
       const now = new Date().toISOString()
+      const sessionStoreId = payloadStoreId || session.storeId || null
 
       if (existing) {
+        const storeId = existing.storeId ?? sessionStoreId
         db.update(attendance)
           .set({
             status,
             note,
             recordedBy: session.userId,
+            storeId,
             syncedAt: null,
           })
           .where(eq(attendance.id, existing.id))
@@ -113,7 +119,7 @@ export function registerAttendanceHandlers(): void {
         return {
           ok: true,
           data: toRow(
-            { ...existing, status, note, recordedBy: session.userId, syncedAt: null },
+            { ...existing, status, note, recordedBy: session.userId, storeId, syncedAt: null },
             employee.name,
           ),
         }
@@ -127,6 +133,7 @@ export function registerAttendanceHandlers(): void {
         status,
         note,
         recordedBy: session.userId,
+        storeId: sessionStoreId,
         createdAt: now,
         syncedAt: null,
       }).run()
@@ -149,6 +156,7 @@ export function registerAttendanceHandlers(): void {
           note,
           recordedBy: session.userId,
           createdAt: now,
+          storeId: sessionStoreId,
         },
       }
     } catch (err) {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { v4 as uuidv4 } from 'uuid'
+import { eq } from 'drizzle-orm'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, shifts, products, sales, saleItems, salePayments } from '../../db/schema'
 
@@ -149,6 +150,98 @@ describe('sale.handler — GET_SHIFT_SALES', () => {
   it('rechaza si no hay sesión activa', () => {
     vi.mocked(getActiveSession).mockReturnValue(null)
     const result = getHandler('ipc:get-shift-sales')(null) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NO_SESSION')
+  })
+
+  it('incluye ventas canceladas (soft) para que la cajera las vea tachadas', () => {
+    const cancelledId = uuidv4()
+    insertSale({ id: cancelledId, total: 4000, payments: [{ method: 'cash', amount: 4000 }] })
+    db.update(sales).set({ status: 'cancelled' }).where(eq(sales.id, cancelledId)).run()
+    const result = getHandler('ipc:get-shift-sales')(null) as { ok: boolean; data: ShiftSaleRow[] }
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]!.status).toBe('cancelled')
+    expect(result.data[0]!.cashAmount).toBe(4000)
+  })
+})
+
+describe('sale.handler — CANCEL_SALE', () => {
+  let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const instance = await createInMemoryDb()
+    db = instance.db
+
+    db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+    db.insert(users).values({ id: 'user-001', name: 'Cajera', storeId: 'store-001', role: 'cashier', active: true, createdAt: now }).run()
+    db.insert(shifts).values({
+      id: 'shift-001', storeId: 'store-001', userId: 'user-001',
+      shiftType: 'morning', startedAt: now, openingCash: 5000, source: 'desktop',
+    }).run()
+    db.insert(products).values({ id: 'prod-1', name: 'Asado', category: 'beef_cut', unit: 'kg', pluNumber: 1, active: true, createdAt: now }).run()
+
+    vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+    vi.mocked(getActiveSession).mockReturnValue(SESSION as ReturnType<typeof getActiveSession>)
+    registerSaleHandlers()
+  })
+
+  it('cancela una venta confirmada del turno', () => {
+    const saleId = uuidv4()
+    db.insert(sales).values({
+      id: saleId, storeId: 'store-001', shiftId: 'shift-001', customerId: null,
+      total: 3000, isDebt: false, status: 'confirmed',
+      manualEntry: false, notes: null, createdAt: now, createdBy: 'user-001',
+    }).run()
+
+    const result = getHandler('ipc:cancel-sale')(null, saleId) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(db.select().from(sales).where(eq(sales.id, saleId)).get()?.status).toBe('cancelled')
+  })
+
+  it('no cancela dos veces la misma venta', () => {
+    const saleId = uuidv4()
+    db.insert(sales).values({
+      id: saleId, storeId: 'store-001', shiftId: 'shift-001',
+      total: 3000, isDebt: false, status: 'cancelled',
+      manualEntry: false, createdAt: now, createdBy: 'user-001',
+    }).run()
+    const result = getHandler('ipc:cancel-sale')(null, saleId) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('ALREADY_CANCELLED')
+  })
+
+  it('rechaza id que no es UUID', () => {
+    const result = getHandler('ipc:cancel-sale')(null, 'sale-1') as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('rechaza venta de otro turno', () => {
+    db.insert(shifts).values({
+      id: 'shift-otro', storeId: 'store-001', userId: 'user-001',
+      shiftType: 'evening', startedAt: now, openingCash: 0, source: 'desktop',
+    }).run()
+    const saleId = uuidv4()
+    db.insert(sales).values({
+      id: saleId, storeId: 'store-001', shiftId: 'shift-otro',
+      total: 1000, isDebt: false, status: 'confirmed',
+      manualEntry: false, createdAt: now, createdBy: 'user-001',
+    }).run()
+    const result = getHandler('ipc:cancel-sale')(null, saleId) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('FORBIDDEN')
+  })
+
+  it('rechaza venta inexistente', () => {
+    const result = getHandler('ipc:cancel-sale')(null, uuidv4()) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NOT_FOUND')
+  })
+
+  it('rechaza si no hay sesión', () => {
+    vi.mocked(getActiveSession).mockReturnValue(null)
+    const result = getHandler('ipc:cancel-sale')(null, uuidv4()) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('NO_SESSION')
   })

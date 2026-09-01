@@ -42,6 +42,7 @@ describe('migrations', () => {
       'salary_payments',
       'stock_counts',
       'stock_count_items',
+      'catalog_audit_events',
     ]
 
     for (const table of expected) {
@@ -101,6 +102,35 @@ describe('migrations', () => {
       expect(cols.map(c => c.name)).toContain('original_items')
       expect(cols.map(c => c.name)).toContain('last_edited_by')
       expect(cols.map(c => c.name)).toContain('last_edited_at')
+    })
+
+    it('tiene kind en expenses (migración 0033)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(expenses)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('kind')
+    })
+
+    it('tiene columnas de catalog_audit_events (migración 0035)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(catalog_audit_events)').all() as { name: string }[]
+      const names = cols.map(c => c.name)
+      expect(names).toEqual(expect.arrayContaining([
+        'id',
+        'product_id',
+        'store_id',
+        'action',
+        'actor_user_id',
+        'summary',
+        'created_at',
+      ]))
+    })
+
+    it('tiene home_store_id en employees y store_id en attendance (migración 0034)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const empCols = sqlite.prepare('PRAGMA table_info(employees)').all() as { name: string }[]
+      const attCols = sqlite.prepare('PRAGMA table_info(attendance)').all() as { name: string }[]
+      expect(empCols.map(c => c.name)).toContain('home_store_id')
+      expect(attCols.map(c => c.name)).toContain('store_id')
     })
 
   it('tiene el índice idx_debt_events_customer', async () => {

@@ -115,6 +115,7 @@ describe('expenseSync', () => {
           providerName: 'Oso',
           amount: 5000,
           deleted: false,
+          kind: 'expense',
         }),
         { merge: true },
       )

@@ -156,6 +156,27 @@ describe('employeeSync', () => {
       expect(row!.weeklyWage).toBe(80000)
     })
 
+    it('aplica homeStoreId remoto', async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [
+          {
+            id: 'emp-home',
+            data: () => ({
+              id: 'emp-home',
+              name: 'Con casa',
+              weeklyWage: 1,
+              active: true,
+              homeStoreId: 'store-001',
+            }),
+          },
+        ],
+      })
+      await pullEmployeesFromFirestore(TENANT)
+      const row = db.select().from(employees).all().find(e => e.id === 'emp-home')
+      expect(row?.homeStoreId).toBe('store-001')
+    })
+
     it('acepta salary y createdAt omitido (docs móviles)', async () => {
       mockGetDocs.mockResolvedValueOnce({
         size: 1,

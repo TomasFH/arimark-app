@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import DecimalInput from '../components/DecimalInput'
 import NumericInput from '../components/NumericInput'
 import { todayLocalYmd, toLocalDate } from '../lib/datetime'
+import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import {
   applyKgDelta,
   applyUnitsDelta,
@@ -148,6 +149,14 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
       cancelled = true
     }
   }, [])
+
+  useCatalogSyncReload(() => {
+    void window.hw.getProducts().then(res => {
+      if (!res.ok) return
+      const sorted = [...res.data].sort((a, b) => a.pluNumber - b.pluNumber || a.name.localeCompare(b.name, 'es-AR'))
+      setCatalog(sorted)
+    })
+  })
 
   useEffect(() => {
     if (!effectiveStoreId || catalog.length === 0) return

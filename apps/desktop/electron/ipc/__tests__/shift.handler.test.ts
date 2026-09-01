@@ -43,6 +43,8 @@ import { getDb } from '../../db/client'
 import { getActiveSession, updateActiveShift } from '../../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
 import { registerShiftHandlers } from '../shift.handler'
+import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
+import { stores, users, shifts, expenses, sales, salePayments } from '../../db/schema'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown | Promise<unknown>
 
@@ -400,7 +402,7 @@ describe('shift.handler', () => {
       expect(result.ok).toBe(true)
       expect(result.data.salesCount).toBe(5)
       expect(result.data.totalRevenue).toBe(25000)
-      // cashInHand = openingCash(1000) + cashSales(15000) - expenses(500) = 15500
+      // cashInHand = openingCash(1000) + cashSales(15000) + injects(0) - expenses(500) = 15500
       expect(result.data.cashInHand).toBe(15500)
     })
 
@@ -479,6 +481,155 @@ describe('shift.handler', () => {
       expect(result.ok).toBe(true)
       expect(result.data.salesCount).toBe(0)
       expect(result.data.totalRevenue).toBe(0)
+    })
+
+    it('cashInHand suma aportes y resta solo gastos (DB real)', async () => {
+      const instance = await createInMemoryDb()
+      const db = instance.db
+      const now = new Date().toISOString()
+
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-001',
+        name: 'Cajera Test',
+        storeId: 'store-001',
+        role: 'cashier',
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-001',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 1000,
+        source: 'desktop',
+      }).run()
+      db.insert(expenses).values([
+        {
+          id: 'exp-gasto',
+          storeId: 'store-001',
+          shiftId: 'shift-001',
+          kind: 'expense',
+          concept: 'Insumos',
+          amount: 500,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+        {
+          id: 'exp-aporte',
+          storeId: 'store-001',
+          shiftId: 'shift-001',
+          kind: 'inject',
+          concept: 'Aporte',
+          amount: 2000,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+      ]).run()
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-shift-summary')({}) as {
+        ok: boolean
+        data: { cashInHand: number; totalExpenses: number; totalCashInjects: number }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data.totalExpenses).toBe(500)
+      expect(result.data.totalCashInjects).toBe(2000)
+      // opening(1000) + cash(0) + injects(2000) - expenses(500) = 2500
+      expect(result.data.cashInHand).toBe(2500)
+    })
+
+    it('caja ignora ventas anuladas y suma aportes (DB real)', async () => {
+      const instance = await createInMemoryDb()
+      const db = instance.db
+      const now = new Date().toISOString()
+
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-001',
+        name: 'Cajera Test',
+        storeId: 'store-001',
+        role: 'cashier',
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-001',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 1000,
+        source: 'desktop',
+      }).run()
+      db.insert(sales).values([
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+          storeId: 'store-001',
+          shiftId: 'shift-001',
+          total: 5000,
+          status: 'confirmed',
+          isDebt: false,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+          storeId: 'store-001',
+          shiftId: 'shift-001',
+          total: 9000,
+          status: 'cancelled',
+          isDebt: false,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+      ]).run()
+      db.insert(salePayments).values([
+        {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1',
+          saleId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+          paymentMethod: 'cash',
+          amount: 5000,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+        {
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2',
+          saleId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+          paymentMethod: 'cash',
+          amount: 9000,
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+      ]).run()
+      db.insert(expenses).values({
+        id: 'exp-inj-only',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        kind: 'inject',
+        concept: 'Aporte',
+        amount: 2000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-shift-summary')({}) as {
+        ok: boolean
+        data: { salesCount: number; totalRevenue: number; cashInHand: number; totalCashInjects: number }
+      }
+      expect(result.ok).toBe(true)
+      expect(Number(result.data.salesCount)).toBe(1)
+      expect(Number(result.data.totalRevenue)).toBe(5000)
+      expect(Number(result.data.totalCashInjects)).toBe(2000)
+      // opening(1000) + cash confirmado(5000) + inject(2000) — la anulada no suma
+      expect(result.data.cashInHand).toBe(8000)
     })
   })
 

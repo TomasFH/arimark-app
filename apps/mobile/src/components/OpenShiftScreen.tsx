@@ -13,10 +13,11 @@ interface Props {
   storeName: string
   onOpen: (shiftType: ShiftType, openingCash: number) => void
   onLogout: () => void
+  logoutLabel?: string
   onBack?: () => void
 }
 
-export function OpenShiftScreen({ displayName, storeName, onOpen, onLogout, onBack }: Props) {
+export function OpenShiftScreen({ displayName, storeName, onOpen, onLogout, logoutLabel = 'Salir', onBack }: Props) {
   useBackLayer(Boolean(onBack), onBack ?? (() => {}))
   const [shiftType, setShiftType] = useState<ShiftType>('morning')
   const [cashInput, setCashInput] = useState('')
@@ -44,7 +45,7 @@ export function OpenShiftScreen({ displayName, storeName, onOpen, onLogout, onBa
           onClick={onLogout}
           className="shrink-0 rounded-lg px-3 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
         >
-          Salir
+          {logoutLabel}
         </button>
       </div>
 

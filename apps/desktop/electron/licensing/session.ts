@@ -28,6 +28,14 @@ import log from 'electron-log'
 
 export type UserRole = 'cashier' | 'admin'
 
+/** Nombre de Firestore; si viene vacío, el local-part del email (nunca string vacío). */
+export function resolveProfileDisplayName(raw: string | undefined, email: string): string {
+  const fromProfile = raw?.trim() ?? ''
+  if (fromProfile) return fromProfile
+  const fromEmail = email.split('@')[0]?.trim() ?? ''
+  return fromEmail || email
+}
+
 export interface UserProfile {
   uid: string
   email: string
@@ -115,7 +123,7 @@ export async function signInWithRole(
       email: credential.user.email ?? email,
       role: data.role,
       authorizedStores: data.authorizedStores ?? [],
-      displayName: data.displayName ?? email,
+      displayName: resolveProfileDisplayName(data.displayName, credential.user.email ?? email),
       active: true,
     }
 
@@ -193,7 +201,7 @@ export async function signInAutoDetect(
       email: credential.user.email ?? email,
       role: data.role,
       authorizedStores: data.authorizedStores ?? [],
-      displayName: data.displayName ?? email,
+      displayName: resolveProfileDisplayName(data.displayName, credential.user.email ?? email),
       active: true,
     }
 

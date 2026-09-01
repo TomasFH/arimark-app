@@ -134,6 +134,7 @@ describe('historyFirestore', () => {
           totalWalletSales: 0,
           totalCreditSales: 0,
           totalExpenses: 0,
+          totalCashInjects: 0,
           cashDeposits: 0,
           digitalDeposits: 0,
           cashInHand: 1000,

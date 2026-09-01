@@ -125,6 +125,43 @@ describe('history.handler', () => {
       expect(res.data[0].cashierName).toBe('Admin')
     })
 
+    it('en el listado, aportes suman caja y no se cuentan como gastos', async () => {
+      const now = '2026-07-01T10:00:00.000Z'
+      db.insert(expenses).values([
+        {
+          id: '33333333-0000-0000-0000-000000000021',
+          storeId: STORE_ID,
+          shiftId: SHIFT_ID,
+          kind: 'expense',
+          concept: 'Bolsas',
+          amount: 400,
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+        {
+          id: '33333333-0000-0000-0000-000000000022',
+          storeId: STORE_ID,
+          shiftId: SHIFT_ID,
+          kind: 'inject',
+          concept: 'Aporte',
+          amount: 1500,
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+      ]).run()
+
+      const handler = getHandler('ipc:get-history-shifts')
+      const res = await handler(null) as {
+        ok: boolean
+        data: Array<{ id: string; totalExpenses: number; cashInHand: number }>
+      }
+      expect(res.ok).toBe(true)
+      const row = res.data.find(s => s.id === SHIFT_ID)
+      expect(row?.totalExpenses).toBe(400)
+      // opening 1000 + inject 1500 - expense 400
+      expect(row?.cashInHand).toBe(2100)
+    })
+
     it('incluye turnos abiertos (closedAt null) en la lista', async () => {
       const openId = '00000000-0000-0000-0000-0000000000bb'
       db.insert(shifts).values({
@@ -144,6 +181,31 @@ describe('history.handler', () => {
       const open = res.data.find(s => s.id === openId)
       expect(open).toBeDefined()
       expect(open?.closedAt).toBeNull()
+    })
+
+    it('incluye turnos source=mobile y los etiqueta', async () => {
+      const mobileId = '00000000-0000-0000-0000-0000000000cc'
+      db.insert(shifts).values({
+        id: mobileId,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'evening',
+        startedAt: '2026-08-28T18:00:00.000Z',
+        closedAt: '2026-08-28T22:00:00.000Z',
+        openingCash: 500,
+        source: 'mobile',
+      }).run()
+
+      const handler = getHandler('ipc:get-history-shifts')
+      const res = await handler(null) as {
+        ok: boolean
+        data: Array<{ id: string; source?: 'desktop' | 'mobile' }>
+      }
+      expect(res.ok).toBe(true)
+      const mobile = res.data.find(s => s.id === mobileId)
+      expect(mobile).toBeDefined()
+      expect(mobile?.source).toBe('mobile')
+      expect(res.data.find(s => s.id === SHIFT_ID)?.source).toBe('desktop')
     })
 
     it('rechaza payload inválido', async () => {
@@ -283,6 +345,7 @@ describe('history.handler', () => {
           totalWalletSales: 0,
           totalCreditSales: 0,
           totalExpenses: 0,
+          totalCashInjects: 0,
           cashDeposits: 0,
           digitalDeposits: 0,
           cashInHand: 500,
@@ -342,6 +405,7 @@ describe('history.handler', () => {
           totalWalletSales: 0,
           totalCreditSales: 0,
           totalExpenses: 0,
+          totalCashInjects: 0,
           cashDeposits: 0,
           digitalDeposits: 0,
           cashInHand: 150120,
@@ -618,6 +682,48 @@ describe('history.handler', () => {
       expect(res.data.summary.cashInHand).toBe(5800)
       expect(res.data.summary.totalRevenue).toBe(5000)
       expect(res.data.summary.totalExpenses).toBe(200)
+    })
+
+    it('suma aportes y no los incluye en totalExpenses', async () => {
+      const now = '2026-07-01T10:00:00.000Z'
+      db.insert(expenses).values([
+        {
+          id: '33333333-0000-0000-0000-000000000011',
+          storeId: STORE_ID,
+          shiftId: SHIFT_ID,
+          kind: 'expense',
+          concept: 'Limpieza',
+          amount: 500,
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+        {
+          id: '33333333-0000-0000-0000-000000000012',
+          storeId: STORE_ID,
+          shiftId: SHIFT_ID,
+          kind: 'inject',
+          concept: 'Aporte',
+          amount: 2000,
+          notes: 'Cambio',
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+      ]).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: {
+          expenses: Array<{ kind?: string; amount: number }>
+          summary: { totalExpenses: number; totalCashInjects: number; cashInHand: number }
+        }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.expenses).toHaveLength(2)
+      expect(res.data.summary.totalExpenses).toBe(500)
+      expect(res.data.summary.totalCashInjects).toBe(2000)
+      // opening(1000) + injects(2000) - expenses(500) = 2500
+      expect(res.data.summary.cashInHand).toBe(2500)
     })
   })
 

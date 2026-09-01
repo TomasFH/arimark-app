@@ -123,6 +123,30 @@ export const productPrices = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
+// Auditoría de catálogo (alta / ficha / visibilidad por local / retiro global).
+// Los precios siguen en product_prices.createdBy — no se duplican acá.
+// store_id es null en create / update_identity / retire_global.
+// ---------------------------------------------------------------------------
+export const catalogAuditEvents = sqliteTable(
+  'catalog_audit_events',
+  {
+    id: text('id').primaryKey(),
+    productId: text('product_id').notNull(),
+    storeId: text('store_id'),
+    action: text('action', {
+      enum: ['create', 'update_identity', 'hide_store', 'show_store', 'retire_global'],
+    }).notNull(),
+    actorUserId: text('actor_user_id').notNull(),
+    summary: text('summary').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  table => [
+    index('idx_catalog_audit_product').on(table.productId, table.createdAt),
+    index('idx_catalog_audit_store').on(table.storeId, table.createdAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Clientes especiales
 // ---------------------------------------------------------------------------
 export const customers = sqliteTable('customers', {
@@ -402,6 +426,11 @@ export const expenses = sqliteTable(
     providerId: text('provider_id').references(() => providers.id),
     amount: real('amount').notNull(),
     notes: text('notes'),
+    /**
+     * `expense` = salida de caja (gasto). `inject` = aporte de efectivo (entra a caja).
+     * Filas anteriores a la migración 0033 quedan como `expense` por el DEFAULT.
+     */
+    kind: text('kind', { enum: ['expense', 'inject'] }).notNull().default('expense'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -544,6 +573,8 @@ export const employees = sqliteTable('employees', {
    * 'cashier' = ficha de sueldo/vales de una cajera (cuenta Firebase aparte).
    */
   kind: text('kind', { enum: ['butcher', 'cashier'] }).notNull().default('butcher'),
+  /** Local habitual (null = aparece en ambos). Solo filtra listas operativas. */
+  homeStoreId: text('home_store_id'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
   /** null = pendiente de push a Firestore (maestro compartido entre PCs). */
@@ -569,6 +600,8 @@ export const attendance = sqliteTable(
     recordedBy: text('recorded_by')
       .notNull()
       .references(() => users.id),
+    /** Local donde se marcó. null = registros anteriores a 0034. */
+    storeId: text('store_id'),
     createdAt: text('created_at').notNull(),
     /** null = pendiente de push a Firestore. */
     syncedAt: text('synced_at'),

@@ -13,6 +13,7 @@ export interface StaffEmployeeInput {
   weeklyWage: number
   active: boolean
   kind?: string
+  homeStoreId?: string | null
 }
 
 export interface StaffMember {
@@ -25,6 +26,7 @@ export interface StaffMember {
   email: string | null
   cashierUid: string | null
   employeeId: string | null
+  homeStoreId: string | null
 }
 
 function nameKey(name: string): string {
@@ -62,6 +64,7 @@ export function buildStaffRoster(
       email: c.email || null,
       cashierUid: c.uid,
       employeeId: match?.id ?? null,
+      homeStoreId: match?.homeStoreId ?? null,
     })
   }
 
@@ -76,6 +79,7 @@ export function buildStaffRoster(
       email: null,
       cashierUid: null,
       employeeId: e.id,
+      homeStoreId: e.homeStoreId ?? null,
     })
   }
 
@@ -88,6 +92,7 @@ export function buildStaffRoster(
     email: null,
     cashierUid: null,
     employeeId: e.id,
+    homeStoreId: e.homeStoreId ?? null,
   }))
 
   const byName = (a: StaffMember, b: StaffMember) => a.name.localeCompare(b.name, 'es')

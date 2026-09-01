@@ -3,7 +3,8 @@
  *
  * Flujo:
  *   [arranque] restaurar sesión persistida
- *     → si hay turno abierto de esa cuenta en este celu → POS de ese local
+ *     → admin: hub (puede entrar a POS con “Operar como cajera”)
+ *     → cajera: si hay turno abierto de esa cuenta en este celu → POS de ese local
  *     → si no, selector de local (si hay >1) → abrir turno → POS
  *
  * No hay PIN ni claves offline: la sesión de Firebase queda guardada en el
@@ -16,11 +17,11 @@ import { OpenShiftScreen } from './components/OpenShiftScreen'
 import { PosScreen } from './components/PosScreen'
 import { AdminDashboard } from './components/AdminDashboard'
 import { signIn, signOut, restoreSession } from './lib/auth'
-import { syncCatalog, getCatalog } from './lib/catalog'
+import { syncCatalog, getCatalog, startCatalogLiveListener, stopCatalogLiveListener } from './lib/catalog'
 import { db } from './lib/db'
 import { triggerSync, registerOnlineListener } from './lib/sync'
 import { useOnlineStatus, isOnline } from './lib/connectivity'
-import { installSystemBackHandler, setEmptyBackHandler, exitApp, useBackLayer } from './lib/backStack'
+import { setEmptyBackHandler, exitApp, cancelPendingExit } from './lib/backStack'
 import { v4 as uuidv4 } from 'uuid'
 import { loadCashierStoreOptions, type CashierStoreOption } from './lib/cashierStores'
 import { pickOpenShiftForUser } from './lib/sessionResume'
@@ -51,17 +52,24 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null)
   const [cashierStores, setCashierStores] = useState<CashierStoreOption[]>([])
   const [exitConfirm, setExitConfirm] = useState(false)
+  const exitConfirmRef = useRef(false)
 
   const online = useOnlineStatus()
   const prevOnline = useRef(online)
 
   useEffect(() => {
-    const uninstall = installSystemBackHandler()
-    setEmptyBackHandler(() => setExitConfirm(true))
-    return () => {
-      setEmptyBackHandler(null)
-      uninstall()
-    }
+    exitConfirmRef.current = exitConfirm
+  }, [exitConfirm])
+
+  useEffect(() => {
+    setEmptyBackHandler(() => {
+      if (exitConfirmRef.current) {
+        void exitApp()
+        return
+      }
+      setExitConfirm(true)
+    })
+    return () => setEmptyBackHandler(null)
   }, [])
 
   // Restaurar sesión persistida al arrancar.
@@ -93,6 +101,24 @@ export default function App() {
     })()
   }, [online, session])
 
+  // Catálogo en vivo mientras hay local de POS (cambio de local / logout → stop + start).
+  useEffect(() => {
+    const storeId = session?.storeId
+    const live =
+      Boolean(storeId)
+      && (screen === 'pos' || screen === 'open-shift' || screen === 'loading')
+    if (!storeId || !live) {
+      stopCatalogLiveListener()
+      return undefined
+    }
+    startCatalogLiveListener(storeId, () => {
+      void getCatalog(storeId).then(setCatalog)
+    })
+    return () => {
+      stopCatalogLiveListener()
+    }
+  }, [session?.storeId, screen])
+
   async function handleLogin(email: string, password: string) {
     setLoginError(null)
     const result = await signIn(email, password)
@@ -104,7 +130,6 @@ export default function App() {
   }
 
   async function afterAuthentication(profile: LocalProfile, mode: 'online' | 'offline') {
-    // Admin: solo consulta Firestore (historial). No opera el POS.
     if (profile.role === 'admin') {
       setSession({ profile, storeId: '', loginMode: mode })
       setScreen('admin')
@@ -195,13 +220,50 @@ export default function App() {
 
   async function handleCloseShift() {
     setActiveShift(null)
-    setScreen('open-shift')
+    if (session?.profile.role === 'admin') {
+      setScreen('admin')
+    } else {
+      setScreen('open-shift')
+    }
     triggerSync().catch(() => { /* silencioso */ })
+  }
+
+  async function startAdminPos() {
+    if (!session) return
+    setScreen('loading')
+    const options = await loadCashierStoreOptions(session.profile.authorizedStores)
+    setCashierStores(options)
+
+    const openShift = pickOpenShiftForUser(
+      await db.shifts.toArray(),
+      session.profile.uid,
+    )
+    if (openShift) {
+      const sess: SessionState = { ...session, storeId: openShift.storeId }
+      setSession(sess)
+      await loadStoreContext(sess)
+      return
+    }
+
+    if (options.length === 1) {
+      const sess: SessionState = { ...session, storeId: options[0]!.id }
+      setSession(sess)
+      await loadStoreContext(sess)
+      return
+    }
+
+    setScreen('store-select')
+  }
+
+  function returnToAdminHub() {
+    setActiveShift(null)
+    setScreen('admin')
   }
 
   const storeName = cashierStores.find(s => s.id === session?.storeId)?.name ?? session?.storeId ?? ''
 
   async function handleLogout() {
+    stopCatalogLiveListener()
     await signOut().catch(() => { /* silencioso en offline */ })
     setSession(null)
     setActiveShift(null)
@@ -239,6 +301,7 @@ export default function App() {
         <AdminDashboard
           profile={session.profile}
           onLogout={handleLogout}
+          onOperateAsCashier={() => { void startAdminPos() }}
         />
       )
     }
@@ -248,7 +311,7 @@ export default function App() {
         <StoreSelector
           stores={cashierStores}
           onSelect={handleStoreSelect}
-          onBack={handleLogout}
+          onBack={session.profile.role === 'admin' ? () => setScreen('admin') : handleLogout}
         />
       )
     }
@@ -258,13 +321,19 @@ export default function App() {
     }
 
     if (screen === 'open-shift' && session) {
+      const isAdmin = session.profile.role === 'admin'
       return (
         <OpenShiftScreen
           displayName={session.profile.displayName}
           storeName={storeName}
           onOpen={handleOpenShift}
-          onLogout={handleLogout}
-          onBack={cashierStores.length > 1 ? () => setScreen('store-select') : handleLogout}
+          onLogout={isAdmin ? returnToAdminHub : handleLogout}
+          logoutLabel={isAdmin ? 'Hub admin' : 'Salir'}
+          onBack={
+            isAdmin
+              ? (cashierStores.length > 1 ? () => setScreen('store-select') : returnToAdminHub)
+              : (cashierStores.length > 1 ? () => setScreen('store-select') : handleLogout)
+          }
         />
       )
     }
@@ -275,7 +344,10 @@ export default function App() {
           shift={activeShift}
           catalog={catalog}
           storeName={storeName}
+          viewerRole={session.profile.role}
+          viewerName={session.profile.displayName}
           onCloseShift={handleCloseShift}
+          onReturnToAdmin={session.profile.role === 'admin' ? returnToAdminHub : undefined}
         />
       )
     }
@@ -289,7 +361,10 @@ export default function App() {
       {!online && <OfflineBanner />}
       {exitConfirm && (
         <ExitAppModal
-          onCancel={() => setExitConfirm(false)}
+          onCancel={() => {
+            cancelPendingExit()
+            setExitConfirm(false)
+          }}
           onConfirm={() => { void exitApp() }}
         />
       )}
@@ -302,7 +377,6 @@ export default function App() {
 // ---------------------------------------------------------------------------
 
 function ExitAppModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
-  useBackLayer(true, onConfirm)
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-6">
       <div className="w-full max-w-sm space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">

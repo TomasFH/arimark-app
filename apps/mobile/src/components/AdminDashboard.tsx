@@ -20,6 +20,7 @@ import type { LocalProfile } from '../types/pos'
 interface Props {
   profile: LocalProfile
   onLogout: () => void
+  onOperateAsCashier: () => void
 }
 
 type AdminScreen =
@@ -32,7 +33,7 @@ type AdminScreen =
   | { kind: 'stores' }
   | { kind: 'history' }
 
-export function AdminDashboard({ profile, onLogout }: Props) {
+export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props) {
   const online = useOnlineStatus()
   const [screen, setScreen] = useState<AdminScreen>({ kind: 'hub' })
   const [stores, setStores] = useState<StoreDoc[]>([])
@@ -79,7 +80,7 @@ export function AdminDashboard({ profile, onLogout }: Props) {
     return <SpecialCustomersScreen onBack={toHub} profile={profile} />
   }
   if (screen.kind === 'staff') {
-    return <StaffScreen onBack={toHub} profile={profile} />
+    return <StaffScreen onBack={toHub} profile={profile} stores={activeStores} />
   }
   if (screen.kind === 'stores') {
     return <StoresScreen onBack={toHub} />
@@ -132,6 +133,20 @@ export function AdminDashboard({ profile, onLogout }: Props) {
 
       {/* Content — mismo orden e iconos que el hub de escritorio */}
       <main className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
+        <button
+          type="button"
+          onClick={onOperateAsCashier}
+          className="flex w-full items-center gap-3 rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-3.5 py-3.5 text-left transition-all hover:border-emerald-700/50 hover:bg-emerald-950/30 active:scale-[0.98]"
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600/20 text-xl">
+            🛒
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-emerald-300">Operar como cajera</span>
+            <span className="mt-0.5 block truncate text-xs text-emerald-600/80">Abrir el POS de un local</span>
+          </div>
+        </button>
+
         <HubSection title="Configuración">
           <div className="grid grid-cols-2 gap-3">
             <HubTile

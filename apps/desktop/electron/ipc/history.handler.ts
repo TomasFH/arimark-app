@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { eq, and, sum, count, gte, lte, asc, desc } from 'drizzle-orm'
+import { eq, and, sum, count, gte, lte, asc, desc, sql } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
@@ -75,17 +75,17 @@ export function registerHistoryHandlers(): void {
           ? null
           : filter.storeIdFilter ?? session.storeId
 
-      const conditions = [
-        eq(shifts.source, 'desktop'),
-      ] as ReturnType<typeof eq>[]
+      const conditions = [] as ReturnType<typeof eq>[]
       if (effectiveStoreId !== null) conditions.push(eq(shifts.storeId, effectiveStoreId))
       if (filter.fromDate) conditions.push(gte(shifts.startedAt, filter.fromDate))
       if (filter.toDate) conditions.push(lte(shifts.startedAt, filter.toDate + 'T23:59:59.999Z'))
 
-      const shiftRows = db
-        .select()
-        .from(shifts)
-        .where(and(...conditions))
+      const shiftQuery = db.select().from(shifts)
+      const shiftRows = (
+        conditions.length > 0
+          ? shiftQuery.where(and(...conditions))
+          : shiftQuery
+      )
         .orderBy(desc(shifts.startedAt))
         .limit(500)
         .all()
@@ -147,12 +147,14 @@ export function registerHistoryHandlers(): void {
         if (entry) entry.cash = Number(r.totalCash ?? 0)
       }
 
-      // Gastos por turno
+      // Gastos y aportes por turno (un solo groupBy)
       const expensesByShift = new Map<string, number>()
+      const injectsByShift = new Map<string, number>()
       const expData = db
         .select({
           shiftId: expenses.shiftId,
-          total: sum(expenses.amount),
+          totalExpenses: sql<number>`coalesce(sum(case when ${expenses.kind} = 'inject' then 0 else ${expenses.amount} end), 0)`,
+          totalInjects: sql<number>`coalesce(sum(case when ${expenses.kind} = 'inject' then ${expenses.amount} else 0 end), 0)`,
         })
         .from(expenses)
         .groupBy(expenses.shiftId)
@@ -160,7 +162,8 @@ export function registerHistoryHandlers(): void {
         .filter(r => shiftIds.includes(r.shiftId))
 
       for (const r of expData) {
-        expensesByShift.set(r.shiftId, Number(r.total ?? 0))
+        expensesByShift.set(r.shiftId, Number(r.totalExpenses ?? 0))
+        injectsByShift.set(r.shiftId, Number(r.totalInjects ?? 0))
       }
 
       // Señas en efectivo por turno (parsea depositPayments mixto, igual que el cierre)
@@ -203,6 +206,7 @@ export function registerHistoryHandlers(): void {
       const localResult: HistoryShiftRow[] = shiftRows.map(s => {
         const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
         const exp = expensesByShift.get(s.id) ?? 0
+        const inj = injectsByShift.get(s.id) ?? 0
         const dep = depositsByShift.get(s.id) ?? 0
         const debtCash = cashDebtByShift.get(s.id) ?? 0
         return {
@@ -215,8 +219,9 @@ export function registerHistoryHandlers(): void {
           totalRevenue: sv.total,
           totalCashSales: sv.cash,
           totalExpenses: exp,
-          cashInHand: s.openingCash + sv.cash + dep + debtCash - exp,
+          cashInHand: s.openingCash + sv.cash + dep + debtCash + inj - exp,
           totalDeposits: dep,
+          source: s.source === 'mobile' ? 'mobile' : 'desktop',
         }
       })
 
@@ -386,6 +391,7 @@ export function registerHistoryHandlers(): void {
           amount: expenses.amount,
           notes: expenses.notes,
           createdBy: expenses.createdBy,
+          kind: expenses.kind,
         })
         .from(expenses)
         .where(eq(expenses.shiftId, shiftId))
@@ -414,6 +420,7 @@ export function registerHistoryHandlers(): void {
         amount: r.amount,
         notes: r.notes,
         createdBy: expUserMap.get(r.createdBy) ?? r.createdBy,
+        kind: r.kind === 'inject' ? 'inject' as const : 'expense' as const,
       }))
 
       // ---- Fiados del turno (eventos con shiftId + fiados creados desde ventas del turno) ----
@@ -560,7 +567,12 @@ export function registerHistoryHandlers(): void {
       const totalDebitSales = confirmedSales.reduce((a, s) => a + (s.paymentMethods.includes('debit') ? s.digitalAmount : 0), 0)
       const totalWalletSales = confirmedSales.reduce((a, s) => a + (s.paymentMethods.includes('wallet') ? s.digitalAmount : 0), 0)
       const totalCreditSales = confirmedSales.reduce((a, s) => a + (s.paymentMethods.includes('credit') ? s.digitalAmount : 0), 0)
-      const totalExpenses = historyExpenses.reduce((a, e) => a + e.amount, 0)
+      const totalExpenses = historyExpenses
+        .filter(e => e.kind !== 'inject')
+        .reduce((a, e) => a + e.amount, 0)
+      const totalCashInjects = historyExpenses
+        .filter(e => e.kind === 'inject')
+        .reduce((a, e) => a + e.amount, 0)
       const cashDeposits = depositRowsWithAmount.reduce((a, r) => a + cashAmountFromDeposit(r), 0)
       const digitalDeposits = depositRowsWithAmount.reduce((a, r) => a + digitalAmountFromDeposit(r), 0)
       const cashDebtRows = db
@@ -572,7 +584,7 @@ export function registerHistoryHandlers(): void {
         ))
         .all()
       const cashDebtPayments = cashDebtRows.reduce((a, r) => a + Math.abs(Number(r.amount)), 0)
-      const cashInHand = shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments - totalExpenses
+      const cashInHand = shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments + totalCashInjects - totalExpenses
 
       const localDetail: HistoryShiftDetail = {
         shift: {
@@ -586,6 +598,7 @@ export function registerHistoryHandlers(): void {
           deliveredAmount: shift.deliveredAmount,
           deliveredTo: shift.deliveredTo,
           notes: shift.notes,
+          source: shift.source === 'mobile' ? 'mobile' : 'desktop',
         },
         sales: historySales,
         expenses: historyExpenses,
@@ -600,6 +613,7 @@ export function registerHistoryHandlers(): void {
           totalWalletSales,
           totalCreditSales,
           totalExpenses,
+          totalCashInjects,
           cashDeposits,
           digitalDeposits,
           cashInHand,

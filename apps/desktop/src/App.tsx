@@ -36,12 +36,12 @@ type AppState =
   | { screen: 'license-error'; reason: InitStatus['licenseReason'] & string; message: string }
   | { screen: 'activation'; licenseKey: string }
   | { screen: 'login'; initStatus: InitStatus }
-  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier' }
+  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier' }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
   | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'admin-hub'; session: SessionInfo; initStatus: InitStatus }
-  | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'admin'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'staff'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'store-management'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
@@ -76,7 +76,7 @@ export default function App() {
   const bgCashierState: Extract<AppState, { screen: 'cashier' }> | null = (() => {
     if (state.screen === 'cashier') return state
     if (
-      (state.screen === 'debts' || state.screen === 'special-customers' || state.screen === 'orders') &&
+      (state.screen === 'debts' || state.screen === 'special-customers' || state.screen === 'orders' || state.screen === 'admin') &&
       state.fromCashier
     ) {
       return {
@@ -207,7 +207,7 @@ export default function App() {
   }
 
   async function handleSelectStore(
-    _partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt'>,
+    partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName'>,
     storeId: string,
     initStatus: InitStatus,
     intent?: 'cashier',
@@ -215,7 +215,10 @@ export default function App() {
     const r = await window.hw.selectStore({ storeId })
     if (!r.ok) throw new Error(r.error)
 
-    const session = r.data
+    const session: SessionInfo = {
+      ...r.data,
+      displayName: r.data.displayName?.trim() || partialSession.displayName?.trim() || undefined,
+    }
     // Si el admin llega sin intención de ir a la caja, vuelve al hub
     if (session.role === 'admin' && intent !== 'cashier') {
       setState({ screen: 'admin-hub', session, initStatus })
@@ -304,7 +307,7 @@ export default function App() {
       return
     }
     if (
-      (state.screen === 'debts' || state.screen === 'special-customers' || state.screen === 'orders')
+      (state.screen === 'debts' || state.screen === 'special-customers' || state.screen === 'orders' || state.screen === 'admin')
       && 'fromCashier' in state
       && state.fromCashier
     ) {
@@ -455,6 +458,7 @@ export default function App() {
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
+            onViewCatalog={() => setState({ screen: 'admin', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
           />
         </div>
       )}
@@ -493,7 +497,13 @@ export default function App() {
           <AdminScreen
             session={state.session}
             onLogout={handleLogout}
-            onReturnToHub={handleReturnToAdminHub}
+            onReturnToHub={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
           />
         </Page>
       )}

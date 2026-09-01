@@ -107,6 +107,29 @@ describe('employees.handler', () => {
       expect(all.data.map(e => e.id).sort()).toEqual(['e-active', 'e-arch'])
     })
 
+    it('si la cajera en sesión tiene ficha dada de baja, la restaura', () => {
+      vi.mocked(getActiveSession).mockReturnValue({
+        ...CASHIER_SESSION,
+        displayName: 'Cajera Test',
+      } as ReturnType<typeof getActiveSession>)
+      db.insert(employees).values({
+        id: 'e-own',
+        name: 'Cajera Test',
+        weeklyWage: 1600000,
+        kind: 'cashier',
+        active: false,
+        createdAt: new Date().toISOString(),
+      }).run()
+
+      const res = getHandler('ipc:list-employees')(null) as {
+        ok: boolean
+        data: Array<{ id: string; active: boolean }>
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data).toHaveLength(1)
+      expect(res.data[0]).toMatchObject({ id: 'e-own', active: true })
+    })
+
     it('rechaza sin sesión', () => {
       vi.mocked(getActiveSession).mockReturnValue(null)
       const res = getHandler('ipc:list-employees')(null) as { ok: boolean; code?: string }
@@ -169,6 +192,24 @@ describe('employees.handler', () => {
       expect(res.ok).toBe(false)
       expect(res.code).toBe('FORBIDDEN')
     })
+
+    it('guarda local habitual y rechaza un local inexistente', () => {
+      const ok = getHandler('ipc:create-employee')(null, {
+        name: 'Habitual',
+        weeklyWage: 10,
+        homeStoreId: 'store-001',
+      }) as { ok: boolean; data: { homeStoreId: string | null } }
+      expect(ok.ok).toBe(true)
+      expect(ok.data.homeStoreId).toBe('store-001')
+
+      const bad = getHandler('ipc:create-employee')(null, {
+        name: 'Mal local',
+        weeklyWage: 10,
+        homeStoreId: 'no-existe',
+      }) as { ok: boolean; code?: string }
+      expect(bad.ok).toBe(false)
+      expect(bad.code).toBe('INVALID_PAYLOAD')
+    })
   })
 
   describe('UPDATE_EMPLOYEE', () => {
@@ -187,6 +228,27 @@ describe('employees.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.name).toBe('Pedro Gómez')
       expect(res.data.weeklyWage).toBe(200)
+    })
+
+    it('permite poner y sacar local habitual', () => {
+      const created = getHandler('ipc:create-employee')(null, {
+        name: 'Con local',
+        weeklyWage: 1,
+      }) as { ok: boolean; data: { id: string } }
+
+      const setHome = getHandler('ipc:update-employee')(null, {
+        id: created.data.id,
+        homeStoreId: 'store-001',
+      }) as { ok: boolean; data: { homeStoreId: string | null } }
+      expect(setHome.ok).toBe(true)
+      expect(setHome.data.homeStoreId).toBe('store-001')
+
+      const clearHome = getHandler('ipc:update-employee')(null, {
+        id: created.data.id,
+        homeStoreId: null,
+      }) as { ok: boolean; data: { homeStoreId: string | null } }
+      expect(clearHome.ok).toBe(true)
+      expect(clearHome.data.homeStoreId).toBeNull()
     })
 
     it('retorna NOT_FOUND si no existe', () => {

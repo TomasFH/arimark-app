@@ -17,6 +17,7 @@ vi.mock('../../db/client', () => ({
 vi.mock('../../activeSession', () => ({
   getActiveSession: vi.fn(),
   updateActiveStore: vi.fn(),
+  setActiveSession: vi.fn(),
 }))
 
 vi.mock('../../businessConfig', () => ({
@@ -26,6 +27,9 @@ vi.mock('../../businessConfig', () => ({
 vi.mock('../../licensing/catalogSync', () => ({
   syncCatalogWithFirestore: vi.fn().mockResolvedValue(undefined),
   syncAllStoreCatalogs: vi.fn().mockResolvedValue(undefined),
+  startCatalogSyncListener: vi.fn(),
+  stopCatalogSyncListener: vi.fn(),
+  ensureCatalogSynced: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../licensing/mobileSync', () => ({
@@ -121,10 +125,11 @@ describe('stores.handler', () => {
       const now = new Date().toISOString()
       db.insert(stores).values({ id: STORE2_ID, name: 'Local 2', address: 'Calle 2', createdAt: now }).run()
       const handler = getHandler('ipc:select-store')
-      const res = await handler(null, { storeId: STORE2_ID }) as { ok: boolean; data: { storeId: string; role: string } }
+      const res = await handler(null, { storeId: STORE2_ID }) as { ok: boolean; data: { storeId: string; role: string; displayName?: string } }
       expect(res.ok).toBe(true)
       expect(res.data.storeId).toBe(STORE2_ID)
       expect(res.data.role).toBe('cashier')
+      expect(res.data.displayName).toBe('Admin')
     })
 
     it('rechaza storeId inexistente', async () => {

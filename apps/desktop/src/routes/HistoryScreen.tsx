@@ -226,6 +226,14 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
             >
               {isOpen ? 'Abierto' : 'Cerrado'}
             </span>
+            {shift.source === 'mobile' && (
+              <span
+                className="shrink-0 rounded-full border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-medium text-sky-300"
+                title="Cierre hecho en el celular"
+              >
+                Móvil
+              </span>
+            )}
           </div>
           <p className="text-xs text-zinc-400 truncate" title={shift.cashierName}>{shift.cashierName}</p>
         </div>
@@ -264,6 +272,11 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
                   Abierto
                 </span>
               )}
+              {shift.source === 'mobile' && (
+                <span className="ml-2 rounded-full border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 align-middle">
+                  Móvil
+                </span>
+              )}
             </h2>
             <p className="text-xs text-zinc-400 mt-0.5">Cajera: {shift.cashierName}</p>
             <p className="text-xs text-zinc-500">{start} → {end}</p>
@@ -284,6 +297,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
           {summary.totalWalletSales > 0 && <SummaryStat label="Billetera Virtual" value={formatARS(summary.totalWalletSales)} />}
           {summary.totalCreditSales > 0 && <SummaryStat label="Crédito" value={formatARS(summary.totalCreditSales)} />}
           {summary.totalExpenses > 0 && <SummaryStat label="Gastos" value={`- ${formatARS(summary.totalExpenses)}`} negative />}
+          {summary.totalCashInjects > 0 && <SummaryStat label="Ingresos" value={formatARS(summary.totalCashInjects)} />}
           {summary.cashDeposits > 0 && <SummaryStat label="Señas efectivo" value={formatARS(summary.cashDeposits)} />}
           {summary.digitalDeposits > 0 && <SummaryStat label="Señas digital" value={formatARS(summary.digitalDeposits)} />}
           {summary.debtsCount > 0 && <SummaryStat label={`Fiados (${summary.debtsCount})`} value={formatARS(summary.totalDebts)} />}
@@ -379,21 +393,34 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
       {activeTab === 'expenses' && (
         <div className="space-y-2">
           {expenses.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin gastos en este turno.</p>}
-          {expenses.map(exp => (
+          {expenses.map(exp => {
+            const isInject = exp.kind === 'inject'
+            const title = isInject ? 'Ingreso' : (exp.provider ?? exp.concept ?? '')
+            return (
             <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="text-white font-medium truncate" title={exp.provider ?? exp.concept ?? ''}>
-                  {exp.provider ?? exp.concept ?? '—'}
-                </p>
-                <div className="flex gap-3 text-xs text-zinc-500">
-                  <span>{toLocalTime(exp.createdAt)}</span>
-                  {exp.provider && exp.concept && <span className="truncate" title={exp.concept}>{exp.concept}</span>}
-                  {exp.notes && <span className="truncate" title={exp.notes}>{exp.notes}</span>}
+                <div className="flex items-center gap-2 min-w-0">
+                  {isInject && (
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-emerald-400/90 border border-emerald-800/60 rounded px-1.5 py-0.5">
+                      Ingreso
+                    </span>
+                  )}
+                  <p className="text-white font-medium truncate min-w-0 flex-1" title={title}>
+                    {isInject ? (exp.notes?.trim() || 'Ingreso') : (exp.provider ?? exp.concept ?? '—')}
+                  </p>
+                </div>
+                <div className="flex gap-3 text-xs text-zinc-500 min-w-0">
+                  <span className="shrink-0">{toLocalTime(exp.createdAt)}</span>
+                  {!isInject && exp.provider && exp.concept && <span className="truncate" title={exp.concept}>{exp.concept}</span>}
+                  {!isInject && exp.notes && <span className="truncate" title={exp.notes}>{exp.notes}</span>}
                 </div>
               </div>
-              <span className="text-zinc-400 font-semibold shrink-0 font-mono">- {formatARS(exp.amount)}</span>
+              <span className={`font-semibold shrink-0 font-mono ${isInject ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                {isInject ? formatARS(exp.amount) : `- ${formatARS(exp.amount)}`}
+              </span>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

@@ -296,7 +296,7 @@ Flujo implementado:
 
 - **Login offline por PIN**: tras el primer login exitoso, la app pide configurar un PIN (4-6 dígitos, hash PBKDF2-SHA256 en IndexedDB). Si `signInWithEmailAndPassword` falla por error de red, se ofrece ingresar con PIN reconstruyendo la sesión desde el perfil cacheado localmente. El PIN es específico del dispositivo.
 - **POS completo en el celular**: flujo completo: login → selector de local (si hay más de uno) → abrir turno → POS (escanear por cámara, entrada manual, cobro multi-medio) → cerrar turno. Ventas guardadas en IndexedDB con UUIDs generados en el dispositivo.
-- **Catálogo publicado por la PC**: al guardar / merge, la PC publica el catálogo del local a `licenses/{key}/catalog/{storeId}`. El celular lo descarga y cachea en IndexedDB. **En vivo (PENDIENTE, BLOQUE I-A):** `onSnapshot` de ese doc, mismo patrón que empleados; sin ↺. Hasta entonces: login, elegir local o ↺. Plan Firebase: **Spark ($0)**; medir lecturas en jornada real (ver TASKS_V1 BLOQUE I).
+- **Catálogo publicado por la PC**: al guardar / merge, la PC publica el catálogo del local a `licenses/{key}/catalog/{storeId}`. El celular lo descarga y cachea en IndexedDB. **En vivo (BLOQUE I-A, 2026-08-30):** `onSnapshot` de ese doc (1 por local); sin depender del ↺. El ↺ queda de respaldo. Plan Firebase: **Spark ($0)**; medir lecturas en jornada real (ver TASKS_V1 BLOQUE I).
 - **Motor de sync idempotente**: cuando hay red + sesión Firebase válida, el celular sube turnos/ventas pendientes a `licenses/{key}/sync/{storeId}/shifts/{shiftId}` + subcolección `sales/{saleId}`. IDs UUID = reintentos seguros. Disparo automático: recuperar conexión, confirmar venta, reabrir app.
 - **Importación en la PC**: `mobileSync.ts` escucha con `onSnapshot` la colección de staging; por cada turno nuevo importa atómicamente a SQLite (turno + ventas + ítems + pagos) con `source='mobile'`. Idempotente: shiftId/saleId ya importado se omite. Marca el doc como `importedAt`.
 - **Migración 0006**: columna `source text default 'desktop'` en `shifts`. Los handlers `GET_ACTIVE_SHIFT` / `OPEN_SHIFT` filtran `source='desktop'` para no chocar con turnos móviles.
@@ -359,7 +359,7 @@ Entregado:
 - [x] Eliminación de usuario con doble confirmación; orphaned Firebase Auth users documentados como deuda técnica.
 
 Pendiente de largo plazo:
-- Auditoría de cambios de PLU (quién cambió qué y cuándo) — **supersedido en alcance** por TASKS_V1 BLOQUE I (ago 2026): catálogo en vivo, edición por cajera, “borrar” solo del local, auditoría de ficha + precios. No implementar hasta que el desarrollador lo pida.
+- Auditoría de cambios de PLU (quién cambió qué y cuándo) — **hecho en TASKS_V1 BLOQUE I-B** (2026-08-30): `catalog_audit_events` + historial de precios. Backup / rollback masivo sigue siendo **FEAT-CAT-03**, no ahora.
 - Backup / rollback de edición masiva de precios: anotado en BLOQUE I, **no ahora**.
 
 **Cierre formal:**
@@ -724,7 +724,7 @@ La misma cajera puede trabajar en PC y celular de forma intercambiable, como un 
 **Estado actual (jul 2026, aclarado 2026-08-25):**
 El auto-resume en PC (`GET_USER_OPEN_SHIFT`) solo detecta turnos `source='desktop'`. El celu sube a `sync/{storeId}/shifts` y la PC **importa** a SQLite con `source='mobile'`, pero **ese turno no es la caja activa**.
 
-Además el Historial (PC y admin celu) **omite** `source !== 'desktop'`. No son “dos cajas del mismo turno” en una sola fila: son **dos turnos distintos**. Y el del celu hoy **puede no verse** en el Historial. Las ventas sí quedan en SQLite (y a veces se re-pushean a `licenses/{tenant}/shifts` con `source: mobile`), pero la UI de stats/historial las filtra.
+Además el Historial (PC y admin celu) **lista también** `source='mobile'` con etiqueta **Móvil**. Siguen siendo dos turnos distintos (no es la caja activa de PC). El celu escribe copia operativa en `licenses/{tenant}/shifts` y `sales` para que el historial remoto las vea.
 
 Workaround operativo: cerrar en el celu y abrir otro en la PC. Quedan dos IDs de turno. Cuando se implemente DT-06, el objetivo es **un** turno y varios dispositivos, no fusionar a mano dos cierres viejos.
 
@@ -959,15 +959,15 @@ Spark: ~4 carniceros × 52 semanas ≈ 200 docs/año.
 - **Aguinaldo** (`FEAT-PAYROLL-02`): no está modelado. Queda pendiente; no mezclar con el sueldo semanal hasta que el desarrollador lo pida.
 - Pago de una semana ya cerrada (atraso / caja flaca): no se permite. Si hace falta, es otra tarea.
 
-### FEAT-CASH-INJECT-01: Aporte de efectivo a caja (pendiente — pedido 2026-08-25)
+### FEAT-CASH-INJECT-01: Aporte de efectivo a caja (hecho 2026-08-28)
 
-Caso raro: llega un proveedor, la cajera no tiene efectivo suficiente, los admins le mandan plata para saldar. Hoy no hay forma de **sumar efectivo a mano** al turno (ni en PC ni en celu). El gasto/saldar proveedor **resta** caja; no hay el movimiento inverso.
+Caso raro: llega un proveedor, la cajera no tiene efectivo suficiente, los admins le mandan plata para saldar. El gasto/saldar proveedor **resta** caja; el aporte es el movimiento inverso.
 
-**Producto (cuando se pida):** registrar un ingreso de efectivo al turno (monto + nota, ej. “aporte admin para proveedor X”). Suma al efectivo esperado en vivo. No es un gasto ni un vale. Misma idea en PC y celu.
+**Producto:** registrar un ingreso de efectivo al turno (monto + nota, ej. “ingreso admin para proveedor X”). `expenses.kind = 'inject'`. Suma al efectivo esperado en vivo. No es un gasto ni un vale. Misma idea en PC (sidebar Ingreso) y celu.
 
-Parte del pack de emergencia del celu: `FEAT-MOB-EMERGENCY-01`. No implementar hasta que el desarrollador lo pida.
+Parte del pack de emergencia del celu: `FEAT-MOB-EMERGENCY-01`.
 
-### FEAT-MOB-EMERGENCY-01: Qué es “suficiente” en el POS del celular (acordado 2026-08-25, pendiente de confirmar)
+### FEAT-MOB-EMERGENCY-01: Qué es “suficiente” en el POS del celular (hecho 2026-08-28)
 
 El celu **no** es un segundo POS completo. Es el respaldo cuando la PC no está (corte de luz, PC rota). Si clonáramos todo, la PC dejaría de ser la caja del día y aparecerían dos fuentes de verdad + DT-06 (turno compartido en vivo).
 
@@ -975,17 +975,18 @@ El celu **no** es un segundo POS completo. Es el respaldo cuando la PC no está 
 
 | En el celu (pack emergencia) | No en el celu (quedan en PC) |
 | --- | --- |
-| Abrir/cerrar turno, cobro, venta (scan + manual) | Vales a carniceros, liquidación |
-| Efectivo esperado en vivo | Clientes especiales / conteo / asistencia / pedidos |
-| Gastos (sale plata) | Saldar proveedor (el gasto cubre “le pagué”) |
-| Aporte de efectivo (`FEAT-CASH-INJECT-01`) | Catálogo / balanza / precios |
+| Abrir/cerrar turno, cobro, venta (scan + manual) | Clientes especiales / conteo / asistencia / pedidos |
+| Efectivo esperado en vivo | Catálogo / balanza / precios |
+| Gastos **con proveedor** (lista + deuda de este local) | Saldar dedicado / deuda cross-local |
+| Ingreso de efectivo (`FEAT-CASH-INJECT-01`) | |
 | Ventas de **este** turno (anular si hace falta) | |
 | **Fiado en el cobro** (cliente + seña opcional) | |
+| **Vales y liquidación** (caja del celu; DT-06) | |
 
-**Fiado:** no se puede colgar “después” sobre la misma venta. En PC el fiado es un botón en Cobrar: la venta nace `isDebt` y el ledger apunta a esa venta del turno activo. Si en el celu se cobra como venta normal, `CREATE_DEBT` no la convierte luego (tiene que ser del turno abierto y no estar ya confirmada como no-fiado de otro flujo). Papel + cargar el fiado cuando vuelve la PC = la deuda existe, pero **no es la misma venta** y el momento del corte no queda atado al cliente. Por eso el fiado **sí** entra al pack de emergencia; no es como un vale.
+**Fiado:** no se puede colgar “después” sobre la misma venta. En PC el fiado es un botón en Cobrar: la venta nace `isDebt` y el ledger apunta a esa venta del turno activo. Si en el celu se cobra como venta normal, `CREATE_DEBT` no la convierte luego (tiene que ser del turno abierto y no estar ya confirmada como no-fiado de otro flujo). Papel + cargar el fiado cuando vuelve la PC = la deuda existe, pero **no es la misma venta** y el momento del corte no queda atado al cliente. Por eso el fiado **sí** entra al pack de emergencia.
 
 Historial largo y proveedores en celu = admin (ya existe), no el POS de cajera.
 
 **Turno celu no se ve “en vivo” en el POS de PC:** no es un bug de esta pasada. Es **DT-06** (turno compartido). Hoy el celu sube a Firestore y la PC **importa** con `source='mobile'`, pero ese turno **no** es la caja activa del escritorio. Workaround: cerrar en el celu y abrir otro en la PC (quedan dos turnos en historial). Unificar en vivo = fase S2, no mezclar con el testeo.
 
-No codear gastos / historial de turno / aporte hasta confirmar este recorte.
+Implementado en POS móvil: gastos con proveedor (lista + deuda de este local), ingreso de efectivo, ventas del turno con anular, fiado en el cobro, **vales y liquidación de la semana en curso**. El celu no clona saldar dedicado, deuda cross-local, pedidos ni catálogo. Vales/sueldo del celu quedan en el turno `source=mobile` (DT-06).

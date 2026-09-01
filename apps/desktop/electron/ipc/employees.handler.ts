@@ -14,8 +14,9 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { eq } from 'drizzle-orm'
 import { IPC } from './channels'
+import { namesMatch } from '@carniceria/shared'
 import { getDb } from '../db/client'
-import { employees } from '../db/schema'
+import { employees, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedEmployees } from '../licensing/employeeSync'
@@ -29,12 +30,14 @@ const createSchema = z.object({
   name: z.string().min(1).max(100).transform(s => s.trim()),
   weeklyWage: z.number().int().min(0).max(999_999_999),
   kind: z.enum(['butcher', 'cashier']).default('butcher'),
+  homeStoreId: z.string().min(1).max(80).nullable().optional(),
 })
 
 const updateSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(100).transform(s => s.trim()).optional(),
   weeklyWage: z.number().int().min(0).max(999_999_999).optional(),
+  homeStoreId: z.string().min(1).max(80).nullable().optional(),
 })
 
 const archiveSchema = z.object({
@@ -49,7 +52,20 @@ function toRow(row: typeof employees.$inferSelect): EmployeeRow {
     active: row.active,
     createdAt: row.createdAt,
     kind: row.kind === 'cashier' ? 'cashier' : 'butcher',
+    homeStoreId: row.homeStoreId ?? null,
   }
+}
+
+function resolveHomeStoreId(
+  db: ReturnType<typeof getDb>,
+  homeStoreId: string | null | undefined,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (homeStoreId == null) return { ok: true, value: null }
+  const store = db.select().from(stores).where(eq(stores.id, homeStoreId)).get()
+  if (!store || store.archivedAt) {
+    return { ok: false, error: 'El local habitual no existe o está eliminado.' }
+  }
+  return { ok: true, value: homeStoreId }
 }
 
 /** Busca otro empleado activo/inactivo con el mismo nombre (case-insensitive). */
@@ -86,6 +102,31 @@ function requireAdmin(): IpcResult<never> | null {
   return null
 }
 
+/**
+ * Login de cajera activo + ficha de sueldo dada de baja (desfasaje de sync).
+ * Personal muestra la cuenta de Firebase; vales miraba employees.active.
+ */
+function restoreOwnCashierFicha(
+  db: ReturnType<typeof getDb>,
+  session: NonNullable<ReturnType<typeof getActiveSession>>,
+): void {
+  if (session.role !== 'cashier') return
+  const userRow = db.select({ name: users.name }).from(users).where(eq(users.id, session.userId)).get()
+  const aliases = [session.displayName, userRow?.name]
+    .map(n => n?.trim() ?? '')
+    .filter(Boolean)
+  if (aliases.length === 0) return
+
+  const own = db.select().from(employees).all().find(row =>
+    row.kind === 'cashier' && aliases.some(a => namesMatch(row.name, a)),
+  )
+  if (!own || own.active) return
+
+  db.update(employees).set({ active: true, syncedAt: null }).where(eq(employees.id, own.id)).run()
+  log.info('[ipc:list-employees] Restauré ficha de cajera en sesión', { id: own.id, name: own.name })
+  scheduleEmployeePush('ipc:list-employees:heal-own-ficha')
+}
+
 export function registerEmployeesHandlers(): void {
   // --------------------------------------------------------------------------
   // LIST_EMPLOYEES
@@ -102,6 +143,7 @@ export function registerEmployeesHandlers(): void {
 
     try {
       const db = getDb()
+      restoreOwnCashierFicha(db, session)
       const includeArchived = parsed.data?.includeArchived === true
       const rows = includeArchived
         ? db.select().from(employees).all()
@@ -132,6 +174,9 @@ export function registerEmployeesHandlers(): void {
 
     try {
       const db = getDb()
+      const homeResolved = resolveHomeStoreId(db, parsed.data.homeStoreId ?? null)
+      if (!homeResolved.ok) return { ok: false, error: homeResolved.error, code: 'INVALID_PAYLOAD' }
+
       if (findNameConflict(db, name)) {
         const archived = db.select().from(employees).all().find(
           r => r.name.toLowerCase() === name.toLowerCase() && !r.active,
@@ -153,6 +198,7 @@ export function registerEmployeesHandlers(): void {
         name,
         weeklyWage,
         kind,
+        homeStoreId: homeResolved.value,
         active: true,
         createdAt,
         syncedAt: null,
@@ -182,8 +228,8 @@ export function registerEmployeesHandlers(): void {
     const denied = requireAdmin()
     if (denied) return denied
 
-    const { id, name, weeklyWage } = parsed.data
-    if (name === undefined && weeklyWage === undefined) {
+    const { id, name, weeklyWage, homeStoreId } = parsed.data
+    if (name === undefined && weeklyWage === undefined && homeStoreId === undefined) {
       return { ok: false, error: 'No hay campos para actualizar.', code: 'INVALID_PAYLOAD' }
     }
 
@@ -198,9 +244,20 @@ export function registerEmployeesHandlers(): void {
 
       const updatedName = name ?? existing.name
       const updatedWage = weeklyWage ?? existing.weeklyWage
+      let updatedHome = existing.homeStoreId ?? null
+      if (homeStoreId !== undefined) {
+        const homeResolved = resolveHomeStoreId(db, homeStoreId)
+        if (!homeResolved.ok) return { ok: false, error: homeResolved.error, code: 'INVALID_PAYLOAD' }
+        updatedHome = homeResolved.value
+      }
 
       db.update(employees)
-        .set({ name: updatedName, weeklyWage: updatedWage, syncedAt: null })
+        .set({
+          name: updatedName,
+          weeklyWage: updatedWage,
+          homeStoreId: updatedHome,
+          syncedAt: null,
+        })
         .where(eq(employees.id, id))
         .run()
 

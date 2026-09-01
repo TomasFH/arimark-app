@@ -132,6 +132,20 @@ describe('signInWithRole — modo producción', () => {
       expect(result.profile.displayName).toBe('Cajera Uno')
     }
   })
+
+  it('si displayName viene vacío usa el local-part del email', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'uid-001', email: 'cajera.prueba@negocio.com', getIdToken: vi.fn().mockResolvedValue('tok') },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => ({ role: 'cashier', authorizedStores: ['store-1'], displayName: '  ', active: true }),
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
+
+    const result = await signInWithRole('LIC-001', 'cajera.prueba@negocio.com', 'pw', 'cashier')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.profile.displayName).toBe('cajera.prueba')
+  })
 })
 
 describe('loginAdmin / AdminSession — modo dev', () => {

@@ -91,11 +91,23 @@ describe('attendance.handler', () => {
         employeeId,
         date: '2026-08-02',
         status: 'present',
-      }) as { ok: boolean; data: { id: string; status: string; employeeName: string } }
+      }) as { ok: boolean; data: { id: string; status: string; employeeName: string; storeId: string | null } }
 
       expect(res.ok).toBe(true)
       expect(res.data.status).toBe('present')
       expect(res.data.employeeName).toBe('Carnicero Uno')
+      expect(res.data.storeId).toBe('store-001')
+    })
+
+    it('usa storeId del payload si viene (admin eligiendo local)', () => {
+      const res = getHandler('ipc:record-attendance')(null, {
+        employeeId,
+        date: '2026-08-03',
+        status: 'present',
+        storeId: 'store-001',
+      }) as { ok: boolean; data: { storeId: string | null } }
+      expect(res.ok).toBe(true)
+      expect(res.data.storeId).toBe('store-001')
     })
 
     it('hace upsert el mismo día (mismo id, nuevo status)', () => {
@@ -116,6 +128,23 @@ describe('attendance.handler', () => {
       expect(second.data.id).toBe(first.data.id)
       expect(second.data.status).toBe('late')
       expect(second.data.note).toBe('Llegó 10 min tarde')
+    })
+
+    it('no pisa storeId ya seteado al re-registrar el mismo día', () => {
+      getHandler('ipc:record-attendance')(null, {
+        employeeId,
+        date: '2026-08-04',
+        status: 'present',
+        storeId: 'store-001',
+      })
+      const second = getHandler('ipc:record-attendance')(null, {
+        employeeId,
+        date: '2026-08-04',
+        status: 'late',
+        storeId: 'store-otro',
+      }) as { ok: boolean; data: { storeId: string | null } }
+      expect(second.ok).toBe(true)
+      expect(second.data.storeId).toBe('store-001')
     })
 
     it('rechaza payload inválido', () => {

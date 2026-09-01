@@ -81,6 +81,8 @@ export interface SessionInfo {
   userId: string
   storeId?: string
   expiresAt: string
+  /** Nombre de Firestore. Para filtrar vales (cajera = solo su ficha). */
+  displayName?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -122,11 +124,13 @@ export interface ShiftSummary {
   totalWalletSales: number
   /** Total cobrado con crédito durante el turno */
   totalCreditSales: number
-  /** Total gastado en efectivo durante el turno */
+  /** Total gastado en efectivo durante el turno (no incluye aportes) */
   totalExpenses: number
+  /** Ingresos de efectivo a caja durante el turno */
+  totalCashInjects: number
   /**
    * Efectivo estimado en caja = apertura + ventas en efectivo + señas en efectivo
-   * + cobranzas de fiado en efectivo − gastos en efectivo.
+   * + cobranzas de fiado en efectivo + aportes − gastos en efectivo.
    * No incluye el efectivo declarado al cerrar.
    */
   cashInHand: number
@@ -255,6 +259,24 @@ export interface CatalogRevisionRow {
   archivedAt: string
   updatedAt: string | null
   productCount: number
+}
+
+export type CatalogAuditAction =
+  | 'create'
+  | 'update_identity'
+  | 'hide_store'
+  | 'show_store'
+  | 'retire_global'
+
+export interface CatalogAuditRow {
+  id: string
+  productId: string
+  storeId: string | null
+  action: CatalogAuditAction
+  actorUserId: string
+  actorName: string
+  summary: string
+  createdAt: string
 }
 
 export interface StoreRow {
@@ -785,18 +807,22 @@ export interface EmployeeRow {
   active: boolean
   createdAt: string
   kind: 'butcher' | 'cashier'
+  /** null = aparece en las listas de todos los locales. */
+  homeStoreId: string | null
 }
 
 export interface CreateEmployeePayload {
   name: string
   weeklyWage: number
   kind?: 'butcher' | 'cashier'
+  homeStoreId?: string | null
 }
 
 export interface UpdateEmployeePayload {
   id: string
   name?: string
   weeklyWage?: number
+  homeStoreId?: string | null
 }
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'early_departure'
@@ -810,6 +836,8 @@ export interface AttendanceRow {
   note: string | null
   recordedBy: string
   createdAt: string
+  /** Local donde se marcó. null en filas viejas. */
+  storeId: string | null
 }
 
 export interface RecordAttendancePayload {
@@ -817,6 +845,7 @@ export interface RecordAttendancePayload {
   date: string
   status: AttendanceStatus
   note?: string | null
+  storeId?: string | null
 }
 
 export interface UpdateAttendancePayload {
@@ -1026,9 +1055,10 @@ export interface HistoryShiftRow {
   totalExpenses: number
   cashInHand: number
   totalDeposits: number
+  /** Origen del turno. Ausente en filas viejas = desktop. */
+  source?: 'desktop' | 'mobile'
 }
 
-/** Vale leído desde Firestore (admin remoto / cross-PC). */
 export interface RemoteEmployeeValeRow {
   id: string
   employeeId: string
@@ -1083,6 +1113,7 @@ export interface HistoryExpenseRow {
   amount: number
   notes: string | null
   createdBy: string
+  kind?: 'expense' | 'inject'
 }
 
 export interface HistoryDebtRow {
@@ -1129,6 +1160,7 @@ export interface HistoryShiftDetail {
     deliveredAmount: number | null
     deliveredTo: string | null
     notes: string | null
+    source?: 'desktop' | 'mobile'
   }
   sales: HistorySaleRow[]
   expenses: HistoryExpenseRow[]
@@ -1143,6 +1175,7 @@ export interface HistoryShiftDetail {
     totalWalletSales: number
     totalCreditSales: number
     totalExpenses: number
+    totalCashInjects: number
     cashDeposits: number
     digitalDeposits: number
     cashInHand: number
@@ -1306,6 +1339,9 @@ export interface HwApi {
   /** Zoom u otras preferencias cambiaron desde main (atajos Ctrl+/-). */
   onUiSettingsChanged: (cb: (settings: UiSettings) => void) => () => void
 
+  /** Catálogo remoto mergeado en SQLite (BLOQUE I-A). Recargar GET_PRODUCTS / GET_ALL_PRODUCTS. No mutar ítems ya en el ticket. */
+  onCatalogSyncUpdated: (cb: (payload?: { storeId?: string }) => void) => () => void
+
   /** Descarta el aviso de inactividad y reinicia el timer */
   dismissInactivityWarning: () => Promise<void>
 
@@ -1336,26 +1372,29 @@ export interface HwApi {
   /** Desarchiva un local — lo vuelve a activar */
   unarchiveStore: (payload: { id: string }) => Promise<IpcResult<StoreRow>>
 
-  /** Crea un producto nuevo — solo admin */
+  /** Crea un producto nuevo — admin o cajera (BLOQUE I-B) */
   createProduct: (payload: CreateProductPayload) => Promise<IpcResult<{ id: string }>>
 
-  /** Edita nombre, categoría, unidad, PLU o estado activo de un producto — solo admin */
+  /** Edita nombre, categoría, unidad, PLU. `active: false` (retiro global) solo admin. */
   updateProduct: (payload: UpdateProductPayload) => Promise<IpcResult>
 
-  /** Cambia el precio vigente de un producto en un local (cierra el anterior y abre uno nuevo) — solo admin */
+  /** Cambia el precio vigente. Cajera: solo el local de la sesión. */
   setProductPrice: (payload: SetProductPricePayload) => Promise<IpcResult>
 
-  /** Activa o desactiva la disponibilidad de un producto en un local — solo admin */
+  /** Activa o desactiva la disponibilidad en un local. Cajera: solo su local. */
   setProductAvailability: (payload: SetProductAvailabilityPayload) => Promise<IpcResult>
 
-  /** Historial completo de precios de un producto en un local — solo admin */
+  /** Historial completo de precios de un producto en un local */
   getProductPriceHistory: (payload: GetPriceHistoryPayload) => Promise<IpcResult<PriceHistoryRow[]>>
 
-  /** Versiones archivadas del catálogo de un local (snapshots previos a cada publicación) */
+  /** Versiones archivadas del catálogo de un local (snapshots previos a cada publicación) — solo admin */
   listCatalogRevisions: (payload: { storeId: string }) => Promise<IpcResult<CatalogRevisionRow[]>>
 
-  /** Restaura un snapshot archivado como catálogo vigente y lo baja a SQLite */
+  /** Restaura un snapshot archivado como catálogo vigente y lo baja a SQLite — solo admin */
   restoreCatalogRevision: (payload: { storeId: string; revisionId: string }) => Promise<IpcResult<{ productCount: number }>>
+
+  /** Auditoría de ficha / visibilidad / retiro global (BLOQUE I-B) */
+  listCatalogAudit: (payload: { productId?: string; storeId?: string }) => Promise<IpcResult<CatalogAuditRow[]>>
 
   /** Lista cajeras del sistema — solo admin */
   listCashiers: () => Promise<IpcResult<CashierRow[]>>
@@ -1389,6 +1428,9 @@ export interface HwApi {
 
   /** Registra un gasto durante el turno activo */
   registerExpense: (payload: RegisterExpensePayload) => Promise<IpcResult<{ id: string }>>
+
+  /** Registra un aporte de efectivo a caja durante el turno activo */
+  registerCashInject: (payload: { amount: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
 
   /** Actualiza un gasto del turno activo (solo mientras el turno está abierto) */
   updateExpense: (payload: UpdateExpensePayload) => Promise<IpcResult<{ id: string }>>

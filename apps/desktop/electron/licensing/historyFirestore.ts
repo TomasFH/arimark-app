@@ -83,6 +83,7 @@ interface FsExpense {
   createdAt: string
   createdBy: string
   deleted?: boolean
+  kind?: 'expense' | 'inject'
 }
 
 interface FsOrder {
@@ -177,7 +178,6 @@ export async function fetchHistoryShiftsFromFirestore(
   const shifts: FsShift[] = []
   for (const d of shiftsSnap.docs) {
     const s = d.data() as FsShift
-    if (s.source && s.source !== 'desktop') continue
     if (filter.effectiveStoreId && s.storeId !== filter.effectiveStoreId) continue
     if (filter.fromDate && s.startedAt < filter.fromDate) continue
     if (filter.toDate && s.startedAt > filter.toDate + 'T23:59:59.999Z') continue
@@ -198,10 +198,15 @@ export async function fetchHistoryShiftsFromFirestore(
   }
 
   const expensesByShift = new Map<string, number>()
+  const injectsByShift = new Map<string, number>()
   for (const d of expensesSnap.docs) {
     const e = d.data() as FsExpense
     if (e.deleted === true) continue
-    expensesByShift.set(e.shiftId, (expensesByShift.get(e.shiftId) ?? 0) + e.amount)
+    if (e.kind === 'inject') {
+      injectsByShift.set(e.shiftId, (injectsByShift.get(e.shiftId) ?? 0) + e.amount)
+    } else {
+      expensesByShift.set(e.shiftId, (expensesByShift.get(e.shiftId) ?? 0) + e.amount)
+    }
   }
 
   const depositsByShift = new Map<string, number>()
@@ -228,6 +233,7 @@ export async function fetchHistoryShiftsFromFirestore(
   return shifts.map(s => {
     const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
     const exp = expensesByShift.get(s.id) ?? 0
+    const inj = injectsByShift.get(s.id) ?? 0
     const dep = depositsByShift.get(s.id) ?? 0
     const debtCash = cashDebtByShift.get(s.id) ?? 0
     return {
@@ -240,8 +246,9 @@ export async function fetchHistoryShiftsFromFirestore(
       totalRevenue: sv.total,
       totalCashSales: sv.cash,
       totalExpenses: exp,
-      cashInHand: s.openingCash + sv.cash + dep + debtCash - exp,
+      cashInHand: s.openingCash + sv.cash + dep + debtCash + inj - exp,
       totalDeposits: dep,
+      source: s.source === 'mobile' ? 'mobile' : 'desktop',
     }
   })
 }
@@ -350,6 +357,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
         amount: e.amount,
         notes: e.notes ?? null,
         createdBy: e.createdBy,
+        kind: e.kind === 'inject' ? 'inject' : 'expense',
       })
     }
     historyExpenses.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -468,7 +476,12 @@ export async function fetchHistoryShiftDetailFromFirestore(
     const confirmedSales = historySales.filter(s => s.status === 'confirmed')
     const totalRevenue = confirmedSales.reduce((a, s) => a + s.total, 0)
     const totalCashSales = confirmedSales.reduce((a, s) => a + s.cashAmount, 0)
-    const totalExpenses = historyExpenses.reduce((a, e) => a + e.amount, 0)
+    const totalExpenses = historyExpenses
+      .filter(e => e.kind !== 'inject')
+      .reduce((a, e) => a + e.amount, 0)
+    const totalCashInjects = historyExpenses
+      .filter(e => e.kind === 'inject')
+      .reduce((a, e) => a + e.amount, 0)
     const cashDeposits = historyDeposits.reduce((a, d) => a + cashAmountFromDeposit({
       depositAmount: d.depositAmount,
       depositMethod: d.depositMethod,
@@ -495,6 +508,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
         deliveredAmount: shift.deliveredAmount,
         deliveredTo: shift.deliveredTo,
         notes: shift.notes,
+        source: shift.source === 'mobile' ? 'mobile' : 'desktop',
       },
       sales: historySales,
       expenses: historyExpenses,
@@ -509,9 +523,10 @@ export async function fetchHistoryShiftDetailFromFirestore(
         totalWalletSales,
         totalCreditSales,
         totalExpenses,
+        totalCashInjects,
         cashDeposits,
         digitalDeposits,
-        cashInHand: shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments - totalExpenses,
+        cashInHand: shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments + totalCashInjects - totalExpenses,
         debtsCount: historyDebts.length,
         totalDebts: historyDebts.reduce((a, d) => a + d.amount, 0),
       },

@@ -19,6 +19,7 @@
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import BackButton from '../components/BackButton'
+import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type {
   SpecialCustomerRow,
   SpecialCustomerPriceRow,
@@ -393,6 +394,12 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
       if (res.ok) setProducts(res.data)
     })
   }, [])
+
+  useCatalogSyncReload(() => {
+    void window.hw.getProducts().then(res => {
+      if (res.ok) setProducts(res.data)
+    })
+  })
 
   useEffect(() => {
     void loadAll()

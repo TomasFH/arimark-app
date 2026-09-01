@@ -44,7 +44,7 @@ export function ManualEntry({ catalog, onAdd, onClose }: Props) {
   const priceRef = useRef<HTMLInputElement>(null)
 
   const suggestions = useMemo(
-    () => (query.length >= 1 && !selected ? searchCatalog(catalog, query).slice(0, 8) : []),
+    () => (query.length >= 1 && !selected ? searchCatalog(catalog, query) : []),
     [query, selected, catalog],
   )
 

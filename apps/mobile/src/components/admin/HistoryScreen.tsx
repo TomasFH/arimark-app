@@ -184,6 +184,11 @@ export function HistoryScreen({ onBack, stores }: Props) {
                     >
                       {shift.closedAt ? 'Cerrado' : 'Abierto'}
                     </span>
+                    {shift.source === 'mobile' && (
+                      <span className="shrink-0 rounded-full border border-sky-800/60 bg-sky-950/40 px-2 py-0.5 text-xs text-sky-300">
+                        Móvil
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-zinc-400">
                     {shift.shiftType === 'morning' ? 'Mañana' : 'Tarde'}

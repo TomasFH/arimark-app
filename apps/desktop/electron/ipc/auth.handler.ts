@@ -9,7 +9,7 @@ import { setActiveSession } from '../activeSession'
 import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession, signInAutoDetect } from '../licensing/session'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
-import { syncCatalogWithFirestore, syncAllStoreCatalogs } from '../licensing/catalogSync'
+import { syncCatalogWithFirestore, syncAllStoreCatalogs, startCatalogSyncListener, stopCatalogSyncListener } from '../licensing/catalogSync'
 import { startMobileSyncListener, stopMobileSyncListener } from '../licensing/mobileSync'
 import {
   startProviderSyncListener,
@@ -183,12 +183,14 @@ export function registerAuthHandlers(): void {
         } catch (err) {
           log.warn('[ipc:login] syncAllStoreCatalogs (admin) falló (no bloqueante)', err)
         }
+        startCatalogSyncListener(adminConfig.tenant_id)
         return {
           ok: true,
           data: {
             role: 'admin',
             userId: profile.uid,
             expiresAt: session.expiresAt.toISOString(),
+            displayName: profile.displayName,
           },
         }
       }
@@ -226,6 +228,8 @@ export function registerAuthHandlers(): void {
         log.warn('[ipc:login] pushUnsyncedEmployeeOps (cajera) falló (no bloqueante)', err)
       )
 
+      startCatalogSyncListener(config.tenant_id)
+
       log.info('[ipc:login] Cajera autenticada — pendiente selección de local', { email })
       return {
         ok: true,
@@ -233,6 +237,7 @@ export function registerAuthHandlers(): void {
           role: 'cashier',
           userId: profile.uid,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          displayName: profile.displayName,
         },
       }
     } catch (err) {
@@ -299,6 +304,7 @@ export function registerAuthHandlers(): void {
       syncCatalogWithFirestore(config.tenant_id, storeId).catch(err =>
         log.warn('[ipc:login-cashier] syncCatalogWithFirestore falló (no bloqueante)', err)
       )
+      startCatalogSyncListener(config.tenant_id)
 
       // Iniciar listener de importación de turnos móviles.
       startMobileSyncListener(config.tenant_id, storeId)
@@ -350,6 +356,7 @@ export function registerAuthHandlers(): void {
           userId: profile.uid,
           storeId,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          displayName: profile.displayName,
         },
       }
     } catch (err) {
@@ -377,6 +384,7 @@ export function registerAuthHandlers(): void {
     } catch (err) {
       log.warn('[ipc:login-admin] syncAllStoreCatalogs falló (no bloqueante)', err)
     }
+    startCatalogSyncListener(config.tenant_id)
 
     return {
       ok: true,
@@ -404,6 +412,7 @@ export function registerAuthHandlers(): void {
       stopOrderSyncListener()
       stopCustomerDebtSyncListener()
       stopSpecialCustomerSyncListener()
+      stopCatalogSyncListener()
       setActiveSession(null)
     } else if (role === 'admin') {
       stopProviderSyncListener()
@@ -412,6 +421,7 @@ export function registerAuthHandlers(): void {
       stopOrderSyncListener()
       stopCustomerDebtSyncListener()
       stopSpecialCustomerSyncListener()
+      stopCatalogSyncListener()
       await logoutAdmin()
     }
 

@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { eq, and, isNull, desc, count, sum } from 'drizzle-orm'
+import { eq, and, isNull, desc, count, sum, sql } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { shifts, sales, salePayments, expenses, billDenominations, debtEvents, orders, users } from '../db/schema'
@@ -269,9 +269,13 @@ export function registerShiftHandlers(): void {
         digitalByMethod[row.method] = Number(row.total ?? 0)
       }
 
-      // Total de gastos del turno
+      // Gastos y aportes del turno en un solo select (mocks encadenados de GET_SHIFT_SUMMARY).
+      // kind != 'inject' (o ausente en filas viejas) = gasto; kind == 'inject' = aporte.
       const [expenseStats] = db
-        .select({ totalExpenses: sum(expenses.amount) })
+        .select({
+          totalExpenses: sql<number>`coalesce(sum(case when ${expenses.kind} = 'inject' then 0 else ${expenses.amount} end), 0)`,
+          totalInjects: sql<number>`coalesce(sum(case when ${expenses.kind} = 'inject' then ${expenses.amount} else 0 end), 0)`,
+        })
         .from(expenses)
         .where(eq(expenses.shiftId, session.shiftId))
         .all()
@@ -281,6 +285,7 @@ export function registerShiftHandlers(): void {
       const totalWalletSales = digitalByMethod['wallet'] ?? 0
       const totalCreditSales = digitalByMethod['credit'] ?? 0
       const totalExpenses = Number(expenseStats?.totalExpenses ?? 0)
+      const totalCashInjects = Number(expenseStats?.totalInjects ?? 0)
 
       // Señas recibidas en este turno — desglosa por medio de pago parseando depositPayments JSON
       const depositOrders = db
@@ -313,7 +318,7 @@ export function registerShiftHandlers(): void {
         .all()
       const totalCashDebtPayments = cashDebtRows.reduce((acc, r) => acc + Math.abs(Number(r.amount)), 0)
 
-      const cashInHand = shift.openingCash + totalCashSales + totalCashDeposits + totalCashDebtPayments - totalExpenses
+      const cashInHand = shift.openingCash + totalCashSales + totalCashDeposits + totalCashDebtPayments + totalCashInjects - totalExpenses
 
       // Fiados del turno: eventos 'created' cuya venta pertenece a este turno
       const [debtStats] = db
@@ -343,6 +348,7 @@ export function registerShiftHandlers(): void {
           totalWalletSales,
           totalCreditSales,
           totalExpenses,
+          totalCashInjects,
           cashInHand,
           debtsCount: debtStats?.debtsCount ?? 0,
           totalDebts: Number(debtStats?.totalDebts ?? 0),
