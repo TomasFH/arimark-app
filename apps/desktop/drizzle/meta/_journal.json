@@ -253,6 +253,13 @@
       "when": 1788058281439,
       "tag": "0035_catalog_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1788377781314,
+      "tag": "0036_orders_ready_budget",
+      "breakpoints": true
     }
   ]
 }

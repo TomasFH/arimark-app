@@ -133,6 +133,16 @@ describe('migrations', () => {
       expect(attCols.map(c => c.name)).toContain('store_id')
     })
 
+    it('tiene ready_at/ready_by/budget_items en orders (migración 0036)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(orders)').all() as { name: string }[]
+      const names = cols.map(c => c.name)
+      expect(names).toContain('ready_at')
+      expect(names).toContain('ready_by')
+      expect(names).toContain('ready_by_name')
+      expect(names).toContain('budget_items')
+    })
+
   it('tiene el índice idx_debt_events_customer', async () => {
     const { db } = await createInMemoryDb()
     const indexes = db.all(

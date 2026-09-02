@@ -30,6 +30,16 @@ interface Props {
   onViewSpecialCustomers?: () => void
   onViewOrders?: () => void
   isActive?: boolean
+  /** Carrito inyectado desde un pedido (se carga al POS al activarse la pantalla) */
+  pendingOrderCart?: {
+    orderId: string
+    customerName: string
+    depositAmount: number
+    depositPayments: import('../types/hw-api').DepositPayment[]
+    items: SaleItemDraft[]
+  } | null
+  /** Callback para indicar que el carrito fue consumido (App.tsx limpia el estado) */
+  onOrderCartConsumed?: () => void
 }
 
 const FALLBACK_PRODUCT_ID = '00000000-0000-0000-0001-000000000099'
@@ -179,6 +189,8 @@ export default function CashierScreen({
   onViewSpecialCustomers,
   onViewOrders,
   isActive = true,
+  pendingOrderCart,
+  onOrderCartConsumed,
 }: Props) {
   // ── Existing state ─────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([])
@@ -202,6 +214,14 @@ export default function CashierScreen({
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
   const [cashInHand, setCashInHand] = useState<number | null>(null)
   const [scanFlash, setScanFlash] = useState<string | null>(null)
+
+  /** Pedido activo inyectado en el POS (para marcar entregado al confirmar la venta) */
+  const [activeOrder, setActiveOrder] = useState<{
+    orderId: string
+    customerName: string
+    depositAmount: number
+    depositPayments: import('../types/hw-api').DepositPayment[]
+  } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [storeName, setStoreName] = useState<string | null>(null)
   const [specialCustomers, setSpecialCustomers] = useState<SpecialCustomerRow[]>([])
@@ -320,9 +340,32 @@ export default function CashierScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive])
 
+  // Inyectar carrito de pedido al activarse el POS
+  useEffect(() => {
+    if (!isActive || !pendingOrderCart) return
+    const items = pendingOrderCart.items.map(item => ({
+      ...item,
+      localId: `order-${crypto.randomUUID()}`,
+    }))
+    setCart(items)
+    setActiveOrder({
+      orderId: pendingOrderCart.orderId,
+      customerName: pendingOrderCart.customerName,
+      depositAmount: pendingOrderCart.depositAmount,
+      depositPayments: pendingOrderCart.depositPayments,
+    })
+    setError('')
+    setLastSaleId(null)
+    onOrderCartConsumed?.()
+  // Solo ejecutar cuando el POS se activa con un carrito pendiente
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, pendingOrderCart])
+
   // ── Cart logic ─────────────────────────────────────────────────────────────
 
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0)
+  /** Monto neto a cobrar ahora: descuenta la seña del pedido activo */
+  const cartNetTotal = Math.max(0, cartTotal - (activeOrder?.depositAmount ?? 0))
   const hasManualItems = cart.some(item => item.manualEntry)
 
   const addItem = useCallback((item: SaleItemDraft) => {
@@ -357,6 +400,7 @@ export default function CashierScreen({
     setCart([])
     setError('')
     setLastSaleId(null)
+    setActiveOrder(null)
   }
 
   // ── Hero input handlers ────────────────────────────────────────────────────
@@ -415,6 +459,8 @@ export default function CashierScreen({
         payments,
         manualEntry: hasManualItems,
         notes,
+        orderId: activeOrder?.orderId,
+        depositCredit: activeOrder?.depositAmount && activeOrder.depositAmount > 0 ? activeOrder.depositAmount : undefined,
       })
       if (!result.ok) {
         setError(result.error ?? 'Error al procesar la venta.')
@@ -422,6 +468,7 @@ export default function CashierScreen({
       }
       setLastSaleId(result.data.saleId)
       setCart([])
+      setActiveOrder(null)
       refreshBalance()
     } catch {
       setError('Error de comunicación. Reintentar.')
@@ -766,19 +813,30 @@ export default function CashierScreen({
                   <h2 className="text-sm font-semibold text-zinc-100">Total de la Venta</h2>
                 </div>
 
+                {/* Contexto de pedido activo */}
+                {activeOrder && (
+                  <div className="mx-3 mt-3 rounded-lg bg-blue-950/60 border border-blue-800/50 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400 mb-0.5">Pedido activo</p>
+                    <p className="text-xs text-blue-200 truncate" title={activeOrder.customerName}>{activeOrder.customerName}</p>
+                    <p className="text-xs text-blue-300">Seña: <span className="font-semibold">{formatARS(activeOrder.depositAmount)}</span></p>
+                  </div>
+                )}
+
                 {/* Summary rows */}
                 <div className="flex-1 space-y-2 px-5 py-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-zinc-500">Subtotal</span>
                     <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartTotal)}</span>
                   </div>
+                  {activeOrder && activeOrder.depositAmount > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-blue-400">Seña descontada</span>
+                      <span className="font-mono text-sm text-blue-300 tabular-nums">−{formatARS(activeOrder.depositAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-500">Descuento</span>
-                    <span className="font-mono text-sm text-zinc-600 tabular-nums">$0</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400 font-medium">Total</span>
-                    <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartTotal)}</span>
+                    <span className="text-sm text-zinc-400 font-medium">A cobrar</span>
+                    <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartNetTotal)}</span>
                   </div>
                 </div>
 
@@ -786,10 +844,10 @@ export default function CashierScreen({
                 <div className="shrink-0 space-y-4 border-t border-zinc-700 px-5 pb-5 pt-4">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600 mb-1.5">
-                      TOTAL
+                      {activeOrder ? 'A COBRAR' : 'TOTAL'}
                     </p>
                     <p className="font-mono text-5xl font-bold leading-none text-zinc-100 tabular-nums">
-                      {formatARS(cartTotal)}
+                      {formatARS(cartNetTotal)}
                     </p>
                   </div>
 
@@ -881,9 +939,9 @@ export default function CashierScreen({
 
       {showPaymentModal && cart.length > 0 && (
         <PaymentModal
-          total={cartTotal}
+          total={cartNetTotal}
           onConfirm={handleConfirmSale}
-          onFiado={handleOpenFiado}
+          onFiado={activeOrder ? undefined : handleOpenFiado}
           onClose={() => setShowPaymentModal(false)}
         />
       )}

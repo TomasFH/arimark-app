@@ -26,6 +26,11 @@ vi.mock('../../licensing/saleSync', () => ({
   pushUnsyncedSales: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/orderSync', () => ({
+  pushUnsyncedOrders: vi.fn().mockResolvedValue(undefined),
+  markOrderDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('../inactivityDaemon', () => ({
   notifySaleOccurred: vi.fn(),
 }))
@@ -383,6 +388,7 @@ describe('orders.handler', () => {
         items: 'Asado',
         pickupDate: '2026-07-25',
       }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
       const res = getHandler('ipc:charge-order')(null, {
         orderId: created.data.id,
         remaining: 0,
@@ -393,7 +399,7 @@ describe('orders.handler', () => {
       expect(db.select().from(sales).all()).toHaveLength(0)
     })
 
-    it('crea venta por el resto y marca entregado', () => {
+    it('resto > 0 rechaza con INVALID_PAYLOAD: usar flujo del POS', () => {
       const created = getHandler('ipc:create-order')(null, {
         customerName: 'Luis',
         items: 'Vacío',
@@ -401,34 +407,38 @@ describe('orders.handler', () => {
         depositAmount: 40000,
         depositPayments: [{ method: 'cash', amount: 40000 }],
       }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
       const res = getHandler('ipc:charge-order')(null, {
         orderId: created.data.id,
         remaining: 20000,
         payments: [{ paymentMethod: 'cash', amount: 20000 }],
-      }) as { ok: boolean; data: { status: string } }
-      expect(res.ok).toBe(true)
-      expect(res.data.status).toBe('delivered')
-      expect(db.select().from(sales).all()).toHaveLength(1)
-      expect(db.select().from(sales).all()[0].total).toBe(20000)
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+      // El pedido no queda entregado — sigue en su estado original
+      expect(db.select().from(sales).all()).toHaveLength(0)
     })
 
-    it('rechaza segundo cobro', () => {
+    it('rechaza segundo cobro (remaining=0 sobre pedido ya entregado)', () => {
       const created = getHandler('ipc:create-order')(null, {
         customerName: 'Eva',
         items: 'Pollo',
         pickupDate: '2026-07-25',
       }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+      // Primer cobro: OK
       getHandler('ipc:charge-order')(null, { orderId: created.data.id, remaining: 0, payments: [] })
+      // Segundo cobro: ya está entregado
       const res = getHandler('ipc:charge-order')(null, {
         orderId: created.data.id,
-        remaining: 1000,
-        payments: [{ paymentMethod: 'cash', amount: 1000 }],
+        remaining: 0,
+        payments: [],
       }) as { ok: boolean; code?: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('INVALID_STATUS')
     })
 
-    it('resto > 0 sin turno → NO_SHIFT', () => {
+    it('resto > 0 sin turno → sigue siendo INVALID_PAYLOAD (flujo POS, no CHARGE_ORDER)', () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT as unknown as ReturnType<typeof getActiveSession>)
       const res = getHandler('ipc:charge-order')(null, {
         orderId: '00000000-0000-0000-0000-000000000001',
@@ -436,7 +446,7 @@ describe('orders.handler', () => {
         payments: [{ paymentMethod: 'cash', amount: 1000 }],
       }) as { ok: boolean; code?: string }
       expect(res.ok).toBe(false)
-      expect(res.code).toBe('NO_SHIFT')
+      expect(res.code).toBe('INVALID_PAYLOAD')
     })
 
     it('rechaza pagos que no cubren el resto', () => {
@@ -445,6 +455,7 @@ describe('orders.handler', () => {
         items: 'Bondiola',
         pickupDate: '2026-07-25',
       }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
       const res = getHandler('ipc:charge-order')(null, {
         orderId: created.data.id,
         remaining: 5000,

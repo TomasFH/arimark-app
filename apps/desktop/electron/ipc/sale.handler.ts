@@ -5,10 +5,11 @@ import log from 'electron-log'
 import { eq, and, desc, inArray, ne } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { sales, saleItems, salePayments, products } from '../db/schema'
+import { sales, saleItems, salePayments, orders, products } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedSales } from '../licensing/saleSync'
+import { pushUnsyncedOrders } from '../licensing/orderSync'
 import { notifySaleOccurred } from './inactivityDaemon'
 import type { IpcResult, SaleResult, ShiftSaleRow } from '../../src/types/hw-api'
 
@@ -38,15 +39,25 @@ const createSaleSchema = z
     isDebt: z.boolean().optional(),
     manualEntry: z.boolean().optional(),
     notes: z.string().optional(),
+    /** Si se pasa, marca el pedido como entregado al confirmar la venta */
+    orderId: z.string().uuid().optional(),
+    /**
+     * Crédito de seña pre-pagada al crear el pedido. Se descuenta del total de ítems.
+     * sale.total = itemTotal − depositCredit. Los pagos cubren ese neto.
+     */
+    depositCredit: z.number().min(0).optional(),
   })
   .refine(
     data => {
       // En ventas fiado el pago es diferido: no se valida la suma
       if (data.isDebt) return true
-      if (data.payments.length === 0) return false
       const itemTotal = Math.round(data.items.reduce((sum, i) => sum + i.subtotal, 0))
+      const credit = Math.round(data.depositCredit ?? 0)
+      const net = itemTotal - credit
+      if (net === 0) return data.payments.length === 0
+      if (data.payments.length === 0) return false
       const paymentTotal = Math.round(data.payments.reduce((sum, p) => sum + p.amount, 0))
-      return Math.abs(itemTotal - paymentTotal) < 0.5
+      return Math.abs(net - paymentTotal) < 0.5
     },
     { message: 'La suma de pagos no coincide con el total de la venta.' }
   )
@@ -76,8 +87,9 @@ export function registerSaleHandlers(): void {
       }
     }
 
-    const { items, payments, customerId, isDebt, manualEntry, notes } = parsed.data
-    const total = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
+    const { items, payments, customerId, isDebt, manualEntry, notes, orderId, depositCredit } = parsed.data
+    const itemTotal = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
+    const total = Math.max(0, Math.round((itemTotal - (depositCredit ?? 0)) * 100) / 100)
     const saleId = uuidv4()
     const now = new Date().toISOString()
     const db = getDb()
@@ -153,6 +165,14 @@ export function registerSaleHandlers(): void {
             })
             .run()
         }
+
+        // Si hay un pedido asociado, marcarlo como entregado en la misma transacción
+        if (orderId) {
+          tx.update(orders)
+            .set({ status: 'delivered', updatedAt: confirmAt, updatedBy: session.userId, syncedAt: null })
+            .where(eq(orders.id, orderId))
+            .run()
+        }
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -165,7 +185,7 @@ export function registerSaleHandlers(): void {
       }
     }
 
-    log.info('[ipc:create-sale] Venta confirmada', { saleId, total, payments: payments.length })
+    log.info('[ipc:create-sale] Venta confirmada', { saleId, total, payments: payments.length, orderId })
     notifySaleOccurred()
 
     // Push a Firestore (outbox: syncedAt=null). Fire-and-forget.
@@ -173,6 +193,11 @@ export function registerSaleHandlers(): void {
     pushUnsyncedSales(config.tenant_id).catch(err =>
       log.warn('[ipc:create-sale] push de venta falló (no bloqueante)', err)
     )
+    if (orderId) {
+      pushUnsyncedOrders(config.tenant_id).catch(err =>
+        log.warn('[ipc:create-sale] pushUnsyncedOrders falló (no bloqueante)', err)
+      )
+    }
 
     return { ok: true, data: { saleId, total } }
   })

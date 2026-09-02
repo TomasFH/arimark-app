@@ -18,7 +18,7 @@ import HistoryScreen from './routes/HistoryScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
-import type { InitStatus, SessionInfo, ShiftInfo, StoreRow } from './types/hw-api'
+import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
@@ -56,6 +56,15 @@ export default function App() {
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
   const [inactivityCountdown, setInactivityCountdown] = useState(INACTIVITY_COUNTDOWN_SECONDS)
   const prevScreenRef = useRef(state.screen)
+
+  /** Carrito pendiente de inyección en el POS proveniente de un pedido */
+  const [pendingOrderCart, setPendingOrderCart] = useState<{
+    orderId: string
+    customerName: string
+    depositAmount: number
+    depositPayments: DepositPayment[]
+    items: SaleItemDraft[]
+  } | null>(null)
 
   useEffect(() => {
     const prev = prevScreenRef.current
@@ -458,6 +467,8 @@ export default function App() {
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
+            pendingOrderCart={pendingOrderCart}
+            onOrderCartConsumed={() => setPendingOrderCart(null)}
           />
         </div>
       )}
@@ -561,6 +572,10 @@ export default function App() {
                 handleReturnToAdminHub()
               }
             }}
+            onInjectOrderCart={state.fromCashier ? (cart) => {
+              setPendingOrderCart(cart)
+              setState({ screen: 'cashier', session: state.session, shift: state.fromCashier!, initStatus: state.initStatus })
+            } : undefined}
           />
         </Page>
       )}

@@ -4,19 +4,20 @@
  * Cajera: ver lista, crear pedido, editar, cancelar, marcar listo/entregado.
  * Admin: igual + eliminación permanente.
  */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
-import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
+import DecimalInput from '../components/DecimalInput'
+import { parseNumericInput, formatNumericInputValue, parseDecimalInput } from '../lib/numericInput'
 import { addDaysYmd, formatARS, formatYmd, todayLocalYmd } from '../lib/datetime'
 import { formatPhoneInput } from '../lib/phoneInput'
 import StoreFilter from '../components/StoreFilter'
+import { searchProductsByQuery } from '@carniceria/shared'
 import type {
   OrderRow, OrderStatus, DepositMethod, DepositPayment,
   CreateOrderPayload, UpdateOrderPayload, OrderTimeSlot, StoreRow,
-  SalePaymentPayload,
+  SaleItemDraft, BudgetCartLine, ProductRow,
 } from '../types/hw-api'
-import PaymentModal from '../components/PaymentModal'
 
 const DEPOSIT_METHOD_LABELS: Record<DepositMethod, string> = {
   cash: 'Efectivo',
@@ -47,6 +48,12 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
 
 type FilterStatus = 'active' | 'all'
 
+/** Línea editable en el carrito de presupuesto (UI) */
+interface BudgetCartDraft extends BudgetCartLine {
+  /** Cantidad ingresada como string (para los inputs controlados) */
+  qtyRaw: string
+}
+
 interface FormState {
   customerName: string
   phone: string
@@ -59,6 +66,8 @@ interface FormState {
   depositPayments: DepositPayment[]
   /** Solo admin: local destino del pedido */
   storeId: string
+  /** Carrito de presupuesto */
+  budgetCart: BudgetCartDraft[]
 }
 
 const EMPTY_FORM: FormState = {
@@ -72,6 +81,7 @@ const EMPTY_FORM: FormState = {
   notes: '',
   depositPayments: [],
   storeId: '',
+  budgetCart: [],
 }
 
 function todayDateStr(): string {
@@ -109,6 +119,14 @@ interface Props {
   onBack: () => void
   /** ID del turno activo cuando se navega desde la caja; null si se viene desde admin hub */
   currentShiftId: string | null
+  /** Callback para inyectar el carrito del pedido en el POS (solo cuando hay turno activo) */
+  onInjectOrderCart?: (cart: {
+    orderId: string
+    customerName: string
+    depositAmount: number
+    depositPayments: DepositPayment[]
+    items: SaleItemDraft[]
+  }) => void
 }
 
 // Modal de confirmación reutilizable
@@ -140,7 +158,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-eme
   )
 }
 
-export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props) {
+export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInjectOrderCart }: Props) {
   const [ordersList, setOrdersList] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -152,6 +170,9 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
   const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
 
+  // Catálogo de productos para el carrito de presupuesto
+  const [catalog, setCatalog] = useState<ProductRow[]>([])
+
   // ID del pedido recién creado — para scroll y highlight
   const [newOrderId, setNewOrderId] = useState<string | null>(null)
 
@@ -161,6 +182,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Búsqueda typeahead del carrito de presupuesto
+  const [budgetSearch, setBudgetSearch] = useState('')
+  const [budgetSuggestions, setBudgetSuggestions] = useState<ProductRow[]>([])
+  const budgetSearchRef = useRef<HTMLInputElement>(null)
+
   // Confirmaciones de estado y delete
   const [confirmStatus, setConfirmStatus] = useState<{ order: OrderRow; status: OrderStatus } | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<OrderRow | null>(null)
@@ -169,11 +195,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
   const [confirmHardDelete, setConfirmHardDelete] = useState<OrderRow | null>(null)
   // Si hay turno activo y el pedido tiene seña, ofrecer registrar la devolución como gasto
   const [registerRefund, setRegisterRefund] = useState(true)
-  const [chargeOrder, setChargeOrder] = useState<OrderRow | null>(null)
-  const [remainingRaw, setRemainingRaw] = useState('')
+
+  // Modal de cobro mediante inyección en POS (nuevo flujo)
+  const [chargeModalOrder, setChargeModalOrder] = useState<OrderRow | null>(null)
+  const [chargeCartLines, setChargeCartLines] = useState<Array<BudgetCartDraft & { checked: boolean }>>([])
   const [chargeError, setChargeError] = useState<string | null>(null)
-  const [chargePaying, setChargePaying] = useState(false)
-  const [showChargePayment, setShowChargePayment] = useState(false)
 
   const loadOrders = useCallback(async () => {
     const r = await window.hw.listOrders(showStoreFilter ? { storeIdFilter } : undefined)
@@ -194,6 +220,24 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       if (r.ok) setAvailableStores(r.data)
     })
   }, [showStoreFilter])
+
+  // Cargar catálogo para el carrito de presupuesto
+  useEffect(() => {
+    window.hw.getProducts().then(r => {
+      if (r.ok) setCatalog(r.data)
+    })
+  }, [])
+
+  // Búsqueda de productos para el carrito de presupuesto
+  useEffect(() => {
+    const q = budgetSearch.trim()
+    if (!q) { setBudgetSuggestions([]); return }
+    const results = searchProductsByQuery(catalog, q, {
+      nameOf: p => p.name,
+      pluOf: p => p.pluNumber ?? 0,
+    })
+    setBudgetSuggestions(results.slice(0, 8))
+  }, [budgetSearch, catalog])
 
   const filteredOrders = useMemo(() => {
     let list = ordersList
@@ -259,6 +303,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
 
   function openEdit(order: OrderRow) {
     const payments: DepositPayment[] = paymentsForOrder(order)
+    const budgetCart: BudgetCartDraft[] = (order.budgetItems ?? []).map(line => ({
+      ...line,
+      qtyRaw: line.unit === 'kg'
+        ? String(line.estimatedQty).replace('.', ',')
+        : String(Math.round(line.estimatedQty)),
+    }))
     setForm({
       customerName: order.customerName,
       phone: formatPhoneInput(order.phone ?? ''),
@@ -270,6 +320,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       notes: order.notes ?? '',
       depositPayments: payments,
       storeId: order.storeId,
+      budgetCart,
     })
     setFormError(null)
     setEditingOrder(order)
@@ -317,6 +368,20 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
     const items = form.items.trim()
     const pickupDate = form.pickupDate.trim()
     const total = depositTotal(form.depositPayments)
+
+    // Convertir el carrito de presupuesto a BudgetCartLine[]
+    const budgetItems: BudgetCartLine[] = form.budgetCart
+      .filter(line => {
+        const qty = line.unit === 'kg' ? parseDecimalInput(line.qtyRaw) : parseNumericInput(line.qtyRaw)
+        return qty !== null && qty > 0
+      })
+      .map(line => {
+        const qty = line.unit === 'kg'
+          ? (parseDecimalInput(line.qtyRaw) ?? line.estimatedQty)
+          : (parseNumericInput(line.qtyRaw) ?? line.estimatedQty)
+        return { ...line, estimatedQty: qty }
+      })
+
     setSaving(true)
     try {
       if (editingOrder) {
@@ -332,6 +397,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           notes: form.notes.trim() || null,
           depositAmount: total,
           depositPayments: form.depositPayments.length > 0 ? form.depositPayments : null,
+          budgetItems: budgetItems.length > 0 ? budgetItems : null,
         }
         const r = await window.hw.updateOrder(payload)
         if (!r.ok) { setFormError(r.error); setSaving(false); return }
@@ -350,6 +416,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
           depositPayments: total > 0 ? form.depositPayments : undefined,
           // Admin puede especificar un local diferente al de sesión
           storeId: showStoreFilter && form.storeId ? form.storeId : undefined,
+          budgetItems: budgetItems.length > 0 ? budgetItems : undefined,
         }
         const r = await window.hw.createOrder(payload)
         if (!r.ok) { setFormError(r.error); setSaving(false); return }
@@ -365,44 +432,71 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
     }
   }
 
-  async function executeCharge(payments: SalePaymentPayload[]) {
-    if (!chargeOrder) return
-    const remaining = parseNumericInput(remainingRaw) ?? 0
-    setChargePaying(true)
+  /** Abre el modal de cobro por POS: prepopula líneas del carrito de presupuesto */
+  function openChargeModal(order: OrderRow) {
+    const lines = (order.budgetItems ?? []).map(line => ({
+      ...line,
+      qtyRaw: '',  // vacío por defecto; el placeholder mostrará la estimación
+      checked: true,
+    }))
+    setChargeCartLines(lines)
+    setChargeModalOrder(order)
     setChargeError(null)
-    const r = await window.hw.chargeOrder({
-      orderId: chargeOrder.id,
-      remaining,
-      payments,
-    })
-    setChargePaying(false)
-    if (!r.ok) {
-      setChargeError(r.error ?? 'No se pudo cobrar.')
-      setShowChargePayment(false)
-      return
-    }
-    setOrdersList(prev => prev.map(o => o.id === r.data.id ? r.data : o))
-    setChargeOrder(null)
-    setShowChargePayment(false)
   }
 
-  function handleChargeContinue() {
-    if (!chargeOrder) return
+  /** Confirmar cobro: inyecta el carrito en el POS */
+  function handleConfirmCharge() {
+    if (!chargeModalOrder) return
     setChargeError(null)
-    const remaining = remainingRaw.trim() === '' ? 0 : parseNumericInput(remainingRaw)
-    if (remaining === null || remaining < 0) {
-      setChargeError('Ingresá el resto a cobrar (0 si la seña cubrió todo).')
+
+    if (!onInjectOrderCart) {
+      // Sin turno activo: solo se puede marcar entregado si la seña cubre todo (remaining=0)
+      const deposit = chargeModalOrder.depositAmount
+      if (deposit === 0 || chargeCartLines.length > 0) {
+        setChargeError('Abrir un turno para cobrar con el POS.')
+        return
+      }
+      // Seña cubre todo → CHARGE_ORDER con remaining=0
+      void window.hw.chargeOrder({ orderId: chargeModalOrder.id, remaining: 0, payments: [] }).then(r => {
+        if (!r.ok) { setChargeError(r.error ?? 'Error al marcar entregado.'); return }
+        setOrdersList(prev => prev.map(o => o.id === r.data.id ? r.data : o))
+        setChargeModalOrder(null)
+      })
       return
     }
-    if (remaining > 0 && !currentShiftId) {
-      setChargeError('Abrí un turno para cobrar el resto del pedido.')
-      return
-    }
-    if (remaining === 0) {
-      void executeCharge([])
-      return
-    }
-    setShowChargePayment(true)
+
+    // Construir items del carrito para inyectar en el POS
+    const items: SaleItemDraft[] = chargeCartLines
+      .filter(line => line.checked)
+      .map(line => {
+        const qty = line.unit === 'kg'
+          ? (parseDecimalInput(line.qtyRaw) ?? null)
+          : (parseNumericInput(line.qtyRaw) ?? null)
+        const weightKg = qty ?? (line.unit === 'kg' ? line.estimatedQty : line.estimatedQty)
+        return {
+          pluNumber: line.pluNumber ?? 0,
+          productId: line.productId,
+          productName: line.name,
+          weightKg,
+          unit: line.unit,
+          unitPrice: line.unitPrice,
+          subtotal: Math.round(line.unitPrice * weightKg),
+          manualEntry: true,
+        }
+      })
+      .filter(item => item.subtotal > 0)
+
+    const depositPayments = paymentsForOrder(chargeModalOrder)
+    const deposit = chargeModalOrder.depositAmount
+
+    onInjectOrderCart({
+      orderId: chargeModalOrder.id,
+      customerName: chargeModalOrder.customerName,
+      depositAmount: deposit,
+      depositPayments,
+      items,
+    })
+    setChargeModalOrder(null)
   }
 
   async function executeStatusChange(order: OrderRow, status: OrderStatus) {
@@ -531,12 +625,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
             isAdmin={isAdmin}
             isNew={order.id === newOrderId}
             onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
-            onCharge={o => {
-              setChargeError(null)
-              setRemainingRaw('')
-              setShowChargePayment(false)
-              setChargeOrder(o)
-            }}
+            onCharge={openChargeModal}
             onEdit={() => openEdit(order)}
             onCancel={() => { setRegisterRefund(true); setConfirmCancel(order) }}
             onHardDelete={isAdmin ? () => setConfirmHardDelete(order) : undefined}
@@ -656,6 +745,97 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
                 )}
               </div>
 
+              {/* Presupuesto (carrito de productos) */}
+              <div className="space-y-3 bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/60">
+                <p className="text-sm font-medium text-zinc-300">Presupuesto (opcional)</p>
+                <p className="text-[11px] text-zinc-500">Los productos y cantidades estimadas ayudan a preparar la venta en el POS.</p>
+
+                {/* Lista de líneas ya cargadas */}
+                {form.budgetCart.length > 0 && (
+                  <div className="space-y-1.5">
+                    {form.budgetCart.map((line, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-zinc-700/40 rounded-lg px-3 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-zinc-200 truncate" title={line.name}>{line.name}</p>
+                          <p className="text-[10px] text-zinc-500">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                        </div>
+                        <div className="shrink-0 w-20">
+                          {line.unit === 'kg' ? (
+                            <DecimalInput
+                              value={line.qtyRaw}
+                              onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l) }))}
+                              placeholder="0,0"
+                              maxDecimals={3}
+                              weightMode
+                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                            />
+                          ) : (
+                            <NumericInput
+                              value={line.qtyRaw}
+                              onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l) }))}
+                              placeholder="0"
+                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                            />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-zinc-500 shrink-0 w-6">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                        <button
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, budgetCart: f.budgetCart.filter((_, i) => i !== idx) }))}
+                          className="shrink-0 text-zinc-500 hover:text-red-400 text-sm"
+                          title="Quitar"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Typeahead para agregar productos */}
+                <div className="relative">
+                  <input
+                    ref={budgetSearchRef}
+                    type="text"
+                    value={budgetSearch}
+                    onChange={e => setBudgetSearch(e.target.value)}
+                    placeholder="Buscar producto para agregar…"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  {budgetSuggestions.length > 0 && (
+                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      {budgetSuggestions.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setForm(f => ({
+                              ...f,
+                              budgetCart: [...f.budgetCart, {
+                                productId: p.id,
+                                name: p.name,
+                                unit: p.unit as 'kg' | 'unit',
+                                pluNumber: p.pluNumber ?? null,
+                                estimatedQty: 1,
+                                unitPrice: p.price ?? 0,
+                                qtyRaw: '',
+                              }],
+                            }))
+                            setBudgetSearch('')
+                            setBudgetSuggestions([])
+                            budgetSearchRef.current?.focus()
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700/80 flex items-center gap-2"
+                        >
+                          <span className="truncate flex-1" title={p.name}>{p.name}</span>
+                          <span className="text-zinc-500 shrink-0">{formatARS(p.price ?? 0)}/{p.unit === 'kg' ? 'kg' : 'u'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Seña multi-método */}
               <div className="space-y-3 bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/60">
                 <div className="flex items-center justify-between">
@@ -714,47 +894,93 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId }: Props)
       )}
 
       {/* Cobro de pedido (resto − seña) */}
-      {chargeOrder && !showChargePayment && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-800 p-5 space-y-3">
-            <h2 className="text-sm font-bold text-white">Cobrar pedido</h2>
-            <p className="text-xs text-zinc-400">
-              {chargeOrder.customerName} · seña {formatARS(chargeOrder.depositAmount)}.
-              Ingresá el resto a cobrar (0 si la seña cubrió todo).
-            </p>
-            <NumericInput
-              value={remainingRaw}
-              onChange={setRemainingRaw}
-              placeholder="0"
-              className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white"
-            />
-            {chargeError && <p className="text-xs text-red-400">{chargeError}</p>}
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => { setChargeOrder(null); setChargeError(null) }}
-                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 text-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleChargeContinue}
-                disabled={chargePaying}
-                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {chargePaying ? 'Guardando…' : 'Continuar'}
-              </button>
+      {/* Modal de cobro por POS (nuevo flujo) */}
+      {chargeModalOrder && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-overlay-fade">
+          <div className="w-full sm:max-w-lg bg-zinc-800 rounded-t-2xl sm:rounded-2xl border border-zinc-700 max-h-[92vh] overflow-y-auto">
+            <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-white">Cobrar pedido</h2>
+                <p className="text-xs text-zinc-400 truncate" title={chargeModalOrder.customerName}>
+                  {chargeModalOrder.customerName}
+                  {chargeModalOrder.depositAmount > 0 && (
+                    <> · Seña: <span className="text-blue-300 font-medium">{formatARS(chargeModalOrder.depositAmount)}</span></>
+                  )}
+                </p>
+              </div>
+              <button onClick={() => setChargeModalOrder(null)} className="text-zinc-400 hover:text-white text-xl shrink-0 ml-2">×</button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {chargeCartLines.length > 0 ? (
+                <>
+                  <p className="text-xs text-zinc-400">Ingresá las cantidades reales. Podés quitar líneas antes de ir al POS.</p>
+                  <div className="space-y-2">
+                    {chargeCartLines.map((line, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-zinc-700/50 rounded-lg px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={line.checked}
+                          onChange={e => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, checked: e.target.checked } : l))}
+                          className="shrink-0 accent-emerald-500"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-zinc-200 truncate" title={line.name}>{line.name}</p>
+                          <p className="text-[10px] text-zinc-500">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                        </div>
+                        <div className="shrink-0 w-24">
+                          {line.unit === 'kg' ? (
+                            <DecimalInput
+                              value={line.qtyRaw}
+                              onChange={v => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l))}
+                              placeholder={String(line.estimatedQty).replace('.', ',')}
+                              maxDecimals={3}
+                              weightMode
+                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                            />
+                          ) : (
+                            <NumericInput
+                              value={line.qtyRaw}
+                              onChange={v => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l))}
+                              placeholder={String(Math.round(line.estimatedQty))}
+                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                            />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-zinc-500 shrink-0">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-zinc-400">
+                  Este pedido no tiene presupuesto cargado. Podés ir al POS y agregar los productos manualmente.
+                  {!onInjectOrderCart && chargeModalOrder.depositAmount > 0 && (
+                    <> La seña cubre el total — se marcará como entregado sin nueva venta.</>
+                  )}
+                </p>
+              )}
+
+              {chargeError && <p className="text-xs text-red-400">{chargeError}</p>}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setChargeModalOrder(null)}
+                  className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCharge}
+                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold"
+                >
+                  {onInjectOrderCart ? 'Ir al POS →' : 'Marcar entregado'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      )}
-      {chargeOrder && showChargePayment && (
-        <PaymentModal
-          total={parseNumericInput(remainingRaw) ?? 0}
-          onConfirm={(payments) => void executeCharge(payments)}
-          onClose={() => setShowChargePayment(false)}
-        />
       )}
 
       {/* Modales de confirmación de estado */}
@@ -996,6 +1222,12 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCha
               Última modificación: {order.updatedBy}
             </p>
           )}
+          {order.readyByName && order.readyAt && (
+            <p className="text-[10px] text-emerald-600">
+              ✓ Listo por <span className="font-medium">{order.readyByName}</span>
+              {' '}· {new Date(order.readyAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          )}
           {depositPayments.length > 0 && (
             <div className="text-xs text-zinc-400 space-y-0.5">
               <p className="font-medium text-zinc-300">Seña: {formatARS(order.depositAmount)}</p>
@@ -1004,10 +1236,26 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCha
               ))}
             </div>
           )}
+          {order.budgetItems && order.budgetItems.length > 0 && (
+            <div className="text-xs text-zinc-500 space-y-0.5">
+              <p className="font-medium text-zinc-400">Presupuesto:</p>
+              {order.budgetItems.map((line, i) => (
+                <p key={i}>{line.name}: {line.unit === 'kg' ? `${line.estimatedQty} kg` : `${Math.round(line.estimatedQty)} u`} · {formatARS(line.unitPrice)}/{line.unit === 'kg' ? 'kg' : 'u'}</p>
+              ))}
+            </div>
+          )}
 
           {/* Acciones de estado — con doble confirmación */}
           {order.status !== 'cancelled' && (
             <div className="flex flex-wrap gap-2">
+              {order.status === 'pending' && (
+                <button
+                  onClick={() => onRequestStatusChange(order, 'ready')}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-medium text-emerald-300 transition-colors"
+                >
+                  ✓ Listo
+                </button>
+              )}
               {(order.status === 'pending' || order.status === 'ready') && (
                 <button
                   onClick={() => onCharge(order)}

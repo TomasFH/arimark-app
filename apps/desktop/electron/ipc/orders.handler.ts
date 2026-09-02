@@ -5,14 +5,12 @@ import log from 'electron-log'
 import { eq, and, desc, gte, lte, inArray, lt } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { orders, users, sales, saleItems, salePayments, products } from '../db/schema'
+import { orders, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedOrders, markOrderDeletedInFirestore } from '../licensing/orderSync'
-import { pushUnsyncedSales } from '../licensing/saleSync'
-import { notifySaleOccurred } from './inactivityDaemon'
 import { parseDepositPayments } from '../lib/depositPayments'
-import type { IpcResult, OrderRow, DepositPayment } from '../../src/types/hw-api'
+import type { IpcResult, OrderRow, DepositPayment, BudgetCartLine } from '../../src/types/hw-api'
 
 function scheduleOrderPush(): void {
   try {
@@ -30,6 +28,15 @@ const depositPaymentSchema = z.object({
   amount: z.number().positive(),
 })
 
+const budgetCartLineSchema = z.object({
+  productId: z.string().min(1),
+  name: z.string().min(1).max(100),
+  unit: z.enum(['kg', 'unit']),
+  pluNumber: z.number().int().positive().nullable().optional(),
+  estimatedQty: z.number().positive(),
+  unitPrice: z.number().min(0),
+})
+
 const createOrderSchema = z.object({
   customerName: z.string().min(1).max(100).transform(s => s.trim()),
   phone: z.string().max(30).optional(),
@@ -43,11 +50,15 @@ const createOrderSchema = z.object({
   depositPayments: z.array(depositPaymentSchema).optional(),
   /** Solo admin: sobreescribe el local de sesión. No es UUID: los locales reales pueden ser `local1` u otros ids. */
   storeId: z.string().min(1).optional(),
+  /** Carrito de presupuesto con productos y cantidades estimadas */
+  budgetItems: z.array(budgetCartLineSchema).optional(),
 })
 
 const updateOrderStatusSchema = z.object({
   id: z.string().uuid(),
   status: z.enum(['pending', 'ready', 'delivered', 'cancelled']),
+  /** Nombre del que marca Listo (solo cuando status='ready' desde el celu carnicero) */
+  readyByName: z.string().max(100).optional(),
 })
 
 const updateOrderSchema = z.object({
@@ -62,6 +73,7 @@ const updateOrderSchema = z.object({
   notes: z.string().max(300).optional().nullable(),
   depositAmount: z.number().min(0).optional(),
   depositPayments: z.array(depositPaymentSchema).optional().nullable(),
+  budgetItems: z.array(budgetCartLineSchema).optional().nullable(),
 })
 
 const listOrdersSchema = z.object({
@@ -102,6 +114,17 @@ function buildOrderRow(row: typeof orders.$inferSelect, creatorName: string, upd
     )
     : []
   const parsedPayments: DepositPayment[] | null = valid.length > 0 ? valid : null
+
+  let budgetItems: BudgetCartLine[] | null = null
+  if (row.budgetItems) {
+    try {
+      const raw = JSON.parse(row.budgetItems) as unknown
+      if (Array.isArray(raw)) budgetItems = raw as BudgetCartLine[]
+    } catch {
+      log.warn('[orders] budgetItems JSON inválido', row.id)
+    }
+  }
+
   return {
     id: row.id,
     storeId: row.storeId,
@@ -121,6 +144,10 @@ function buildOrderRow(row: typeof orders.$inferSelect, creatorName: string, upd
     createdBy: creatorName,
     updatedAt: row.updatedAt,
     updatedBy: updaterName ?? null,
+    readyAt: row.readyAt ?? null,
+    readyBy: row.readyBy ?? null,
+    readyByName: row.readyByName ?? null,
+    budgetItems,
   }
 }
 
@@ -162,7 +189,7 @@ export function registerOrderHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { customerName, phone, items, pickupDate, timeSlot, pickupTime, priority, notes, depositAmount, depositPayments, storeId: overrideStoreId } = parsed.data
+    const { customerName, phone, items, pickupDate, timeSlot, pickupTime, priority, notes, depositAmount, depositPayments, storeId: overrideStoreId, budgetItems } = parsed.data
 
     // Cajeras solo pueden crear pedidos para su propio local.
     // El admin puede especificar un local diferente al de sesión.
@@ -197,6 +224,7 @@ export function registerOrderHandlers(): void {
         depositMethod: null,
         depositPayments: depositPayments ? JSON.stringify(depositPayments) : null,
         depositShiftId: (depositAmount ?? 0) > 0 ? (session.shiftId ?? null) : null,
+        budgetItems: budgetItems && budgetItems.length > 0 ? JSON.stringify(budgetItems) : null,
         createdAt: now,
         createdBy: session.userId,
         syncedAt: null,
@@ -284,7 +312,7 @@ export function registerOrderHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { id, status } = parsed.data
+    const { id, status, readyByName } = parsed.data
     const now = new Date().toISOString()
 
     try {
@@ -295,7 +323,30 @@ export function registerOrderHandlers(): void {
       const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
 
-      db.update(orders).set({ status, updatedAt: now, updatedBy: session.userId, syncedAt: null }).where(eq(orders.id, id)).run()
+      const setData: Partial<typeof orders.$inferInsert> = {
+        status,
+        updatedAt: now,
+        updatedBy: session.userId,
+        syncedAt: null,
+      }
+
+      if (status === 'ready') {
+        // Auditar quién marcó listo y cuándo
+        setData.readyAt = now
+        setData.readyBy = session.userId
+        // El nombre puede venir del payload (carnicero en celu) o se resuelve desde la sesión actual
+        const resolvedName = readyByName?.trim()
+          || resolveUserNames(db, [session.userId]).get(session.userId)
+          || session.userId
+        setData.readyByName = resolvedName
+      } else if (status === 'pending') {
+        // Revertir a pendiente limpia los campos de auditoría
+        setData.readyAt = null
+        setData.readyBy = null
+        setData.readyByName = null
+      }
+
+      db.update(orders).set(setData).where(eq(orders.id, id)).run()
 
       scheduleOrderPush()
 
@@ -357,6 +408,10 @@ export function registerOrderHandlers(): void {
         const dp = updates.depositPayments
         setData.depositPayments = dp ? JSON.stringify(dp) : null
         setData.depositAmount = dp ? dp.reduce((s, p) => s + p.amount, 0) : (updates.depositAmount ?? existing.depositAmount)
+      }
+      if ('budgetItems' in updates) {
+        const bi = updates.budgetItems
+        setData.budgetItems = bi && bi.length > 0 ? JSON.stringify(bi) : null
       }
 
       db.update(orders).set(setData).where(eq(orders.id, id)).run()
@@ -455,7 +510,8 @@ export function registerOrderHandlers(): void {
   })
 
   // --------------------------------------------------------------------------
-  // CHARGE_ORDER — cobra el resto (total − seña) y marca entregado
+  // CHARGE_ORDER — solo para marcar entregado cuando la seña cubre el total (remaining=0).
+  // Cuando hay resto a cobrar, el flujo es: modal de carrito en Pedidos → inyección en POS → createSale con orderId.
   // --------------------------------------------------------------------------
   ipcMain.handle(IPC.CHARGE_ORDER, (_event, payload: unknown): IpcResult<OrderRow> => {
     const parsed = chargeOrderSchema.safeParse(payload)
@@ -467,9 +523,9 @@ export function registerOrderHandlers(): void {
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    const { orderId, remaining, payments, notes } = parsed.data
-    if (remaining > 0 && !session.shiftId) {
-      return { ok: false, error: 'Abrí un turno para cobrar el resto del pedido.', code: 'NO_SHIFT' }
+    const { orderId, remaining } = parsed.data
+    if (remaining > 0) {
+      return { ok: false, error: 'Para cobrar el resto, usá el flujo del POS.', code: 'INVALID_PAYLOAD' }
     }
 
     try {
@@ -484,79 +540,21 @@ export function registerOrderHandlers(): void {
       }
 
       const now = new Date().toISOString()
-      const saleNote = `Pedido ${existing.customerName}: ${existing.items}`.slice(0, 300)
 
-      db.transaction(tx => {
-        if (remaining > 0 && session.shiftId) {
-          const product = tx.select({ id: products.id }).from(products).all()[0]
-          if (!product) {
-            throw new Error('NO_PRODUCT')
-          }
-          const saleId = uuidv4()
-          tx.insert(sales).values({
-            id: saleId,
-            storeId: session.storeId,
-            shiftId: session.shiftId,
-            customerId: null,
-            total: remaining,
-            isDebt: false,
-            status: 'confirmed',
-            manualEntry: true,
-            notes: notes?.trim() || saleNote,
-            createdAt: now,
-            createdBy: session.userId,
-          }).run()
-          tx.insert(saleItems).values({
-            id: uuidv4(),
-            saleId,
-            productId: product.id,
-            quantity: 1,
-            unitPrice: remaining,
-            subtotal: remaining,
-            notes: saleNote,
-          }).run()
-          for (const payment of payments) {
-            tx.insert(salePayments).values({
-              id: uuidv4(),
-              saleId,
-              paymentMethod: payment.paymentMethod,
-              amount: payment.amount,
-              installments: payment.installments ?? null,
-              createdAt: now,
-              createdBy: session.userId,
-            }).run()
-          }
-        }
+      db.update(orders).set({
+        status: 'delivered',
+        updatedAt: now,
+        updatedBy: session.userId,
+        syncedAt: null,
+      }).where(eq(orders.id, orderId)).run()
 
-        tx.update(orders).set({
-          status: 'delivered',
-          updatedAt: now,
-          updatedBy: session.userId,
-          syncedAt: null,
-        }).where(eq(orders.id, orderId)).run()
-      })
-
-      if (remaining > 0) {
-        notifySaleOccurred()
-        try {
-          const { tenant_id } = getBusinessConfig()
-          pushUnsyncedSales(tenant_id).catch(err =>
-            log.warn('[ipc:charge-order] pushUnsyncedSales falló (no bloqueante)', err),
-          )
-        } catch (err) {
-          log.warn('[ipc:charge-order] pushUnsyncedSales omitido', err)
-        }
-      }
       scheduleOrderPush()
 
       const updated = db.select().from(orders).where(eq(orders.id, orderId)).all()[0]
       const userMap = resolveUserNames(db, [updated.createdBy, session.userId])
-      log.info('[ipc:charge-order] Pedido cobrado/entregado', { orderId, remaining, by: session.userId })
+      log.info('[ipc:charge-order] Pedido marcado entregado (sin venta)', { orderId, by: session.userId })
       return { ok: true, data: buildOrderRow(updated, userMap.get(updated.createdBy) ?? updated.createdBy, userMap.get(session.userId)) }
     } catch (err) {
-      if (err instanceof Error && err.message === 'NO_PRODUCT') {
-        return { ok: false, error: 'No hay productos en el catálogo para registrar el cobro.', code: 'NOT_FOUND' }
-      }
       log.error('[ipc:charge-order] Error inesperado', err)
       return { ok: false, error: 'Error al cobrar el pedido.' }
     }

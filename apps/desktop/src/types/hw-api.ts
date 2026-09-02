@@ -354,6 +354,13 @@ export interface CreateSalePayload {
   /** Venta ingresada manualmente (sin pedido de balanza). Requiere aprobación admin en producción. */
   manualEntry?: boolean
   notes?: string
+  /** Si se pasa, marca el pedido como entregado al confirmar la venta */
+  orderId?: string
+  /**
+   * Crédito de seña pre-pagada. sale.total = itemTotal − depositCredit.
+   * Los pagos deben cubrir ese neto. Si el neto es 0, payments puede estar vacío.
+   */
+  depositCredit?: number
 }
 
 export interface SaleResult {
@@ -631,6 +638,19 @@ export interface DepositPayment {
   amount: number
 }
 
+/** Línea del carrito de presupuesto (se guarda en orders.budgetItems como JSON) */
+export interface BudgetCartLine {
+  productId: string
+  name: string
+  /** 'kg' para productos a granel; 'unit' para unidades enteras */
+  unit: 'kg' | 'unit'
+  pluNumber: number | null
+  /** Cantidad estimada al crear el pedido (kg o unidades) */
+  estimatedQty: number
+  /** Precio unitario en ARS al momento de crear el pedido (referencia) */
+  unitPrice: number
+}
+
 export interface OrderRow {
   id: string
   storeId: string
@@ -652,6 +672,14 @@ export interface OrderRow {
   createdBy: string
   updatedAt: string | null
   updatedBy: string | null
+  /** ISO timestamp de cuando se marcó como listo (auditoría) */
+  readyAt: string | null
+  /** ID del usuario/carnicero que marcó listo */
+  readyBy: string | null
+  /** Nombre denormalizado del que marcó listo */
+  readyByName: string | null
+  /** Carrito de presupuesto con productos y cantidades estimadas */
+  budgetItems: BudgetCartLine[] | null
 }
 
 export interface CreateOrderPayload {
@@ -667,11 +695,15 @@ export interface CreateOrderPayload {
   depositPayments?: DepositPayment[]
   /** Solo admin: sobreescribe el local de sesión para asignar el pedido a ese local */
   storeId?: string
+  /** Carrito de presupuesto con productos y cantidades estimadas */
+  budgetItems?: BudgetCartLine[]
 }
 
 export interface UpdateOrderStatusPayload {
   id: string
   status: OrderStatus
+  /** Nombre del que marca Listo (solo cuando status='ready' desde el celu) */
+  readyByName?: string
 }
 
 export interface UpdateOrderPayload {
@@ -686,6 +718,8 @@ export interface UpdateOrderPayload {
   notes?: string | null
   depositAmount?: number
   depositPayments?: DepositPayment[] | null
+  /** Carrito de presupuesto con productos y cantidades estimadas */
+  budgetItems?: BudgetCartLine[] | null
 }
 
 export interface ChargeOrderPayload {

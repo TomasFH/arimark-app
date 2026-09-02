@@ -514,6 +514,14 @@ export const orders = sqliteTable(
       .references(() => users.id),
     updatedAt: text('updated_at'),
     updatedBy: text('updated_by').references(() => users.id),
+    /** ISO timestamp de cuando se marcó como listo */
+    readyAt: text('ready_at'),
+    /** userId o firebaseUid del carnicero que marcó listo */
+    readyBy: text('ready_by'),
+    /** Nombre denormalizado (el carnicero puede no tener fila en users) */
+    readyByName: text('ready_by_name'),
+    /** JSON: Array<{productId,name,unit,pluNumber?,estimatedQty}> */
+    budgetItems: text('budget_items'),
     syncedAt: text('synced_at'),
   },
   table => [
