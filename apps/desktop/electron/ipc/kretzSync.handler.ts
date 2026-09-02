@@ -1,7 +1,8 @@
 /**
  * Handler IPC de carga masiva del catálogo a la balanza KRETZ (comando 2005).
  *
- * Flujo (solo admin, con balanza físicamente conectada a esta PC):
+ * Flujo (cajera o admin, con balanza físicamente conectada a esta PC):
+ *  Cajera: solo el local de su sesión. Admin: cualquier local.
  *  1. Verifica el enlace R30 con la balanza (0002). Si no responde, aborta sin
  *     enviar nada — cumple la regla "cargar sí y solo si hay balanza conectada".
  *  2. Lee del catálogo SQLite todos los productos activos con PLU y precio
@@ -27,6 +28,7 @@ import { z } from 'zod'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { products, productPrices } from '../db/schema'
+import { getActiveSession } from '../activeSession'
 import type { HardwareManager } from '../hardware/hardwareManager'
 import type {
   IpcResult,
@@ -107,6 +109,19 @@ export function registerKretzSyncHandler(manager: HardwareManager): void {
       const parsed = z.string().min(1).safeParse(storeId)
       if (!parsed.success) {
         return { ok: false, error: 'storeId inválido.', code: 'VALIDATION_ERROR' }
+      }
+
+      const session = getActiveSession()
+      if (!session) {
+        return { ok: false, error: 'Sin sesión activa.', code: 'UNAUTHORIZED' }
+      }
+      if (session.role !== 'admin') {
+        if (!session.storeId) {
+          return { ok: false, error: 'No hay un local asignado a la sesión.', code: 'FORBIDDEN' }
+        }
+        if (session.storeId !== parsed.data) {
+          return { ok: false, error: 'Solo podés cargar la balanza de tu local.', code: 'FORBIDDEN' }
+        }
       }
 
       // 1. Verificar enlace R30 antes de tocar nada.

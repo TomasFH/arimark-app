@@ -2,13 +2,16 @@
  * Panel de catálogo de productos.
  *
  * Admin: todos los locales, KRETZ, versiones, retiro global.
- * Cajera: solo su local (precio y visibilidad); puede crear/editar ficha.
+ * Cajera: solo su local (precio, visibilidad, KRETZ); puede crear/editar ficha.
+ * Versiones y retiro global: solo admin.
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import KretzSyncModal from '../components/KretzSyncModal'
+import CatalogToggle from '../components/CatalogToggle'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
+import { useAvailabilityToggle } from '../lib/useAvailabilityToggle'
 import type {
   AdminProductRow,
   StoreRow,
@@ -138,6 +141,12 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
     }
   }, [])
 
+  const { toggleAvailability, isAvailabilityPending, hasAvailabilityPending } = useAvailabilityToggle(
+    selectedStoreId,
+    setProducts,
+    setError,
+  )
+
   useEffect(() => {
     if (selectedStoreId) void loadProducts(selectedStoreId)
   }, [selectedStoreId, loadProducts])
@@ -146,10 +155,11 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
     if (!selectedStoreId) return
     const unsub = window.hw.onCatalogSyncUpdated?.((payload?: { storeId?: string }) => {
       if (payload?.storeId && payload.storeId !== selectedStoreId) return
+      if (hasAvailabilityPending()) return
       void loadProducts(selectedStoreId, { silent: true })
     })
     return () => { unsub?.() }
-  }, [selectedStoreId, loadProducts])
+  }, [selectedStoreId, loadProducts, hasAvailabilityPending])
 
   // Al cambiar de local se reemplaza el useEffect que cancelaba automáticamente el modo
   // masivo. Ahora se intercepta el cambio si hay modificaciones pendientes sin guardar.
@@ -182,16 +192,6 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
     else {
       setSortKey(key)
       setSortDir('asc')
-    }
-  }
-
-  async function handleToggleAvailability(p: AdminProductRow) {
-    const next = !p.available
-    setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: next } : x))
-    const r = await window.hw.setProductAvailability({ productId: p.id, storeId: selectedStoreId, available: next })
-    if (!r.ok) {
-      setProducts(prev => prev.map(x => x.id === p.id ? { ...x, available: p.available } : x))
-      setError(r.error)
     }
   }
 
@@ -234,15 +234,11 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
     if (changes.length === 0) { setBulkMode(false); setBulkDraft(new Map()); return }
 
     setBulkSaving(true)
-    let failed = 0
-    for (const { productId, price } of changes) {
-      const r = await window.hw.setProductPrice({ productId, storeId: selectedStoreId, price })
-      if (!r.ok) failed++
-    }
+    const r = await window.hw.setProductPrices({ storeId: selectedStoreId, items: changes })
     setBulkSaving(false)
     setBulkMode(false)
     setBulkDraft(new Map())
-    if (failed > 0) setError(`${failed} precio(s) no se pudieron guardar.`)
+    if (!r.ok) setError(r.error)
     void loadProducts(selectedStoreId, { silent: true })
   }
 
@@ -346,16 +342,14 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
             >
               Editar precios
             </button>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setShowSync(true)}
-                className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
-                title="Enviar el catálogo del local a la balanza conectada por USB"
-              >
-                Cargar en balanza
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowSync(true)}
+              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
+              title="Enviar el catálogo del local a la balanza conectada por USB"
+            >
+              Cargar en balanza
+            </button>
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -483,7 +477,11 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                         )}
                       </td>
                       <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-center ${rowBg}`}>
-                        <Toggle checked={p.available} onChange={() => void handleToggleAvailability(p)} />
+                        <CatalogToggle
+                          checked={p.available}
+                          disabled={isAvailabilityPending(p.id)}
+                          onChange={() => void toggleAvailability(p)}
+                        />
                       </td>
                       <td className={`border-t border-zinc-700/60 px-3 py-2.5 pr-4 text-right ${rowBg}`}>
                         {!bulkMode && (
@@ -525,7 +523,7 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
       {priceProduct && (
         <PriceModal product={priceProduct} storeId={selectedStoreId} onClose={() => setPriceProduct(null)} onSaved={() => { setPriceProduct(null); void loadProducts(selectedStoreId, { silent: true }) }} />
       )}
-      {isAdmin && showSync && (
+      {showSync && (
         <KretzSyncModal storeId={selectedStoreId} store={stores.find(s => s.id === selectedStoreId)} onClose={() => setShowSync(false)} />
       )}
       {historyProduct && (
@@ -568,23 +566,6 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
 }
 
 // ---------------------------------------------------------------------------
-// Toggle switch
-// ---------------------------------------------------------------------------
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <button
-      onClick={onChange}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-green-600' : 'bg-zinc-600'}`}
-      role="switch"
-      aria-checked={checked}
-    >
-      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
-    </button>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Modal crear/editar producto
 // ---------------------------------------------------------------------------
 
@@ -605,6 +586,7 @@ const AUDIT_ACTION_LABELS: Record<CatalogAuditAction, string> = {
   hide_store: 'Oculto',
   show_store: 'Visible',
   retire_global: 'Retiro',
+  restore_revision: 'Versión',
 }
 
 function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId: string }) {
@@ -634,7 +616,7 @@ function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId:
         <div key={row.id} className="rounded-lg border border-zinc-800 bg-zinc-800/30 px-3 py-1.5">
           <div className="flex items-center gap-2 min-w-0">
             <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-              {AUDIT_ACTION_LABELS[row.action]}
+              {AUDIT_ACTION_LABELS[row.action] ?? row.action}
             </span>
             <p className="min-w-0 flex-1 truncate text-xs text-zinc-300" title={row.summary}>
               {row.summary}
@@ -649,7 +631,76 @@ function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId:
   )
 }
 
-function ProductFormModal({ storeId, stores, product, onClose, onSaved, onRequestGlobalDelete, allowGlobalDelete }: ProductFormModalProps) {
+function PriceHistoryBlock({ productId, storeId }: { productId: string; storeId: string }) {
+  const [history, setHistory] = useState<PriceHistoryRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    window.hw.getProductPriceHistory({ productId, storeId }).then(r => {
+      if (cancelled) return
+      if (r.ok) setHistory(r.data)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [productId, storeId])
+
+  if (loading) {
+    return <p className="text-xs text-zinc-600">Cargando precios…</p>
+  }
+  if (history.length === 0) {
+    return <p className="text-xs text-zinc-600">Sin historial de precios para este local.</p>
+  }
+
+  return (
+    <div className="space-y-2 max-h-40 overflow-auto">
+      {history.map(h => (
+        <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-emerald-900/50 bg-emerald-950/30' : 'border-zinc-800 bg-zinc-800/30'}`}>
+          <div className="flex items-center justify-between">
+            <span className="font-semibold tabular-nums">{fmtARS(h.price)}</span>
+            {h.validTo == null
+              ? <span className="text-xs text-emerald-400/80 font-medium">Vigente</span>
+              : <span className="text-xs text-zinc-500">Hasta {fmtDate(h.validTo)}</span>}
+          </div>
+          <p className="text-xs text-zinc-500 mt-0.5 truncate" title={`Desde ${fmtDate(h.validFrom)} · Por ${h.createdBy}`}>
+            Desde {fmtDate(h.validFrom)} · Por {h.createdBy}
+          </p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Ficha, visibilidad y precios: solo se piden a SQLite al expandir. */
+function ProductHistoryDisclosure({ productId, storeId }: { productId: string; storeId: string }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mt-4 pt-3 border-t border-zinc-800">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+      >
+        {open ? 'Ocultar historial' : 'Historial'}
+      </button>
+      {open && (
+        <div className="mt-3 space-y-4">
+          <div>
+            <p className="text-xs font-medium text-zinc-400 mb-2">Ficha y visibilidad</p>
+            <CatalogAuditBlock productId={productId} storeId={storeId} />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-zinc-400 mb-2">Precios de este local</p>
+            <PriceHistoryBlock productId={productId} storeId={storeId} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ProductFormModal({ storeId, stores, product, onClose, onSaved, onRequestGlobalDelete, allowGlobalDelete }: ProductFormModalProps) {
   const isEdit = Boolean(product)
   const [name, setName] = useState(product?.name ?? '')
   const [category, setCategory] = useState<AdminProductRow['category']>(product?.category ?? 'beef_cut')
@@ -751,8 +802,14 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
     // Aplicar precios por local (alta y edición)
     if (productId) {
       const targets = resolvePriceTargets()
+      const byStore = new Map<string, { productId: string; price: number }[]>()
       for (const t of targets) {
-        const pr = await window.hw.setProductPrice({ productId, storeId: t.storeId, price: t.price })
+        const list = byStore.get(t.storeId) ?? []
+        list.push({ productId, price: t.price })
+        byStore.set(t.storeId, list)
+      }
+      for (const [targetStoreId, items] of byStore) {
+        const pr = await window.hw.setProductPrices({ storeId: targetStoreId, items })
         if (!pr.ok) {
           setError(`No se pudo guardar el precio en un local: ${pr.error}`)
           setSaving(false)
@@ -849,10 +906,7 @@ function ProductFormModal({ storeId, stores, product, onClose, onSaved, onReques
         </div>
         {error && <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/90">{error}</div>}
         {isEdit && product && (
-          <div className="mt-5 pt-4 border-t border-zinc-800">
-            <p className="text-xs font-medium text-zinc-400 mb-2">Actividad reciente</p>
-            <CatalogAuditBlock productId={product.id} storeId={storeId} />
-          </div>
+          <ProductHistoryDisclosure productId={product.id} storeId={storeId} />
         )}
         <div className="flex gap-3 mt-6">
           <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
@@ -918,7 +972,7 @@ interface PriceModalProps {
   onSaved: () => void
 }
 
-function PriceModal({ product, storeId, onClose, onSaved }: PriceModalProps) {
+export function PriceModal({ product, storeId, onClose, onSaved }: PriceModalProps) {
   const [priceRaw, setPriceRaw] = useState(product.price != null ? formatNumericInputValue(String(product.price)) : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -978,50 +1032,22 @@ interface PriceHistoryModalProps {
   onClose: () => void
 }
 
-function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps) {
-  const [history, setHistory] = useState<PriceHistoryRow[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    window.hw.getProductPriceHistory({ productId: product.id, storeId }).then(r => {
-      if (r.ok) setHistory(r.data)
-      setLoading(false)
-    })
-  }, [product.id, storeId])
-
+export function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps) {
   return (
     <ModalOverlay onClose={onClose}>
       <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-1">Historial de precios</h2>
+        <h2 className="text-lg font-semibold mb-1">Historial</h2>
         <p className="text-sm text-zinc-400 mb-4 truncate" title={product.name}>{product.name}</p>
 
-        {loading ? (
-          <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-medium text-zinc-400 mb-2">Precios de este local</p>
+            <PriceHistoryBlock productId={product.id} storeId={storeId} />
           </div>
-        ) : history.length === 0 ? (
-          <p className="text-sm text-zinc-500 text-center py-6">Sin historial de precios para este local.</p>
-        ) : (
-          <div className="space-y-2 max-h-80 overflow-auto">
-            {history.map(h => (
-              <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-emerald-900/50 bg-emerald-950/30' : 'border-zinc-800 bg-zinc-800/30'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold tabular-nums">{fmtARS(h.price)}</span>
-                  {h.validTo == null
-                    ? <span className="text-xs text-emerald-400/80 font-medium">Vigente</span>
-                    : <span className="text-xs text-zinc-500">Hasta {fmtDate(h.validTo)}</span>}
-                </div>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  Desde {fmtDate(h.validFrom)} · Por {h.createdBy}
-                </p>
-              </div>
-            ))}
+          <div>
+            <p className="text-xs font-medium text-zinc-400 mb-2">Ficha y visibilidad</p>
+            <CatalogAuditBlock productId={product.id} storeId={storeId} />
           </div>
-        )}
-
-        <div className="mt-5 pt-4 border-t border-zinc-800">
-          <p className="text-xs font-medium text-zinc-400 mb-2">Cambios de ficha y visibilidad</p>
-          <CatalogAuditBlock productId={product.id} storeId={storeId} />
         </div>
 
         <button onClick={onClose} className="w-full mt-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
@@ -1068,7 +1094,7 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
       <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
         <h2 className="text-lg font-semibold mb-1">Versiones del catálogo</h2>
         <p className="text-sm text-zinc-400 mb-4 truncate" title={storeName}>
-          {storeName || 'Local seleccionado'} — se guardan las últimas 10 publicaciones.
+          {storeName || 'Local seleccionado'} — se guarda una copia antes de cada confirmación de precios. Máximo 10.
         </p>
 
         {loading ? (
@@ -1077,7 +1103,7 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
           </div>
         ) : rows.length === 0 ? (
           <p className="text-sm text-zinc-500 text-center py-6">
-            Todavía no hay versiones. A partir de ahora, cada vez que se publique el catálogo se guarda una copia anterior.
+            Todavía no hay versiones. Cada vez que confirmes un cambio de precios se guarda la copia anterior.
           </p>
         ) : (
           <div className="space-y-2 max-h-80 overflow-auto">
@@ -1141,7 +1167,7 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
 
 function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
+    <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="animate-modal-enter w-full flex justify-center">
         {children}

@@ -35,6 +35,7 @@ export const IPC = {
   CREATE_PRODUCT: 'ipc:create-product',
   UPDATE_PRODUCT: 'ipc:update-product',
   SET_PRODUCT_PRICE: 'ipc:set-product-price',
+  SET_PRODUCT_PRICES: 'ipc:set-product-prices',
   SET_PRODUCT_AVAILABILITY: 'ipc:set-product-availability',
   GET_STORES: 'ipc:get-stores',
   GET_PRODUCT_PRICE_HISTORY: 'ipc:get-product-price-history',
@@ -173,7 +174,7 @@ export const IPC = {
   KRETZ_READ_PLU: 'ipc:kretz-read-plu',
   KRETZ_READ_PLU_COUNT: 'ipc:kretz-read-plu-count',
 
-  // Carga masiva del catálogo a la balanza (solo admin, balanza conectada)
+  // Carga masiva del catálogo a la balanza (cajera o admin; balanza conectada)
   KRETZ_SYNC_CATALOG: 'ipc:kretz-sync-catalog',
   KRETZ_SYNC_PROGRESS: 'ipc:kretz-sync-progress',  // push main → renderer
 

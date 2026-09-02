@@ -10,8 +10,18 @@ vi.mock('electron-log', () => ({
 
 vi.mock('../../db/client', () => ({ getDb: vi.fn() }))
 
+vi.mock('../../activeSession', () => ({
+  getActiveSession: vi.fn(() => ({
+    userId: 'u1',
+    storeId: 'local1',
+    role: 'admin',
+    shiftId: null,
+  })),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
+import { getActiveSession } from '../../activeSession'
 import { registerKretzSyncHandler } from '../kretzSync.handler'
 import type { HardwareManager } from '../../hardware/hardwareManager'
 
@@ -82,6 +92,13 @@ function makeManager(overrides: Partial<HardwareManager> = {}): HardwareManager 
 describe('kretzSync.handler — KRETZ_SYNC_CATALOG', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getActiveSession).mockReturnValue({
+      userId: 'u1',
+      storeId: STORE_ID,
+      role: 'admin',
+      shiftId: null,
+      displayName: 'Admin',
+    })
   })
 
   it('rechaza storeId inválido', async () => {
@@ -209,5 +226,28 @@ describe('kretzSync.handler — KRETZ_SYNC_CATALOG', () => {
     const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('DB_ERROR')
+  })
+
+  it('rechaza sin sesión activa', async () => {
+    vi.mocked(getActiveSession).mockReturnValue(null)
+    registerKretzSyncHandler(makeManager())
+    const { event } = makeEvent()
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('UNAUTHORIZED')
+  })
+
+  it('cajera no puede cargar la balanza de otro local', async () => {
+    vi.mocked(getActiveSession).mockReturnValue({
+      userId: 'c1',
+      storeId: STORE_ID,
+      role: 'cashier',
+      shiftId: 'sh1',
+    })
+    registerKretzSyncHandler(makeManager())
+    const { event } = makeEvent()
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, 'otro-local') as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('FORBIDDEN')
   })
 })

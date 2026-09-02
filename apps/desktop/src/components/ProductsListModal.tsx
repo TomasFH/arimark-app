@@ -1,15 +1,21 @@
 /**
- * Modal que muestra el catálogo de productos con PLU, nombre, precio, categoría y unidad.
- * Accesible desde el CashierScreen para que la cajera consulte rápidamente
- * qué número PLU corresponde a cada producto y su precio vigente.
+ * Catálogo en overlay sobre el POS: misma tabla compacta de consulta,
+ * con alta/edición/precio/disponibilidad y carga a la balanza.
+ * El carrito del turno no se pierde (el CashierScreen sigue montado).
  */
-
-import { useEffect, useRef, useState } from 'react'
-import type { ProductRow } from '../types/hw-api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { AdminProductRow, StoreRow } from '../types/hw-api'
 import { formatARS } from '../lib/datetime'
-import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
+import { useAvailabilityToggle } from '../lib/useAvailabilityToggle'
+import CatalogToggle from './CatalogToggle'
+import KretzSyncModal from './KretzSyncModal'
+import {
+  ProductFormModal,
+  PriceModal,
+  PriceHistoryModal,
+} from '../routes/AdminScreen'
 
-type SortKey = 'pluNumber' | 'name' | 'category' | 'price'
+type SortKey = 'pluNumber' | 'name' | 'category' | 'price' | 'available'
 
 const CATEGORY_LABELS: Record<string, string> = {
   beef_cut: 'Vacuno',
@@ -31,16 +37,21 @@ function ProductsListColgroup() {
       <col className="w-24" />
       <col className="w-24" />
       <col className="w-20" />
+      <col className="w-16" />
+      <col className="w-16" />
     </colgroup>
   )
 }
 
 interface Props {
+  storeId: string
+  storeName?: string | null
   onClose: () => void
 }
 
-export default function ProductsListModal({ onClose }: Props) {
-  const [products, setProducts] = useState<ProductRow[]>([])
+export default function ProductsListModal({ storeId, storeName, onClose }: Props) {
+  const [products, setProducts] = useState<AdminProductRow[]>([])
+  const [stores, setStores] = useState<StoreRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('pluNumber')
@@ -48,20 +59,52 @@ export default function ProductsListModal({ onClose }: Props) {
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
 
+  const [editProduct, setEditProduct] = useState<AdminProductRow | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [priceProduct, setPriceProduct] = useState<AdminProductRow | null>(null)
+  const [historyProduct, setHistoryProduct] = useState<AdminProductRow | null>(null)
+  const [showSync, setShowSync] = useState(false)
+
+  const { toggleAvailability, isAvailabilityPending, hasAvailabilityPending } = useAvailabilityToggle(
+    storeId,
+    setProducts,
+    msg => setError(msg ?? ''),
+  )
+
+  const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!storeId) return
+    if (opts?.silent && hasAvailabilityPending()) return
+    if (!opts?.silent) setLoading(true)
+    const r = await window.hw.getAllProducts(storeId)
+    if (r.ok) {
+      setProducts(r.data)
+      if (!opts?.silent) setError('')
+    } else if (!opts?.silent) {
+      setError(r.error)
+    }
+    if (!opts?.silent) setLoading(false)
+  }, [storeId, hasAvailabilityPending])
+
   useEffect(() => {
-    window.hw.getProducts().then(res => {
-      setLoading(false)
-      if (res.ok) setProducts(res.data)
-      else setError(res.error)
+    void loadProducts()
+    window.hw.getStores().then(r => {
+      if (!r.ok) {
+        setStores([{ id: storeId, name: storeName || 'Este local' }])
+        return
+      }
+      const own = r.data.filter(s => s.id === storeId)
+      setStores(own.length > 0 ? own : [{ id: storeId, name: storeName || 'Este local' }])
     })
     setTimeout(() => searchRef.current?.focus(), 50)
-  }, [])
+  }, [loadProducts, storeId, storeName])
 
-  useCatalogSyncReload(() => {
-    void window.hw.getProducts().then(res => {
-      if (res.ok) setProducts(res.data)
+  useEffect(() => {
+    const unsub = window.hw.onCatalogSyncUpdated?.((payload?: { storeId?: string }) => {
+      if (payload?.storeId && payload.storeId !== storeId) return
+      void loadProducts({ silent: true })
     })
-  })
+    return () => { unsub?.() }
+  }, [storeId, loadProducts])
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortAsc(prev => !prev)
@@ -73,17 +116,18 @@ export default function ProductsListModal({ onClose }: Props) {
     const q = search.toLowerCase()
     return (
       p.name.toLowerCase().includes(q) ||
-      String(p.pluNumber).startsWith(q) ||
-      CATEGORY_LABELS[p.category]?.toLowerCase().includes(q)
+      String(p.pluNumber ?? '').startsWith(q) ||
+      (CATEGORY_LABELS[p.category] ?? '').toLowerCase().includes(q)
     )
   })
 
   const sorted = [...filtered].sort((a, b) => {
     let cmp = 0
-    if (sortKey === 'pluNumber') cmp = a.pluNumber - b.pluNumber
+    if (sortKey === 'pluNumber') cmp = (a.pluNumber ?? 0) - (b.pluNumber ?? 0)
     else if (sortKey === 'name') cmp = a.name.localeCompare(b.name, 'es-AR')
     else if (sortKey === 'category') cmp = a.category.localeCompare(b.category)
     else if (sortKey === 'price') cmp = (a.price ?? 0) - (b.price ?? 0)
+    else if (sortKey === 'available') cmp = Number(a.available) - Number(b.available)
     return sortAsc ? cmp : -cmp
   })
 
@@ -92,29 +136,48 @@ export default function ProductsListModal({ onClose }: Props) {
     return <span className="text-orange-400 ml-1">{sortAsc ? '↑' : '↓'}</span>
   }
 
+  const formStores = stores.length > 0 ? stores : [{ id: storeId, name: storeName || 'Este local' }]
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh]">
-        <div className="flex items-center justify-between border-b border-zinc-700 px-5 py-3">
-          <div>
+      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh]">
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-700 px-5 py-3">
+          <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-white">Catálogo de productos</h2>
-            <p className="text-[10px] text-zinc-500 mt-0.5">
-              {sorted.length} producto{sorted.length !== 1 ? 's' : ''} · precios ref. Enero 2026
+            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={storeName ?? undefined}>
+              {sorted.length} producto{sorted.length !== 1 ? 's' : ''}
+              {storeName ? ` · ${storeName}` : ''}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
-            aria-label="Cerrar"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowSync(true)}
+              className="rounded-md border border-zinc-600 bg-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+            >
+              Cargar en balanza
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+            >
+              + Nuevo producto
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+              aria-label="Cerrar"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="px-5 py-2 border-b border-zinc-800">
@@ -128,22 +191,25 @@ export default function ProductsListModal({ onClose }: Props) {
           />
         </div>
 
+        {error && (
+          <div className="mx-5 mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-1.5 text-xs text-red-400/90">
+            {error}
+          </div>
+        )}
+
         <div className="flex min-h-0 flex-1 flex-col">
           {loading && (
             <p className="py-8 text-center text-xs text-zinc-500">Cargando catálogo…</p>
           )}
-          {!loading && error && (
-            <p className="py-8 text-center text-xs text-red-400">{error}</p>
-          )}
-          {!loading && !error && sorted.length === 0 && (
+          {!loading && sorted.length === 0 && (
             <p className="py-8 text-center text-xs text-zinc-500">
-              {search ? 'Sin resultados para esa búsqueda.' : 'No hay productos con PLU asignado.'}
+              {search ? 'Sin resultados para esa búsqueda.' : 'No hay productos cargados.'}
             </p>
           )}
-          {!loading && !error && sorted.length > 0 && (
+          {!loading && sorted.length > 0 && (
             <>
               <div className="shrink-0 [scrollbar-gutter:stable]">
-                <table className="w-full border-separate border-spacing-0 text-xs">
+                <table className="w-full table-fixed border-separate border-spacing-0 text-xs">
                   <ProductsListColgroup />
                   <thead>
                     <tr>
@@ -171,26 +237,70 @@ export default function ProductsListModal({ onClose }: Props) {
                       >
                         Cat. <SortIcon col="category" />
                       </th>
-                      <th className="bg-zinc-800 px-5 py-2 text-right font-semibold text-zinc-400 shadow-[0_1px_0_0] shadow-zinc-700">
+                      <th className="bg-zinc-800 px-3 py-2 text-right font-semibold text-zinc-400 shadow-[0_1px_0_0] shadow-zinc-700">
                         Unidad
                       </th>
+                      <th
+                        className="bg-zinc-800 px-2 py-2 text-center font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        onClick={() => handleSort('available')}
+                      >
+                        Disp. <SortIcon col="available" />
+                      </th>
+                      <th className="bg-zinc-800 px-3 py-2 shadow-[0_1px_0_0] shadow-zinc-700" />
                     </tr>
                   </thead>
                 </table>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                <table className="w-full border-separate border-spacing-0 text-xs">
+                <table className="w-full table-fixed border-separate border-spacing-0 text-xs">
                   <ProductsListColgroup />
                   <tbody>
                     {sorted.map(p => (
                       <tr key={p.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
-                        <td className="px-5 py-2 font-bold text-orange-400">{p.pluNumber}</td>
-                        <td className="px-3 py-2 text-white">{p.name}</td>
-                        <td className="px-3 py-2 text-right text-amber-300 font-medium">
-                          {p.price != null ? formatARS(p.price) : '—'}
+                        <td className="px-5 py-2 font-bold text-orange-400 tabular-nums">
+                          {p.pluNumber ?? <span className="text-zinc-600 font-normal">—</span>}
+                        </td>
+                        <td className="min-w-0 px-3 py-2 text-white">
+                          <span className="block truncate" title={p.name}>{p.name}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setPriceProduct(p)}
+                              className="tabular-nums text-amber-300 font-medium hover:text-amber-200"
+                              title="Cambiar precio"
+                            >
+                              {p.price != null ? formatARS(p.price) : <span className="text-zinc-500 font-normal">—</span>}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setHistoryProduct(p)}
+                              className="text-zinc-600 hover:text-zinc-300"
+                              title="Ver historial de precios"
+                            >
+                              ↓
+                            </button>
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-zinc-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                        <td className="px-5 py-2 text-right text-zinc-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
+                        <td className="px-3 py-2 text-right text-zinc-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
+                        <td className="px-2 py-2 text-center">
+                          <CatalogToggle
+                            checked={p.available}
+                            disabled={isAvailabilityPending(p.id)}
+                            onChange={() => void toggleAvailability(p)}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setEditProduct(p)}
+                            className="rounded px-1.5 py-0.5 text-[11px] text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                          >
+                            Editar
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -202,10 +312,51 @@ export default function ProductsListModal({ onClose }: Props) {
 
         <div className="border-t border-zinc-800 px-5 py-2">
           <p className="text-[10px] text-zinc-600">
-            Precios de referencia cargados en la app. La balanza KRETZ puede tener valores distintos — sincronizar desde el panel de PLUs.
+            Los cambios de precio aplican al próximo ítem del ticket, no a lo que ya está cargado.
+            Tras actualizar precios, usá «Cargar en balanza» en esta misma pantalla.
           </p>
         </div>
       </div>
+
+      {showCreate && (
+        <ProductFormModal
+          storeId={storeId}
+          stores={formStores}
+          onClose={() => setShowCreate(false)}
+          onSaved={() => { setShowCreate(false); void loadProducts({ silent: true }) }}
+        />
+      )}
+      {editProduct && (
+        <ProductFormModal
+          storeId={storeId}
+          stores={formStores}
+          product={editProduct}
+          onClose={() => setEditProduct(null)}
+          onSaved={() => { setEditProduct(null); void loadProducts({ silent: true }) }}
+        />
+      )}
+      {priceProduct && (
+        <PriceModal
+          product={priceProduct}
+          storeId={storeId}
+          onClose={() => setPriceProduct(null)}
+          onSaved={() => { setPriceProduct(null); void loadProducts({ silent: true }) }}
+        />
+      )}
+      {historyProduct && (
+        <PriceHistoryModal
+          product={historyProduct}
+          storeId={storeId}
+          onClose={() => setHistoryProduct(null)}
+        />
+      )}
+      {showSync && (
+        <KretzSyncModal
+          storeId={storeId}
+          store={formStores.find(s => s.id === storeId)}
+          onClose={() => setShowSync(false)}
+        />
+      )}
     </div>
   )
 }

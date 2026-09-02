@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, products, productPrices, storeProducts } from '../../db/schema'
+import { stores, users, products, productPrices, storeProducts, catalogAuditEvents } from '../../db/schema'
 
 const { mockGetDoc, mockPublishCatalog, mockOnSnapshot, mockNotifyRenderer } = vi.hoisted(() => ({
   mockGetDoc: vi.fn(),
@@ -28,10 +28,14 @@ vi.mock('../firebase', () => ({
   isFirebaseAvailable: vi.fn(() => true),
 }))
 
-vi.mock('../catalogPublish', () => ({
-  publishCatalog: mockPublishCatalog,
-  publishCatalogForAllStores: vi.fn().mockResolvedValue(undefined),
-}))
+vi.mock('../catalogPublish', async importOriginal => {
+  const actual = await importOriginal<typeof import('../catalogPublish')>()
+  return {
+    ...actual,
+    publishCatalog: mockPublishCatalog,
+    publishCatalogForAllStores: vi.fn().mockResolvedValue(undefined),
+  }
+})
 
 vi.mock('../notifyRenderer', () => ({
   notifyRenderer: mockNotifyRenderer,
@@ -72,10 +76,15 @@ import {
 const TENANT = 'test-tenant'
 const STORE = 'store-001'
 
-function remoteSnap(productsList: unknown[], updatedAt: string, deletedProductIds: string[] = []) {
+function remoteSnap(
+  productsList: unknown[],
+  updatedAt: string,
+  deletedProductIds: string[] = [],
+  extra: Record<string, unknown> = {},
+) {
   return {
     exists: () => true,
-    data: () => ({ products: productsList, updatedAt, deletedProductIds }),
+    data: () => ({ products: productsList, updatedAt, deletedProductIds, ...extra }),
   }
 }
 
@@ -170,7 +179,7 @@ describe('catalogSync', () => {
 
     await syncCatalogWithFirestore(TENANT, STORE)
 
-    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
     const ids = db.select({ id: products.id }).from(products).all().map(r => r.id)
     expect(ids).toContain('prod-local')
     expect(ids).toContain('prod-remoto')
@@ -215,7 +224,7 @@ describe('catalogSync', () => {
 
     await syncCatalogWithFirestore(TENANT, STORE)
 
-    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
     const asado = db.select().from(products).all().find(r => r.id === 'prod-a')
     expect(asado?.name).toBe('Asado')
     const precio = db.select().from(productPrices).all().find(r => r.productId === 'prod-a' && r.validTo == null)
@@ -290,7 +299,7 @@ describe('catalogSync', () => {
 
     const a = db.select().from(products).all().find(r => r.id === 'prod-a')
     expect(a?.active).toBe(false)
-    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
   })
 
   it('local con productos y Firestore ausente → publish', async () => {
@@ -308,7 +317,7 @@ describe('catalogSync', () => {
 
     await syncCatalogWithFirestore(TENANT, STORE)
 
-    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
   })
 
   it('syncAllStoreCatalogs recorre cada local activo', async () => {
@@ -330,7 +339,7 @@ describe('catalogSync', () => {
 
     await syncAllStoreCatalogs(TENANT)
 
-    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
     expect(mockPublishCatalog).not.toHaveBeenCalledWith(TENANT, 'store-002')
   })
 
@@ -362,9 +371,36 @@ describe('catalogSync', () => {
 
     await syncCatalogWithFirestore(TENANT, STORE)
 
-    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+    expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
     const priceB = db.select().from(productPrices).all().find(r => r.productId === 'prod-b' && r.validTo == null)
     expect(priceB?.price).toBe(23000)
+  })
+
+  it('login con el mismo catálogo que Firestore no publica (no genera versión)', async () => {
+    db.insert(products).values({
+      id: 'prod-a',
+      name: 'Asado',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 1,
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }).run()
+    addPrice('prod-a', STORE, 'price-a', '2026-01-01T00:00:00.000Z', 18000)
+
+    mockGetDoc.mockResolvedValue(remoteSnap([
+      {
+        productId: 'prod-a',
+        pluNumber: 1,
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 18000,
+      },
+    ], '2026-08-15T00:00:00.000Z'))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+    expect(mockPublishCatalog).not.toHaveBeenCalled()
   })
 
   it('no pisa el nombre local con un snapshot de lote (updatedAt = sello del documento)', async () => {
@@ -504,6 +540,272 @@ describe('catalogSync', () => {
     expect(row?.available).toBe(false)
   })
 
+  it('aplica available=true remoto y vuelve a mostrar el producto oculto', async () => {
+    db.insert(products).values({
+      id: 'prod-a',
+      name: 'Carbón',
+      category: 'other',
+      unit: 'unit',
+      pluNumber: 600,
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }).run()
+    addPrice('prod-a')
+    db.insert(storeProducts).values({ storeId: STORE, productId: 'prod-a', available: false }).run()
+
+    mockGetDoc.mockResolvedValue(remoteSnap([
+      {
+        productId: 'prod-a',
+        pluNumber: 600,
+        name: 'Carbón',
+        category: 'other',
+        unit: 'unit',
+        price: 1500,
+        updatedAt: '2026-08-16T00:00:00.000Z',
+        available: true,
+      },
+    ], '2026-08-16T00:00:00.000Z'))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const row = db.select().from(storeProducts).all().find(r => r.productId === 'prod-a' && r.storeId === STORE)
+    expect(row?.available).toBe(true)
+  })
+
+  it('trae auditoría y precios con el autor original, no el usuario de esta PC', async () => {
+    mockGetDoc.mockResolvedValue(remoteSnap(
+      [{
+        productId: 'prod-555',
+        pluNumber: 555,
+        name: 'Prueba 1',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 55556,
+        updatedAt: '2026-09-02T03:40:00.000Z',
+        priceUpdatedAt: '2026-09-02T03:40:00.000Z',
+        available: true,
+      }],
+      '2026-09-02T03:40:00.000Z',
+      [],
+      {
+        auditEvents: [
+          {
+            id: 'audit-alta',
+            productId: 'prod-555',
+            storeId: null,
+            action: 'create',
+            actorUserId: 'admin-uid',
+            actorName: 'Admin Prueba',
+            summary: 'Alta: Prueba 1 (555)',
+            createdAt: '2026-09-02T03:37:00.000Z',
+          },
+          {
+            id: 'audit-ficha',
+            productId: 'prod-555',
+            storeId: null,
+            action: 'update_identity',
+            actorUserId: 'cashier-uid',
+            actorName: 'Cajera Uno',
+            summary: 'Nombre: Prueba 1 → Prueba 1b',
+            createdAt: '2026-09-02T03:41:00.000Z',
+          },
+        ],
+        priceHistory: [
+          {
+            id: 'price-orig',
+            productId: 'prod-555',
+            price: 55555,
+            validFrom: '2026-09-02T03:37:00.000Z',
+            validTo: '2026-09-02T03:40:00.000Z',
+            createdBy: 'admin-uid',
+            createdByName: 'Admin Prueba',
+          },
+          {
+            id: 'price-new',
+            productId: 'prod-555',
+            price: 55556,
+            validFrom: '2026-09-02T03:40:00.000Z',
+            validTo: null,
+            createdBy: 'cashier-uid',
+            createdByName: 'Cajera Uno',
+          },
+        ],
+      },
+    ))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const audits = db.select().from(catalogAuditEvents).all()
+    expect(audits).toHaveLength(2)
+    expect(audits.find(a => a.action === 'create')?.actorUserId).toBe('admin-uid')
+    expect(audits.find(a => a.action === 'update_identity')?.actorUserId).toBe('cashier-uid')
+
+    const prices = db.select().from(productPrices).all().filter(p => p.productId === 'prod-555')
+    expect(prices).toHaveLength(2)
+    expect(prices.find(p => p.validTo == null)?.createdBy).toBe('cashier-uid')
+    expect(prices.find(p => p.validTo == null)?.price).toBe(55556)
+    expect(prices.every(p => p.createdBy !== 'user-001')).toBe(true)
+
+    const adminStub = db.select().from(users).all().find(u => u.id === 'admin-uid')
+    expect(adminStub?.name).toBe('Admin Prueba')
+  })
+
+  it('mergea auditoría remota sobre un producto que esta PC ya tenía', async () => {
+    db.insert(products).values({
+      id: 'prod-555',
+      name: 'Prueba 1',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 555,
+      active: true,
+      createdAt: '2026-09-02T03:37:00.000Z',
+      updatedAt: '2026-09-02T03:37:00.000Z',
+    }).run()
+    addPrice('prod-555', STORE, 'price-local', '2026-09-02T03:37:00.000Z', 55555)
+
+    mockGetDoc.mockResolvedValue(remoteSnap(
+      [{
+        productId: 'prod-555',
+        pluNumber: 555,
+        name: 'Prueba 1',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 55556,
+        updatedAt: '2026-09-02T03:37:00.000Z',
+        priceUpdatedAt: '2026-09-02T03:40:00.000Z',
+        available: true,
+      }],
+      '2026-09-02T03:40:00.000Z',
+      [],
+      {
+        auditEvents: [{
+          id: 'audit-alta',
+          productId: 'prod-555',
+          storeId: null,
+          action: 'create',
+          actorUserId: 'admin-uid',
+          actorName: 'Admin Prueba',
+          summary: 'Alta: Prueba 1 (555)',
+          createdAt: '2026-09-02T03:37:00.000Z',
+        }],
+        priceHistory: [{
+          id: 'price-cashier',
+          productId: 'prod-555',
+          price: 55556,
+          validFrom: '2026-09-02T03:40:00.000Z',
+          validTo: null,
+          createdBy: 'cashier-uid',
+          createdByName: 'Cajera Uno',
+        }],
+      },
+    ))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const audits = db.select().from(catalogAuditEvents).all()
+    expect(audits.some(a => a.summary === 'Alta: Prueba 1 (555)' && a.actorUserId === 'admin-uid')).toBe(true)
+
+    const current = db.select().from(productPrices).all().find(p => p.productId === 'prod-555' && p.validTo == null)
+    expect(current?.price).toBe(55556)
+    expect(current?.createdBy).toBe('cashier-uid')
+  })
+
+  it('un precio remoto de un producto inexistente no aborta el merge del catálogo', async () => {
+    db.insert(products).values({
+      id: 'prod-555',
+      name: 'Prueba 1',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 555,
+      active: true,
+      createdAt: '2026-09-02T03:37:00.000Z',
+      updatedAt: '2026-09-02T03:37:00.000Z',
+    }).run()
+    addPrice('prod-555', STORE, 'price-local', '2026-09-02T03:37:00.000Z', 1000)
+
+    mockGetDoc.mockResolvedValue(remoteSnap(
+      [{
+        productId: 'prod-555',
+        pluNumber: 556,
+        name: 'Prueba 1b',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 2000,
+        updatedAt: '2026-09-02T04:05:00.000Z',
+        priceUpdatedAt: '2026-09-02T04:05:00.000Z',
+        available: true,
+      }],
+      '2026-09-02T04:00:00.000Z',
+      [],
+      {
+        priceHistory: [
+          {
+            id: 'price-ghost',
+            productId: 'prod-ghost-never-here',
+            price: 1,
+            validFrom: '2026-09-02T04:00:00.000Z',
+            validTo: null,
+            createdBy: 'cashier-uid',
+            createdByName: 'Cajera Uno',
+          },
+          {
+            id: 'price-ok',
+            productId: 'prod-555',
+            price: 2000,
+            validFrom: '2026-09-02T04:00:00.000Z',
+            validTo: null,
+            createdBy: 'cashier-uid',
+            createdByName: 'Cajera Uno',
+          },
+        ],
+      },
+    ))
+
+    await expect(syncCatalogWithFirestore(TENANT, STORE)).resolves.toBeUndefined()
+
+    const prod = db.select().from(products).all().find(p => p.id === 'prod-555')
+    expect(prod?.pluNumber).toBe(556)
+    expect(prod?.name).toBe('Prueba 1b')
+    const current = db.select().from(productPrices).all().find(p => p.productId === 'prod-555' && p.validTo == null)
+    expect(current?.price).toBe(2000)
+    expect(db.select().from(productPrices).all().some(p => p.productId === 'prod-ghost-never-here')).toBe(false)
+  })
+
+  it('un restore pisa precios locales más nuevos (Editar precios + Versiones)', async () => {
+    db.insert(products).values({
+      id: 'prod-a',
+      name: 'Asado',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 1,
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    }).run()
+    addPrice('prod-a', STORE, 'price-bulk', '2026-09-02T04:00:00.000Z', 50000)
+
+    mockGetDoc.mockResolvedValue(remoteSnap(
+      [{
+        productId: 'prod-a',
+        pluNumber: 1,
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 18000,
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        priceUpdatedAt: '2026-08-01T00:00:00.000Z',
+      }],
+      '2026-09-02T04:05:00.000Z',
+      [],
+      { restoredAt: '2026-09-02T04:05:00.000Z', priceHistory: [] },
+    ))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const current = db.select().from(productPrices).all().find(p => p.productId === 'prod-a' && p.validTo == null)
+    expect(current?.price).toBe(18000)
+  })
+
   describe('startCatalogSyncListener', () => {
     function snapshotHandler(): (snap: unknown) => Promise<unknown> {
       const call = mockOnSnapshot.mock.calls[0]
@@ -575,7 +877,7 @@ describe('catalogSync', () => {
       const local = db.select().from(products).all().find(r => r.id === 'prod-local')
       expect(local?.active).toBe(true)
       expect(local?.name).toBe('Vacío')
-      expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE)
+      expect(mockPublishCatalog).toHaveBeenCalledWith(TENANT, STORE, { archive: false })
     })
 
     it('snapshot eco (mismos ids/precios, local ≥ remoto) no llama publishCatalog', async () => {

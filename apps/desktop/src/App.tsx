@@ -458,7 +458,6 @@ export default function App() {
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
-            onViewCatalog={() => setState({ screen: 'admin', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
           />
         </div>
       )}

@@ -38,6 +38,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@electron': path.resolve(__dirname, 'electron'),
+      '@carniceria/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
 })

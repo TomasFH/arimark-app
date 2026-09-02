@@ -267,6 +267,7 @@ export type CatalogAuditAction =
   | 'hide_store'
   | 'show_store'
   | 'retire_global'
+  | 'restore_revision'
 
 export interface CatalogAuditRow {
   id: string
@@ -315,6 +316,11 @@ export interface SetProductPricePayload {
   storeId: string
   /** Nuevo precio en pesos (entero). 0 = sin precio (elimina el precio vigente). */
   price: number
+}
+
+export interface SetProductPricesPayload {
+  storeId: string
+  items: Array<{ productId: string; price: number }>
 }
 
 export interface SetProductAvailabilityPayload {
@@ -1381,13 +1387,16 @@ export interface HwApi {
   /** Cambia el precio vigente. Cajera: solo el local de la sesión. */
   setProductPrice: (payload: SetProductPricePayload) => Promise<IpcResult>
 
+  /** Cambia varios precios del mismo local en una transacción (Editar precios). Una versión. */
+  setProductPrices: (payload: SetProductPricesPayload) => Promise<IpcResult>
+
   /** Activa o desactiva la disponibilidad en un local. Cajera: solo su local. */
   setProductAvailability: (payload: SetProductAvailabilityPayload) => Promise<IpcResult>
 
   /** Historial completo de precios de un producto en un local */
   getProductPriceHistory: (payload: GetPriceHistoryPayload) => Promise<IpcResult<PriceHistoryRow[]>>
 
-  /** Versiones archivadas del catálogo de un local (snapshots previos a cada publicación) — solo admin */
+  /** Versiones archivadas del catálogo de un local (snapshots previos a cada confirmación de precios) — solo admin */
   listCatalogRevisions: (payload: { storeId: string }) => Promise<IpcResult<CatalogRevisionRow[]>>
 
   /** Restaura un snapshot archivado como catálogo vigente y lo baja a SQLite — solo admin */

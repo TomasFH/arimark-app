@@ -91,6 +91,8 @@ const hw: HwApi = {
 
   setProductPrice: (payload) => ipcRenderer.invoke(IPC.SET_PRODUCT_PRICE, payload),
 
+  setProductPrices: (payload) => ipcRenderer.invoke(IPC.SET_PRODUCT_PRICES, payload),
+
   setProductAvailability: (payload) => ipcRenderer.invoke(IPC.SET_PRODUCT_AVAILABILITY, payload),
 
   getProductPriceHistory: (payload) => ipcRenderer.invoke(IPC.GET_PRODUCT_PRICE_HISTORY, payload),

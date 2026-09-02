@@ -4,10 +4,19 @@
   "private": true,
   "description": "Tipos y utilidades compartidas entre desktop y mobile",
   "main": "./src/index.ts",
+  "files": [
+    "src",
+    "dist-cjs"
+  ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "require": "./dist-cjs/index.js",
+      "default": "./src/index.ts"
+    }
   },
   "scripts": {
+    "build:cjs": "tsc -p tsconfig.cjs.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

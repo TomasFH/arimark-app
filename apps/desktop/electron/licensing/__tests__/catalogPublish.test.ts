@@ -1,9 +1,9 @@
 /**
  * Tests de publicación de catálogo: omite vacío, archiva snapshot previo.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, products, productPrices, storeProducts } from '../../db/schema'
+import { stores, users, products, productPrices, storeProducts, catalogAuditEvents } from '../../db/schema'
 
 const { mockGetDoc, mockSetDoc, mockGetDocs, mockDeleteDoc } = vi.hoisted(() => ({
   mockGetDoc: vi.fn(),
@@ -39,7 +39,7 @@ vi.mock('../../db/client', () => ({
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { publishCatalog } from '../catalogPublish'
+import { publishCatalog, restoreCatalogRevision, scheduleCatalogPublish, CATALOG_PUBLISH_DEBOUNCE_MS, clearScheduledCatalogPublishes } from '../catalogPublish'
 
 const TENANT = 'test-tenant'
 const STORE = 'store-001'
@@ -67,6 +67,11 @@ describe('catalogPublish', () => {
       createdAt: now,
     }).run()
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+  })
+
+  afterEach(() => {
+    clearScheduledCatalogPublishes()
+    vi.useRealTimers()
   })
 
   it('omite publicación si no hay productos con PLU y precio', async () => {
@@ -171,5 +176,196 @@ describe('catalogPublish', () => {
       .map(c => c[1] as { products?: Array<{ available?: boolean }>; archivedAt?: string })
       .find(p => Array.isArray(p.products) && !('archivedAt' in p))
     expect(catalogPayload?.products?.[0]?.available).toBe(false)
+  })
+
+  it('incluye auditoría y historial de precios con el nombre de quien cambió', async () => {
+    db.insert(products).values({
+      id: 'prod-a',
+      name: 'Prueba 1',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 555,
+      active: true,
+      createdAt: '2026-09-02T03:37:00.000Z',
+      updatedAt: '2026-09-02T03:37:00.000Z',
+    }).run()
+    db.insert(productPrices).values([
+      {
+        id: 'price-old',
+        productId: 'prod-a',
+        storeId: STORE,
+        price: 55555,
+        validFrom: '2026-09-02T03:37:00.000Z',
+        validTo: '2026-09-02T03:40:00.000Z',
+        createdBy: 'user-001',
+      },
+      {
+        id: 'price-new',
+        productId: 'prod-a',
+        storeId: STORE,
+        price: 55556,
+        validFrom: '2026-09-02T03:40:00.000Z',
+        validTo: null,
+        createdBy: 'user-001',
+      },
+    ]).run()
+    db.insert(catalogAuditEvents).values({
+      id: 'audit-1',
+      productId: 'prod-a',
+      storeId: null,
+      action: 'create',
+      actorUserId: 'user-001',
+      summary: 'Alta: Prueba 1 (555)',
+      createdAt: '2026-09-02T03:37:00.000Z',
+    }).run()
+
+    await publishCatalog(TENANT, STORE)
+
+    const catalogPayload = mockSetDoc.mock.calls
+      .map(c => c[1] as {
+        products?: unknown[]
+        archivedAt?: string
+        auditEvents?: Array<{ summary: string; actorName: string }>
+        priceHistory?: Array<{ id: string; createdByName: string; price: number }>
+      })
+      .find(p => Array.isArray(p.products) && !('archivedAt' in p))
+
+    expect(catalogPayload?.auditEvents).toEqual([
+      expect.objectContaining({ summary: 'Alta: Prueba 1 (555)', actorName: 'Cajera' }),
+    ])
+    expect(catalogPayload?.priceHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'price-new', price: 55556, createdByName: 'Cajera' }),
+      expect.objectContaining({ id: 'price-old', price: 55555, createdByName: 'Cajera' }),
+    ]))
+  })
+
+  it('al restaurar pisa timestamps, marca restoredAt y no copia el historial viejo', async () => {
+    mockGetDoc
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          products: [{
+            productId: 'prod-a',
+            pluNumber: 1,
+            name: 'Asado',
+            category: 'beef_cut',
+            unit: 'kg',
+            price: 18000,
+            updatedAt: '2026-08-01T00:00:00.000Z',
+            priceUpdatedAt: '2026-08-01T00:00:00.000Z',
+          }],
+          deletedProductIds: [],
+          priceHistory: [{ id: 'old-hist', productId: 'prod-a', price: 18000 }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          products: [{ productId: 'prod-a', pluNumber: 1, name: 'Asado', category: 'beef_cut', unit: 'kg', price: 99999 }],
+          updatedAt: '2026-09-02T00:00:00.000Z',
+        }),
+      })
+
+    const result = await restoreCatalogRevision(TENANT, STORE, 'rev-1')
+    expect(result.productCount).toBe(1)
+
+    const live = mockSetDoc.mock.calls
+      .map(c => c[1] as {
+        products?: Array<{ price: number; priceUpdatedAt?: string }>
+        restoredAt?: string
+        priceHistory?: unknown[]
+        archivedAt?: string
+      })
+      .find(p => Array.isArray(p.products) && !('archivedAt' in p) && p.restoredAt)
+
+    expect(live?.products?.[0]?.price).toBe(18000)
+    expect(live?.restoredAt).toBeTruthy()
+    expect(live?.priceHistory).toEqual([])
+    expect(live?.products?.[0]?.priceUpdatedAt).toBe(live?.restoredAt)
+  })
+
+  function seedPricedProduct() {
+    db.insert(products).values({
+      id: 'prod-a',
+      name: 'Asado',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 1,
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }).run()
+    db.insert(productPrices).values({
+      id: 'price-a',
+      productId: 'prod-a',
+      storeId: STORE,
+      price: 18000,
+      validFrom: '2026-01-01T00:00:00.000Z',
+      validTo: null,
+      createdBy: 'user-001',
+    }).run()
+  }
+
+  it('no publica ni archiva si el catálogo remoto ya tiene los mismos precios', async () => {
+    seedPricedProduct()
+    mockGetDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        products: [{
+          productId: 'prod-a',
+          pluNumber: 1,
+          name: 'Asado',
+          category: 'beef_cut',
+          unit: 'kg',
+          price: 18000,
+          available: true,
+        }],
+        deletedProductIds: [],
+      }),
+    })
+
+    await publishCatalog(TENANT, STORE)
+    expect(mockSetDoc).not.toHaveBeenCalled()
+  })
+
+  it('tres schedule seguidos publican una sola vez después del debounce', async () => {
+    vi.useFakeTimers()
+    seedPricedProduct()
+    mockGetDoc.mockResolvedValue({ exists: () => false, data: () => undefined })
+
+    scheduleCatalogPublish(TENANT, STORE)
+    scheduleCatalogPublish(TENANT, STORE)
+    scheduleCatalogPublish(TENANT, STORE)
+    expect(mockSetDoc).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(CATALOG_PUBLISH_DEBOUNCE_MS)
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    vi.useRealTimers()
+
+    const liveWrites = mockSetDoc.mock.calls
+      .map(c => c[1] as { products?: unknown[]; archivedAt?: string })
+      .filter(p => Array.isArray(p.products) && !('archivedAt' in p))
+    expect(liveWrites).toHaveLength(1)
+  })
+
+  it('con archive:false actualiza el catálogo vivo y no crea revisión', async () => {
+    seedPricedProduct()
+    mockGetDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        products: [{ productId: 'old', pluNumber: 1, name: 'Viejo', category: 'beef_cut', unit: 'kg', price: 1 }],
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    })
+
+    await publishCatalog(TENANT, STORE, { archive: false })
+
+    const payloads = mockSetDoc.mock.calls.map(c => c[1] as {
+      productCount?: number
+      products?: unknown[]
+      archivedAt?: string
+    })
+    expect(payloads.some(p => typeof p.productCount === 'number')).toBe(false)
+    expect(payloads.some(p => Array.isArray(p.products) && !('archivedAt' in p))).toBe(true)
   })
 })

@@ -29,7 +29,6 @@ interface Props {
   onViewDebts?: () => void
   onViewSpecialCustomers?: () => void
   onViewOrders?: () => void
-  onViewCatalog?: () => void
   isActive?: boolean
 }
 
@@ -179,7 +178,6 @@ export default function CashierScreen({
   onViewDebts,
   onViewSpecialCustomers,
   onViewOrders,
-  onViewCatalog,
   isActive = true,
 }: Props) {
   // ── Existing state ─────────────────────────────────────────────────────────
@@ -220,17 +218,17 @@ export default function CashierScreen({
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    window.hw.getProducts().then(res => {
+  const reloadPosCatalog = useCallback(() => {
+    void window.hw.getProducts().then(res => {
       if (res.ok) setProducts(res.data)
     })
   }, [])
 
-  useCatalogSyncReload(() => {
-    void window.hw.getProducts().then(res => {
-      if (res.ok) setProducts(res.data)
-    })
-  })
+  useEffect(() => {
+    reloadPosCatalog()
+  }, [reloadPosCatalog])
+
+  useCatalogSyncReload(reloadPosCatalog)
 
   useEffect(() => {
     const storeId = session.storeId ?? shift.storeId
@@ -849,10 +847,7 @@ export default function CashierScreen({
             </div>
 
             <div className="flex-1 overflow-y-auto py-1.5">
-              <MenuAction emoji="📋" label="Lista de productos" onClick={() => { setShowProductsModal(true); closeMenu() }} />
-              {onViewCatalog && (
-                <MenuAction emoji="🏷️" label="Catálogo" onClick={() => { onViewCatalog(); closeMenu() }} />
-              )}
+              <MenuAction emoji="🏷️" label="Catálogo" onClick={() => { setShowProductsModal(true); closeMenu() }} />
               {onViewOrders && (
                 <MenuAction emoji="📦" label="Pedidos" onClick={() => { onViewOrders(); closeMenu() }} />
               )}
@@ -903,8 +898,15 @@ export default function CashierScreen({
         />
       )}
 
-      {showProductsModal && (
-        <ProductsListModal onClose={() => setShowProductsModal(false)} />
+      {showProductsModal && session.storeId && (
+        <ProductsListModal
+          storeId={session.storeId}
+          storeName={storeName}
+          onClose={() => {
+            setShowProductsModal(false)
+            reloadPosCatalog()
+          }}
+        />
       )}
 
       {SHOW_ATTENDANCE_UI && showAttendanceModal && (

@@ -1,5 +1,5 @@
 import { config as loadDotenv } from 'dotenv'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
 import path from 'path'
 import log from 'electron-log'
 
@@ -46,7 +46,6 @@ function createWindow(): BrowserWindow {
     },
     show: false,
     titleBarStyle: 'default',
-    autoHideMenuBar: true,
   })
 
   win.once('ready-to-show', () => {
@@ -132,6 +131,9 @@ function ensureDefaultStore(storeId: string, businessName: string): void {
 
 app.whenReady().then(async () => {
   log.info('[main] app ready')
+
+  // Sin menú nativo File/Edit/View: en Windows Alt lo mostraba (autoHideMenuBar).
+  Menu.setApplicationMenu(null)
 
   // 1. Inicializar DB con migraciones.
   //    app.getAppPath() apunta al raíz de la app (repo en dev, asar en prod),

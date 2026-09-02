@@ -357,7 +357,7 @@ Hay carniceros (y cajeras) que suelen trabajar en un local, pero a veces van al 
 
 ## BLOQUE I — Catálogo en vivo + edición por cajera ✅ HECHA (2026-08-30)
 
-> **Estado:** Completada. Checklist de prueba: `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (reemplaza la ola de cierre/habitual, ya cerrada).
+> **Estado:** Completada. Checklist de prueba: `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (aprobada 2026-09-02).
 
 El merge por ítem ya existía (`catalogSync.ts`). Se agregó el **listener en vivo** (I-A) y la **edición por cajera en PC** (I-B).
 
@@ -367,8 +367,8 @@ El merge por ítem ya existía (`catalogSync.ts`). Se agregó el **listener en v
 - El ↺ sigue como respaldo.
 
 ### I-B — Edición por cajera (PC)
-- Menú caja → **Catálogo** (distinto de Lista de productos). Carrito se conserva.
-- Cajera: crear ficha, editar nombre/PLU/categoría/unidad, precio y “quitar/mostrar” **solo su local**. Retiro global / KRETZ / versiones = solo admin.
+- Menú caja → **Catálogo** (overlay sobre el POS; ya no hay «Lista de productos» aparte). Carrito se conserva.
+- Cajera: crear ficha, editar nombre/PLU/categoría/unidad, precio, “quitar/mostrar” **solo su local**, y **Cargar en balanza**. Retiro global / versiones = solo admin (hub).
 - Auditoría SQLite `catalog_audit_events` (migración `0035`).
 
 **No se hizo (sigue vigente):** edición de catálogo en el celu; FEAT-CAT-03 backup masivo; sync automático a la KRETZ; Blaze; DT-07/DT-08.
@@ -409,7 +409,7 @@ Para maximizar valor entregable en orden:
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
 7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
-8. **Siguiente (cuando el desarrollador lo pida):** `FEAT-ORDER-CART-01` (Tanda 3), DT-02 (login offline PC), DT-04 (local por defecto). **No codear hasta que se pida:** `PLAN.md` **DT-07** y **DT-08**. Fase 8 Stock sigue bloqueada.
+8. **Siguiente (cuando el desarrollador lo pida):** `FEAT-ORDER-CART-01` (Tanda 3), DT-02 (login offline PC), DT-04 (local por defecto). **No codear hasta que se pida:** `PLAN.md` **DT-07** y **DT-08**. Fase 8 Stock sigue bloqueada. **BLOQUE I checklist cerrada 2026-09-02.**
 
 ---
 

@@ -8,7 +8,9 @@
  *  - Precio/nombre más nuevo gana por ítem.
  *  - Baja global (soft-delete) se propaga vía deletedProductIds.
  *  - Visibilidad por local (`available`) viaja en cada ítem del catálogo de ese local.
- * Después del merge one-shot se republica el union. El listener en vivo
+ * Después del merge one-shot se republica el union **solo si el contenido
+ * (precios/ficha/visibilidad) difiere**, y sin archivar versión. El login/↺
+ * no genera entradas en Versiones. El listener en vivo
  * solo republica si el snapshot está incompleto (altas locales con precio
  * que el remoto no trae); un eco de nuestra publicación no vuelve a publicar.
  */
@@ -17,12 +19,13 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { and, eq, isNull, ne } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { products, productPrices, storeProducts, stores } from '../db/schema'
+import { catalogAuditEvents, products, productPrices, storeProducts, stores, users } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { getActiveSession } from '../activeSession'
-import { publishCatalog } from './catalogPublish'
+import { publishCatalog, buildPublishedCatalog, catalogContentFingerprint } from './catalogPublish'
 import { notifyRenderer } from './notifyRenderer'
 import { IPC } from '../ipc/channels'
+import { ensureUserStubWith } from './syncUserStub'
 
 /**
  * Listener en vivo (BLOQUE I-A). El renderer recarga lista/POS con
@@ -44,10 +47,46 @@ interface CatalogProduct {
   available?: boolean
 }
 
+type CatalogAuditAction = 'create' | 'update_identity' | 'hide_store' | 'show_store' | 'retire_global' | 'restore_revision'
+
+const AUDIT_ACTIONS = new Set<CatalogAuditAction>([
+  'create',
+  'update_identity',
+  'hide_store',
+  'show_store',
+  'retire_global',
+  'restore_revision',
+])
+
+interface RemoteAuditEvent {
+  id: string
+  productId: string
+  storeId: string | null
+  action: CatalogAuditAction
+  actorUserId: string
+  actorName: string
+  summary: string
+  createdAt: string
+}
+
+interface RemotePriceHistoryRow {
+  id: string
+  productId: string
+  price: number
+  validFrom: string
+  validTo: string | null
+  createdBy: string
+  createdByName: string
+}
+
 interface RemoteCatalog {
   products: CatalogProduct[]
   updatedAt: string | null
   deletedProductIds: string[]
+  auditEvents: RemoteAuditEvent[] | null
+  priceHistory: RemotePriceHistoryRow[] | null
+  /** Si está, este snapshot es un restore: pisar precios/ficha locales más nuevos. */
+  restoredAt: string | null
 }
 
 type DbTx = ReturnType<typeof getDb>
@@ -139,9 +178,10 @@ function applyRemoteProduct(
   storeId: string,
   userId: string,
   now: string,
+  opts?: { skipPrice?: boolean },
 ): void {
   applyRemoteIdentity(tx, p, now)
-  applyRemotePrice(tx, p.productId, storeId, p.price, userId, now)
+  if (!opts?.skipPrice) applyRemotePrice(tx, p.productId, storeId, p.price, userId, now)
   if (p.available !== undefined) applyRemoteAvailability(tx, p.productId, storeId, p.available)
 }
 
@@ -200,7 +240,240 @@ function parseRemoteCatalogData(data: unknown): RemoteCatalog {
     ? deletedRaw.filter((id): id is string => typeof id === 'string')
     : []
   const updatedAt = typeof raw['updatedAt'] === 'string' ? raw['updatedAt'] : null
-  return { products: productsList, updatedAt, deletedProductIds }
+  const restoredAt = typeof raw['restoredAt'] === 'string' && raw['restoredAt'].trim()
+    ? raw['restoredAt']
+    : null
+  return {
+    products: productsList,
+    updatedAt,
+    deletedProductIds,
+    auditEvents: parseRemoteAuditEvents(raw['auditEvents']),
+    priceHistory: parseRemotePriceHistory(raw['priceHistory']),
+    restoredAt,
+  }
+}
+
+function parseRemoteAuditEvents(raw: unknown): RemoteAuditEvent[] | null {
+  if (!Array.isArray(raw)) return null
+  const rows: RemoteAuditEvent[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const id = typeof r.id === 'string' ? r.id : ''
+    const productId = typeof r.productId === 'string' ? r.productId : ''
+    const action = typeof r.action === 'string' && AUDIT_ACTIONS.has(r.action as CatalogAuditAction)
+      ? (r.action as CatalogAuditAction)
+      : null
+    const actorUserId = typeof r.actorUserId === 'string' ? r.actorUserId : ''
+    const summary = typeof r.summary === 'string' ? r.summary : ''
+    const createdAt = typeof r.createdAt === 'string' ? r.createdAt : ''
+    if (!id || !productId || !action || !actorUserId || !summary || !createdAt) continue
+    rows.push({
+      id,
+      productId,
+      storeId: typeof r.storeId === 'string' ? r.storeId : null,
+      action,
+      actorUserId,
+      actorName: typeof r.actorName === 'string' && r.actorName.trim() ? r.actorName : actorUserId,
+      summary,
+      createdAt,
+    })
+  }
+  return rows
+}
+
+function parseRemotePriceHistory(raw: unknown): RemotePriceHistoryRow[] | null {
+  if (!Array.isArray(raw)) return null
+  const rows: RemotePriceHistoryRow[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const id = typeof r.id === 'string' ? r.id : ''
+    const productId = typeof r.productId === 'string' ? r.productId : ''
+    const createdBy = typeof r.createdBy === 'string' ? r.createdBy : ''
+    const validFrom = typeof r.validFrom === 'string' ? r.validFrom : ''
+    const price = typeof r.price === 'number' && Number.isFinite(r.price) ? r.price : NaN
+    if (!id || !productId || !createdBy || !validFrom || !Number.isFinite(price)) continue
+    rows.push({
+      id,
+      productId,
+      price,
+      validFrom,
+      validTo: typeof r.validTo === 'string' ? r.validTo : null,
+      createdBy,
+      createdByName: typeof r.createdByName === 'string' && r.createdByName.trim() ? r.createdByName : createdBy,
+    })
+  }
+  return rows
+}
+
+function mergeRemoteAuditEvents(tx: DbTx, storeId: string, events: RemoteAuditEvent[]): void {
+  for (const event of events) {
+    ensureUserStubWith(tx, event.actorUserId, storeId, event.actorName)
+    const existing = tx
+      .select({ id: catalogAuditEvents.id })
+      .from(catalogAuditEvents)
+      .where(eq(catalogAuditEvents.id, event.id))
+      .get()
+    if (existing) continue
+    try {
+      tx.insert(catalogAuditEvents)
+        .values({
+          id: event.id,
+          productId: event.productId,
+          storeId: event.storeId,
+          action: event.action,
+          actorUserId: event.actorUserId,
+          summary: event.summary,
+          createdAt: event.createdAt,
+        })
+        .run()
+    } catch (err) {
+      log.warn('[catalogSync] Auditoría remota omitida', { id: event.id, productId: event.productId, err })
+    }
+  }
+}
+
+function mergeRemotePriceHistory(
+  tx: DbTx,
+  storeId: string,
+  rows: RemotePriceHistoryRow[],
+): boolean {
+  const storeRow = tx.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).get()
+  if (!storeRow) {
+    log.warn('[catalogSync] Historial de precios omitido: local ausente', { storeId })
+    return false
+  }
+
+  let changed = false
+  for (const row of rows) {
+    const product = tx.select({ id: products.id }).from(products).where(eq(products.id, row.productId)).get()
+    if (!product) {
+      log.warn('[catalogSync] Historial de precio omitido: producto ausente', {
+        productId: row.productId,
+        storeId,
+      })
+      continue
+    }
+
+    ensureUserStubWith(tx, row.createdBy, storeId, row.createdByName)
+    const actor = tx.select({ id: users.id }).from(users).where(eq(users.id, row.createdBy)).get()
+    if (!actor) {
+      log.warn('[catalogSync] Historial de precio omitido: autor ausente', {
+        createdBy: row.createdBy,
+        productId: row.productId,
+      })
+      continue
+    }
+
+    const existing = tx
+      .select({
+        id: productPrices.id,
+        price: productPrices.price,
+        validTo: productPrices.validTo,
+      })
+      .from(productPrices)
+      .where(eq(productPrices.id, row.id))
+      .get()
+    if (existing) {
+      const remoteTo = row.validTo
+      const localTo = existing.validTo ?? null
+      if (existing.price !== row.price || localTo !== remoteTo) {
+        try {
+          tx.update(productPrices)
+            .set({ price: row.price, validTo: remoteTo })
+            .where(eq(productPrices.id, row.id))
+            .run()
+          changed = true
+        } catch (err) {
+          log.warn('[catalogSync] No se pudo actualizar precio remoto', { id: row.id, err })
+        }
+      }
+      continue
+    }
+    try {
+      tx.insert(productPrices)
+        .values({
+          id: row.id,
+          productId: row.productId,
+          storeId,
+          price: row.price,
+          validFrom: row.validFrom,
+          validTo: row.validTo,
+          createdBy: row.createdBy,
+        })
+        .run()
+      changed = true
+    } catch (err) {
+      log.warn('[catalogSync] Precio remoto omitido', { id: row.id, productId: row.productId, storeId, err })
+    }
+  }
+
+  const productIds = [...new Set(rows.map(r => r.productId))]
+  for (const productId of productIds) {
+    const open = tx
+      .select({ id: productPrices.id, validFrom: productPrices.validFrom })
+      .from(productPrices)
+      .where(
+        and(
+          eq(productPrices.productId, productId),
+          eq(productPrices.storeId, storeId),
+          isNull(productPrices.validTo),
+        ),
+      )
+      .all()
+      .sort((a, b) => (a.validFrom < b.validFrom ? 1 : a.validFrom > b.validFrom ? -1 : 0))
+    for (const extra of open.slice(1)) {
+      try {
+        tx.update(productPrices)
+          .set({ validTo: open[0]?.validFrom ?? extra.validFrom })
+          .where(eq(productPrices.id, extra.id))
+          .run()
+        changed = true
+      } catch (err) {
+        log.warn('[catalogSync] No se pudo cerrar precio duplicado', { id: extra.id, err })
+      }
+    }
+  }
+
+  return changed
+}
+
+function applySnapshotForced(
+  tx: DbTx,
+  storeId: string,
+  remote: RemoteCatalog,
+  userId: string,
+  now: string,
+): { applied: number; deleted: number; availabilityChanged: number } {
+  ensureUserStubWith(tx, userId, storeId)
+  let applied = 0
+  let deleted = 0
+  let availabilityChanged = 0
+  const remoteIds = new Set(remote.products.map(p => p.productId))
+
+  for (const p of remote.products) {
+    applyRemoteIdentity(tx, p, now)
+    applyRemotePrice(tx, p.productId, storeId, p.price, userId, now)
+    applied += 1
+    if (p.available !== undefined && applyRemoteAvailability(tx, p.productId, storeId, p.available)) {
+      availabilityChanged += 1
+    }
+  }
+
+  for (const id of remote.deletedProductIds) {
+    if (remoteIds.has(id)) continue
+    const row = tx.select({ id: products.id, active: products.active }).from(products).where(eq(products.id, id)).get()
+    if (!row || !row.active) continue
+    tx.update(products)
+      .set({ active: false, pluNumber: null })
+      .where(eq(products.id, id))
+      .run()
+    deleted += 1
+  }
+
+  if (remote.auditEvents) mergeRemoteAuditEvents(tx, storeId, remote.auditEvents)
+  return { applied, deleted, availabilityChanged }
 }
 
 async function readRemoteCatalog(licenseKey: string, storeId: string): Promise<RemoteCatalog | null> {
@@ -239,8 +512,38 @@ export async function pullCatalogFromFirestore(licenseKey: string, storeId: stri
     const userId = session.userId
 
     db.transaction(tx => {
+      const t = tx as unknown as DbTx
+      if (remote.restoredAt) {
+        applySnapshotForced(t, storeId, remote, userId, now)
+        return
+      }
+      const skipPrice = (remote.priceHistory?.length ?? 0) > 0
       for (const p of remote.products) {
-        applyRemoteProduct(tx as unknown as DbTx, p, storeId, userId, now)
+        applyRemoteProduct(t, p, storeId, userId, now, { skipPrice })
+      }
+      if (remote.auditEvents) mergeRemoteAuditEvents(t, storeId, remote.auditEvents)
+      if (remote.priceHistory) mergeRemotePriceHistory(t, storeId, remote.priceHistory)
+      if (skipPrice) {
+        for (const p of remote.products) {
+          const hasPrice = t
+            .select({ id: productPrices.id })
+            .from(productPrices)
+            .where(
+              and(
+                eq(productPrices.productId, p.productId),
+                eq(productPrices.storeId, storeId),
+                isNull(productPrices.validTo),
+              ),
+            )
+            .get()
+          if (!hasPrice) {
+            try {
+              applyRemotePrice(t, p.productId, storeId, p.price, userId, now)
+            } catch (err) {
+              log.warn('[catalogSync] Precio vigente de respaldo omitido', { productId: p.productId, storeId, err })
+            }
+          }
+        }
       }
     })
 
@@ -266,6 +569,18 @@ function mergeRemoteIntoLocal(
   let deleted = 0
   let availabilityChanged = 0
 
+  if (remote.restoredAt) {
+    db.transaction(tx => {
+      const stats = applySnapshotForced(tx as unknown as DbTx, storeId, remote, userId, now)
+      applied = stats.applied
+      deleted = stats.deleted
+      availabilityChanged = stats.availabilityChanged
+    })
+    return { applied, keptLocal: 0, deleted, availabilityChanged }
+  }
+
+  const skipPrice = (remote.priceHistory?.length ?? 0) > 0
+
   db.transaction(tx => {
     const t = tx as unknown as DbTx
     for (const p of remote.products) {
@@ -280,7 +595,7 @@ function mergeRemoteIntoLocal(
       }
 
       if (!local) {
-        applyRemoteProduct(t, p, storeId, userId, now)
+        applyRemoteProduct(t, p, storeId, userId, now, { skipPrice })
         applied += 1
         continue
       }
@@ -298,12 +613,12 @@ function mergeRemoteIntoLocal(
       const priceFromRemote = localPTs == null || (remotePTs !== '' && remotePTs > localPTs)
 
       if (identityFromRemote) applyRemoteIdentity(t, p, now)
-      if (priceFromRemote) applyRemotePrice(t, p.productId, storeId, p.price, userId, now)
+      if (!skipPrice && priceFromRemote) applyRemotePrice(t, p.productId, storeId, p.price, userId, now)
       if (p.available !== undefined && applyRemoteAvailability(t, p.productId, storeId, p.available)) {
         availabilityChanged += 1
       }
 
-      if (identityFromRemote || priceFromRemote) applied += 1
+      if (identityFromRemote || (!skipPrice && priceFromRemote)) applied += 1
       else keptLocal += 1
     }
 
@@ -316,6 +631,33 @@ function mergeRemoteIntoLocal(
         .where(eq(products.id, id))
         .run()
       deleted += 1
+    }
+
+    if (remote.auditEvents) mergeRemoteAuditEvents(t, storeId, remote.auditEvents)
+    if (remote.priceHistory && mergeRemotePriceHistory(t, storeId, remote.priceHistory)) {
+      applied += 1
+    }
+    if (skipPrice) {
+      for (const p of remote.products) {
+        const hasPrice = t
+          .select({ id: productPrices.id })
+          .from(productPrices)
+          .where(
+            and(
+              eq(productPrices.productId, p.productId),
+              eq(productPrices.storeId, storeId),
+              isNull(productPrices.validTo),
+            ),
+          )
+          .get()
+        if (!hasPrice) {
+          try {
+            applyRemotePrice(t, p.productId, storeId, p.price, userId, now)
+          } catch (err) {
+            log.warn('[catalogSync] Precio vigente de respaldo omitido', { productId: p.productId, storeId, err })
+          }
+        }
+      }
     }
   })
 
@@ -363,7 +705,7 @@ async function applyLiveCatalogSnapshot(
 
   const remote = snap.exists()
     ? parseRemoteCatalogData(snap.data())
-    : { products: [], updatedAt: null, deletedProductIds: [] }
+    : { products: [], updatedAt: null, deletedProductIds: [], auditEvents: null, priceHistory: null, restoredAt: null }
 
   const stats = mergeRemoteIntoLocal(storeId, remote, session.userId)
   const incomplete = hasLocalOnlyPricedProducts(storeId, remote)
@@ -372,7 +714,7 @@ async function applyLiveCatalogSnapshot(
   // Un eco de nuestra propia publicación ya es el union → applied/deleted 0 y no incompleto.
   if (incomplete) {
     log.info('[catalogSync] Snapshot incompleto — republicar union', { storeId, ...stats })
-    await publishCatalog(licenseKey, storeId)
+    await publishCatalog(licenseKey, storeId, { archive: false })
   } else {
     log.info('[catalogSync] Snapshot aplicado sin republicar', { storeId, ...stats, remoteCount: remote.products.length })
   }
@@ -418,13 +760,21 @@ export async function syncCatalogWithFirestore(licenseKey: string, storeId: stri
 
   if (!remote) {
     log.info('[catalogSync] Firestore ausente — publish', { storeId })
-    await publishCatalog(licenseKey, storeId)
+    await publishCatalog(licenseKey, storeId, { archive: false })
     return
   }
 
   const stats = mergeRemoteIntoLocal(storeId, remote, session.userId)
   log.info('[catalogSync] Merge catálogo', { storeId, ...stats, remoteCount: remote.products.length })
-  await publishCatalog(licenseKey, storeId)
+
+  const local = buildPublishedCatalog(storeId)
+  const localFp = catalogContentFingerprint(local.products, local.deletedProductIds)
+  const remoteFp = catalogContentFingerprint(remote.products, remote.deletedProductIds)
+  if (localFp === remoteFp) {
+    log.info('[catalogSync] Catálogo igual al remoto — no se publica (login/↺ no genera versión)', { storeId })
+    return
+  }
+  await publishCatalog(licenseKey, storeId, { archive: false })
 }
 
 /**
@@ -442,7 +792,11 @@ export async function syncAllStoreCatalogs(licenseKey: string): Promise<void> {
     .all()
 
   for (const row of rows) {
-    await syncCatalogWithFirestore(licenseKey, row.id)
+    try {
+      await syncCatalogWithFirestore(licenseKey, row.id)
+    } catch (err) {
+      log.error('[catalogSync] Sync de un local falló — se continúa con el resto', { storeId: row.id, err })
+    }
   }
 }
 

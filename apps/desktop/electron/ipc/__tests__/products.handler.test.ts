@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { eq } from 'drizzle-orm'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -19,7 +20,9 @@ vi.mock('../../activeSession', () => ({
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
-import { registerProductsHandlers } from '../products.handler'
+import { registerProductsHandlers, isListedForStore } from '../products.handler'
+import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
+import { products, productPrices, storeProducts, stores, users } from '../../db/schema'
 
 type HandlerFn = (_event: unknown) => unknown
 
@@ -117,5 +120,86 @@ describe('products.handler — GET_PRODUCTS', () => {
 
     expect(result.ok).toBe(false)
     expect(result.code).toBe('DB_ERROR')
+  })
+})
+
+describe('isListedForStore', () => {
+  it('sin fila (null/undefined) se lista', () => {
+    expect(isListedForStore(null)).toBe(true)
+    expect(isListedForStore(undefined)).toBe(true)
+  })
+
+  it('false o 0 se ocultan; true o 1 se listan', () => {
+    expect(isListedForStore(false)).toBe(false)
+    expect(isListedForStore(0)).toBe(false)
+    expect(isListedForStore(true)).toBe(true)
+    expect(isListedForStore(1)).toBe(true)
+  })
+})
+
+describe('GET_PRODUCTS — disponibilidad por local (SQLite real)', () => {
+  const STORE = '00000000-0000-0000-0000-000000000001'
+  const PRODUCT = '11111111-1111-1111-1111-111111111111'
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const { db } = await createInMemoryDb()
+    const now = '2026-01-15T12:00:00.000Z'
+    db.insert(stores).values({ id: STORE, name: 'Local A', createdAt: now }).run()
+    db.insert(users).values({
+      id: 'user-1',
+      name: 'Cajera',
+      storeId: STORE,
+      role: 'cashier',
+      active: true,
+      createdAt: now,
+    }).run()
+    db.insert(products).values({
+      id: PRODUCT,
+      name: 'PLU 789',
+      category: 'other',
+      unit: 'kg',
+      pluNumber: 789,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    db.insert(productPrices).values({
+      id: 'price-789',
+      productId: PRODUCT,
+      storeId: STORE,
+      price: 1000,
+      validFrom: now,
+      validTo: null,
+      createdBy: 'user-1',
+    }).run()
+    vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+    vi.mocked(getActiveSession).mockReturnValue({
+      userId: 'user-1',
+      storeId: STORE,
+      role: 'cashier',
+      shiftId: 'shift-1',
+    })
+    registerProductsHandlers()
+  })
+
+  function listPlus(): number[] {
+    const handler = getHandler('ipc:get-products')
+    const result = handler({}) as { ok: boolean; data: Array<{ pluNumber: number }> }
+    expect(result.ok).toBe(true)
+    return result.data.map(p => p.pluNumber)
+  }
+
+  it('oculta el PLU al marcar available=false y lo vuelve a listar con available=true', () => {
+    const db = vi.mocked(getDb)()
+    expect(listPlus()).toContain(789)
+
+    db.insert(storeProducts).values({ storeId: STORE, productId: PRODUCT, available: false }).run()
+    expect(listPlus()).not.toContain(789)
+
+    db.update(storeProducts).set({ available: true })
+      .where(eq(storeProducts.productId, PRODUCT))
+      .run()
+    expect(listPlus()).toContain(789)
   })
 })

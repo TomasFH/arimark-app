@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log'
-import { and, asc, eq, gt, isNotNull, isNull, lte, ne, or } from 'drizzle-orm'
+import { and, asc, eq, gt, isNotNull, isNull, lte, or } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { products, productPrices, storeProducts } from '../db/schema'
@@ -47,6 +47,16 @@ function buildCurrentPriceMap(
   return new Map([...map.entries()].map(([id, v]) => [id, v.price]))
 }
 
+/**
+ * POS: sin fila de store_products → visible. `false` / 0 → oculto.
+ * Se filtra en JS porque el boolean SQLite (0/1) no siempre coincide con
+ * `ne(available, false)` de drizzle en el WHERE.
+ */
+export function isListedForStore(available: boolean | number | null | undefined): boolean {
+  if (available == null) return true
+  return Boolean(available)
+}
+
 export function registerProductsHandlers(): void {
   /**
    * Retorna productos activos con PLU y precio vigente en el local,
@@ -58,8 +68,6 @@ export function registerProductsHandlers(): void {
       const storeId = getActiveSession()?.storeId ?? DEFAULT_STORE_ID
       const now = new Date().toISOString()
 
-      // LEFT JOIN con store_products para filtrar productos desactivados para este local.
-      // Si no hay fila en store_products, el producto se considera disponible (available = true por defecto).
       const rows = db
         .select({
           id: products.id,
@@ -81,19 +89,17 @@ export function registerProductsHandlers(): void {
           and(
             eq(products.active, true),
             isNotNull(products.pluNumber),
-            // Excluir solo los explícitamente marcados como no disponibles (available = false).
-            // Nulo (sin fila en store_products) se trata como disponible.
-            or(isNull(storeProducts.available), ne(storeProducts.available, false))
           )
         )
         .orderBy(asc(products.pluNumber))
         .all()
 
       const priceMap = buildCurrentPriceMap(db, storeId, now)
+      const listed = rows.filter(r => isListedForStore(r.available))
 
       return {
         ok: true,
-        data: rows.map(r => ({
+        data: listed.map(r => ({
           id: r.id,
           name: r.name,
           category: r.category,

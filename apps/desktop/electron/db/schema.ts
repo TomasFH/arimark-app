@@ -123,9 +123,10 @@ export const productPrices = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Auditoría de catálogo (alta / ficha / visibilidad por local / retiro global).
+// Auditoría de catálogo (alta / ficha / visibilidad / retiro global / restaurar versión).
 // Los precios siguen en product_prices.createdBy — no se duplican acá.
 // store_id es null en create / update_identity / retire_global.
+// restore_revision lleva el local restaurado.
 // ---------------------------------------------------------------------------
 export const catalogAuditEvents = sqliteTable(
   'catalog_audit_events',
@@ -134,7 +135,7 @@ export const catalogAuditEvents = sqliteTable(
     productId: text('product_id').notNull(),
     storeId: text('store_id'),
     action: text('action', {
-      enum: ['create', 'update_identity', 'hide_store', 'show_store', 'retire_global'],
+      enum: ['create', 'update_identity', 'hide_store', 'show_store', 'retire_global', 'restore_revision'],
     }).notNull(),
     actorUserId: text('actor_user_id').notNull(),
     summary: text('summary').notNull(),

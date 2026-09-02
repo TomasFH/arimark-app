@@ -6,6 +6,7 @@ node_modules/
 # Build outputs
 dist/
 dist-electron/
+packages/shared/dist-cjs/
 release/
 out/
 apps/mobile/dist/

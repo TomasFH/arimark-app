@@ -10,6 +10,7 @@
  *  - CREATE_PRODUCT    — crea un producto nuevo (global)
  *  - UPDATE_PRODUCT    — edita nombre/categoría/unidad/PLU; active:false solo admin
  *  - SET_PRODUCT_PRICE — cambia el precio vigente en un local (transacción atómica)
+ *  - SET_PRODUCT_PRICES — cambia varios precios del mismo local en una transacción (Editar precios)
  *  - SET_PRODUCT_AVAILABILITY — toggle disponibilidad en un local
  *  - LIST_CATALOG_AUDIT — alta / ficha / visibilidad / retiro global
  *
@@ -28,8 +29,9 @@ import { getDb } from '../db/client'
 import { products, productPrices, storeProducts, stores, users, catalogAuditEvents } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import type { ActiveSession } from '../activeSession'
-import { publishCatalog, publishCatalogForAllStores, listCatalogRevisions, restoreCatalogRevision } from '../licensing/catalogPublish'
+import { publishCatalog, scheduleCatalogPublish, scheduleCatalogPublishForAllStores, listCatalogRevisions, restoreCatalogRevision } from '../licensing/catalogPublish'
 import { pullCatalogFromFirestore } from '../licensing/catalogSync'
+import { notifyRenderer } from '../licensing/notifyRenderer'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow, CatalogRevisionRow, CatalogAuditRow, CatalogAuditAction } from '../../src/types/hw-api'
 
@@ -60,6 +62,14 @@ const setProductPriceSchema = z.object({
   productId: z.string().min(1),
   storeId: z.string().min(1),
   price: z.number().int().min(0),
+})
+
+const setProductPricesSchema = z.object({
+  storeId: z.string().min(1),
+  items: z.array(z.object({
+    productId: z.string().min(1),
+    price: z.number().int().min(0),
+  })).min(1).max(200),
 })
 
 const setProductAvailabilitySchema = z.object({
@@ -132,7 +142,10 @@ function denyIfStoreNotAllowed(session: ActiveSession, storeId: string): IpcResu
   return null
 }
 
-type DbLike = ReturnType<typeof getDb>
+/** getDb() o el `tx` de una transacción: ambos tienen insert, pero no el mismo tipo. */
+type AuditDb = {
+  insert: ReturnType<typeof getDb>['insert']
+}
 
 function clipSummary(text: string): string {
   if (text.length <= 200) return text
@@ -140,7 +153,7 @@ function clipSummary(text: string): string {
 }
 
 function writeCatalogAudit(
-  db: DbLike,
+  db: AuditDb,
   params: {
     productId: string
     storeId: string | null
@@ -226,26 +239,178 @@ function buildCurrentPriceMap(
   return new Map([...map.entries()].map(([id, v]) => [id, v.price]))
 }
 
+interface CatalogIdentitySnap {
+  name: string
+  category: string
+  unit: string
+  pluNumber: number | null
+  active: boolean
+  price: number | null
+  available: boolean
+}
+
+function formatAuditPrice(n: number | null): string {
+  if (n == null) return 'sin precio'
+  return `$${n.toLocaleString('es-AR')}`
+}
+
+function snapshotCatalogForStore(
+  db: ReturnType<typeof getDb>,
+  storeId: string,
+): Map<string, CatalogIdentitySnap> {
+  const now = new Date().toISOString()
+  const prices = buildCurrentPriceMap(db, storeId, now)
+  const availRows = db
+    .select({ productId: storeProducts.productId, available: storeProducts.available })
+    .from(storeProducts)
+    .where(eq(storeProducts.storeId, storeId))
+    .all()
+  const avail = new Map(availRows.map(r => [r.productId, r.available]))
+  const rows = db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      unit: products.unit,
+      pluNumber: products.pluNumber,
+      active: products.active,
+    })
+    .from(products)
+    .all()
+
+  const map = new Map<string, CatalogIdentitySnap>()
+  for (const r of rows) {
+    map.set(r.id, {
+      name: r.name,
+      category: r.category,
+      unit: r.unit,
+      pluNumber: r.pluNumber,
+      active: r.active,
+      price: prices.get(r.id) ?? null,
+      available: avail.get(r.id) ?? true,
+    })
+  }
+  return map
+}
+
+function restoreChangeSummary(
+  before: CatalogIdentitySnap | undefined,
+  after: CatalogIdentitySnap | undefined,
+): string | null {
+  if (!before && after) {
+    if (!after.active) return null
+    return `Restauró versión: volvió al catálogo (${formatAuditPrice(after.price)})`
+  }
+  if (before && !after) {
+    return 'Restauró versión: producto ausente en esa versión'
+  }
+  if (!before || !after) return null
+
+  const bits: string[] = []
+  if (before.active && !after.active) bits.push('retiro del catálogo')
+  if (!before.active && after.active) bits.push('volvió al catálogo')
+  if (before.price !== after.price) {
+    bits.push(`precio ${formatAuditPrice(before.price)} → ${formatAuditPrice(after.price)}`)
+  }
+  if (before.name !== after.name) bits.push(`nombre: ${before.name} → ${after.name}`)
+  if (before.pluNumber !== after.pluNumber) {
+    bits.push(`PLU: ${formatPlu(before.pluNumber)} → ${formatPlu(after.pluNumber)}`)
+  }
+  if (before.category !== after.category) bits.push(`categoría: ${before.category} → ${after.category}`)
+  if (before.unit !== after.unit) bits.push(`unidad: ${before.unit} → ${after.unit}`)
+  if (before.available !== after.available) {
+    bits.push(after.available ? 'visible en este local' : 'oculto en este local')
+  }
+  if (bits.length === 0) return null
+  return `Restauró versión: ${bits.join(' · ')}`
+}
+
+function writeRestoreAudits(
+  db: ReturnType<typeof getDb>,
+  actorUserId: string,
+  storeId: string,
+  before: Map<string, CatalogIdentitySnap>,
+  after: Map<string, CatalogIdentitySnap>,
+): void {
+  const ids = new Set([...before.keys(), ...after.keys()])
+  db.transaction(tx => {
+    for (const id of ids) {
+      const summary = restoreChangeSummary(before.get(id), after.get(id))
+      if (!summary) continue
+      writeCatalogAudit(tx, {
+        productId: id,
+        storeId,
+        action: 'restore_revision',
+        actorUserId,
+        summary,
+      })
+    }
+  })
+}
+
 /**
  * Dispara la publicación del catálogo al Firestore del local dado.
  * No bloquea — los errores se loguean pero no se propagan al renderer.
+ * `archive: true` solo para confirmaciones de precios (generan versión).
  */
-async function triggerCatalogPublish(storeId: string): Promise<void> {
+async function triggerCatalogPublish(storeId: string, opts?: { archive?: boolean }): Promise<void> {
   try {
     const { tenant_id } = getBusinessConfig()
-    await publishCatalog(tenant_id, storeId)
+    scheduleCatalogPublish(tenant_id, storeId, opts)
   } catch (err) {
-    log.warn('[catalog-admin] No se pudo sincronizar el catálogo a Firestore:', err)
+    log.warn('[catalog-admin] No se pudo agendar la publicación del catálogo:', err)
   }
 }
 
-async function triggerCatalogPublishAll(): Promise<void> {
+async function triggerCatalogPublishAll(opts?: { archive?: boolean }): Promise<void> {
   try {
     const { tenant_id } = getBusinessConfig()
-    await publishCatalogForAllStores(tenant_id)
+    scheduleCatalogPublishForAllStores(tenant_id, opts)
   } catch (err) {
-    log.warn('[catalog-admin] No se pudo sincronizar el catálogo a Firestore:', err)
+    log.warn('[catalog-admin] No se pudo agendar la publicación del catálogo:', err)
   }
+}
+
+function writeProductPrices(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  storeId: string,
+  items: Array<{ productId: string; price: number }>,
+): void {
+  const now = new Date().toISOString()
+  db.transaction(tx => {
+    for (const { productId, price } of items) {
+      const vigentes = tx
+        .select({ id: productPrices.id })
+        .from(productPrices)
+        .where(
+          and(
+            eq(productPrices.productId, productId),
+            eq(productPrices.storeId, storeId),
+            lte(productPrices.validFrom, now),
+            or(isNull(productPrices.validTo), gt(productPrices.validTo, now)),
+          ),
+        )
+        .all()
+
+      for (const v of vigentes) {
+        tx.update(productPrices).set({ validTo: now }).where(eq(productPrices.id, v.id)).run()
+      }
+
+      if (price > 0) {
+        tx.insert(productPrices).values({
+          id: uuidv4(),
+          productId,
+          storeId,
+          price,
+          validFrom: now,
+          validTo: null,
+          createdBy: userId,
+          syncedAt: null,
+        }).run()
+      }
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +574,7 @@ export function registerCatalogAdminHandlers(): void {
           }).run()
         }
 
-        writeCatalogAudit(tx as DbLike, {
+        writeCatalogAudit(tx, {
           productId: id,
           storeId: null,
           action: 'create',
@@ -419,7 +584,7 @@ export function registerCatalogAdminHandlers(): void {
       })
 
       log.info(`[catalog-admin] Producto creado: ${name} (PLU ${pluNumber ?? '-'})`)
-      void triggerCatalogPublishAll()
+      void triggerCatalogPublishAll({ archive: false })
       return { ok: true, data: { id } }
     } catch (err) {
       log.error('[ipc:create-product] Error', err)
@@ -508,7 +673,7 @@ export function registerCatalogAdminHandlers(): void {
       db.transaction(tx => {
         tx.update(products).set(updateData).where(eq(products.id, id)).run()
         if (fields.active === false) {
-          writeCatalogAudit(tx as DbLike, {
+          writeCatalogAudit(tx, {
             productId: id,
             storeId: null,
             action: 'retire_global',
@@ -516,7 +681,7 @@ export function registerCatalogAdminHandlers(): void {
             summary: `Retiro global de "${existing.name}" (liberó PLU ${formatPlu(existing.pluNumber)})`,
           })
         } else if (identitySummary) {
-          writeCatalogAudit(tx as DbLike, {
+          writeCatalogAudit(tx, {
             productId: id,
             storeId: null,
             action: 'update_identity',
@@ -526,7 +691,7 @@ export function registerCatalogAdminHandlers(): void {
         }
       })
       log.info(`[catalog-admin] Producto actualizado: ${id}`)
-      void triggerCatalogPublishAll()
+      void triggerCatalogPublishAll({ archive: false })
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:update-product] Error', err)
@@ -551,51 +716,52 @@ export function registerCatalogAdminHandlers(): void {
 
     try {
       const db = getDb()
-      const now = new Date().toISOString()
-
-      // Transacción atómica: cerrar precio vigente + insertar nuevo (si price > 0)
-      db.transaction(tx => {
-        // Cerrar todos los precios vigentes para este producto+local
-        const vigentes = tx
-          .select({ id: productPrices.id })
-          .from(productPrices)
-          .where(
-            and(
-              eq(productPrices.productId, productId),
-              eq(productPrices.storeId, storeId),
-              lte(productPrices.validFrom, now),
-              or(isNull(productPrices.validTo), gt(productPrices.validTo, now))
-            )
-          )
-          .all()
-
-        for (const v of vigentes) {
-          tx.update(productPrices).set({ validTo: now }).where(eq(productPrices.id, v.id)).run()
-        }
-
-        if (price > 0) {
-          tx.insert(productPrices).values({
-            id: uuidv4(),
-            productId,
-            storeId,
-            price,
-            validFrom: now,
-            validTo: null,
-            createdBy: session.userId,
-            syncedAt: null,
-          }).run()
-        }
-      })
+      writeProductPrices(db, session.userId, storeId, [{ productId, price }])
 
       log.info(`[catalog-admin] Precio actualizado: producto=${productId} local=${storeId} precio=${price}`)
 
-      // Republicar catálogo en background
-      void triggerCatalogPublish(storeId)
+      void triggerCatalogPublish(storeId, { archive: true })
 
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:set-product-price] Error', err)
       return { ok: false, error: 'Error al cambiar el precio.', code: 'DB_ERROR' }
+    }
+  })
+
+  // ---- SET_PRODUCT_PRICES (tanda: Editar precios) ----
+  ipcMain.handle(IPC.SET_PRODUCT_PRICES, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = setProductPricesSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.warn('[ipc:set-product-prices] Payload inválido', parsed.error.flatten())
+      return { ok: false, error: 'Datos de precios inválidos.', code: 'VALIDATION_ERROR' }
+    }
+
+    const { storeId, items } = parsed.data
+    const auth = requireSession()
+    if ('error' in auth) return auth.error
+    const storeDenied = denyIfStoreNotAllowed(auth.session, storeId)
+    if (storeDenied) return storeDenied
+    const { session } = auth
+
+    const byProduct = new Map<string, number>()
+    for (const item of items) {
+      byProduct.set(item.productId, item.price)
+    }
+    const uniqueItems = [...byProduct.entries()].map(([productId, price]) => ({ productId, price }))
+
+    try {
+      const db = getDb()
+      writeProductPrices(db, session.userId, storeId, uniqueItems)
+
+      log.info(`[catalog-admin] Precios actualizados en tanda: local=${storeId} items=${uniqueItems.length}`)
+
+      void triggerCatalogPublish(storeId, { archive: true })
+
+      return { ok: true, data: undefined }
+    } catch (err) {
+      log.error('[ipc:set-product-prices] Error', err)
+      return { ok: false, error: 'Error al cambiar los precios.', code: 'DB_ERROR' }
     }
   })
 
@@ -633,7 +799,7 @@ export function registerCatalogAdminHandlers(): void {
           tx.insert(storeProducts).values({ storeId, productId, available }).run()
         }
 
-        writeCatalogAudit(tx as DbLike, {
+        writeCatalogAudit(tx, {
           productId,
           storeId,
           action: available ? 'show_store' : 'hide_store',
@@ -643,7 +809,8 @@ export function registerCatalogAdminHandlers(): void {
       })
 
       log.info(`[catalog-admin] Disponibilidad: producto=${productId} local=${storeId} disponible=${available}`)
-      void triggerCatalogPublish(storeId)
+      notifyRenderer(IPC.CATALOG_SYNC_UPDATED, { storeId })
+      void triggerCatalogPublish(storeId, { archive: false })
       return { ok: true, data: undefined }
     } catch (err) {
       log.error('[ipc:set-product-availability] Error', err)
@@ -730,12 +897,22 @@ export function registerCatalogAdminHandlers(): void {
     if ('error' in auth) return auth.error
     try {
       const { tenant_id } = getBusinessConfig()
+      const db = getDb()
+      const before = snapshotCatalogForStore(db, parsed.data.storeId)
       const result = await restoreCatalogRevision(tenant_id, parsed.data.storeId, parsed.data.revisionId)
       try {
         await pullCatalogFromFirestore(tenant_id, parsed.data.storeId)
       } catch (pullErr) {
         log.warn('[ipc:restore-catalog-revision] Pull local falló (Firestore ya restaurado)', pullErr)
       }
+      const after = snapshotCatalogForStore(db, parsed.data.storeId)
+      writeRestoreAudits(db, auth.session.userId, parsed.data.storeId, before, after)
+      try {
+        await publishCatalog(tenant_id, parsed.data.storeId, { archive: false })
+      } catch (pubErr) {
+        log.warn('[ipc:restore-catalog-revision] Republish local falló', pubErr)
+      }
+      notifyRenderer(IPC.CATALOG_SYNC_UPDATED, { storeId: parsed.data.storeId })
       return { ok: true, data: result }
     } catch (err) {
       log.error('[ipc:restore-catalog-revision] Error', err)

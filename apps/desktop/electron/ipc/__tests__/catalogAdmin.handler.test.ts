@@ -18,6 +18,8 @@ vi.mock('../../activeSession', () => ({ getActiveSession: vi.fn() }))
 vi.mock('../../licensing/catalogPublish', () => ({
   publishCatalog: vi.fn().mockResolvedValue(undefined),
   publishCatalogForAllStores: vi.fn().mockResolvedValue(undefined),
+  scheduleCatalogPublish: vi.fn(),
+  scheduleCatalogPublishForAllStores: vi.fn(),
   listCatalogRevisions: vi.fn().mockResolvedValue([]),
   restoreCatalogRevision: vi.fn().mockResolvedValue({ productCount: 1 }),
 }))
@@ -37,11 +39,13 @@ import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import {
   publishCatalog,
-  publishCatalogForAllStores,
+  scheduleCatalogPublish,
+  scheduleCatalogPublishForAllStores,
   listCatalogRevisions,
   restoreCatalogRevision,
 } from '../../licensing/catalogPublish'
 import { registerCatalogAdminHandlers } from '../catalogAdmin.handler'
+import { pullCatalogFromFirestore } from '../../licensing/catalogSync'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
 
@@ -212,7 +216,7 @@ describe('catalogAdmin.handler', () => {
       expect(audits[0]?.summary).toMatch(/Alta: Paleta/)
 
       await Promise.resolve()
-      expect(publishCatalogForAllStores).toHaveBeenCalledWith('TEST-KEY')
+      expect(scheduleCatalogPublishForAllStores).toHaveBeenCalledWith('TEST-KEY', { archive: false })
     })
 
     it('rechaza payload malformado (nombre vacío)', () => {
@@ -262,7 +266,7 @@ describe('catalogAdmin.handler', () => {
       expect(audits[0]?.summary).toMatch(/Nombre: Asado → Nuevo nombre/)
 
       await Promise.resolve()
-      expect(publishCatalogForAllStores).toHaveBeenCalledWith('TEST-KEY')
+      expect(scheduleCatalogPublishForAllStores).toHaveBeenCalledWith('TEST-KEY', { archive: false })
     })
 
     it('rechaza payload malformado (id vacío)', () => {
@@ -325,7 +329,7 @@ describe('catalogAdmin.handler', () => {
       expect(prices[0]?.createdBy).toBe(USER_ID)
 
       await Promise.resolve()
-      expect(publishCatalog).toHaveBeenCalledWith('TEST-KEY', STORE_A)
+      expect(scheduleCatalogPublish).toHaveBeenCalledWith('TEST-KEY', STORE_A, { archive: true })
     })
 
     it('cajera no puede cambiar precio de otro local y no escribe', async () => {
@@ -373,6 +377,47 @@ describe('catalogAdmin.handler', () => {
       }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('DB_ERROR')
+    })
+  })
+
+  describe('SET_PRODUCT_PRICES', () => {
+    it('cajera cambia varios precios de su local en una transacción y agenda un solo publish', async () => {
+      const result = await getHandler('ipc:set-product-prices')({}, {
+        storeId: STORE_A,
+        items: [
+          { productId: PRODUCT_ID, price: 20000 },
+          { productId: OTHER_PRODUCT_ID, price: 1500 },
+        ],
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const prices = db.select().from(productPrices).all()
+      expect(prices).toHaveLength(2)
+      expect(prices.find(p => p.productId === PRODUCT_ID)?.price).toBe(20000)
+      expect(prices.find(p => p.productId === OTHER_PRODUCT_ID)?.price).toBe(1500)
+
+      await Promise.resolve()
+      expect(scheduleCatalogPublish).toHaveBeenCalledTimes(1)
+      expect(scheduleCatalogPublish).toHaveBeenCalledWith('TEST-KEY', STORE_A, { archive: true })
+    })
+
+    it('cajera no puede cambiar precios de otro local', async () => {
+      const result = await getHandler('ipc:set-product-prices')({}, {
+        storeId: STORE_B,
+        items: [{ productId: PRODUCT_ID, price: 20000 }],
+      }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('FORBIDDEN')
+      expect(db.select().from(productPrices).all()).toHaveLength(0)
+    })
+
+    it('rechaza payload malformado (items vacío)', async () => {
+      const result = await getHandler('ipc:set-product-prices')({}, {
+        storeId: STORE_A,
+        items: [],
+      }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('VALIDATION_ERROR')
     })
   })
 
@@ -518,14 +563,48 @@ describe('catalogAdmin.handler', () => {
       expect(restoreCatalogRevision).not.toHaveBeenCalled()
     })
 
-    it('admin restaura una revisión', async () => {
+    it('admin restaura una revisión y audita el cambio de precio', async () => {
       vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      db.insert(productPrices).values({
+        id: 'price-restore',
+        productId: PRODUCT_ID,
+        storeId: STORE_A,
+        price: 20000,
+        validFrom: '2026-01-01T00:00:00.000Z',
+        validTo: null,
+        createdBy: USER_ID,
+      }).run()
+
+      vi.mocked(pullCatalogFromFirestore).mockImplementation(async () => {
+        const now = new Date().toISOString()
+        db.update(productPrices).set({ validTo: now }).where(eq(productPrices.id, 'price-restore')).run()
+        db.insert(productPrices).values({
+          id: 'price-restored',
+          productId: PRODUCT_ID,
+          storeId: STORE_A,
+          price: 18000,
+          validFrom: now,
+          validTo: null,
+          createdBy: ADMIN_ID,
+        }).run()
+      })
+
       const result = await getHandler('ipc:restore-catalog-revision')({}, {
         storeId: STORE_A, revisionId: 'rev-1',
       }) as { ok: boolean; data: { productCount: number } }
       expect(result.ok).toBe(true)
       expect(result.data.productCount).toBe(1)
       expect(restoreCatalogRevision).toHaveBeenCalledWith('TEST-KEY', STORE_A, 'rev-1')
+      expect(publishCatalog).toHaveBeenCalledWith('TEST-KEY', STORE_A, { archive: false })
+
+      const restore = db.select().from(catalogAuditEvents).all().find(a => a.action === 'restore_revision')
+      expect(restore?.productId).toBe(PRODUCT_ID)
+      expect(restore?.storeId).toBe(STORE_A)
+      expect(restore?.actorUserId).toBe(ADMIN_ID)
+      expect(restore?.summary).toMatch(/Restauró versión/)
+      expect(restore?.summary).toMatch(/20000|20\.000|20,000/)
+
+      vi.mocked(pullCatalogFromFirestore).mockResolvedValue(undefined)
     })
   })
 })
