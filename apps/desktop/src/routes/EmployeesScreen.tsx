@@ -1,6 +1,7 @@
 /**
  * Gestión de empleados / carniceros (solo admin).
  * ABM: crear, editar nombre/sueldo semanal, eliminar y restaurar.
+ * Para carniceros: otorgar/revocar acceso celular (cuenta Firebase).
  */
 import { useEffect, useState } from 'react'
 import BackButton from '../components/BackButton'
@@ -23,6 +24,8 @@ type ModalMode =
   | { type: 'create' }
   | { type: 'edit'; employee: EmployeeRow }
   | { type: 'delete'; employee: EmployeeRow }
+  | { type: 'grantAccess'; employee: EmployeeRow }
+  | { type: 'revokeAccess'; employee: EmployeeRow }
 
 export default function EmployeesScreen({
   onBack,
@@ -172,6 +175,9 @@ export default function EmployeesScreen({
                     {!emp.active && (
                       <span className="ml-2 text-zinc-500">· Eliminado</span>
                     )}
+                    {emp.kind === 'butcher' && emp.firebaseUid && (
+                      <span className="ml-2 text-emerald-500/80">· Acceso celular activo</span>
+                    )}
                   </p>
                 </div>
                 {showArchived ? (
@@ -185,6 +191,27 @@ export default function EmployeesScreen({
                   </button>
                 ) : (
                   <>
+                    {emp.kind === 'butcher' && (
+                      emp.firebaseUid ? (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: 'revokeAccess', employee: emp })}
+                          className="shrink-0 text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg hover:bg-zinc-800"
+                          title="Revocar acceso al celular"
+                        >
+                          Revocar acceso
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setModal({ type: 'grantAccess', employee: emp })}
+                          className="shrink-0 text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded-lg hover:bg-zinc-800"
+                          title="Dar acceso al celular"
+                        >
+                          Dar acceso
+                        </button>
+                      )
+                    )}
                     <button
                       type="button"
                       onClick={() => setModal({ type: 'edit', employee: emp })}
@@ -253,6 +280,35 @@ export default function EmployeesScreen({
               setError(r.error ?? 'No se pudo eliminar.')
               setModal({ type: 'none' })
               return
+            }
+            setModal({ type: 'none' })
+            await load()
+          }}
+        />
+      )}
+
+      {modal.type === 'grantAccess' && (
+        <GrantAccessModal
+          employeeName={modal.employee.name}
+          onCancel={() => setModal({ type: 'none' })}
+          onGrant={async (email) => {
+            const r = await window.hw.grantButcherAccess({ employeeId: modal.employee.id, email })
+            if (!r.ok) return r.error ?? 'No se pudo otorgar el acceso.'
+            setModal({ type: 'none' })
+            await load()
+            return null
+          }}
+        />
+      )}
+
+      {modal.type === 'revokeAccess' && (
+        <RevokeAccessModal
+          employeeName={modal.employee.name}
+          onCancel={() => setModal({ type: 'none' })}
+          onConfirm={async () => {
+            const r = await window.hw.revokeButcherAccess({ employeeId: modal.employee.id })
+            if (!r.ok) {
+              setError(r.error ?? 'No se pudo revocar el acceso.')
             }
             setModal({ type: 'none' })
             await load()
@@ -400,6 +456,132 @@ function DeleteConfirmModal({
             className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold disabled:opacity-40"
           >
             {busy ? 'Eliminando…' : 'Eliminar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GrantAccessModal({
+  employeeName,
+  onCancel,
+  onGrant,
+}: {
+  employeeName: string
+  onCancel: () => void
+  onGrant: (email: string) => Promise<string | null>
+}) {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = email.trim()
+    if (!trimmed || !trimmed.includes('@')) {
+      setFormError('Ingresá un email válido.')
+      return
+    }
+    setBusy(true)
+    setFormError(null)
+    const err = await onGrant(trimmed)
+    setBusy(false)
+    if (err) setFormError(err)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
+      <form
+        onSubmit={e => void handleSubmit(e)}
+        className="w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4"
+      >
+        <div>
+          <h2 className="text-lg font-semibold">Dar acceso al celular</h2>
+          <p className="text-sm text-zinc-400 mt-1">
+            Se crea una cuenta para{' '}
+            <span className="text-white font-medium truncate" title={employeeName}>{employeeName}</span>.
+            Recibirá un email para configurar su contraseña.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm text-zinc-300 mb-1">Email</label>
+          <input
+            type="email"
+            value={email}
+            maxLength={150}
+            onChange={e => setEmail(e.target.value)}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            placeholder="carnicero@ejemplo.com"
+            autoFocus
+            required
+          />
+        </div>
+
+        {formError && <p className="text-sm text-red-400/80">{formError}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700"
+          >
+            {busy ? 'Creando cuenta…' : 'Dar acceso'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function RevokeAccessModal({
+  employeeName,
+  onCancel,
+  onConfirm,
+}: {
+  employeeName: string
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
+      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 p-6 space-y-4">
+        <h2 className="text-base font-semibold text-white">Revocar acceso al celular</h2>
+        <p className="text-sm text-zinc-400">
+          Se desactivará la cuenta de{' '}
+          <span className="text-white font-medium truncate inline-block max-w-full align-bottom" title={employeeName}>{employeeName}</span>.
+          Ya no podrá ingresar a la app del carnicero.
+        </p>
+        <div className="flex gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true)
+              void onConfirm().finally(() => setBusy(false))
+            }}
+            className="flex-1 py-2 rounded-xl bg-amber-900/60 hover:bg-amber-900/80 border border-amber-900/50 text-amber-400/90 font-semibold disabled:opacity-40"
+          >
+            {busy ? 'Revocando…' : 'Revocar acceso'}
           </button>
         </div>
       </div>

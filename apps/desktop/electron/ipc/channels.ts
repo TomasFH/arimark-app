@@ -119,6 +119,8 @@ export const IPC = {
   UPDATE_EMPLOYEE: 'ipc:update-employee',
   ARCHIVE_EMPLOYEE: 'ipc:archive-employee',
   UNARCHIVE_EMPLOYEE: 'ipc:unarchive-employee',
+  GRANT_BUTCHER_ACCESS: 'ipc:grant-butcher-access',
+  REVOKE_BUTCHER_ACCESS: 'ipc:revoke-butcher-access',
 
   // Asistencia (Bloque D)
   RECORD_ATTENDANCE: 'ipc:record-attendance',

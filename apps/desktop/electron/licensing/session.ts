@@ -191,6 +191,10 @@ export async function signInAutoDetect(
     if (data.active === false) {
       return { ok: false, error: 'Usuario desactivado. Contactar al administrador.' }
     }
+    if (data.role === 'butcher') {
+      log.warn('[session] Carnicero intentó iniciar sesión en desktop', { uid })
+      return { ok: false, error: 'Esta cuenta es solo para el celular. Iniciá sesión desde la app del carnicero.' }
+    }
     if (data.role !== 'cashier' && data.role !== 'admin') {
       log.warn('[session] Rol desconocido en Firestore', { uid, role: data.role })
       return { ok: false, error: 'Rol no reconocido. Contactar al administrador.' }

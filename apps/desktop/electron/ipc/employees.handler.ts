@@ -7,6 +7,8 @@
  *   UPDATE_EMPLOYEE   — admin; nombre y/o sueldo
  *   ARCHIVE_EMPLOYEE  — admin; soft-delete (active=false)
  *   UNARCHIVE_EMPLOYEE — admin; reactive (active=true)
+ *   GRANT_BUTCHER_ACCESS  — admin; crea cuenta Firebase para carnicero (email obligatorio)
+ *   REVOKE_BUTCHER_ACCESS — admin; desactiva cuenta Firebase del carnicero
  */
 import { ipcMain } from 'electron'
 import { z } from 'zod'
@@ -20,6 +22,8 @@ import { employees, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedEmployees } from '../licensing/employeeSync'
+import { createTenantAuthUser } from '../licensing/tenantAuth'
+import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
 import type { IpcResult, EmployeeRow } from '../../src/types/hw-api'
 
 const listSchema = z.object({
@@ -53,6 +57,7 @@ function toRow(row: typeof employees.$inferSelect): EmployeeRow {
     createdAt: row.createdAt,
     kind: row.kind === 'cashier' ? 'cashier' : 'butcher',
     homeStoreId: row.homeStoreId ?? null,
+    firebaseUid: row.firebaseUid ?? null,
   }
 }
 
@@ -338,5 +343,129 @@ export function registerEmployeesHandlers(): void {
       log.error('[ipc:unarchive-employee] Error inesperado', err)
       return { ok: false, error: 'Error al restaurar el empleado.' }
     }
+  })
+
+  // --------------------------------------------------------------------------
+  // GRANT_BUTCHER_ACCESS — solo admin
+  // Crea Auth user + perfil Firestore para el carnicero, guarda UID en SQLite.
+  // El email es obligatorio: sin él no hay cuenta de acceso al celu.
+  // --------------------------------------------------------------------------
+  const grantButcherSchema = z.object({
+    employeeId: z.string().min(1),
+    email: z.string().email('El email es obligatorio y debe ser válido.'),
+  })
+
+  ipcMain.handle(IPC.GRANT_BUTCHER_ACCESS, async (_event, payload: unknown): Promise<IpcResult<{ uid: string }>> => {
+    const parsed = grantButcherSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.warn('[ipc:grant-butcher-access] Payload inválido', parsed.error.flatten())
+      return { ok: false, error: parsed.error.errors[0]?.message ?? 'Datos inválidos.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const denied = requireAdmin()
+    if (denied) return denied
+
+    const { employeeId, email } = parsed.data
+
+    const db = getDb()
+    const existing = db.select().from(employees).where(eq(employees.id, employeeId)).get()
+    if (!existing) return { ok: false, error: 'Empleado no encontrado.', code: 'NOT_FOUND' }
+    if (existing.kind !== 'butcher') {
+      return { ok: false, error: 'Solo los carniceros pueden recibir acceso celular.', code: 'INVALID_PAYLOAD' }
+    }
+    if (existing.firebaseUid) {
+      return { ok: false, error: 'Este carnicero ya tiene acceso al celular.', code: 'ALREADY_EXISTS' }
+    }
+
+    if (!isFirebaseAvailable()) {
+      return { ok: false, error: 'Firebase no disponible. Verificar conexión.', code: 'UNAVAILABLE' }
+    }
+
+    let licenseKey: string
+    try {
+      licenseKey = getBusinessConfig().tenant_id
+    } catch (err) {
+      return { ok: false, error: 'Configuración del negocio no disponible.', code: 'UNAVAILABLE' }
+    }
+
+    // Resolvemos todos los locales activos como authorizedStores (igual que cajeras)
+    const { getFirestore, collection, getDocs } = await import('firebase/firestore')
+    const app = getFirebaseApp()
+    const fsDb = getFirestore(app)
+    const storesSnap = await getDocs(collection(fsDb, 'licenses', licenseKey, 'stores'))
+    const authorizedStores = storesSnap.docs
+      .filter(d => !d.data()['archivedAt'])
+      .map(d => d.id)
+
+    const result = await createTenantAuthUser({
+      licenseKey,
+      email,
+      displayName: existing.name,
+      role: 'butcher',
+      authorizedStores: authorizedStores.length > 0 ? authorizedStores : [existing.homeStoreId ?? 'default'],
+      employeeId,
+    })
+
+    if (!result.ok) return result
+
+    // Guardar el UID en SQLite para vinculación
+    db.update(employees)
+      .set({ firebaseUid: result.data.uid, syncedAt: null })
+      .where(eq(employees.id, employeeId))
+      .run()
+
+    log.info('[ipc:grant-butcher-access] Acceso celular otorgado', { employeeId, email, uid: result.data.uid })
+    scheduleEmployeePush('ipc:grant-butcher-access')
+    return { ok: true, data: { uid: result.data.uid } }
+  })
+
+  // --------------------------------------------------------------------------
+  // REVOKE_BUTCHER_ACCESS — solo admin
+  // Desactiva la cuenta Firebase y borra firebaseUid en SQLite.
+  // --------------------------------------------------------------------------
+  const revokeButcherSchema = z.object({
+    employeeId: z.string().min(1),
+  })
+
+  ipcMain.handle(IPC.REVOKE_BUTCHER_ACCESS, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = revokeButcherSchema.safeParse(payload)
+    if (!parsed.success) {
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const denied = requireAdmin()
+    if (denied) return denied
+
+    const { employeeId } = parsed.data
+
+    const db = getDb()
+    const existing = db.select().from(employees).where(eq(employees.id, employeeId)).get()
+    if (!existing) return { ok: false, error: 'Empleado no encontrado.', code: 'NOT_FOUND' }
+    if (!existing.firebaseUid) {
+      return { ok: false, error: 'Este carnicero no tiene acceso al celular.', code: 'NOT_FOUND' }
+    }
+
+    if (isFirebaseAvailable()) {
+      try {
+        const licenseKey = getBusinessConfig().tenant_id
+        const { getFirestore, doc, updateDoc } = await import('firebase/firestore')
+        const fsDb = getFirestore(getFirebaseApp())
+        await updateDoc(doc(fsDb, 'licenses', licenseKey, 'users', existing.firebaseUid), {
+          active: false,
+        })
+      } catch (err) {
+        log.warn('[ipc:revoke-butcher-access] No se pudo desactivar en Firestore (continúa)', err)
+      }
+    }
+
+    // Limpiar el vínculo local independientemente de si Firebase respondió
+    db.update(employees)
+      .set({ firebaseUid: null, syncedAt: null })
+      .where(eq(employees.id, employeeId))
+      .run()
+
+    log.info('[ipc:revoke-butcher-access] Acceso revocado', { employeeId })
+    scheduleEmployeePush('ipc:revoke-butcher-access')
+    return { ok: true, data: undefined }
   })
 }

@@ -849,6 +849,8 @@ export interface EmployeeRow {
   kind: 'butcher' | 'cashier'
   /** null = aparece en las listas de todos los locales. */
   homeStoreId: string | null
+  /** Firebase UID de la cuenta de acceso celular. null = sin cuenta. Solo carniceros. */
+  firebaseUid?: string | null
 }
 
 export interface CreateEmployeePayload {
@@ -1547,6 +1549,10 @@ export interface HwApi {
   updateEmployee: (payload: UpdateEmployeePayload) => Promise<IpcResult<EmployeeRow>>
   archiveEmployee: (payload: { id: string }) => Promise<IpcResult<EmployeeRow>>
   unarchiveEmployee: (payload: { id: string }) => Promise<IpcResult<EmployeeRow>>
+  /** Crea cuenta Firebase (Auth + Firestore) para que el carnicero ingrese al celu. Guarda firebaseUid en SQLite. */
+  grantButcherAccess: (payload: { employeeId: string; email: string }) => Promise<IpcResult<{ uid: string }>>
+  /** Desactiva la cuenta Firebase del carnicero y borra firebaseUid en SQLite. */
+  revokeButcherAccess: (payload: { employeeId: string }) => Promise<IpcResult>
 
   // ---- Asistencia (Bloque D) ----
   recordAttendance: (payload: RecordAttendancePayload) => Promise<IpcResult<AttendanceRow>>

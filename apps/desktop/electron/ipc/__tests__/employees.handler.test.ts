@@ -18,6 +18,15 @@ vi.mock('../../licensing/employeeSync', () => ({
   pushUnsyncedEmployees: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/firebase', () => ({
+  isFirebaseAvailable: vi.fn(() => false),
+  getFirebaseApp: vi.fn(() => ({})),
+}))
+
+vi.mock('../../licensing/tenantAuth', () => ({
+  createTenantAuthUser: vi.fn().mockResolvedValue({ ok: true, data: { uid: 'firebase-uid-butcher' } }),
+}))
+
 vi.mock('../../db/client', () => ({
   getDb: vi.fn(),
 }))
@@ -29,6 +38,8 @@ vi.mock('../../activeSession', () => ({
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
+import { isFirebaseAvailable } from '../../licensing/firebase'
+import { createTenantAuthUser } from '../../licensing/tenantAuth'
 import { registerEmployeesHandlers } from '../employees.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
@@ -337,6 +348,121 @@ describe('employees.handler', () => {
       }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('CONFLICT')
+    })
+  })
+
+  describe('GRANT_BUTCHER_ACCESS', () => {
+    it('rechaza si Firebase no disponible', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      const created = getHandler('ipc:create-employee')(null, {
+        name: 'Carnicero Sin Firebase',
+        weeklyWage: 100,
+        kind: 'butcher',
+      }) as { ok: boolean; data: { id: string } }
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: created.data.id,
+        email: 'carn@test.com',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('UNAVAILABLE')
+    })
+
+    it('rechaza email inválido', async () => {
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: 'some-id',
+        email: 'no-es-email',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('rechaza si el empleado no existe', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: 'no-existe',
+        email: 'test@test.com',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('NOT_FOUND')
+    })
+
+    it('rechaza si kind no es butcher', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const created = getHandler('ipc:create-employee')(null, {
+        name: 'Cajera Ficha',
+        weeklyWage: 100,
+        kind: 'cashier',
+      }) as { ok: boolean; data: { id: string } }
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: created.data.id,
+        email: 'cajera@test.com',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('rechaza si ya tiene firebaseUid', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      // Insertamos un carnicero con firebaseUid ya asignado
+      db.insert(employees).values({
+        id: 'emp-ya-tiene',
+        name: 'Ya Tiene Acceso',
+        weeklyWage: 1,
+        kind: 'butcher',
+        active: true,
+        firebaseUid: 'uid-existente',
+        createdAt: new Date().toISOString(),
+      }).run()
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: 'emp-ya-tiene',
+        email: 'nuevo@test.com',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('ALREADY_EXISTS')
+    })
+
+    it('rechaza si cajera en sesión no es admin', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: 'any',
+        email: 'carn@test.com',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+  })
+
+  describe('REVOKE_BUTCHER_ACCESS', () => {
+    it('limpia firebaseUid cuando Firebase no disponible (tolerante a offline)', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      db.insert(employees).values({
+        id: 'emp-con-uid',
+        name: 'Con Acceso',
+        weeklyWage: 1,
+        kind: 'butcher',
+        active: true,
+        firebaseUid: 'uid-existente',
+        createdAt: new Date().toISOString(),
+      }).run()
+      const res = await (getHandler('ipc:revoke-butcher-access')(null, {
+        employeeId: 'emp-con-uid',
+      }) as Promise<{ ok: boolean }>)
+      expect(res.ok).toBe(true)
+      const row = db.select().from(employees).where(() => true as unknown as boolean).all()
+        .find(e => e.id === 'emp-con-uid')
+      expect(row?.firebaseUid).toBeNull()
+    })
+
+    it('rechaza si no tiene firebaseUid', async () => {
+      const created = getHandler('ipc:create-employee')(null, {
+        name: 'Sin Acceso',
+        weeklyWage: 1,
+      }) as { ok: boolean; data: { id: string } }
+      const res = await (getHandler('ipc:revoke-butcher-access')(null, {
+        employeeId: created.data.id,
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('NOT_FOUND')
     })
   })
 })

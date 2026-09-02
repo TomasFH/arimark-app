@@ -586,6 +586,8 @@ export const employees = sqliteTable('employees', {
   homeStoreId: text('home_store_id'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
+  /** Firebase UID de la cuenta de acceso celular (solo carniceros con acceso). null = sin cuenta. */
+  firebaseUid: text('firebase_uid'),
   /** null = pendiente de push a Firestore (maestro compartido entre PCs). */
   syncedAt: text('synced_at'),
 })
