@@ -71,6 +71,12 @@ const hw: HwApi = {
     return () => ipcRenderer.removeListener(IPC.CATALOG_SYNC_UPDATED, listener)
   },
 
+  onOrderSyncUpdated: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.ORDER_SYNC_UPDATED, listener)
+    return () => ipcRenderer.removeListener(IPC.ORDER_SYNC_UPDATED, listener)
+  },
+
   onUiSettingsChanged: cb => {
     const listener = (_event: Electron.IpcRendererEvent, settings: UiSettings) => cb(settings)
     ipcRenderer.on(IPC.UI_SETTINGS_CHANGED, listener)

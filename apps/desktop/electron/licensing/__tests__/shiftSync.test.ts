@@ -11,10 +11,11 @@ import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, shifts } from '../../db/schema'
 import { isNull, isNotNull, eq } from 'drizzle-orm'
 
-const { mockSetDoc, mockDoc, mockGetDocs } = vi.hoisted(() => ({
+const { mockSetDoc, mockDoc, mockGetDocs, mockGetDoc } = vi.hoisted(() => ({
   mockSetDoc: vi.fn().mockResolvedValue(undefined),
   mockDoc: vi.fn(),
   mockGetDocs: vi.fn().mockResolvedValue({ docs: [], size: 0 }),
+  mockGetDoc: vi.fn().mockResolvedValue({ exists: () => false, data: () => undefined }),
 }))
 
 vi.mock('firebase/firestore', () => ({
@@ -25,6 +26,7 @@ vi.mock('firebase/firestore', () => ({
   query: vi.fn((...args: unknown[]) => args),
   where: vi.fn((...args: unknown[]) => args),
   getDocs: mockGetDocs,
+  getDoc: mockGetDoc,
 }))
 
 vi.mock('../firebase', () => ({
@@ -275,21 +277,19 @@ describe('shiftSync', () => {
         syncedAt: started,
       }).run()
 
-      mockGetDocs.mockResolvedValueOnce({
-        size: 1,
-        docs: [{
+      mockGetDocs.mockResolvedValueOnce({ size: 0, docs: [] })
+      mockGetDoc.mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
           id: 'shift-stale',
-          data: () => ({
-            id: 'shift-stale',
-            storeId: 'store-001',
-            userId: 'user-001',
-            shiftType: 'morning',
-            startedAt: started,
-            closedAt: closed,
-            openingCash: 0,
-            source: 'desktop',
-          }),
-        }],
+          storeId: 'store-001',
+          userId: 'user-001',
+          shiftType: 'morning',
+          startedAt: started,
+          closedAt: closed,
+          openingCash: 0,
+          source: 'desktop',
+        }),
       })
 
       await reconcileStoreShifts(TENANT, { storeId: 'store-001' })

@@ -21,6 +21,14 @@ import {
   formatDate,
   type StoreDoc,
 } from '../../lib/adminFirestore'
+import { StoreHoursScheduleEditor } from './StoreHoursScheduleEditor'
+import {
+  editorScheduleFromStore,
+  formatWeekScheduleSummary,
+  hoursFieldsForSave,
+  validateWeekSchedule,
+  type StoreHoursBlock,
+} from '@carniceria/shared'
 
 interface Props {
   onBack: () => void
@@ -136,6 +144,14 @@ export function StoresScreen({ onBack }: Props) {
                       ? `Eliminado el ${formatDate(store.archivedAt)}`
                       : `Creado el ${formatDate(store.createdAt)}`}
                   </p>
+                  {formatWeekScheduleSummary(store) && (
+                    <p
+                      className="mt-0.5 truncate text-xs text-zinc-500"
+                      title={formatWeekScheduleSummary(store)}
+                    >
+                      {formatWeekScheduleSummary(store)}
+                    </p>
+                  )}
                 </button>
               </li>
             ))}
@@ -145,6 +161,7 @@ export function StoresScreen({ onBack }: Props) {
 
       {selected && (
         <StoreDetailModal
+          key={selected.id}
           store={selected}
           onClose={() => setSelected(null)}
           onUpdated={updated => {
@@ -183,21 +200,43 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(store.name)
   const [editAddress, setEditAddress] = useState(store.address ?? '')
+  const [editSchedule, setEditSchedule] = useState<StoreHoursBlock[]>(() => editorScheduleFromStore(store))
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
+
+  const hoursSummary = formatWeekScheduleSummary(store)
 
   const handleSave = async () => {
     if (!editName.trim()) return
+    const hoursError = validateWeekSchedule(editSchedule)
+    if (hoursError) {
+      setSaveError(hoursError)
+      return
+    }
     setSaving(true)
-    await updateStore(store.id, {
-      name: editName.trim(),
-      address: editAddress.trim() || null,
-    })
-    const updated = { ...store, name: editName.trim(), address: editAddress.trim() || null }
-    onUpdated(updated)
-    onRefresh()
-    setEditing(false)
-    setSaving(false)
+    setSaveError(null)
+    try {
+      const hours = hoursFieldsForSave(editSchedule)
+      await updateStore(store.id, {
+        name: editName.trim(),
+        address: editAddress.trim() || null,
+        ...hours,
+      })
+      const updated: StoreDoc = {
+        ...store,
+        name: editName.trim(),
+        address: editAddress.trim() || null,
+        ...hours,
+      }
+      onUpdated(updated)
+      onRefresh()
+      setEditing(false)
+    } catch {
+      setSaveError('No se pudo guardar el local.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleArchive = async () => {
@@ -230,6 +269,8 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
               placeholder="Calle 123, Ciudad"
               maxLength={200}
             />
+            <StoreHoursScheduleEditor schedule={editSchedule} onChange={setEditSchedule} />
+            {saveError && <p className="text-sm text-red-400/80">{saveError}</p>}
             <div className="flex gap-2">
               <Btn className="flex-1" onClick={handleSave} loading={saving}>
                 Guardar
@@ -241,6 +282,8 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
                   setEditing(false)
                   setEditName(store.name)
                   setEditAddress(store.address ?? '')
+                  setEditSchedule(editorScheduleFromStore(store))
+                  setSaveError(null)
                 }}
               >
                 Cancelar
@@ -255,6 +298,11 @@ function StoreDetailModal({ store, onClose, onUpdated, onRefresh }: StoreDetailM
             {store.address && (
               <p className="mt-1 text-zinc-400" title={store.address}>
                 {store.address}
+              </p>
+            )}
+            {hoursSummary && (
+              <p className="mt-1 text-xs text-zinc-500" title={hoursSummary}>
+                {hoursSummary}
               </p>
             )}
             <p className="mt-1 text-zinc-600">
@@ -314,6 +362,7 @@ interface CreateStoreModalProps {
 function CreateStoreModal({ onClose, onCreate }: CreateStoreModalProps) {
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [schedule, setSchedule] = useState<StoreHoursBlock[]>(() => editorScheduleFromStore(null))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -323,10 +372,16 @@ function CreateStoreModal({ onClose, onCreate }: CreateStoreModalProps) {
       setErr('El nombre es obligatorio.')
       return
     }
+    const hoursError = validateWeekSchedule(schedule)
+    if (hoursError) {
+      setErr(hoursError)
+      return
+    }
     setSaving(true)
     setErr(null)
     try {
-      await createStore(name.trim(), address.trim() || null)
+      const hours = hoursFieldsForSave(schedule)
+      await createStore(name.trim(), address.trim() || null, hours)
       await onCreate()
     } catch {
       setErr('No se pudo crear el local.')
@@ -352,6 +407,7 @@ function CreateStoreModal({ onClose, onCreate }: CreateStoreModalProps) {
           placeholder="Calle 123, Ciudad (opcional)"
           maxLength={200}
         />
+        <StoreHoursScheduleEditor schedule={schedule} onChange={setSchedule} />
         {err && <p className="text-sm text-red-400/80">{err}</p>}
         <div className="flex gap-2">
           <Btn variant="ghost" className="flex-1" onClick={onClose}>

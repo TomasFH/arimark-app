@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import BackButton from '../components/BackButton'
-import { formatARS, toLocalDate, toLocalDateTime, toLocalTime } from '../lib/datetime'
+import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
 import StoreFilter from '../components/StoreFilter'
 
@@ -40,8 +40,8 @@ export default function HistoryScreen({ onBack }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  const [fromDate, setFromDate] = useState(() => addDaysYmd(todayLocalYmd(), -7))
+  const [toDate, setToDate] = useState(() => todayLocalYmd())
   const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
   const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
 

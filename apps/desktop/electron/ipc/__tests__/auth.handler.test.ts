@@ -78,6 +78,16 @@ vi.mock('../../licensing/mobileSync', () => ({
   stopMobileSyncListener: vi.fn(),
 }))
 
+vi.mock('../../licensing/debtCheckpointJob', () => ({
+  startDebtCheckpointJob: vi.fn(),
+  stopDebtCheckpointJob: vi.fn(),
+}))
+
+vi.mock('../../licensing/debtBalanceLive', () => ({
+  startDebtBalanceLiveSync: vi.fn(),
+  stopDebtBalanceLiveSync: vi.fn(),
+}))
+
 vi.mock('../../secureStorage', () => ({
   setSecret: vi.fn(),
   SECRET_KEYS: { ADMIN_SESSION_TOKEN: 'admin-session' },

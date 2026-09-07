@@ -11,7 +11,7 @@
  *   licenses/{tenantId}/employeeVales/{id}
  */
 
-import { getFirestore, collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore'
+import { getFirestore, collection, getDocs, doc, getDoc, query, where, orderBy } from 'firebase/firestore'
 import log from 'electron-log'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { getBusinessConfig } from '../businessConfig'
@@ -114,6 +114,13 @@ interface FsDebtEvent {
 }
 
 const FIRESTORE_IN_LIMIT = 30
+const HISTORY_DEFAULT_DAYS = 7
+
+export function defaultHistoryFromDate(now = new Date()): string {
+  const d = new Date(now)
+  d.setDate(d.getDate() - HISTORY_DEFAULT_DAYS)
+  return d.toISOString().slice(0, 10)
+}
 
 function chunkIds(ids: string[], size = FIRESTORE_IN_LIMIT): string[][] {
   const out: string[][] = []
@@ -154,9 +161,8 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
 }
 
 /**
- * Lista turnos (abiertos y cerrados) desde Firestore con resumen de ventas/gastos/señas.
- * Las 5 colecciones se leen en paralelo (un round-trip). El detalle de un turno
- * usa queries filtradas por shiftId para no volver a bajar colecciones enteras.
+ * Lista turnos desde Firestore recortados por fecha (default 7 días) y local.
+ * Los totales se piden por shiftId in (...), no bajando sales/gastos enteros.
  */
 export async function fetchHistoryShiftsFromFirestore(
   filter: HistoryShiftsFilter,
@@ -166,68 +172,99 @@ export async function fetchHistoryShiftsFromFirestore(
   const config = getBusinessConfig()
   const app = getFirebaseApp()
   const firestore = getFirestore(app)
+  const tenant = config.tenant_id
+  const from = filter.fromDate ?? defaultHistoryFromDate()
+  const toEnd = `${filter.toDate ?? new Date().toISOString().slice(0, 10)}T23:59:59.999Z`
 
-  const [shiftsSnap, salesSnap, expensesSnap, ordersSnap, debtsSnap] = await Promise.all([
-    getDocs(collection(firestore, 'licenses', config.tenant_id, 'shifts')),
-    getDocs(collection(firestore, 'licenses', config.tenant_id, 'sales')),
-    getDocs(collection(firestore, 'licenses', config.tenant_id, 'expenses')),
-    getDocs(collection(firestore, 'licenses', config.tenant_id, 'orders')),
-    getDocs(collection(firestore, 'licenses', config.tenant_id, 'customerDebtEvents')),
-  ])
+  const shiftsCol = collection(firestore, 'licenses', tenant, 'shifts')
+  const shiftConstraints = [
+    where('startedAt', '>=', from),
+    where('startedAt', '<=', toEnd),
+    orderBy('startedAt', 'desc'),
+  ]
+  if (filter.effectiveStoreId) {
+    shiftConstraints.unshift(where('storeId', '==', filter.effectiveStoreId))
+  }
+  const shiftsSnap = await getDocs(query(shiftsCol, ...shiftConstraints))
 
   const shifts: FsShift[] = []
   for (const d of shiftsSnap.docs) {
     const s = d.data() as FsShift
-    if (filter.effectiveStoreId && s.storeId !== filter.effectiveStoreId) continue
-    if (filter.fromDate && s.startedAt < filter.fromDate) continue
-    if (filter.toDate && s.startedAt > filter.toDate + 'T23:59:59.999Z') continue
     shifts.push({ ...s, id: s.id ?? d.id })
   }
+  const shiftIds = shifts.map(s => s.id)
+  if (shiftIds.length === 0) return []
+
+  const salesCol = collection(firestore, 'licenses', tenant, 'sales')
+  const expensesCol = collection(firestore, 'licenses', tenant, 'expenses')
+  const ordersCol = collection(firestore, 'licenses', tenant, 'orders')
+  const debtsCol = collection(firestore, 'licenses', tenant, 'customerDebtEvents')
+
+  const salesSnaps = await Promise.all(
+    chunkIds(shiftIds).map(chunk => getDocs(query(salesCol, where('shiftId', 'in', chunk)))),
+  )
+  const expensesSnaps = await Promise.all(
+    chunkIds(shiftIds).map(chunk => getDocs(query(expensesCol, where('shiftId', 'in', chunk)))),
+  )
+  const ordersSnaps = await Promise.all(
+    chunkIds(shiftIds).map(chunk => getDocs(query(ordersCol, where('depositShiftId', 'in', chunk)))),
+  )
+  const debtsSnaps = await Promise.all(
+    chunkIds(shiftIds).map(chunk => getDocs(query(debtsCol, where('shiftId', 'in', chunk)))),
+  )
 
   const salesByShift = new Map<string, { count: number; total: number; cash: number }>()
-  for (const d of salesSnap.docs) {
-    const s = d.data() as FsSale
-    if (s.status !== 'confirmed') continue
-    const entry = salesByShift.get(s.shiftId) ?? { count: 0, total: 0, cash: 0 }
-    entry.count += 1
-    entry.total += s.total
-    entry.cash += (s.payments ?? [])
-      .filter(p => p.paymentMethod === 'cash')
-      .reduce((a, p) => a + p.amount, 0)
-    salesByShift.set(s.shiftId, entry)
+  for (const snap of salesSnaps) {
+    for (const d of snap.docs) {
+      const s = d.data() as FsSale
+      if (s.status !== 'confirmed') continue
+      const entry = salesByShift.get(s.shiftId) ?? { count: 0, total: 0, cash: 0 }
+      entry.count += 1
+      entry.total += s.total
+      entry.cash += (s.payments ?? [])
+        .filter(p => p.paymentMethod === 'cash')
+        .reduce((a, p) => a + p.amount, 0)
+      salesByShift.set(s.shiftId, entry)
+    }
   }
 
   const expensesByShift = new Map<string, number>()
   const injectsByShift = new Map<string, number>()
-  for (const d of expensesSnap.docs) {
-    const e = d.data() as FsExpense
-    if (e.deleted === true) continue
-    if (e.kind === 'inject') {
-      injectsByShift.set(e.shiftId, (injectsByShift.get(e.shiftId) ?? 0) + e.amount)
-    } else {
-      expensesByShift.set(e.shiftId, (expensesByShift.get(e.shiftId) ?? 0) + e.amount)
+  for (const snap of expensesSnaps) {
+    for (const d of snap.docs) {
+      const e = d.data() as FsExpense
+      if (e.deleted === true) continue
+      if (e.kind === 'inject') {
+        injectsByShift.set(e.shiftId, (injectsByShift.get(e.shiftId) ?? 0) + e.amount)
+      } else {
+        expensesByShift.set(e.shiftId, (expensesByShift.get(e.shiftId) ?? 0) + e.amount)
+      }
     }
   }
 
   const depositsByShift = new Map<string, number>()
-  for (const d of ordersSnap.docs) {
-    const o = d.data() as FsOrder
-    if (o.deleted === true) continue
-    if (!o.depositShiftId || (o.depositAmount ?? 0) <= 0) continue
-    const cash = cashAmountFromDeposit({
-      depositAmount: o.depositAmount ?? 0,
-      depositMethod: o.depositMethod ?? null,
-      depositPayments: depositPaymentsToJson(o.depositPayments),
-    })
-    depositsByShift.set(o.depositShiftId, (depositsByShift.get(o.depositShiftId) ?? 0) + cash)
+  for (const snap of ordersSnaps) {
+    for (const d of snap.docs) {
+      const o = d.data() as FsOrder
+      if (o.deleted === true) continue
+      if (!o.depositShiftId || (o.depositAmount ?? 0) <= 0) continue
+      const cash = cashAmountFromDeposit({
+        depositAmount: o.depositAmount ?? 0,
+        depositMethod: o.depositMethod ?? null,
+        depositPayments: depositPaymentsToJson(o.depositPayments),
+      })
+      depositsByShift.set(o.depositShiftId, (depositsByShift.get(o.depositShiftId) ?? 0) + cash)
+    }
   }
 
   const cashDebtByShift = new Map<string, number>()
-  for (const d of debtsSnap.docs) {
-    const e = d.data() as FsDebtEvent
-    if (e.deleted === true) continue
-    if (!e.shiftId || e.paymentMethod !== 'cash') continue
-    cashDebtByShift.set(e.shiftId, (cashDebtByShift.get(e.shiftId) ?? 0) + Math.abs(e.amount ?? 0))
+  for (const snap of debtsSnaps) {
+    for (const d of snap.docs) {
+      const e = d.data() as FsDebtEvent
+      if (e.deleted === true) continue
+      if (!e.shiftId || e.paymentMethod !== 'cash') continue
+      cashDebtByShift.set(e.shiftId, (cashDebtByShift.get(e.shiftId) ?? 0) + Math.abs(e.amount ?? 0))
+    }
   }
 
   return shifts.map(s => {
@@ -539,7 +576,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
 
 /**
  * Vales desde Firestore, filtrables por local.
- * Docs sin storeId se resuelven vía shiftId → shifts.storeId.
+ * Docs viejos sin `storeId` no entran al filtro por local (no se baja `shifts` entero).
  */
 export async function fetchEmployeeValesFromFirestore(
   storeIdFilter: string | null,
@@ -550,17 +587,10 @@ export async function fetchEmployeeValesFromFirestore(
     const config = getBusinessConfig()
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
-    const [valesSnap, shiftsSnap] = await Promise.all([
-      getDocs(collection(firestore, 'licenses', config.tenant_id, 'employeeVales')),
-      getDocs(collection(firestore, 'licenses', config.tenant_id, 'shifts')),
-    ])
-
-    const storeByShift = new Map<string, string>()
-    for (const d of shiftsSnap.docs) {
-      const s = d.data() as { id?: string; storeId?: string }
-      const id = s.id ?? d.id
-      if (s.storeId) storeByShift.set(id, s.storeId)
-    }
+    const valesCol = collection(firestore, 'licenses', config.tenant_id, 'employeeVales')
+    const valesSnap = storeIdFilter
+      ? await getDocs(query(valesCol, where('storeId', '==', storeIdFilter)))
+      : await getDocs(valesCol)
 
     const rows: RemoteEmployeeValeRow[] = []
     for (const d of valesSnap.docs) {
@@ -585,9 +615,7 @@ export async function fetchEmployeeValesFromFirestore(
       }
       if (v.deleted === true) continue
 
-      const storeId =
-        v.storeId
-        ?? (v.shiftId ? storeByShift.get(v.shiftId) ?? null : null)
+      const storeId = v.storeId ?? null
 
       if (storeIdFilter && storeId !== storeIdFilter) continue
 

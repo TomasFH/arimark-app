@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, shifts, products, sales } from '../../db/schema'
 
@@ -67,7 +68,16 @@ describe('orders.handler', () => {
     registerOrderHandlers()
 
     const now = new Date().toISOString()
-    db.insert(stores).values({ id: STORE_ID, name: 'Local 1', address: 'Calle 1', createdAt: now }).run()
+    db.insert(stores).values({
+      id: STORE_ID,
+      name: 'Local 1',
+      address: 'Calle 1',
+      createdAt: now,
+      morningStart: '08:00',
+      morningEnd: '14:00',
+      afternoonStart: '16:00',
+      afternoonEnd: '20:30',
+    }).run()
     db.insert(users).values({ id: USER_ID, storeId: STORE_ID, name: 'Cajera', active: true, createdAt: now }).run()
     db.insert(shifts).values({
       id: SHIFT_ID,
@@ -131,6 +141,106 @@ describe('orders.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.priority).toBe(true)
       expect(res.data.timeSlot).toBe('morning')
+    })
+
+    it('acepta horario específico dentro de la franja, incluso cerca del cierre', () => {
+      const handler = getHandler('ipc:create-order')
+      const ok = handler(null, {
+        customerName: 'Retiro 11',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+        timeSlot: 'specific',
+        pickupTime: '11:00',
+      }) as { ok: boolean }
+      expect(ok.ok).toBe(true)
+      const near = handler(null, {
+        customerName: 'Retiro 13',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+        timeSlot: 'specific',
+        pickupTime: '13:00',
+      }) as { ok: boolean }
+      expect(near.ok).toBe(true)
+    })
+
+    it('rechaza horario específico con el local cerrado', () => {
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Madrugada',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+        timeSlot: 'specific',
+        pickupTime: '15:00',
+      }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('STORE_CLOSED')
+    })
+
+    it('usa el horario del día de retiro, no el de todos los días', () => {
+      db.update(stores).set({
+        hoursSchedule: JSON.stringify([
+          {
+            days: [1, 2, 3, 4, 5, 6],
+            morningStart: '08:00',
+            morningEnd: '14:00',
+            afternoonStart: '16:00',
+            afternoonEnd: '20:30',
+          },
+          {
+            days: [0],
+            morningStart: '08:00',
+            morningEnd: '14:00',
+            afternoonStart: null,
+            afternoonEnd: null,
+          },
+        ]),
+      }).where(eq(stores.id, STORE_ID)).run()
+      const handler = getHandler('ipc:create-order')
+      const sunday = handler(null, {
+        customerName: 'Domingo',
+        items: 'Asado',
+        pickupDate: '2026-09-06',
+        timeSlot: 'specific',
+        pickupTime: '17:00',
+      }) as { ok: boolean; code: string }
+      expect(sunday.ok).toBe(false)
+      expect(sunday.code).toBe('STORE_CLOSED')
+      const monday = handler(null, {
+        customerName: 'Lunes',
+        items: 'Asado',
+        pickupDate: '2026-09-07',
+        timeSlot: 'specific',
+        pickupTime: '17:00',
+      }) as { ok: boolean }
+      expect(monday.ok).toBe(true)
+      const sundayAfternoon = handler(null, {
+        customerName: 'Domingo tarde',
+        items: 'Asado',
+        pickupDate: '2026-09-06',
+        timeSlot: 'afternoon',
+      }) as { ok: boolean; error: string; code: string }
+      expect(sundayAfternoon.ok).toBe(false)
+      expect(sundayAfternoon.code).toBe('STORE_CLOSED')
+      expect(sundayAfternoon.error).toMatch(/tarde/)
+      const mondayAfternoon = handler(null, {
+        customerName: 'Lunes tarde',
+        items: 'Asado',
+        pickupDate: '2026-09-07',
+        timeSlot: 'afternoon',
+      }) as { ok: boolean }
+      expect(mondayAfternoon.ok).toBe(true)
+    })
+
+    it('rechaza horario específico sin hora', () => {
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Sin hora',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+        timeSlot: 'specific',
+      }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
     })
 
     it('rechaza payload inválido', () => {
@@ -211,6 +321,64 @@ describe('orders.handler', () => {
       expect(res.data.storeId).toBe('local1')
     })
 
+    it('acepta línea de presupuesto solo con piezas (kg = 0)', () => {
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Morcilla piezas',
+        items: 'Morcilla · 3 u',
+        pickupDate: '2026-07-25',
+        budgetItems: [{
+          productId: 'p-morcilla',
+          name: 'Morcilla',
+          unit: 'kg',
+          pluNumber: 12,
+          estimatedQty: 0,
+          unitPrice: 6000,
+          requestedUnits: 3,
+        }],
+      }) as { ok: boolean; data: { budgetItems: Array<{ estimatedQty: number; requestedUnits?: number | null }> } }
+      expect(res.ok).toBe(true)
+      expect(res.data.budgetItems[0]?.estimatedQty).toBe(0)
+      expect(res.data.budgetItems[0]?.requestedUnits).toBe(3)
+    })
+
+    it('rechaza línea de presupuesto sin kg ni piezas', () => {
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Vacío',
+        items: 'Vacío',
+        pickupDate: '2026-07-25',
+        budgetItems: [{
+          productId: 'p-vacio',
+          name: 'Vacío',
+          unit: 'kg',
+          estimatedQty: 0,
+          unitPrice: 21000,
+        }],
+      }) as { ok: boolean }
+      expect(res.ok).toBe(false)
+    })
+
+    it('acepta línea con kg y piezas', () => {
+      const handler = getHandler('ipc:create-order')
+      const res = handler(null, {
+        customerName: 'Mix',
+        items: 'Morcilla · 3 u (~1 kg)',
+        pickupDate: '2026-07-25',
+        budgetItems: [{
+          productId: 'p-morcilla',
+          name: 'Morcilla',
+          unit: 'kg',
+          estimatedQty: 1,
+          unitPrice: 6000,
+          requestedUnits: 3,
+        }],
+      }) as { ok: boolean; data: { budgetItems: Array<{ estimatedQty: number; requestedUnits?: number | null }> } }
+      expect(res.ok).toBe(true)
+      expect(res.data.budgetItems[0]?.estimatedQty).toBe(1)
+      expect(res.data.budgetItems[0]?.requestedUnits).toBe(3)
+    })
+
     it('rechaza si no hay sesión', () => {
       vi.mocked(getActiveSession).mockReturnValue(null)
       const handler = getHandler('ipc:create-order')
@@ -268,6 +436,23 @@ describe('orders.handler', () => {
       const res = handler(null, { id: '00000000-0000-0000-0000-000000000001', status: 'invalid' }) as { ok: boolean }
       expect(res.ok).toBe(false)
     })
+
+    it('rechaza cambiar un pedido cobrado, incluso a pendiente', () => {
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Cobrado',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+      getHandler('ipc:charge-order')(null, { orderId: created.data.id, remaining: 0, payments: [] })
+
+      const res = getHandler('ipc:update-order-status')(null, {
+        id: created.data.id,
+        status: 'pending',
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_STATUS')
+    })
   })
 
   // --------------------------------------------------------------------------
@@ -284,6 +469,24 @@ describe('orders.handler', () => {
       const res = handler(null, { id: created.data.id, customerName: 'Actualizado' }) as { ok: boolean; data: { customerName: string } }
       expect(res.ok).toBe(true)
       expect(res.data.customerName).toBe('Actualizado')
+    })
+
+    it('rechaza pasar a horario específico con el local cerrado', () => {
+      const createHandler = getHandler('ipc:create-order')
+      const created = createHandler(null, {
+        customerName: 'Original',
+        items: 'Vacío',
+        pickupDate: '2026-07-25',
+        timeSlot: 'morning',
+      }) as { ok: boolean; data: { id: string } }
+      const handler = getHandler('ipc:update-order')
+      const res = handler(null, {
+        id: created.data.id,
+        timeSlot: 'specific',
+        pickupTime: '15:00',
+      }) as { ok: boolean; code: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('STORE_CLOSED')
     })
 
     it('rechaza agregar seña sin turno activo', () => {
@@ -310,6 +513,24 @@ describe('orders.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.customerName).toBe('Actualizado Admin')
       expect(res.data.priority).toBe(true)
+    })
+
+    it('rechaza editar un pedido cobrado', () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Original',
+        items: 'Vacío',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+      getHandler('ipc:charge-order')(null, { orderId: created.data.id, remaining: 0, payments: [] })
+
+      const res = getHandler('ipc:update-order')(null, {
+        id: created.data.id,
+        customerName: 'No debería',
+      }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_STATUS')
     })
   })
 
@@ -350,6 +571,20 @@ describe('orders.handler', () => {
       const res = handler(null, { id: 'no-es-uuid' }) as { ok: boolean }
       expect(res.ok).toBe(false)
     })
+
+    it('rechaza cancelar un pedido cobrado', () => {
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Ya cobrado',
+        items: 'Asado',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+      getHandler('ipc:charge-order')(null, { orderId: created.data.id, remaining: 0, payments: [] })
+
+      const res = getHandler('ipc:delete-order')(null, { id: created.data.id }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_STATUS')
+    })
   })
 
   // --------------------------------------------------------------------------
@@ -364,20 +599,51 @@ describe('orders.handler', () => {
       expect(res.code).toBe('FORBIDDEN')
     })
 
-    it('admin puede eliminar permanentemente', () => {
+    it('admin puede eliminar un pedido cancelado', () => {
       vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const createHandler = getHandler('ipc:create-order')
       const created = createHandler(null, { customerName: 'Eliminar', items: 'Algo', pickupDate: '2026-07-25' }) as { ok: boolean; data: { id: string } }
       expect(created.ok).toBe(true)
 
+      const cancel = getHandler('ipc:delete-order')(null, { id: created.data.id }) as { ok: boolean }
+      expect(cancel.ok).toBe(true)
+
       const handler = getHandler('ipc:hard-delete-order')
       const res = handler(null, { id: created.data.id }) as { ok: boolean }
       expect(res.ok).toBe(true)
 
-      // Verificar que no aparece más en la lista
       const list = getHandler('ipc:list-orders')
       const listRes = list(null) as { ok: boolean; data: { id: string }[] }
       expect(listRes.data.find(o => o.id === created.data.id)).toBeUndefined()
+    })
+
+    it('rechaza eliminar un pedido pendiente', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Pendiente',
+        items: 'Algo',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
+      const res = getHandler('ipc:hard-delete-order')(null, { id: created.data.id }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_STATUS')
+    })
+
+    it('rechaza eliminar un pedido cobrado', () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const created = getHandler('ipc:create-order')(null, {
+        customerName: 'Cobrado',
+        items: 'Algo',
+        pickupDate: '2026-07-25',
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+      getHandler('ipc:charge-order')(null, { orderId: created.data.id, remaining: 0, payments: [] })
+
+      const res = getHandler('ipc:hard-delete-order')(null, { id: created.data.id }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_STATUS')
     })
   })
 

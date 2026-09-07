@@ -182,7 +182,7 @@ export async function signInAutoDetect(
     }
 
     const data = snap.data() as {
-      role: UserRole
+      role?: string
       authorizedStores?: string[]
       displayName?: string
       active?: boolean

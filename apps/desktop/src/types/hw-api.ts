@@ -4,6 +4,8 @@
  * Todo pasa por este contrato.
  */
 
+import type { StoreHoursBlock } from '@carniceria/shared'
+
 export type AppEnv = 'dev' | 'production'
 
 export interface HardwareStatus {
@@ -293,6 +295,8 @@ export interface StoreRow {
   afternoonStart?: string | null
   /** Hora de fin del turno tarde, formato "HH:MM". */
   afternoonEnd?: string | null
+  /** Horarios por grupos de días. Null = los 4 campos valen los 7 días. */
+  hoursSchedule?: StoreHoursBlock[] | null
 }
 
 export interface CreateProductPayload {
@@ -645,10 +649,15 @@ export interface BudgetCartLine {
   /** 'kg' para productos a granel; 'unit' para unidades enteras */
   unit: 'kg' | 'unit'
   pluNumber: number | null
-  /** Cantidad estimada al crear el pedido (kg o unidades) */
+  /** Cantidad estimada al crear el pedido (kg o unidades de catálogo) */
   estimatedQty: number
   /** Precio unitario en ARS al momento de crear el pedido (referencia) */
   unitPrice: number
+  /**
+   * Piezas que pidió el cliente cuando el producto se cobra por kg
+   * (ej. 3 morcillas). Null/omitido = pidió kilos.
+   */
+  requestedUnits?: number | null
 }
 
 export interface OrderRow {
@@ -1383,6 +1392,8 @@ export interface HwApi {
 
   /** Catálogo remoto mergeado en SQLite (BLOQUE I-A). Recargar GET_PRODUCTS / GET_ALL_PRODUCTS. No mutar ítems ya en el ticket. */
   onCatalogSyncUpdated: (cb: (payload?: { storeId?: string }) => void) => () => void
+  /** Pedidos remotos aplicados en SQLite (Listo del celu). Recargar listOrders. */
+  onOrderSyncUpdated: (cb: () => void) => () => void
 
   /** Descarta el aviso de inactividad y reinicia el timer */
   dismissInactivityWarning: () => Promise<void>
@@ -1400,10 +1411,27 @@ export interface HwApi {
   selectStore: (payload: { storeId: string }) => Promise<IpcResult<SessionInfo>>
 
   /** Crea un nuevo local — solo admin */
-  createStore: (payload: { name: string; address?: string }) => Promise<IpcResult<StoreRow>>
+  createStore: (payload: {
+    name: string
+    address?: string
+    morningStart?: string | null
+    morningEnd?: string | null
+    afternoonStart?: string | null
+    afternoonEnd?: string | null
+    hoursSchedule?: StoreHoursBlock[] | null
+  }) => Promise<IpcResult<StoreRow>>
 
-  /** Actualiza nombre y/o dirección de un local — solo admin */
-  updateStore: (payload: { id: string; name?: string; address?: string | null; morningStart?: string | null; morningEnd?: string | null; afternoonStart?: string | null; afternoonEnd?: string | null }) => Promise<IpcResult<StoreRow>>
+  /** Actualiza nombre, dirección y/o horarios de un local — solo admin */
+  updateStore: (payload: {
+    id: string
+    name?: string
+    address?: string | null
+    morningStart?: string | null
+    morningEnd?: string | null
+    afternoonStart?: string | null
+    afternoonEnd?: string | null
+    hoursSchedule?: StoreHoursBlock[] | null
+  }) => Promise<IpcResult<StoreRow>>
 
   /** Elimina un local — solo admin; solo si no tiene datos asociados */
   deleteStore: (payload: { id: string }) => Promise<IpcResult>
@@ -1549,8 +1577,8 @@ export interface HwApi {
   updateEmployee: (payload: UpdateEmployeePayload) => Promise<IpcResult<EmployeeRow>>
   archiveEmployee: (payload: { id: string }) => Promise<IpcResult<EmployeeRow>>
   unarchiveEmployee: (payload: { id: string }) => Promise<IpcResult<EmployeeRow>>
-  /** Crea cuenta Firebase (Auth + Firestore) para que el carnicero ingrese al celu. Guarda firebaseUid en SQLite. */
-  grantButcherAccess: (payload: { employeeId: string; email: string }) => Promise<IpcResult<{ uid: string }>>
+  /** Crea o restablece la cuenta Firebase del carnicero (email solo la primera vez). Guarda firebaseUid en SQLite. */
+  grantButcherAccess: (payload: { employeeId: string; email?: string }) => Promise<IpcResult<{ uid: string }>>
   /** Desactiva la cuenta Firebase del carnicero y borra firebaseUid en SQLite. */
   revokeButcherAccess: (payload: { employeeId: string }) => Promise<IpcResult>
 

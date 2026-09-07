@@ -118,9 +118,8 @@ Esto no viola la regla "Firebase solo en main" — toda la sincronización ocurr
 **Firestore — lecturas (Spark, acordado 2026-08-24):**
 - Una **lectura** = un **documento** que vuelve. No es “abrir una colección = 1”. `getDocs` de N docs = N lecturas.
 - Colecciones **chicas y estables** (locales, empleados, clientes especiales, fichas de proveedores, catálogo): `getDocs` al entrar o `onSnapshot` en PC está bien. El **catálogo** es 1 documento por local (`catalog/{storeId}` con el array `products` adentro), no 1 doc por producto.
-- Colecciones que **crecen todos los días** (`sales`, `providerDebtEvents`, `customerDebtEvents`, `expenses`, `shifts` a largo plazo): **prohibido** bajar la colección entera (`getDocs` sin `where`/`limit`, o `onSnapshot` de toda la colección) en código nuevo. Pedir por turno, fecha o página. Detalle y números: `PLAN.md` DT-07 (proveedores) y **DT-08** (ventas / principio general).
+- Colecciones que **crecen todos los días** (`sales`, `providerDebtEvents`, `customerDebtEvents`, `expenses`, `shifts` a largo plazo): **prohibido** bajar la colección entera (`getDocs` sin `where`/`limit`, o `onSnapshot` de toda la colección) en código nuevo. Pedir por turno, fecha, estado activo o página. Detalle: `PLAN.md` DT-07/DT-08 y **`docs/FIRESTORE_DT07_DT08.md`** (código 2026-09-04). Saldos de deuda: checkpoint + cola (`createdAtServer` > `checkpointAt`), no el ledger entero. El celu **no** corre `advanceDebtCheckpoint`.
 - Los usuarios de la app **no** reciben cupos ni “no uses esto más de X veces”. Si una pantalla puede agotar las 50.000 lecturas/día de Spark con uso normal, el bug es de la consulta, no de la persona. Objetivo de DT-08: que **un humano** (admin, cajera, carnicero, o todos a la vez) no pueda agotar el cupo a propósito a base de clics; un script automático no es el threat model y Spark no nos deja rate-limitar el servidor.
-- **No implementar DT-07/DT-08** hasta que el desarrollador lo pida (no mezclar con el testeo de la checklist). El núcleo (caja, catálogo, ABM chico) ya escala; el riesgo aparece a los **6–12 meses** si el Historial sigue pidiendo todo.
 
 ## IPC y validación
 

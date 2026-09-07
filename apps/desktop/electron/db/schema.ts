@@ -18,6 +18,11 @@ export const stores = sqliteTable('stores', {
   afternoonStart: text('afternoon_start'),
   /** Hora de fin del turno tarde, formato "HH:MM". */
   afternoonEnd: text('afternoon_end'),
+  /**
+   * Horarios por grupos de días (JSON de StoreHoursBlock[]).
+   * Si es null, los campos de mañana/tarde valen los 7 días (locales viejos).
+   */
+  hoursSchedule: text('hours_schedule'),
   /** null = pendiente de push a Firestore; ISO string = ya sincronizado. */
   syncedAt: text('synced_at'),
 })

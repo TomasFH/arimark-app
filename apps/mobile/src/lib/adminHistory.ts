@@ -9,7 +9,7 @@
  *
  * Solo lectura. Los admins no operan el POS desde esta capa.
  */
-import { getFirestore, collection, getDocs, getDoc, doc, query, where } from 'firebase/firestore'
+import { getFirestore, collection, getDocs, getDoc, doc, query, where, orderBy } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import type { PaymentMethod, ShiftType } from '../types/pos'
 import {
@@ -17,6 +17,7 @@ import {
   type DepositMethod,
   type DepositPayment,
 } from './orderMapping'
+import { todayLocalYmd, addDaysYmd } from './week'
 
 const firestore = getFirestore(firebaseApp)
 
@@ -157,8 +158,19 @@ export async function fetchAdminStores(): Promise<AdminStore[]> {
  * Turnos del local, más recientes primero.
  * Incluye abiertos y cerrados (útil para ver en vivo el turno de la cajera).
  */
-export async function fetchAdminShifts(storeId?: string): Promise<AdminShift[]> {
-  const snap = await getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'shifts'))
+export async function fetchAdminShifts(
+  storeId?: string,
+  range?: { fromDate?: string; toDate?: string },
+): Promise<AdminShift[]> {
+  const from = range?.fromDate || addDaysYmd(todayLocalYmd(), -7)
+  const toEnd = `${range?.toDate || todayLocalYmd()}T23:59:59.999Z`
+  const constraints = [
+    where('startedAt', '>=', from),
+    where('startedAt', '<=', toEnd),
+    orderBy('startedAt', 'desc'),
+  ]
+  if (storeId) constraints.unshift(where('storeId', '==', storeId))
+  const snap = await getDocs(query(collection(firestore, 'licenses', LICENSE_KEY, 'shifts'), ...constraints))
   const shifts: AdminShift[] = []
   for (const d of snap.docs) {
     const data = d.data() as {
@@ -173,7 +185,6 @@ export async function fetchAdminShifts(storeId?: string): Promise<AdminShift[]> 
       closingCash?: number | null
       source?: string
     }
-    if (storeId && data.storeId !== storeId) continue
     if (!data.storeId) continue
     const userId = data.userId ?? ''
     shifts.push({
@@ -194,7 +205,9 @@ export async function fetchAdminShifts(storeId?: string): Promise<AdminShift[]> 
 }
 
 export async function fetchAdminSalesForShift(shiftId: string): Promise<AdminSale[]> {
-  const snap = await getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'sales'))
+  const snap = await getDocs(
+    query(collection(firestore, 'licenses', LICENSE_KEY, 'sales'), where('shiftId', '==', shiftId)),
+  )
   const sales: AdminSale[] = []
   for (const d of snap.docs) {
     const data = d.data() as {
@@ -240,23 +253,15 @@ export async function fetchAdminSalesForShift(shiftId: string): Promise<AdminSal
 
 /**
  * Vales del local (más recientes primero).
- * Docs viejos sin storeId se incluyen solo si su shiftId pertenece al local.
+ * Docs viejos sin storeId no aparecen (la query filtra por storeId).
  */
 export async function fetchAdminVales(storeId: string): Promise<AdminVale[]> {
-  const [valesSnap, shiftsSnap] = await Promise.all([
-    getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'employeeVales')),
-    getDocs(collection(firestore, 'licenses', LICENSE_KEY, 'shifts')),
-  ])
-
-  const storeByShift = new Map<string, string>()
-  for (const d of shiftsSnap.docs) {
-    const data = d.data() as { id?: string; storeId?: string }
-    const sid = data.id ?? d.id
-    if (data.storeId) storeByShift.set(sid, data.storeId)
-  }
+  const snap = await getDocs(
+    query(collection(firestore, 'licenses', LICENSE_KEY, 'employeeVales'), where('storeId', '==', storeId)),
+  )
 
   const vales: AdminVale[] = []
-  for (const d of valesSnap.docs) {
+  for (const d of snap.docs) {
     const data = d.data() as {
       id?: string
       employeeId?: string
@@ -277,18 +282,12 @@ export async function fetchAdminVales(storeId: string): Promise<AdminVale[]> {
       deleted?: boolean
     }
     if (data.deleted === true) continue
-
-    const resolvedStoreId =
-      data.storeId
-      ?? (data.shiftId ? storeByShift.get(data.shiftId) ?? null : null)
-    if (resolvedStoreId !== storeId) continue
-
     const employeeId = data.employeeId ?? ''
     vales.push({
       id: data.id ?? d.id,
       employeeId,
       employeeName: data.employeeName?.trim() || employeeId || '(sin nombre)',
-      storeId: resolvedStoreId,
+      storeId: data.storeId ?? storeId,
       shiftId: data.shiftId ?? null,
       amount: data.amount ?? 0,
       description: data.description ?? null,

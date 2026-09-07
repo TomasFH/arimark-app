@@ -24,25 +24,154 @@ import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licen
 import { ensureSpecialCustomersSynced, pushUnsyncedSpecialCustomerOps } from '../licensing/specialCustomerSync'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, StoreRow, SessionInfo } from '../../src/types/hw-api'
+import {
+  ALL_WEEKDAYS,
+  hoursFieldsForSave,
+  parseHoursSchedule,
+  serializeHoursSchedule,
+  validateShiftHours,
+  validateWeekSchedule,
+  type StoreHoursBlock,
+} from '@carniceria/shared'
 
 const selectStoreSchema = z.object({
   storeId: z.string().min(1),
 })
 
+const hhmmOrEmpty = z.union([
+  z.string().regex(/^\d{2}:\d{2}$/),
+  z.literal('').transform(() => null as string | null),
+  z.null(),
+])
+
+const weekdaySchema = z.union([
+  z.literal(0), z.literal(1), z.literal(2), z.literal(3),
+  z.literal(4), z.literal(5), z.literal(6),
+])
+
+const hoursBlockSchema = z.object({
+  days: z.array(weekdaySchema).max(7),
+  morningStart: hhmmOrEmpty.optional().transform(v => v ?? null),
+  morningEnd: hhmmOrEmpty.optional().transform(v => v ?? null),
+  afternoonStart: hhmmOrEmpty.optional().transform(v => v ?? null),
+  afternoonEnd: hhmmOrEmpty.optional().transform(v => v ?? null),
+})
+
+const hoursFieldsSchema = {
+  morningStart: hhmmOrEmpty.optional(),
+  morningEnd: hhmmOrEmpty.optional(),
+  afternoonStart: hhmmOrEmpty.optional(),
+  afternoonEnd: hhmmOrEmpty.optional(),
+  hoursSchedule: z.array(hoursBlockSchema).max(7).optional().nullable(),
+}
+
 const createStoreSchema = z.object({
   name: z.string().min(1).max(100).transform(s => s.trim()),
   address: z.string().max(200).optional().transform(s => s?.trim() || null),
+  ...hoursFieldsSchema,
 })
 
 const updateStoreSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(100).transform(s => s.trim()).optional(),
   address: z.string().max(200).transform(s => s?.trim() || null).nullable().optional(),
-  morningStart: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-  morningEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-  afternoonStart: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-  afternoonEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
+  ...hoursFieldsSchema,
 })
+
+type HoursFields = {
+  morningStart: string | null
+  morningEnd: string | null
+  afternoonStart: string | null
+  afternoonEnd: string | null
+  hoursSchedule: string | null
+}
+
+function resolvedHoursFromPayload(payload: {
+  morningStart?: string | null
+  morningEnd?: string | null
+  afternoonStart?: string | null
+  afternoonEnd?: string | null
+  hoursSchedule?: StoreHoursBlock[] | null
+}, existing?: HoursFields): { ok: true; data: HoursFields } | { ok: false; error: string } {
+  if (payload.hoursSchedule !== undefined) {
+    const schedule = payload.hoursSchedule ?? []
+    const error = validateWeekSchedule(schedule)
+    if (error) return { ok: false, error }
+    const fields = hoursFieldsForSave(schedule)
+    return {
+      ok: true,
+      data: {
+        morningStart: fields.morningStart ?? null,
+        morningEnd: fields.morningEnd ?? null,
+        afternoonStart: fields.afternoonStart ?? null,
+        afternoonEnd: fields.afternoonEnd ?? null,
+        hoursSchedule: serializeHoursSchedule(fields.hoursSchedule),
+      },
+    }
+  }
+
+  const hoursTouched = payload.morningStart !== undefined
+    || payload.morningEnd !== undefined
+    || payload.afternoonStart !== undefined
+    || payload.afternoonEnd !== undefined
+  if (!hoursTouched) {
+    return {
+      ok: true,
+      data: existing ?? {
+        morningStart: null,
+        morningEnd: null,
+        afternoonStart: null,
+        afternoonEnd: null,
+        hoursSchedule: null,
+      },
+    }
+  }
+
+  const next: StoreHoursBlock = {
+    days: [...ALL_WEEKDAYS],
+    morningStart: payload.morningStart !== undefined ? payload.morningStart : (existing?.morningStart ?? null),
+    morningEnd: payload.morningEnd !== undefined ? payload.morningEnd : (existing?.morningEnd ?? null),
+    afternoonStart: payload.afternoonStart !== undefined ? payload.afternoonStart : (existing?.afternoonStart ?? null),
+    afternoonEnd: payload.afternoonEnd !== undefined ? payload.afternoonEnd : (existing?.afternoonEnd ?? null),
+  }
+  const error = validateShiftHours(next)
+  if (error) return { ok: false, error }
+  const fields = hoursFieldsForSave([next])
+  return {
+    ok: true,
+    data: {
+      morningStart: fields.morningStart ?? null,
+      morningEnd: fields.morningEnd ?? null,
+      afternoonStart: fields.afternoonStart ?? null,
+      afternoonEnd: fields.afternoonEnd ?? null,
+      hoursSchedule: serializeHoursSchedule(fields.hoursSchedule),
+    },
+  }
+}
+
+function toStoreRow(row: {
+  id: string
+  name: string
+  address: string | null
+  archivedAt?: string | null
+  morningStart: string | null
+  morningEnd: string | null
+  afternoonStart: string | null
+  afternoonEnd: string | null
+  hoursSchedule: string | null
+}): StoreRow {
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address ?? null,
+    archivedAt: row.archivedAt ?? null,
+    morningStart: row.morningStart ?? null,
+    morningEnd: row.morningEnd ?? null,
+    afternoonStart: row.afternoonStart ?? null,
+    afternoonEnd: row.afternoonEnd ?? null,
+    hoursSchedule: parseHoursSchedule(row.hoursSchedule),
+  }
+}
 
 const storeIdSchema = z.object({
   id: z.string().min(1),
@@ -228,6 +357,8 @@ export function registerStoresHandlers(): void {
     if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden crear locales.', code: 'FORBIDDEN' }
 
     const { name, address } = parsed.data
+    const hours = resolvedHoursFromPayload(parsed.data)
+    if (!hours.ok) return { ok: false, error: hours.error, code: 'INVALID_PAYLOAD' }
 
     try {
       const db = getDb()
@@ -244,6 +375,11 @@ export function registerStoresHandlers(): void {
         name,
         address: address ?? null,
         createdAt: new Date().toISOString(),
+        morningStart: hours.data.morningStart,
+        morningEnd: hours.data.morningEnd,
+        afternoonStart: hours.data.afternoonStart,
+        afternoonEnd: hours.data.afternoonEnd,
+        hoursSchedule: hours.data.hoursSchedule,
       }).run()
 
       const config = getBusinessConfig()
@@ -252,7 +388,16 @@ export function registerStoresHandlers(): void {
       )
 
       log.info('[ipc:create-store] Local creado', { id, name })
-      return { ok: true, data: { id, name, address: address ?? null } }
+      return {
+        ok: true,
+        data: toStoreRow({
+          id,
+          name,
+          address: address ?? null,
+          archivedAt: null,
+          ...hours.data,
+        }),
+      }
     } catch (err) {
       log.error('[ipc:create-store] Error inesperado', err)
       return { ok: false, error: 'Error al crear el local.' }
@@ -274,7 +419,6 @@ export function registerStoresHandlers(): void {
     if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden editar locales.', code: 'FORBIDDEN' }
 
     const { id, name, address } = parsed.data
-    const { morningStart, morningEnd, afternoonStart, afternoonEnd } = parsed.data
 
     try {
       const db = getDb()
@@ -290,20 +434,26 @@ export function registerStoresHandlers(): void {
         if (duplicate) return { ok: false, error: `Ya existe otro local con el nombre "${name}".`, code: 'CONFLICT' }
       }
 
+      const hours = resolvedHoursFromPayload(parsed.data, {
+        morningStart: existing.morningStart ?? null,
+        morningEnd: existing.morningEnd ?? null,
+        afternoonStart: existing.afternoonStart ?? null,
+        afternoonEnd: existing.afternoonEnd ?? null,
+        hoursSchedule: existing.hoursSchedule ?? null,
+      })
+      if (!hours.ok) return { ok: false, error: hours.error, code: 'INVALID_PAYLOAD' }
+
       const updatedName = name ?? existing.name
       const updatedAddress = address !== undefined ? address : existing.address
-      const updatedMorningStart = morningStart !== undefined ? morningStart : existing.morningStart
-      const updatedMorningEnd = morningEnd !== undefined ? morningEnd : existing.morningEnd
-      const updatedAfternoonStart = afternoonStart !== undefined ? afternoonStart : existing.afternoonStart
-      const updatedAfternoonEnd = afternoonEnd !== undefined ? afternoonEnd : existing.afternoonEnd
 
       db.update(stores).set({
         name: updatedName,
         address: updatedAddress ?? null,
-        morningStart: updatedMorningStart ?? null,
-        morningEnd: updatedMorningEnd ?? null,
-        afternoonStart: updatedAfternoonStart ?? null,
-        afternoonEnd: updatedAfternoonEnd ?? null,
+        morningStart: hours.data.morningStart,
+        morningEnd: hours.data.morningEnd,
+        afternoonStart: hours.data.afternoonStart,
+        afternoonEnd: hours.data.afternoonEnd,
+        hoursSchedule: hours.data.hoursSchedule,
         syncedAt: null,
       }).where(eq(stores.id, id)).run()
 
@@ -315,15 +465,13 @@ export function registerStoresHandlers(): void {
       log.info('[ipc:update-store] Local actualizado', { id, name: updatedName })
       return {
         ok: true,
-        data: {
+        data: toStoreRow({
           id,
           name: updatedName,
           address: updatedAddress ?? null,
-          morningStart: updatedMorningStart ?? null,
-          morningEnd: updatedMorningEnd ?? null,
-          afternoonStart: updatedAfternoonStart ?? null,
-          afternoonEnd: updatedAfternoonEnd ?? null,
-        },
+          archivedAt: existing.archivedAt ?? null,
+          ...hours.data,
+        }),
       }
     } catch (err) {
       log.error('[ipc:update-store] Error inesperado', err)

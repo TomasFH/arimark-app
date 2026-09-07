@@ -21,6 +21,8 @@ import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
 import { notifyRenderer } from './notifyRenderer'
 import { IPC } from '../ipc/channels'
+import { debtEventServerTimestampFields } from './debtCheckpoint'
+import { touchDebtCheckpointTail } from './debtCheckpointTail'
 
 interface RemoteCustomerDoc {
   id: string
@@ -124,6 +126,10 @@ function retryPendingDebtEvents(): void {
       pendingDebtEvents.delete(id)
     }
   }
+}
+
+export function applyRemoteCustomerDebtEvent(data: RemoteDebtEventDoc, docId: string): boolean {
+  return upsertDebtEventFromRemote(data, docId)
 }
 
 function upsertDebtEventFromRemote(
@@ -312,7 +318,15 @@ export async function pushUnsyncedCustomerDebtEvents(tenantId: string): Promise<
         createdAt: row.createdAt,
         createdBy: row.createdBy,
         deleted: false,
+        ...debtEventServerTimestampFields(),
       }, { merge: true })
+
+      await touchDebtCheckpointTail({
+        tenantId,
+        kind: 'customer',
+        entityId: row.customerId,
+        storeId: row.storeId,
+      })
 
       db.update(debtEvents).set({ syncedAt: now }).where(eq(debtEvents.id, row.id)).run()
     } catch (err) {
@@ -392,21 +406,8 @@ export function startCustomerDebtSyncListener(tenantId: string): void {
       }
     }, err => log.error('[customerDebtSync] Error listener customers', err))
 
-    const debtsCol = collection(firestore, 'licenses', tenantId, 'customerDebtEvents')
-    const unsubDebts = onSnapshot(debtsCol, snapshot => {
-      for (const change of snapshot.docChanges()) {
-        if (change.type === 'removed') continue
-        try {
-          upsertDebtEventFromRemote(change.doc.data() as RemoteDebtEventDoc, change.doc.id)
-        } catch (err) {
-          log.error('[customerDebtSync] Error snapshot debt event', { id: change.doc.id, err })
-        }
-      }
-    }, err => log.error('[customerDebtSync] Error listener debt events', err))
-
     customerListeners.push(unsubCustomers)
-    debtListeners.push(unsubDebts)
-    log.info('[customerDebtSync] Listeners iniciados')
+    log.info('[customerDebtSync] Listener de customers iniciado')
   } catch (err) {
     log.error('[customerDebtSync] No se pudieron iniciar listeners', err)
   }
@@ -430,7 +431,6 @@ export async function ensureCustomerDebtsSynced(tenantId: string): Promise<void>
   await pushUnsyncedCustomers(tenantId)
   await pushUnsyncedCustomerDebtEvents(tenantId)
   await pullCustomersFromFirestore(tenantId)
-  await pullCustomerDebtEventsFromFirestore(tenantId)
   retryPendingDebtEvents()
   startCustomerDebtSyncListener(tenantId)
   notifyDebtsUpdated()

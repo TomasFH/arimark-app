@@ -35,7 +35,7 @@ vi.mock('../../secureStorage', () => ({
 
 import { getDoc } from 'firebase/firestore'
 import { signInWithEmailAndPassword } from 'firebase/auth'
-import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession } from '../session'
+import { signInWithRole, signInAutoDetect, loginAdmin, logoutAdmin, getStoredAdminSession } from '../session'
 
 describe('signInWithRole — modo dev', () => {
   beforeEach(() => {
@@ -131,6 +131,20 @@ describe('signInWithRole — modo producción', () => {
       expect(result.profile.authorizedStores).toEqual(['store-1', 'store-2'])
       expect(result.profile.displayName).toBe('Cajera Uno')
     }
+  })
+
+  it('signInAutoDetect rechaza rol butcher con mensaje de celular', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockResolvedValue({
+      user: { uid: 'uid-carn', email: 'carn@negocio.com', getIdToken: vi.fn().mockResolvedValue('tok') },
+    } as unknown as Awaited<ReturnType<typeof signInWithEmailAndPassword>>)
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => ({ role: 'butcher', authorizedStores: ['store-1'], displayName: 'Juan', active: true }),
+    } as unknown as Awaited<ReturnType<typeof getDoc>>)
+
+    const result = await signInAutoDetect('LIC-001', 'carn@negocio.com', 'pw')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/celular/i)
   })
 
   it('si displayName viene vacío usa el local-part del email', async () => {

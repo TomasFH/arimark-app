@@ -7,6 +7,7 @@ import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import { formatARS, toLocalDate } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
+import { GrantButcherAccessModal, RevokeButcherAccessModal } from '../components/ButcherAccessModals'
 import { buildStaffRoster, type StaffKind, type StaffMember } from '../lib/staffRoster'
 import SalaryPaymentModal from './SalaryPaymentModal'
 import type { CashierRow, EmployeeRow, EmployeeValeRow, StoreRow } from '../types/hw-api'
@@ -22,7 +23,7 @@ export default function StaffScreen({ onBack }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
-  const [selected, setSelected] = useState<StaffMember | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showLiquidation, setShowLiquidation] = useState(false)
 
@@ -84,10 +85,16 @@ export default function StaffScreen({ onBack }: Props) {
         active: e.active,
         kind: e.kind,
         homeStoreId: e.homeStoreId,
+        firebaseUid: e.firebaseUid,
       })),
     ),
     [cashiers, employees],
   )
+
+  const selected = useMemo(() => {
+    if (!selectedKey) return null
+    return [...roster.cashiers, ...roster.butchers].find(m => m.key === selectedKey) ?? null
+  }, [roster, selectedKey])
 
   const visibleCashiers = roster.cashiers.filter(m => (showArchived ? !m.active : m.active))
   const visibleButchers = roster.butchers.filter(m => (showArchived ? !m.active : m.active))
@@ -157,18 +164,18 @@ export default function StaffScreen({ onBack }: Props) {
                   : 'No hay cajeras. Agregá una con “+ Nuevo”.'
               }
               members={visibleCashiers}
-              onSelect={setSelected}
+              onSelect={m => setSelectedKey(m.key)}
             />
             <StaffSection
               title="Carniceros"
-              hint="Registro para sueldo y vales · cobran de la caja el fin de semana"
+              hint="Sueldo y vales. Acceso al celu desde la ficha."
               empty={
                 showArchived
                   ? 'No hay carniceros eliminados.'
                   : 'No hay carniceros. Agregá uno con “+ Nuevo”.'
               }
               members={visibleButchers}
-              onSelect={setSelected}
+              onSelect={m => setSelectedKey(m.key)}
             />
           </div>
         )}
@@ -176,13 +183,13 @@ export default function StaffScreen({ onBack }: Props) {
 
       {selected && (
         <EmployeeDetailModal
+          key={selected.key}
           member={selected}
           stores={stores}
           cashierStores={cashiers.find(c => c.uid === selected.cashierUid)?.authorizedStores ?? []}
-          onClose={() => setSelected(null)}
+          onClose={() => setSelectedKey(null)}
           onChanged={async () => {
             await load()
-            setSelected(null)
           }}
         />
       )}
@@ -258,6 +265,9 @@ function EmployeeCard({ member, onClick }: { member: StaffMember; onClick: () =>
           {member.email}
         </p>
       )}
+      {member.kind === 'butcher' && member.firebaseUid && (
+        <p className="mt-1 text-[10px] text-emerald-500/80">Acceso celular</p>
+      )}
       {!member.active && (
         <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-600">
           {member.kind === 'cashier' ? 'Inactiva' : 'Eliminado'}
@@ -290,6 +300,8 @@ function EmployeeDetailModal({
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<'toggle' | 'delete' | 'archive' | 'restore' | null>(null)
+  const [accessPanel, setAccessPanel] = useState<'grant' | 'revoke' | null>(null)
+  const [grantingAccess, setGrantingAccess] = useState(false)
 
   useEffect(() => {
     if (!member.employeeId) {
@@ -422,7 +434,11 @@ function EmployeeDetailModal({
             <h2 className="truncate text-lg font-semibold" title={member.name}>{member.name}</h2>
             <p className="mt-0.5 text-xs text-zinc-500">
               {roleLabel}
-              {member.kind === 'cashier' ? ' · acceso a la app' : ' · sueldo y vales'}
+              {member.kind === 'cashier'
+                ? ' · acceso a la app'
+                : member.firebaseUid
+                  ? ' · sueldo, vales y acceso celular'
+                  : ' · sueldo y vales'}
             </p>
           </div>
           <button
@@ -597,6 +613,42 @@ function EmployeeDetailModal({
             </div>
           ) : (
             <div className="space-y-2">
+              {member.kind === 'butcher' && member.employeeId && member.active && !member.firebaseUid && (
+                <button
+                  type="button"
+                  disabled={grantingAccess}
+                  onClick={() => {
+                    const employeeId = member.employeeId
+                    if (!employeeId) return
+                    setGrantingAccess(true)
+                    setFormError(null)
+                    void window.hw.grantButcherAccess({ employeeId }).then(async r => {
+                      setGrantingAccess(false)
+                      if (r.ok) {
+                        await onChanged()
+                        return
+                      }
+                      if (r.code === 'EMAIL_REQUIRED') {
+                        setAccessPanel('grant')
+                        return
+                      }
+                      setFormError(r.error ?? 'No se pudo otorgar el acceso.')
+                    })
+                  }}
+                  className="w-full rounded-lg border border-emerald-900/40 bg-emerald-950/30 px-4 py-2 text-sm text-emerald-400/90 hover:bg-emerald-950/50 disabled:opacity-50"
+                >
+                  {grantingAccess ? 'Restableciendo…' : 'Dar acceso al celular'}
+                </button>
+              )}
+              {member.kind === 'butcher' && member.employeeId && member.firebaseUid && (
+                <button
+                  type="button"
+                  onClick={() => setAccessPanel('revoke')}
+                  className="w-full rounded-lg border border-amber-900/40 px-4 py-2 text-sm text-amber-400/80 hover:bg-amber-950/40"
+                >
+                  Revocar acceso
+                </button>
+              )}
               {member.cashierUid && (
                 <button
                   type="button"
@@ -637,6 +689,39 @@ function EmployeeDetailModal({
           )}
         </div>
       </div>
+      {accessPanel === 'grant' && member.employeeId && (
+        <GrantButcherAccessModal
+          employeeName={member.name}
+          onCancel={() => setAccessPanel(null)}
+          onGrant={async email => {
+            const employeeId = member.employeeId
+            if (!employeeId) return 'Falta la ficha del empleado.'
+            const r = await window.hw.grantButcherAccess({ employeeId, email })
+            if (!r.ok) return r.error ?? 'No se pudo otorgar el acceso.'
+            setAccessPanel(null)
+            await onChanged()
+            return null
+          }}
+        />
+      )}
+      {accessPanel === 'revoke' && member.employeeId && (
+        <RevokeButcherAccessModal
+          employeeName={member.name}
+          onCancel={() => setAccessPanel(null)}
+          onConfirm={async () => {
+            const employeeId = member.employeeId
+            if (!employeeId) return
+            const r = await window.hw.revokeButcherAccess({ employeeId })
+            if (!r.ok) {
+              setFormError(r.error ?? 'No se pudo revocar el acceso.')
+              setAccessPanel(null)
+              return
+            }
+            setAccessPanel(null)
+            await onChanged()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -785,7 +870,7 @@ function CreateEmployeeModal({
               className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left hover:border-zinc-600"
             >
               <p className="text-sm font-medium">Carnicero</p>
-              <p className="mt-0.5 text-xs text-zinc-500">Sueldo y vales · sin acceso a la app</p>
+              <p className="mt-0.5 text-xs text-zinc-500">Sueldo y vales. El acceso al celu se da después, desde la ficha.</p>
             </button>
             <button
               type="button"
@@ -800,7 +885,7 @@ function CreateEmployeeModal({
             <p className="text-xs text-zinc-500">
               {kind === 'cashier'
                 ? 'Recibirá un email para definir su contraseña. Puede operar en todos los locales activos.'
-                : 'Queda registrado para asistencia, sueldo y vales.'}
+                : 'Queda registrado para asistencia, sueldo y vales. El acceso al celu se da desde la ficha.'}
             </p>
             <div>
               <label className="mb-1 block text-sm text-zinc-300">Nombre</label>

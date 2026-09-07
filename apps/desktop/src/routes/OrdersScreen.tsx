@@ -9,10 +9,29 @@ import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import DecimalInput from '../components/DecimalInput'
 import { parseNumericInput, formatNumericInputValue, parseDecimalInput } from '../lib/numericInput'
-import { addDaysYmd, formatARS, formatYmd, todayLocalYmd } from '../lib/datetime'
+import { addDaysYmd, formatARS, formatYmd, todayLocalYmd, toLocalDateTime } from '../lib/datetime'
 import { formatPhoneInput } from '../lib/phoneInput'
 import StoreFilter from '../components/StoreFilter'
-import { searchProductsByQuery } from '@carniceria/shared'
+import {
+  searchProductsByQuery,
+  formatKgQty,
+  formatOrderQty,
+  formatOrderQtyHint,
+  summarizeBudgetItems,
+  checkPickupTime,
+  clockMinutes,
+  hoursForDate,
+  isPickupDueSoon,
+  isPickupOutsideHoursOnDate,
+  pickupHoursLiveErrorOnDate,
+  pickupSlotAvailability,
+  pickupSlotRegistrationError,
+  PICKUP_SPECIFIC_HINT,
+  storeHoursSourceFromRecord,
+  type StoreHoursSource,
+} from '@carniceria/shared'
+import { buildOrdersView } from '../lib/orderListView'
+import type { OrderSortContext } from '../lib/orderListSort'
 import type {
   OrderRow, OrderStatus, DepositMethod, DepositPayment,
   CreateOrderPayload, UpdateOrderPayload, OrderTimeSlot, StoreRow,
@@ -46,12 +65,12 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   cancelled: 'bg-zinc-800/40 text-zinc-500 border-zinc-700/40',
 }
 
-type FilterStatus = 'active' | 'all'
-
 /** Línea editable en el carrito de presupuesto (UI) */
 interface BudgetCartDraft extends BudgetCartLine {
   /** Cantidad ingresada como string (para los inputs controlados) */
   qtyRaw: string
+  /** Unidades pedidas (solo productos kg). Vacío = pidió kilos. */
+  requestedUnitsRaw: string
 }
 
 interface FormState {
@@ -66,7 +85,7 @@ interface FormState {
   depositPayments: DepositPayment[]
   /** Solo admin: local destino del pedido */
   storeId: string
-  /** Carrito de presupuesto */
+  /** Productos del pedido */
   budgetCart: BudgetCartDraft[]
 }
 
@@ -82,6 +101,54 @@ const EMPTY_FORM: FormState = {
   depositPayments: [],
   storeId: '',
   budgetCart: [],
+}
+
+/** Producto por kg con unidades cargadas y el peso vacío: no hay precio estimado. */
+function kgLineMissingWeight(line: BudgetCartDraft): boolean {
+  if (line.unit !== 'kg') return false
+  const kg = parseDecimalInput(line.qtyRaw)
+  const units = parseNumericInput(line.requestedUnitsRaw)
+  return units !== null && units > 0 && (kg === null || kg <= 0)
+}
+
+/** Líneas del carrito con cantidad válida (kg, unidades de catálogo, o piezas). */
+function resolvedBudgetLines(cart: BudgetCartDraft[]): BudgetCartLine[] {
+  return cart.flatMap((line): BudgetCartLine[] => {
+    if (line.unit === 'unit') {
+      const qty = parseNumericInput(line.qtyRaw)
+      if (qty === null || qty <= 0) return []
+      return [{
+        productId: line.productId,
+        name: line.name,
+        unit: line.unit,
+        pluNumber: line.pluNumber,
+        estimatedQty: qty,
+        unitPrice: line.unitPrice,
+      }]
+    }
+
+    const kg = parseDecimalInput(line.qtyRaw)
+    const units = parseNumericInput(line.requestedUnitsRaw)
+    const hasKg = kg !== null && kg > 0
+    const hasUnits = units !== null && units > 0
+    if (!hasKg && !hasUnits) return []
+    return [{
+      productId: line.productId,
+      name: line.name,
+      unit: line.unit,
+      pluNumber: line.pluNumber,
+      estimatedQty: hasKg ? kg : 0,
+      unitPrice: line.unitPrice,
+      requestedUnits: hasUnits ? units : null,
+    }]
+  })
+}
+
+function estimatedBudgetTotal(lines: BudgetCartLine[]): number {
+  return lines.reduce((sum, line) => {
+    if (line.estimatedQty <= 0) return sum
+    return sum + Math.round(line.unitPrice * line.estimatedQty)
+  }, 0)
 }
 
 function todayDateStr(): string {
@@ -119,6 +186,8 @@ interface Props {
   onBack: () => void
   /** ID del turno activo cuando se navega desde la caja; null si se viene desde admin hub */
   currentShiftId: string | null
+  /** Local de la sesión (cajera o admin con local elegido). */
+  sessionStoreId?: string
   /** Callback para inyectar el carrito del pedido en el POS (solo cuando hay turno activo) */
   onInjectOrderCart?: (cart: {
     orderId: string
@@ -158,12 +227,13 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-eme
   )
 }
 
-export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInjectOrderCart }: Props) {
+export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionStoreId, onInjectOrderCart }: Props) {
   const [ordersList, setOrdersList] = useState<OrderRow[]>([])
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>('active')
   const [search, setSearch] = useState('')
+  const [showClosed, setShowClosed] = useState(false)
 
   // Filtro de local — solo visible cuando admin llega desde el hub (sin turno activo)
   const showStoreFilter = isAdmin && currentShiftId === null
@@ -186,6 +256,8 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
   const [budgetSearch, setBudgetSearch] = useState('')
   const [budgetSuggestions, setBudgetSuggestions] = useState<ProductRow[]>([])
   const budgetSearchRef = useRef<HTMLInputElement>(null)
+  const lastQtyRef = useRef<HTMLInputElement>(null)
+  const prevCartLen = useRef(0)
 
   // Confirmaciones de estado y delete
   const [confirmStatus, setConfirmStatus] = useState<{ order: OrderRow; status: OrderStatus } | null>(null)
@@ -200,6 +272,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
   const [chargeModalOrder, setChargeModalOrder] = useState<OrderRow | null>(null)
   const [chargeCartLines, setChargeCartLines] = useState<Array<BudgetCartDraft & { checked: boolean }>>([])
   const [chargeError, setChargeError] = useState<string | null>(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
 
   const loadOrders = useCallback(async () => {
     const r = await window.hw.listOrders(showStoreFilter ? { storeIdFilter } : undefined)
@@ -213,13 +286,25 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
     void loadOrders()
   }, [loadOrders])
 
-  // Cargar locales disponibles al montar (solo cuando admin desde hub)
   useEffect(() => {
-    if (!showStoreFilter) return
+    const hw = window.hw
+    if (typeof hw.onOrderSyncUpdated !== 'function') return undefined
+    return hw.onOrderSyncUpdated(() => {
+      void loadOrders()
+    })
+  }, [loadOrders])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  // Cargar locales (horarios de atención) siempre: hace falta para validar retiro.
+  useEffect(() => {
     window.hw.getStores().then(r => {
       if (r.ok) setAvailableStores(r.data)
     })
-  }, [showStoreFilter])
+  }, [])
 
   // Cargar catálogo para el carrito de presupuesto
   useEffect(() => {
@@ -239,34 +324,34 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
     setBudgetSuggestions(results.slice(0, 8))
   }, [budgetSearch, catalog])
 
-  const filteredOrders = useMemo(() => {
-    let list = ordersList
-    if (filterStatus === 'active') {
-      list = list.filter(o => o.status === 'pending' || o.status === 'ready')
+  useEffect(() => {
+    if (form.budgetCart.length > prevCartLen.current) {
+      requestAnimationFrame(() => lastQtyRef.current?.focus())
     }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      list = list.filter(o =>
-        (o.customerName ?? '').toLowerCase().includes(q) ||
-        (o.phone ?? '').includes(q) ||
-        (o.items ?? '').toLowerCase().includes(q)
-      )
+    prevCartLen.current = form.budgetCart.length
+  }, [form.budgetCart.length])
+
+  const hoursByStore = useMemo(() => {
+    const map = new Map<string, StoreHoursSource>()
+    for (const s of availableStores) {
+      map.set(s.id, storeHoursSourceFromRecord(s))
     }
-    return [...list].sort((a, b) => {
-      // Prioritarios primero
-      if (a.priority !== b.priority) return a.priority ? -1 : 1
-      const statusOrder: Record<OrderStatus, number> = { pending: 0, ready: 1, delivered: 2, cancelled: 3 }
-      if (statusOrder[a.status] !== statusOrder[b.status]) return statusOrder[a.status] - statusOrder[b.status]
-      // Por fecha, luego por hora (morning < afternoon < specific < null)
-      if (a.pickupDate !== b.pickupDate) return a.pickupDate.localeCompare(b.pickupDate)
-      const slotOrder: Record<string, number> = { morning: 0, afternoon: 1, specific: 2 }
-      const aSlot = a.timeSlot ? (slotOrder[a.timeSlot] ?? 3) : 3
-      const bSlot = b.timeSlot ? (slotOrder[b.timeSlot] ?? 3) : 3
-      if (aSlot !== bSlot) return aSlot - bSlot
-      if (a.pickupTime && b.pickupTime) return a.pickupTime.localeCompare(b.pickupTime)
-      return 0
-    })
-  }, [ordersList, filterStatus, search])
+    return map
+  }, [availableStores])
+
+  const sortCtx: OrderSortContext = useMemo(() => ({
+    todayYmd: todayDateStr(),
+    nowMinutes: clockMinutes(new Date(nowTick)),
+    hoursByStore,
+  }), [hoursByStore, nowTick])
+
+  const ordersView = useMemo(
+    () => buildOrdersView(ordersList, search, showClosed, sortCtx),
+    [ordersList, search, showClosed, sortCtx],
+  )
+  const listForScroll = ordersView.mode === 'grouped'
+    ? [...ordersView.ready, ...ordersView.pending]
+    : ordersView.results
 
   const urgentTodayCount = useMemo(
     () => ordersList.filter(o => (o.status === 'pending' || o.status === 'ready') && isToday(o.pickupDate)).length,
@@ -286,15 +371,16 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
     }
     const timer = setTimeout(() => setNewOrderId(null), 2500)
     return () => clearTimeout(timer)
-  // filteredOrders en deps para reintentar el scroll una vez que la lista se re-renderiza
+  // listForScroll en deps para reintentar el scroll una vez que la lista se re-renderiza
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newOrderId, filteredOrders])
+  }, [newOrderId, listForScroll])
 
   function openCreate() {
     // Default del local: la tab activa (si no es 'all' ni vacío) o el primer local disponible
     const defaultStoreId = (storeIdFilter && storeIdFilter !== 'all')
       ? storeIdFilter
       : (availableStores[0]?.id ?? '')
+    prevCartLen.current = 0
     setForm({ ...EMPTY_FORM, pickupDate: todayDateStr(), storeId: defaultStoreId })
     setFormError(null)
     setShowCreate(true)
@@ -306,9 +392,13 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
     const budgetCart: BudgetCartDraft[] = (order.budgetItems ?? []).map(line => ({
       ...line,
       qtyRaw: line.unit === 'kg'
-        ? String(line.estimatedQty).replace('.', ',')
+        ? (line.estimatedQty > 0 ? String(line.estimatedQty).replace('.', ',') : '')
         : String(Math.round(line.estimatedQty)),
+      requestedUnitsRaw: line.requestedUnits && line.requestedUnits > 0
+        ? String(line.requestedUnits)
+        : '',
     }))
+    prevCartLen.current = budgetCart.length
     setForm({
       customerName: order.customerName,
       phone: formatPhoneInput(order.phone ?? ''),
@@ -328,27 +418,54 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
   }
 
   function closeForm() {
+    prevCartLen.current = 0
     setShowCreate(false)
     setEditingOrder(null)
     setForm(EMPTY_FORM)
     setFormError(null)
   }
 
+  function hoursSourceForForm(): StoreHoursSource | null {
+    const id = showStoreFilter
+      ? form.storeId
+      : (sessionStoreId || ordersList[0]?.storeId || availableStores[0]?.id || '')
+    const store = availableStores.find(s => s.id === id)
+    return store ? storeHoursSourceFromRecord(store) : null
+  }
+
+  useEffect(() => {
+    const available = pickupSlotAvailability(hoursSourceForForm(), form.pickupDate)
+    if (
+      (form.timeSlot === 'afternoon' && !available.afternoon)
+      || (form.timeSlot === 'morning' && !available.morning)
+    ) {
+      setForm(f => ({ ...f, timeSlot: '' }))
+    }
+  // hoursSourceForForm depende del local elegido y de la lista de locales.
+  }, [form.pickupDate, form.timeSlot, form.storeId, availableStores, showStoreFilter, sessionStoreId])
+
   async function handleSave() {
     setFormError(null)
     const customerName = form.customerName.trim()
-    const items = form.items.trim()
     const pickupDate = form.pickupDate.trim()
     const total = depositTotal(form.depositPayments)
 
     if (!customerName) { setFormError('El nombre del cliente es obligatorio.'); return }
-    if (!items) { setFormError('Los ítems del pedido son obligatorios.'); return }
+    if (resolvedBudgetLines(form.budgetCart).length === 0) {
+      setFormError('Agregá al menos un producto con cantidad.'); return
+    }
     if (!pickupDate) { setFormError('La fecha de retiro es obligatoria.'); return }
     if (showStoreFilter && !form.storeId) { setFormError('Seleccioná un local para el pedido.'); return }
     if (pickupDate < todayDateStr()) { setFormError('La fecha de retiro no puede ser anterior a hoy.'); return }
     if (form.timeSlot === 'specific' && !form.pickupTime) {
       setFormError('Ingresá el horario específico de retiro.'); return
     }
+    if (form.timeSlot === 'specific' && form.pickupTime) {
+      const closed = pickupHoursLiveErrorOnDate(form.timeSlot, form.pickupTime, hoursSourceForForm(), form.pickupDate)
+      if (closed) { setFormError(closed); return }
+    }
+    const slotClosed = pickupSlotRegistrationError(form.timeSlot, hoursSourceForForm(), form.pickupDate)
+    if (slotClosed) { setFormError(slotClosed); return }
     if (total > 0 && form.depositPayments.length === 0) {
       setFormError('Seleccioná el medio de pago de la seña.'); return
     }
@@ -365,22 +482,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
   async function doSave() {
     setShowDepositConfirm(false)
     const customerName = form.customerName.trim()
-    const items = form.items.trim()
     const pickupDate = form.pickupDate.trim()
     const total = depositTotal(form.depositPayments)
-
-    // Convertir el carrito de presupuesto a BudgetCartLine[]
-    const budgetItems: BudgetCartLine[] = form.budgetCart
-      .filter(line => {
-        const qty = line.unit === 'kg' ? parseDecimalInput(line.qtyRaw) : parseNumericInput(line.qtyRaw)
-        return qty !== null && qty > 0
-      })
-      .map(line => {
-        const qty = line.unit === 'kg'
-          ? (parseDecimalInput(line.qtyRaw) ?? line.estimatedQty)
-          : (parseNumericInput(line.qtyRaw) ?? line.estimatedQty)
-        return { ...line, estimatedQty: qty }
-      })
+    const budgetItems = resolvedBudgetLines(form.budgetCart)
+    const items = summarizeBudgetItems(budgetItems)
 
     setSaving(true)
     try {
@@ -397,7 +502,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
           notes: form.notes.trim() || null,
           depositAmount: total,
           depositPayments: form.depositPayments.length > 0 ? form.depositPayments : null,
-          budgetItems: budgetItems.length > 0 ? budgetItems : null,
+          budgetItems,
         }
         const r = await window.hw.updateOrder(payload)
         if (!r.ok) { setFormError(r.error); setSaving(false); return }
@@ -416,14 +521,13 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
           depositPayments: total > 0 ? form.depositPayments : undefined,
           // Admin puede especificar un local diferente al de sesión
           storeId: showStoreFilter && form.storeId ? form.storeId : undefined,
-          budgetItems: budgetItems.length > 0 ? budgetItems : undefined,
+          budgetItems,
         }
         const r = await window.hw.createOrder(payload)
         if (!r.ok) { setFormError(r.error); setSaving(false); return }
         setOrdersList(prev => [r.data, ...prev])
-        // Limpiar búsqueda y activar filtro que muestre el nuevo pedido (pending → active)
         setSearch('')
-        setFilterStatus('active')
+        setShowClosed(false)
         setNewOrderId(r.data.id)
       }
       closeForm()
@@ -436,7 +540,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
   function openChargeModal(order: OrderRow) {
     const lines = (order.budgetItems ?? []).map(line => ({
       ...line,
-      qtyRaw: '',  // vacío por defecto; el placeholder mostrará la estimación
+      qtyRaw: '',
+      requestedUnitsRaw: line.requestedUnits && line.requestedUnits > 0
+        ? String(line.requestedUnits)
+        : '',
       checked: true,
     }))
     setChargeCartLines(lines)
@@ -466,13 +573,23 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
     }
 
     // Construir items del carrito para inyectar en el POS
-    const items: SaleItemDraft[] = chargeCartLines
-      .filter(line => line.checked)
+    const checked = chargeCartLines.filter(line => line.checked)
+    for (const line of checked) {
+      const typed = line.unit === 'kg'
+        ? parseDecimalInput(line.qtyRaw)
+        : parseNumericInput(line.qtyRaw)
+      if ((typed === null || typed <= 0) && line.estimatedQty <= 0) {
+        setChargeError(`Ingresá el peso de ${line.name}.`)
+        return
+      }
+    }
+
+    const items: SaleItemDraft[] = checked
       .map(line => {
         const qty = line.unit === 'kg'
           ? (parseDecimalInput(line.qtyRaw) ?? null)
           : (parseNumericInput(line.qtyRaw) ?? null)
-        const weightKg = qty ?? (line.unit === 'kg' ? line.estimatedQty : line.estimatedQty)
+        const weightKg = qty ?? line.estimatedQty
         return {
           pluNumber: line.pluNumber ?? 0,
           productId: line.productId,
@@ -550,7 +667,45 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
   }
 
   const totalDeposit = depositTotal(form.depositPayments)
-  const formIsValid = form.customerName.trim() && form.items.trim() && form.pickupDate
+  const liveBudget = resolvedBudgetLines(form.budgetCart)
+  const liveEstimate = estimatedBudgetTotal(liveBudget)
+  const livePickupHoursError = pickupHoursLiveErrorOnDate(form.timeSlot, form.pickupTime, hoursSourceForForm(), form.pickupDate)
+  const slotAvailability = pickupSlotAvailability(hoursSourceForForm(), form.pickupDate)
+  const pickupSlotOptions = (['morning', 'afternoon', 'specific'] as OrderTimeSlot[]).filter(slot => {
+    if (slot === 'morning') return slotAvailability.morning
+    if (slot === 'afternoon') return slotAvailability.afternoon
+    return true
+  })
+  const formIsValid = form.customerName.trim() && liveBudget.length > 0 && form.pickupDate && !livePickupHoursError
+
+  function toggleExpanded(orderId: string) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+  }
+
+  function renderOrderCard(order: OrderRow) {
+    return (
+      <OrderCard
+        key={order.id}
+        order={order}
+        expanded={expandedIds.has(order.id)}
+        onToggleExpanded={() => toggleExpanded(order.id)}
+        isAdmin={isAdmin}
+        isNew={order.id === newOrderId}
+        onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
+        onCharge={openChargeModal}
+        onEdit={order.status === 'pending' ? () => openEdit(order) : undefined}
+        onCancel={order.status === 'delivered' ? undefined : () => { setRegisterRefund(true); setConfirmCancel(order) }}
+        onHardDelete={isAdmin && order.status === 'cancelled' ? () => setConfirmHardDelete(order) : undefined}
+        hours={hoursByStore.get(order.storeId) ?? null}
+        sortCtx={sortCtx}
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white overflow-hidden">
@@ -579,6 +734,21 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
             onChange={v => setStoreIdFilter(v)}
           />
         )}
+        {!search.trim() && (
+          <button
+            type="button"
+            onClick={() => setShowClosed(v => !v)}
+            aria-pressed={showClosed}
+            title={showClosed ? 'Volver a listos y pendientes' : 'Ver cobrados y cancelados'}
+            className={`text-xs px-2.5 py-1.5 rounded-lg border shrink-0 transition-colors ${
+              showClosed
+                ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
+                : 'border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800/50'
+            }`}
+          >
+            Entregados y cancelados
+          </button>
+        )}
         <button
           onClick={openCreate}
           className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold transition-colors shrink-0"
@@ -588,49 +758,68 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
       </header>
 
       {/* Filters */}
-      <div className="px-4 py-2 border-b border-zinc-800/60 shrink-0 space-y-2">
-        <div className="flex gap-2">
-          {(['active', 'all'] as const).map(s => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filterStatus === s ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800/60 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
-              }`}
-            >
-              {s === 'active' ? 'Activos' : 'Últimos 30 días'}
-            </button>
-          ))}
-        </div>
+      <div className="px-4 py-2 border-b border-zinc-800/60 shrink-0">
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por nombre, teléfono o descripción…"
+          placeholder="Buscar cliente, teléfono o producto (incluye entregados)"
           className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
         />
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
         {loading && <p className="text-zinc-500 text-sm text-center py-8 animate-pulse">Cargando pedidos…</p>}
         {error && <p className="text-red-400 text-sm text-center py-8">{error}</p>}
-        {!loading && !error && filteredOrders.length === 0 && (
-          <p className="text-zinc-500 text-sm text-center py-8">No hay pedidos.</p>
+        {!loading && !error && ordersView.mode === 'search' && (
+          ordersView.results.length === 0 ? (
+            <p className="text-zinc-500 text-sm text-center py-8">Ningún pedido coincide.</p>
+          ) : (
+            <section className="space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Resultados <span className="tabular-nums">({ordersView.results.length})</span>
+              </h2>
+              {ordersView.results.map(renderOrderCard)}
+            </section>
+          )
         )}
-        {filteredOrders.map(order => (
-          <OrderCard
-            key={order.id}
-            order={order}
-            isAdmin={isAdmin}
-            isNew={order.id === newOrderId}
-            onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
-            onCharge={openChargeModal}
-            onEdit={() => openEdit(order)}
-            onCancel={() => { setRegisterRefund(true); setConfirmCancel(order) }}
-            onHardDelete={isAdmin ? () => setConfirmHardDelete(order) : undefined}
-          />
-        ))}
+        {!loading && !error && ordersView.mode === 'closed' && (
+          <section className="space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Entregados y cancelados <span className="tabular-nums">({ordersView.results.length})</span>
+            </h2>
+            {ordersView.results.length === 0 ? (
+              <p className="text-xs text-zinc-600 px-1">No hay entregados ni cancelados.</p>
+            ) : (
+              ordersView.results.map(renderOrderCard)
+            )}
+          </section>
+        )}
+        {!loading && !error && ordersView.mode === 'grouped' && (
+          <>
+            <section className="space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Listos <span className="tabular-nums text-zinc-500">({ordersView.ready.length})</span>
+              </h2>
+              {ordersView.ready.length === 0 ? (
+                <p className="text-xs text-zinc-600 px-1">No hay pedidos listos.</p>
+              ) : (
+                ordersView.ready.map(renderOrderCard)
+              )}
+            </section>
+            <section className="space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Pendientes <span className="tabular-nums text-zinc-500">({ordersView.pending.length})</span>
+              </h2>
+              {ordersView.pending.length === 0 ? (
+                <p className="text-xs text-zinc-600 px-1">No hay pedidos pendientes.</p>
+              ) : (
+                ordersView.pending.map(renderOrderCard)
+              )}
+            </section>
+          </>
+        )}
       </div>
 
       {/* Create / Edit form modal */}
@@ -650,7 +839,21 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                 <Field label="Local *">
                   <select
                     value={form.storeId}
-                    onChange={e => setForm(f => ({ ...f, storeId: e.target.value }))}
+                    onChange={e => {
+                      const storeId = e.target.value
+                      setForm(f => {
+                        const store = availableStores.find(s => s.id === storeId)
+                        const available = pickupSlotAvailability(
+                          store ? storeHoursSourceFromRecord(store) : null,
+                          f.pickupDate,
+                        )
+                        const timeSlot = (f.timeSlot === 'afternoon' && !available.afternoon)
+                          || (f.timeSlot === 'morning' && !available.morning)
+                          ? ''
+                          : f.timeSlot
+                        return { ...f, storeId, timeSlot }
+                      })
+                    }}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
                   >
                     <option value="">— Seleccioná un local —</option>
@@ -695,66 +898,23 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                 />
               </Field>
 
-              <Field label="Descripción del pedido *">
-                <textarea
-                  value={form.items}
-                  onChange={e => setForm(f => ({ ...f, items: e.target.value }))}
-                  placeholder="Ej: 2 kg de asado, 1 pollo entero…"
-                  rows={3}
-                  maxLength={500}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 resize-none"
-                />
-              </Field>
-
-              <Field label="Fecha de retiro *">
-                <input
-                  type="date"
-                  value={form.pickupDate}
-                  min={todayDateStr()}
-                  onChange={e => setForm(f => ({ ...f, pickupDate: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                />
-              </Field>
-
-              {/* Horario de retiro */}
-              <div className="space-y-2">
-                <label className="text-xs text-zinc-400">Horario de retiro (opcional)</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['morning', 'afternoon', 'specific'] as OrderTimeSlot[]).map(slot => (
-                    <button
-                      key={slot}
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, timeSlot: f.timeSlot === slot ? '' : slot }))}
-                      className={`py-2 rounded-lg text-xs font-medium transition-colors border ${
-                        form.timeSlot === slot
-                          ? 'bg-emerald-600 border-emerald-500 text-white'
-                          : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-                      }`}
-                    >
-                      {TIME_SLOT_LABELS[slot]}
-                    </button>
-                  ))}
-                </div>
-                {form.timeSlot === 'specific' && (
-                  <input
-                    type="time"
-                    value={form.pickupTime}
-                    onChange={e => setForm(f => ({ ...f, pickupTime: e.target.value }))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  />
-                )}
-              </div>
-
-              {/* Presupuesto (carrito de productos) */}
+              {/* Productos del pedido (obligatorio) */}
               <div className="space-y-3 bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/60">
-                <p className="text-sm font-medium text-zinc-300">Presupuesto (opcional)</p>
-                <p className="text-[11px] text-zinc-500">Los productos y cantidades estimadas ayudan a preparar la venta en el POS.</p>
+                <p className="text-sm font-medium text-zinc-300">Productos *</p>
+                {editingOrder && form.budgetCart.length === 0 && form.items && (
+                  <p className="text-[11px] text-zinc-500 break-words" title={form.items}>
+                    Texto anterior: {form.items}
+                  </p>
+                )}
 
-                {/* Lista de líneas ya cargadas */}
                 {form.budgetCart.length > 0 && (
                   <div className="space-y-1.5">
-                    {form.budgetCart.map((line, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-zinc-700/40 rounded-lg px-3 py-1.5">
+                    {form.budgetCart.map((line, idx) => {
+                      const isLast = idx === form.budgetCart.length - 1
+                      const missingWeight = kgLineMissingWeight(line)
+                      return (
+                      <div key={idx} className="space-y-1">
+                      <div className="flex items-center gap-2 bg-zinc-700/40 rounded-lg px-3 py-1.5">
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-zinc-200 truncate" title={line.name}>{line.name}</p>
                           <p className="text-[10px] text-zinc-500">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
@@ -762,15 +922,22 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                         <div className="shrink-0 w-20">
                           {line.unit === 'kg' ? (
                             <DecimalInput
+                              ref={isLast ? lastQtyRef : undefined}
                               value={line.qtyRaw}
                               onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l) }))}
-                              placeholder="0,0"
+                              placeholder="kg"
                               maxDecimals={3}
                               weightMode
-                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                              title="Peso estimado"
+                              className={`w-full bg-zinc-800 rounded px-2 py-1 text-xs text-white text-right ${
+                                missingWeight
+                                  ? 'border border-orange-600/80'
+                                  : 'border border-zinc-600'
+                              }`}
                             />
                           ) : (
                             <NumericInput
+                              ref={isLast ? lastQtyRef : undefined}
                               value={line.qtyRaw}
                               onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l) }))}
                               placeholder="0"
@@ -779,6 +946,20 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                           )}
                         </div>
                         <span className="text-[10px] text-zinc-500 shrink-0 w-6">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                        {line.unit === 'kg' && (
+                          <>
+                            <div className="shrink-0 w-12">
+                              <NumericInput
+                                value={line.requestedUnitsRaw}
+                                onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, requestedUnitsRaw: v } : l) }))}
+                                placeholder=""
+                                title="Unidades pedidas (opcional). Vacío = pidió kilos."
+                                className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                              />
+                            </div>
+                            <span className="text-[10px] text-zinc-500 shrink-0" title="Unidades pedidas">u</span>
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() => setForm(f => ({ ...f, budgetCart: f.budgetCart.filter((_, i) => i !== idx) }))}
@@ -788,18 +969,24 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                           ×
                         </button>
                       </div>
-                    ))}
+                      {missingWeight && (
+                        <p className="text-[11px] text-orange-500/85 px-1">
+                          Sin kilos no hay precio estimado. Preguntá cuánto pueden pesar y cargalo en kg.
+                        </p>
+                      )}
+                      </div>
+                      )
+                    })}
                   </div>
                 )}
 
-                {/* Typeahead para agregar productos */}
                 <div className="relative">
                   <input
                     ref={budgetSearchRef}
                     type="text"
                     value={budgetSearch}
                     onChange={e => setBudgetSearch(e.target.value)}
-                    placeholder="Buscar producto para agregar…"
+                    placeholder="Buscar producto…"
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                   />
                   {budgetSuggestions.length > 0 && (
@@ -819,11 +1006,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                                 estimatedQty: 1,
                                 unitPrice: p.price ?? 0,
                                 qtyRaw: '',
+                                requestedUnitsRaw: '',
                               }],
                             }))
                             setBudgetSearch('')
                             setBudgetSuggestions([])
-                            budgetSearchRef.current?.focus()
                           }}
                           className="w-full text-left px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700/80 flex items-center gap-2"
                         >
@@ -834,6 +1021,86 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                     </div>
                   )}
                 </div>
+
+                {liveEstimate > 0 && (
+                  <div className="flex items-center justify-between pt-1 border-t border-zinc-700/50">
+                    <span className="text-xs text-zinc-400">Total estimado</span>
+                    <span className="text-sm font-semibold text-zinc-100 tabular-nums">{formatARS(liveEstimate)}</span>
+                  </div>
+                )}
+              </div>
+
+              <Field label="Notas">
+                <textarea
+                  value={form.notes}
+                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Observaciones del pedido…"
+                  rows={2}
+                  maxLength={300}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 resize-none"
+                />
+              </Field>
+
+              <Field label="Fecha de retiro *">
+                <input
+                  type="date"
+                  value={form.pickupDate}
+                  min={todayDateStr()}
+                  onChange={e => {
+                    const pickupDate = e.target.value
+                    setForm(f => {
+                      const available = pickupSlotAvailability(hoursSourceForForm(), pickupDate)
+                      const timeSlot = (f.timeSlot === 'afternoon' && !available.afternoon)
+                        || (f.timeSlot === 'morning' && !available.morning)
+                        ? ''
+                        : f.timeSlot
+                      return { ...f, pickupDate, timeSlot }
+                    })
+                  }}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                />
+              </Field>
+
+              {/* Horario de retiro */}
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-400">Horario de retiro (opcional)</label>
+                <div className={`grid gap-2 ${pickupSlotOptions.length === 3 ? 'grid-cols-3' : pickupSlotOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {pickupSlotOptions.map(slot => (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, timeSlot: f.timeSlot === slot ? '' : slot }))}
+                      className={`py-2 rounded-lg text-xs font-medium transition-colors border ${
+                        form.timeSlot === slot
+                          ? 'bg-emerald-600 border-emerald-500 text-white'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                      }`}
+                    >
+                      {TIME_SLOT_LABELS[slot]}
+                    </button>
+                  ))}
+                </div>
+                {form.timeSlot === 'specific' && (
+                  <>
+                    <p className="text-xs text-amber-400/90 leading-snug">{PICKUP_SPECIFIC_HINT}</p>
+                    <input
+                      type="time"
+                      value={form.pickupTime}
+                      onChange={e => {
+                        setFormError(null)
+                        setForm(f => ({ ...f, pickupTime: e.target.value }))
+                      }}
+                      className={`w-full bg-zinc-800 border rounded-lg px-3 py-2 text-white focus:outline-none ${
+                        livePickupHoursError
+                          ? 'border-red-500 focus:border-red-400'
+                          : 'border-zinc-700 focus:border-emerald-500'
+                      }`}
+                    />
+                    {livePickupHoursError && (
+                      <p className="text-sm text-red-400">{livePickupHoursError}</p>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* Seña multi-método */}
@@ -858,17 +1125,6 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                   ))}
                 </div>
               </div>
-
-              <Field label="Notas (opcional)">
-                <textarea
-                  value={form.notes}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Observaciones del pedido…"
-                  rows={2}
-                  maxLength={300}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 resize-none"
-                />
-              </Field>
 
               {formError && <p className="text-red-400 text-sm">{formError}</p>}
 
@@ -913,7 +1169,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
             <div className="px-5 py-4 space-y-3">
               {chargeCartLines.length > 0 ? (
                 <>
-                  <p className="text-xs text-zinc-400">Ingresá las cantidades reales. Podés quitar líneas antes de ir al POS.</p>
+                  <p className="text-xs text-zinc-400">Ingresá las cantidades reales. Podés quitar productos antes de cobrar.</p>
                   <div className="space-y-2">
                     {chargeCartLines.map((line, idx) => (
                       <div key={idx} className="flex items-center gap-2 bg-zinc-700/50 rounded-lg px-3 py-2">
@@ -925,14 +1181,22 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                         />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-zinc-200 truncate" title={line.name}>{line.name}</p>
-                          <p className="text-[10px] text-zinc-500">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                          <p className="text-[10px] text-zinc-500">
+                            {formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}
+                            {line.requestedUnits != null && line.requestedUnits > 0 && (
+                              <> · {line.requestedUnits} u</>
+                            )}
+                            {line.estimatedQty > 0 && line.unit === 'kg' && (
+                              <> · est. {formatKgQty(line.estimatedQty)}</>
+                            )}
+                          </p>
                         </div>
                         <div className="shrink-0 w-24">
                           {line.unit === 'kg' ? (
                             <DecimalInput
                               value={line.qtyRaw}
                               onChange={v => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l))}
-                              placeholder={String(line.estimatedQty).replace('.', ',')}
+                              placeholder={line.estimatedQty > 0 ? formatKgQty(line.estimatedQty).replace(' kg', '') : ''}
                               maxDecimals={3}
                               weightMode
                               className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
@@ -975,7 +1239,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
                   onClick={handleConfirmCharge}
                   className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold"
                 >
-                  {onInjectOrderCart ? 'Ir al POS →' : 'Marcar entregado'}
+                  {onInjectOrderCart ? 'Confirmar' : 'Marcar entregado'}
                 </button>
               </div>
             </div>
@@ -1097,7 +1361,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
       {/* Modal de eliminación permanente (solo admin) */}
       {confirmHardDelete && (
         <ConfirmModal
-          title="¿Eliminar pedido permanentemente?"
+          title="¿Eliminar este pedido cancelado?"
           message={
             <>
               Se eliminará el registro completo del pedido de{' '}
@@ -1119,23 +1383,65 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, onInject
 // Componentes internos
 // ---------------------------------------------------------------------------
 
+function ProductQtyTable({ lines, showPrice = false }: { lines: BudgetCartLine[]; showPrice?: boolean }) {
+  return (
+    <table className="w-auto max-w-full border-collapse text-sm">
+      <tbody>
+        {lines.map((line, i) => {
+          const hint = formatOrderQtyHint(line)
+          return (
+            <tr key={i}>
+              <td
+                className="border border-zinc-600/80 px-2.5 py-1 text-zinc-200 max-w-[11rem] truncate"
+                title={line.name}
+              >
+                {line.name}
+              </td>
+              <td className="border border-zinc-600/80 px-2.5 py-1 text-right whitespace-nowrap">
+                <span className="tabular-nums text-zinc-100">{formatOrderQty(line)}</span>
+                {hint && <span className="ml-1.5 text-[11px] text-zinc-500">{hint}</span>}
+              </td>
+              {showPrice && (
+                <td className="border border-zinc-600/80 px-2.5 py-1 text-right text-zinc-500 tabular-nums whitespace-nowrap">
+                  {formatARS(line.unitPrice)}/{line.unit === 'kg' ? 'kg' : 'u'}
+                </td>
+              )}
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 interface OrderCardProps {
   order: OrderRow
+  expanded: boolean
+  onToggleExpanded: () => void
   isAdmin: boolean
   isNew?: boolean
   onRequestStatusChange: (order: OrderRow, status: OrderStatus) => void
   onCharge: (order: OrderRow) => void
-  onEdit: () => void
-  onCancel: () => void
+  onEdit?: () => void
+  onCancel?: () => void
   onHardDelete?: () => void
+  hours?: StoreHoursSource | null
+  sortCtx?: OrderSortContext
 }
 
-function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCharge, onEdit, onCancel, onHardDelete }: OrderCardProps) {
-  const [expanded, setExpanded] = useState(false)
+function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, onRequestStatusChange, onCharge, onEdit, onCancel, onHardDelete, hours, sortCtx }: OrderCardProps) {
 
   const today = isToday(order.pickupDate)
   const tomorrow = isTomorrow(order.pickupDate)
   const overdue = isOverdue(order.pickupDate, order.status)
+  const dueSoon = isPickupDueSoon({
+    pickupDate: order.pickupDate,
+    pickupTime: order.pickupTime,
+    todayYmd: sortCtx?.todayYmd ?? todayDateStr(),
+    nowMinutes: sortCtx?.nowMinutes ?? clockMinutes(),
+  })
+  const dayHours = hours ? hoursForDate(hours, order.pickupDate) : null
+  const outsideHours = isPickupOutsideHoursOnDate(order, hours)
 
   const depositPayments: DepositPayment[] = paymentsForOrder(order)
 
@@ -1145,9 +1451,17 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCha
 
   function timeSlotLabel(): string | null {
     if (!order.timeSlot) return null
-    if (order.timeSlot === 'specific' && order.pickupTime) return order.pickupTime
+    if (order.timeSlot === 'specific' && order.pickupTime) {
+      const check = dayHours ? checkPickupTime(order.pickupTime, dayHours) : null
+      if (check?.window === 'morning') return `Turno mañana · ${order.pickupTime}`
+      if (check?.window === 'afternoon') return `Turno tarde · ${order.pickupTime}`
+      return order.pickupTime
+    }
     return TIME_SLOT_LABELS[order.timeSlot]
   }
+
+  const estimate = estimatedBudgetTotal(order.budgetItems ?? [])
+  const productLines = order.budgetItems && order.budgetItems.length > 0 ? order.budgetItems : null
 
   return (
     <div
@@ -1166,138 +1480,161 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCha
           : 'border-zinc-700 bg-zinc-800'
       }`}
     >
-      {/* Row principal */}
       <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer"
-        onClick={() => setExpanded(e => !e)}
+        className="flex items-start gap-4 px-5 py-4 cursor-pointer"
+        onClick={onToggleExpanded}
       >
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             {order.priority && (
-              <span className="text-[10px] text-zinc-500" title="Prioritario">⚡</span>
+              <span className="text-xs text-zinc-500" title="Prioritario">⚡</span>
             )}
-            <span className="font-medium text-white truncate max-w-[200px]" title={order.customerName}>
+            <span className="text-base font-semibold text-white truncate" title={order.customerName}>
               {order.customerName}
             </span>
-            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_COLORS[order.status]}`}>
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_COLORS[order.status]}`}>
               {STATUS_LABELS[order.status]}
             </span>
             {overdue && order.status !== 'cancelled' && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-950/60 text-red-400/80 border border-red-900/40">Vencido</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-950/60 text-red-400/80 border border-red-900/40">Vencido</span>
             )}
             {!overdue && today && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">Hoy</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">Hoy</span>
             )}
             {!overdue && tomorrow && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-800/60 text-zinc-400 border border-zinc-700/50">Mañana</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-zinc-800/60 text-zinc-400 border border-zinc-700/50">Mañana</span>
+            )}
+            {dueSoon && (order.status === 'pending' || order.status === 'ready') && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-950/60 text-orange-300 border border-orange-900/40">Retiro próximo</span>
+            )}
+            {outsideHours && (order.status === 'pending' || order.status === 'ready') && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-950/60 text-red-300 border border-red-900/40" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
             )}
           </div>
-          <p className="text-xs text-zinc-400 mt-0.5 truncate" title={order.items}>
-            {order.items}
-          </p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="text-xs text-zinc-400">{formattedDate}</p>
-          {timeSlotLabel() && <p className="text-[10px] text-zinc-500">{timeSlotLabel()}</p>}
-          {order.depositAmount > 0 && (
-            <p className="text-xs text-zinc-400">{formatARS(order.depositAmount)} seña</p>
+          {productLines ? (
+            <div className="mt-2">
+              <ProductQtyTable lines={productLines} />
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-400 mt-1.5 truncate" title={order.items}>
+              {order.items}
+            </p>
           )}
         </div>
-        <span className="text-zinc-600 shrink-0">{expanded ? '▲' : '▼'}</span>
+        <div className="shrink-0 text-right w-36">
+          <p className="text-sm text-zinc-300">{formattedDate}</p>
+          {timeSlotLabel() && <p className="text-xs text-zinc-500 mt-0.5">{timeSlotLabel()}</p>}
+          {estimate > 0 && (
+            <p className="text-sm font-semibold text-zinc-100 tabular-nums mt-2">{formatARS(estimate)}</p>
+          )}
+          {order.depositAmount > 0 && (
+            <p className="text-xs text-blue-300/90 mt-0.5">{formatARS(order.depositAmount)} seña</p>
+          )}
+        </div>
+        <span className="text-zinc-500 shrink-0 mt-1">{expanded ? '▲' : '▼'}</span>
       </div>
 
-      {/* Detalle expandido */}
       {expanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-zinc-800/60 pt-3">
-          {order.phone && (
-            <p className="text-xs text-zinc-400">Tel: <span className="text-zinc-200">{order.phone}</span></p>
-          )}
-          {order.notes && (
-            <p className="text-xs text-zinc-400 break-words">
-              Notas: <span className="text-zinc-200">{order.notes}</span>
-            </p>
-          )}
-          {order.updatedBy && (
-            <p className="text-[10px] text-zinc-600">
-              Última modificación: {order.updatedBy}
-            </p>
-          )}
-          {order.readyByName && order.readyAt && (
-            <p className="text-[10px] text-emerald-600">
-              ✓ Listo por <span className="font-medium">{order.readyByName}</span>
-              {' '}· {new Date(order.readyAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-          )}
-          {depositPayments.length > 0 && (
-            <div className="text-xs text-zinc-400 space-y-0.5">
-              <p className="font-medium text-zinc-300">Seña: {formatARS(order.depositAmount)}</p>
-              {depositPayments.map(p => (
-                <p key={p.method}>{DEPOSIT_METHOD_LABELS[p.method]}: {formatARS(p.amount)}</p>
-              ))}
+        <div className="px-5 pb-4 space-y-4 border-t border-zinc-800/60 pt-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2 min-w-0">
+              {order.phone && (
+                <p className="text-sm text-zinc-400">Tel: <span className="text-zinc-200">{order.phone}</span></p>
+              )}
+              {order.notes && (
+                <p className="text-sm text-zinc-400 break-words">
+                  Notas: <span className="text-zinc-200">{order.notes}</span>
+                </p>
+              )}
+              {order.createdBy && (
+                <p className="text-xs text-zinc-500">
+                  Registrado por <span className="text-zinc-300">{order.createdBy}</span>
+                  {order.createdAt ? ` · ${toLocalDateTime(order.createdAt)}` : ''}
+                </p>
+              )}
+              {order.readyByName && order.readyAt && (
+                <p className="text-xs text-emerald-500">
+                  Listo por <span className="font-medium">{order.readyByName}</span>
+                  {' · '}{toLocalDateTime(order.readyAt)}
+                </p>
+              )}
+              {order.status === 'delivered' && (order.updatedBy || order.updatedAt) && (
+                <p className="text-xs text-emerald-400/90">
+                  Cobrado por <span className="font-medium">{order.updatedBy ?? '—'}</span>
+                  {order.updatedAt ? ` · ${toLocalDateTime(order.updatedAt)}` : ''}
+                </p>
+              )}
+              {order.status !== 'delivered' && order.updatedBy && (
+                <p className="text-xs text-zinc-600">
+                  Última modificación: {order.updatedBy}
+                </p>
+              )}
             </div>
-          )}
-          {order.budgetItems && order.budgetItems.length > 0 && (
-            <div className="text-xs text-zinc-500 space-y-0.5">
-              <p className="font-medium text-zinc-400">Presupuesto:</p>
-              {order.budgetItems.map((line, i) => (
-                <p key={i}>{line.name}: {line.unit === 'kg' ? `${line.estimatedQty} kg` : `${Math.round(line.estimatedQty)} u`} · {formatARS(line.unitPrice)}/{line.unit === 'kg' ? 'kg' : 'u'}</p>
-              ))}
+            <div className="space-y-2 min-w-0">
+              {estimate > 0 && (
+                <p className="text-sm text-zinc-300">
+                  Total estimado: <span className="font-semibold text-zinc-100 tabular-nums">{formatARS(estimate)}</span>
+                </p>
+              )}
+              {depositPayments.length > 0 && (
+                <div className="text-sm text-zinc-400 space-y-0.5">
+                  <p className="font-medium text-zinc-300">Seña: {formatARS(order.depositAmount)}</p>
+                  {depositPayments.map(p => (
+                    <p key={p.method}>{DEPOSIT_METHOD_LABELS[p.method]}: {formatARS(p.amount)}</p>
+                  ))}
+                </div>
+              )}
             </div>
+          </div>
+
+          {productLines && (
+            <ProductQtyTable lines={productLines} showPrice />
           )}
 
-          {/* Acciones de estado — con doble confirmación */}
-          {order.status !== 'cancelled' && (
+          {(order.status === 'pending' || order.status === 'ready') && (
             <div className="flex flex-wrap gap-2">
               {order.status === 'pending' && (
                 <button
                   onClick={() => onRequestStatusChange(order, 'ready')}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-medium text-emerald-300 transition-colors"
+                  className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium text-emerald-300 transition-colors"
                 >
                   ✓ Listo
                 </button>
               )}
-              {(order.status === 'pending' || order.status === 'ready') && (
-                <button
-                  onClick={() => onCharge(order)}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-xs font-semibold transition-colors"
-                >
-                  Cobrar
-                </button>
-              )}
-              {(order.status === 'ready' || order.status === 'delivered') && (
+              <button
+                onClick={() => onCharge(order)}
+                className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-sm font-semibold transition-colors"
+              >
+                Cobrar
+              </button>
+              {order.status === 'ready' && (
                 <button
                   onClick={() => onRequestStatusChange(order, 'pending')}
-                  className="px-3 py-1.5 rounded-lg bg-amber-800/60 hover:bg-amber-700 text-xs font-medium text-amber-200 transition-colors"
+                  className="px-4 py-2 rounded-lg bg-amber-800/60 hover:bg-amber-700 text-sm font-medium text-amber-200 transition-colors"
                   title="Revertir a pendiente"
                 >
-                  ↩ Deshacer
+                  Deshacer
                 </button>
               )}
             </div>
           )}
 
-          {/* Acciones de edición/cancelación — cajera y admin */}
-          {order.status !== 'cancelled' && (
+          {(order.status === 'pending' || order.status === 'ready') && (
             <div className="flex gap-2 pt-1 border-t border-zinc-800/40">
-              <button
-                onClick={onEdit}
-                className="px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs font-medium transition-colors"
-              >
-                Editar
-              </button>
-              <button
-                onClick={onCancel}
-                className="px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-800 text-xs font-medium text-red-300 transition-colors"
-              >
-                Cancelar pedido
-              </button>
-              {isAdmin && onHardDelete && (
+              {onEdit && (
                 <button
-                  onClick={onHardDelete}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-red-950 text-xs font-medium text-zinc-500 hover:text-red-400 transition-colors"
-                  title="Eliminar permanentemente"
+                  onClick={onEdit}
+                  className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium transition-colors"
                 >
-                  🗑 Eliminar
+                  Editar
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  onClick={onCancel}
+                  className="px-4 py-2 rounded-lg bg-red-900/60 hover:bg-red-800 text-sm font-medium text-red-300 transition-colors"
+                >
+                  Cancelar pedido
                 </button>
               )}
             </div>
@@ -1306,7 +1643,7 @@ function OrderCard({ order, isAdmin, isNew = false, onRequestStatusChange, onCha
             <div className="pt-1 border-t border-zinc-800/40">
               <button
                 onClick={onHardDelete}
-                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-red-950 text-xs font-medium text-zinc-500 hover:text-red-400 transition-colors"
+                className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-red-950 text-sm font-medium text-zinc-500 hover:text-red-400 transition-colors"
                 title="Eliminar permanentemente"
               >
                 🗑 Eliminar permanentemente

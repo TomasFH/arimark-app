@@ -12,6 +12,7 @@ import {
   formatPickupSlotLine,
   type MobileOrderDraft,
 } from '../lib/orderMapping'
+import type { StoreHoursSource } from '@carniceria/shared'
 
 function draft(overrides: Partial<MobileOrderDraft> = {}): MobileOrderDraft {
   return {
@@ -58,6 +59,17 @@ describe('formatPickupSlotLine', () => {
     expect(formatPickupSlotLine('afternoon', null)).toBe('Turno tarde')
     expect(formatPickupSlotLine('specific', '18:30')).toBe('18:30')
     expect(formatPickupSlotLine(null, null)).toBe(null)
+  })
+
+  it('si hay horarios del local, el específico dice el turno', () => {
+    const hours = {
+      morningStart: '08:00',
+      morningEnd: '14:00',
+      afternoonStart: '16:00',
+      afternoonEnd: '20:30',
+    }
+    expect(formatPickupSlotLine('specific', '11:00', hours)).toBe('Turno mañana · 11:00')
+    expect(formatPickupSlotLine('specific', '17:00', hours)).toBe('Turno tarde · 17:00')
   })
 })
 
@@ -117,6 +129,45 @@ describe('validateMobileOrderDraft / toMobileOrderRecord', () => {
   it('exige horario si el slot es específico', () => {
     expect(validateMobileOrderDraft(draft({ timeSlot: 'specific', pickupTime: '' }))).toMatch(/horario/i)
     expect(validateMobileOrderDraft(draft({ timeSlot: 'specific', pickupTime: '18:30' }))).toBe(null)
+  })
+
+  it('rechaza un horario específico con el local cerrado cuando hay franjas', () => {
+    const hours = {
+      morningStart: '08:00',
+      morningEnd: '14:00',
+      afternoonStart: '16:00',
+      afternoonEnd: '20:30',
+    }
+    expect(validateMobileOrderDraft(draft({ timeSlot: 'specific', pickupTime: '15:00' }), hours)).toMatch(/cerrado/i)
+    expect(validateMobileOrderDraft(draft({ timeSlot: 'specific', pickupTime: '11:00' }), hours)).toBe(null)
+  })
+
+  it('rechaza turno tarde un domingo que solo abre de mañana', () => {
+    const hours: StoreHoursSource = {
+      morningStart: '08:00',
+      morningEnd: '14:00',
+      afternoonStart: '16:00',
+      afternoonEnd: '20:30',
+      hoursSchedule: [
+        {
+          days: [1, 2, 3, 4, 5, 6],
+          morningStart: '08:00',
+          morningEnd: '14:00',
+          afternoonStart: '16:00',
+          afternoonEnd: '20:30',
+        },
+        {
+          days: [0],
+          morningStart: '08:00',
+          morningEnd: '14:00',
+          afternoonStart: null,
+          afternoonEnd: null,
+        },
+      ],
+    }
+    expect(validateMobileOrderDraft(draft({ pickupDate: '2026-09-06', timeSlot: 'afternoon' }), hours)).toMatch(/tarde/)
+    expect(validateMobileOrderDraft(draft({ pickupDate: '2026-09-07', timeSlot: 'afternoon' }), hours)).toBe(null)
+    expect(validateMobileOrderDraft(draft({ pickupDate: '2026-09-06', timeSlot: 'morning' }), hours)).toBe(null)
   })
 
   it('el payload de Firestore siempre lleva createdBy y seña serializada', () => {

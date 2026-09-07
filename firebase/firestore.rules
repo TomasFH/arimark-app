@@ -145,6 +145,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Checkpoint de saldo por proveedor+local (DT-07). No se borra; se pisa con merge.
+    match /licenses/{licenseKey}/providerDebtCheckpoints/{checkpointId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
     // -----------------------------------------------------------------------
     // Turnos operativos (sync PC → Firestore, lectura admin remota — TASKS_V1 B1).
     // Path: licenses/{key}/shifts/{shiftId}
@@ -216,6 +222,23 @@ service cloud.firestore {
     }
 
     match /licenses/{licenseKey}/customerDebtEvents/{id} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /licenses/{licenseKey}/customerDebtCheckpoints/{checkpointId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // Cola de pares con actividad real (worklist del job de checkpoint).
+    match /licenses/{licenseKey}/debtCheckpointTails/{tailId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // Lease del job de compactación (un doc: debtCheckpointJob). Solo PCs.
+    match /licenses/{licenseKey}/ops/{docId} {
       allow read, create, update: if request.auth != null;
       allow delete: if false;
     }

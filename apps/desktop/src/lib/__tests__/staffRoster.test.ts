@@ -39,6 +39,15 @@ describe('buildStaffRoster', () => {
     expect(roster.cashiers[0]?.weeklyWage).toBe(0)
     expect(roster.butchers).toHaveLength(1)
     expect(roster.butchers[0]?.employeeId).toBe('e1')
+    expect(roster.butchers[0]?.firebaseUid).toBeNull()
+  })
+
+  it('propaga firebaseUid del carnicero con acceso celular', () => {
+    const roster = buildStaffRoster(
+      [],
+      [{ id: 'e1', name: 'Pedro', weeklyWage: 1, active: true, kind: 'butcher', firebaseUid: 'uid-1' }],
+    )
+    expect(roster.butchers[0]?.firebaseUid).toBe('uid-1')
   })
 
   it('trata kind ausente como carnicero', () => {

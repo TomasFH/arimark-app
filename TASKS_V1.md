@@ -371,7 +371,7 @@ El merge por ítem ya existía (`catalogSync.ts`). Se agregó el **listener en v
 - Cajera: crear ficha, editar nombre/PLU/categoría/unidad, precio, “quitar/mostrar” **solo su local**, y **Cargar en balanza**. Retiro global / versiones = solo admin (hub).
 - Auditoría SQLite `catalog_audit_events` (migración `0035`).
 
-**No se hizo (sigue vigente):** edición de catálogo en el celu; FEAT-CAT-03 backup masivo; sync automático a la KRETZ; Blaze; DT-07/DT-08.
+**No se hizo (sigue vigente):** edición de catálogo en el celu; FEAT-CAT-03 backup masivo; sync automático a la KRETZ; Blaze. **DT-07/DT-08:** código 2026-09-04; ver `docs/FIRESTORE_DT07_DT08.md` (producción: índices + backfill + deploy).
 
 **Spark (medir en jornada real, no en un domingo de pruebas):**
 1. Firebase Console → proyecto `arimark-7f418` → Usage / Firestore Usage.
@@ -409,7 +409,50 @@ Para maximizar valor entregable en orden:
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
 7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
-8. **Siguiente (cuando el desarrollador lo pida):** `FEAT-ORDER-CART-01` (Tanda 3), DT-02 (login offline PC), DT-04 (local por defecto). **No codear hasta que se pida:** `PLAN.md` **DT-07** y **DT-08**. Fase 8 Stock sigue bloqueada. **BLOQUE I checklist cerrada 2026-09-02.**
+8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`; falta backfill `--apply` + deploy índices/reglas). **Pendiente v1.0 (no codear hasta que se pida):** `FEAT-CASH-HANDOVER-01` (cambio/billetes entre turnos, PC + celu). **`FEAT-AUTH-PASSWORD-01`** (cambio de contraseña por el usuario + plantilla de mail en español). **Después, cuando el desarrollador lo pida:** DT-02 (login offline PC), DT-03 (retomar turno propio). Fase 8 Stock sigue bloqueada. **BLOQUE I checklist cerrada 2026-09-02.**
+
+---
+
+## BLOQUE K — Carnicero móvil + carrito de pedidos (PC) ✅ HECHA (2026-09-02; UI acceso celular en StaffScreen 2026-09-04)
+
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-BUTCHER-01** + **FEAT-ORDER-CART-01**.
+> Pedidos PC testeado 2026-09-04. Carnicero celu: pendiente de testeo (`CHECKLIST_TESTEO_CARNICERO.md` B–D).
+
+**Qué se hizo:**
+
+Track B (PC):
+- `orders` tabla: columnas `readyAt`, `readyBy`, `readyByName` (auditoría de Listo) y `budgetItems` (JSON del carrito de presupuesto). Migración `0036_orders_ready_budget.sql`.
+- `OrdersScreen.tsx`: carrito de presupuesto con typeahead, kg/u estimados, total en vivo. Botón **Listo** de vuelta con nombre del que marcó.
+- Cobrar → inyecta el carrito en el POS (no venta ficticia). Seña descontada como crédito.
+
+Track A (empleados / auth):
+- `employees` tabla: columna `firebaseUid` (nullable, unique). Migración `0037_employees_firebase_uid.sql`.
+- Desktop **Empleados** (`StaffScreen`): "Dar acceso al celular" (email obligatorio) / "Revocar acceso" en la ficha. IPC `GRANT_BUTCHER_ACCESS` + `REVOKE_BUTCHER_ACCESS`. (`EmployeesScreen` no está en el menú.)
+- `session.ts`: rechaza login desktop de carnicero con mensaje claro.
+- Helper `tenantAuth.ts` compartido entre cajeras y carniceros.
+
+Shell móvil carnicero:
+- `ButcherApp.tsx`: selector de local (persiste, cambia libremente), pedidos pendientes del local agrupados por día/turno, botón **Listo** solo con red.
+- "Mi semana": sueldo + vales + neto de la semana en curso. Sin historial.
+- `butcherOrders.ts` + `butcherPayroll.ts`: queries Firestore filtradas (no baja colecciones enteras).
+- `auth.ts` + `LocalProfile`: acepta rol `butcher` + `employeeId`.
+- `App.tsx`: rutea `butcher` a `ButcherApp`.
+
+---
+
+## BLOQUE L — Entrega del cambio (billetes) entre turnos ⏳ PENDIENTE v1.0
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CASH-HANDOVER-01**. Acordado 2026-09-07. **No codear hasta que el desarrollador lo pida.**
+
+El cierre ya cuenta billetes y suma; la apertura no muestra ese “cambio”. La hoja del día cubre el relevo. Hay que: precargar la grilla al abrir, permitir corregir **sin tocar** el cierre anterior, guardar las dos versiones para auditoría, conteo obligatorio en producción (cero solo con modal), y el mismo flujo en **PC y celu** (el desglose tiene que ir a Firestore; hoy es solo SQLite).
+
+---
+
+## BLOQUE M — Contraseña del usuario + mail en español ⏳ PENDIENTE v1.0
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-AUTH-PASSWORD-01**. Acordado 2026-09-07. **No codear hasta que el desarrollador lo pida.**
+
+Cada usuario cambia o restablece su clave (login “olvidé contraseña” y cambio ya logueado). El admin no lo hace por ellos. Plantilla del mail de Firebase en español; el remitente Spark sigue siendo el de Firebase.
 
 ---
 

@@ -8,14 +8,14 @@ Convención: `[ ]` pendiente · `[x]` OK · `[!]` bug nuevo.
 
 - Parte 3 (desktop sync) **cerrada**. 3.5 offline **salteada** a propósito.
 - **4.1** hub admin móvil: **OK** (2026-08-17). Queda diferido el ↻ “recargar lo justo” (UX-MOB-REFRESH-01).
-- **4.2 Pedidos** y **4.2 Fiados:** último comentario = “bien” / “en general parece bien” → se dan por OK. (Pedidos: Cobrar se re-diseña; no re-probar el flujo viejo de “resto a mano”. Ver Tanda 3.)
+- **4.2 Pedidos** y **4.2 Fiados:** último comentario = “bien” / “en general parece bien” → se dan por OK. Pedidos con carrito: cerrado 2026-09-04 (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`).
 - **4.2 Proveedores:** testeo 2026-08-20 **cerrado** (ajustes de UX aplicados después: re-probar al retomar).
 - **4.2 Clientes especiales:** testeo **2026-08-24 cerrado**.
 - **4.2 Carniceros / Cajeras (Personal):** testeo **2026-08-24 cerrado**.
 - **4.2 Locales:** testeo **2026-08-24 cerrado** (eliminar en PC persiste al reentrar).
 - **4.2 Historial (móvil):** testeo **2026-08-24 cerrado**.
 - **4.3** limitaciones esperadas: testeo **2026-08-24 cerrado**. Catálogo en celu = post 1.0. Liquidación semanal **con pago en PC** (2026-08-25). **Parte 5** POS base testeo 2026-08-25 cerrado; pack emergencia codeado 2026-08-28. **Parte 6** testeo **2026-08-25 cerrado**. **Parte 7** paleta (Tanda 9) **cerrada 2026-08-28**; header de productos diferido (diseño).
-- La **ola 2026-08-18** A.1–A.6 **re-testeada y aprobada 2026-08-27**. Tandas 1–2 y 4–6 OK. **Tanda 8 y 9 cerradas 2026-08-28.** Tanda 7: proveedores OK; **cierre de caja** — diálogo “¿cerrar?” + **resumen post-cierre** (re-probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md`). Tanda 3 = rework no codeado (`FEAT-ORDER-CART-01`).
+- La **ola 2026-08-18** A.1–A.6 **re-testeada y aprobada 2026-08-27**. Tandas 1–2 y 4–6 OK. **Tanda 8 y 9 cerradas 2026-08-28.** Tanda 7: proveedores OK; **cierre de caja** — diálogo “¿cerrar?” + **resumen post-cierre** (re-probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md`). **Tanda 3 (carrito de pedidos) codeada 2026-09-02 y Pedidos PC cerrado 2026-09-04** (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Carnicero celu: `CHECKLIST_TESTEO_CARNICERO.md`.
 - **Ola de checklist 2026-08-28 cerrada.** Lo que queda abierto es diseño, deudas documentadas o se re-testea con las implementaciones que vienen.
 
 **Orden práctico:** I (humo) → II (lo que no llegaste a probar de móvil/sync) → III (ola 18, desktop) → IV (tandas, código nuevo). Si un ítem dice “también Tanda N”, al pasarlo en la tanda podés tacharlo en II/III.
@@ -205,30 +205,9 @@ Re-probar cada tanda una vez (misma pantalla junta).
 
 ### Tanda 3 — Pedidos (Cobrar)
 
-**Rework pendiente de codear** (diseño cerrado 2026-08-27; no está en la app todavía). El Cobrar de hoy **no** es este flujo: `items` es texto libre y pide el resto a mano.
+**Hecho 2026-09-02. Pedidos PC cerrado 2026-09-04.** No re-probar acá: [`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`](CHECKLIST_TESTEO_PEDIDOS_LISTA.md). Carnicero celu: [`CHECKLIST_TESTEO_CARNICERO.md`](CHECKLIST_TESTEO_CARNICERO.md).
 
-**Diseño acordado:**
-
-- Al crear: descripción **y** carrito de **presupuesto** (producto + kg/u. aproximados; total estimado en vivo). Esos kg **no** son la venta.
-- Al retirar (cajera, turno abierto): **modal** para tipear kg/u. reales (campos vacíos + placeholder del estimado; se pueden sacar líneas). Sin escaneo en ese modal.
-- Al confirmar el modal: el **POS** queda con el carrito armado (precio de **lista al retirar**, total, seña descontada). Se pueden agregar más ítems (escaneo / Manual) como una venta normal.
-- Siempre hay **venta** con los kilos reales. Si la seña cubre el total → $0 a cobrar ahora (la seña ya entró al crear el pedido).
-- Seña de más (sacó productos y el total quedó bajo la seña): **no** se devuelve sola. La seña reserva; si no se lleva, se queda. Caso excepcional (merma, culpa del local): la cajera registra un **Gasto** de devolución a mano. No hace falta un flujo extra en Cobrar.
-- Cancelar el carrito del pedido: sin venta; el pedido sigue pendiente.
-- **Solo PC.** Celu después.
-- Precio al cobrar = lista al momento del retiro.
-
-Cuando esté en la app, probar en PC (cajera, turno abierto):
-
-- [ ] Crear pedido: nombre/teléfono/fecha/seña **y** un **carrito de presupuesto** (producto + kg o unidades aproximados). El total estimado se actualiza en vivo. La descripción libre sigue como nota.
-- [ ] Los kg/unidades del presupuesto **no** se usan como cantidad de la venta (solo placeholder).
-- [ ] Card → Cobrar → **modal**: líneas precargadas, cantidades vacías, placeholder del estimado; se puede sacar un producto. Sin escaneo en el modal.
-- [ ] Confirmar el modal → POS con carrito, precios de lista y total. En **Total de la venta** se descuenta la seña. Se pueden agregar ítems extra (escaneo / Manual).
-- [ ] **Cancelar el carrito del pedido**: no hay venta; el pedido sigue pendiente.
-- [ ] Seña cubre el total → venta igual (kilos reales), $0 a cobrar ahora, pedido entregado.
-- [ ] Seña de más (sacó productos): **no** pide devolución. La diferencia se queda. Si el local decide devolver: **Gasto** a mano.
-- [ ] Sin turno abierto y hay resto a cobrar → mensaje de abrir turno. No se cobra de nuevo un pedido ya entregado.
-- [ ] Ya **no** se ve “Marcar listo” (desktop).
+- [x] Crear pedido con carrito de presupuesto; Cobrar inyecta el POS; seña como crédito; cancelar el ticket no entrega el pedido; Listo se conserva (cajera y carnicero).
 
 ### Tanda 4 — Vales
 
@@ -302,7 +281,8 @@ Tandas 1–2, 4–6, **8 y 9** OK. Tanda 7 proveedores OK. Paleta aceptada con l
 | --- | --- | --- |
 | Resumen post-cierre de caja | Tanda 7 | Codeado 2026-08-28 — re-probar en `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` |
 | Header de productos al scrollear | Parte 7 | Diferido con el retoque de UI / catálogo |
-| Pedidos: cobro con carrito | Tanda 3 | `FEAT-ORDER-CART-01` — no está en la app |
+| Pedidos: cobro con carrito | Tanda 3 | Cerrado 2026-09-04 — `CHECKLIST_TESTEO_PEDIDOS_LISTA.md` |
+| Carnicero celu + Dar acceso | FEAT-BUTCHER-01 | Testear `CHECKLIST_TESTEO_CARNICERO.md` B–D |
 | Selector de local cajera en celu | III B | Cubierto en Parte 5; no re-probar ahora |
 | Pack emergencia celu (gasto/vales/liquidación/Salir) | Parte 5 | Codeado 2026-08-28; se re-testea al usar el POS móvil |
 | Local habitual (asistencia/vales) | BLOQUE H | Codeado 2026-08-28 — `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` |

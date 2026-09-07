@@ -29,9 +29,10 @@ import {
   type ProviderDebtEvent,
   type StoreDoc,
 } from '../../lib/adminFirestore'
-import { parseNumericInput, formatIntegerWithDots } from '../../lib/numericInput'
+import { subscribeKindBalances } from '../../lib/debtBalanceLive'
 import { planProviderStoreCompensation, ledgerDeltaToTarget, formatAdminAdjustNote, isAdminAdjustNote } from '../../lib/adminLedger'
 import type { LocalProfile } from '../../types/pos'
+import { parseNumericInput, formatIntegerWithDots } from '../../lib/numericInput'
 
 interface Props {
   onBack: () => void
@@ -46,6 +47,7 @@ export function ProvidersScreen({ onBack, stores, profile }: Props) {
 
   const [providers, setProviders] = useState<Provider[]>([])
   const [allEvents, setAllEvents] = useState<ProviderDebtEvent[]>([])
+  const [balances, setBalances] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [listMode, setListMode] = useState<'active' | 'archived'>('active')
@@ -57,12 +59,8 @@ export function ProvidersScreen({ onBack, stores, profile }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const [pList, eList] = await Promise.all([
-        fetchProviders(),
-        fetchProviderDebtEvents(),
-      ])
+      const pList = await fetchProviders()
       setProviders(pList)
-      setAllEvents(eList)
     } catch {
       setError('No se pudieron cargar los proveedores.')
     } finally {
@@ -74,8 +72,20 @@ export function ProvidersScreen({ onBack, stores, profile }: Props) {
     void load()
   }, [load])
 
+  useEffect(() => {
+    return subscribeKindBalances('provider', next => setBalances(next))
+  }, [])
+
+  useEffect(() => {
+    if (!selected) {
+      setAllEvents([])
+      return
+    }
+    void fetchProviderDebtEvents(selected.id).then(setAllEvents).catch(() => setAllEvents([]))
+  }, [selected])
+
   const balanceFor = (providerId: string) =>
-    calcProviderBalance(allEvents.filter(e => e.providerId === providerId))
+    balances.get(providerId) ?? calcProviderBalance(allEvents.filter(e => e.providerId === providerId))
 
   const eventsFor = (providerId: string) =>
     allEvents.filter(e => e.providerId === providerId)

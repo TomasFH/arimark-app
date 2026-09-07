@@ -34,6 +34,7 @@ import { pullCatalogFromFirestore } from '../licensing/catalogSync'
 import { notifyRenderer } from '../licensing/notifyRenderer'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow, CatalogRevisionRow, CatalogAuditRow, CatalogAuditAction } from '../../src/types/hw-api'
+import { parseHoursSchedule } from '@carniceria/shared'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación Zod
@@ -426,35 +427,39 @@ export function registerCatalogAdminHandlers(): void {
     const includeArchived = (payload as { includeArchived?: boolean } | undefined)?.includeArchived === true
     try {
       const db = getDb()
+      const storeSelect = {
+        id: stores.id,
+        name: stores.name,
+        address: stores.address,
+        archivedAt: stores.archivedAt,
+        morningStart: stores.morningStart,
+        morningEnd: stores.morningEnd,
+        afternoonStart: stores.afternoonStart,
+        afternoonEnd: stores.afternoonEnd,
+        hoursSchedule: stores.hoursSchedule,
+      }
       const rows = includeArchived
-        ? db.select({
-              id: stores.id,
-              name: stores.name,
-              address: stores.address,
-              archivedAt: stores.archivedAt,
-              morningStart: stores.morningStart,
-              morningEnd: stores.morningEnd,
-              afternoonStart: stores.afternoonStart,
-              afternoonEnd: stores.afternoonEnd,
-            })
+        ? db.select(storeSelect)
             .from(stores)
             .orderBy(asc(stores.name))
             .all()
-        : db.select({
-              id: stores.id,
-              name: stores.name,
-              address: stores.address,
-              archivedAt: stores.archivedAt,
-              morningStart: stores.morningStart,
-              morningEnd: stores.morningEnd,
-              afternoonStart: stores.afternoonStart,
-              afternoonEnd: stores.afternoonEnd,
-            })
+        : db.select(storeSelect)
             .from(stores)
             .where(isNull(stores.archivedAt))
             .orderBy(asc(stores.name))
             .all()
-      return { ok: true, data: rows }
+      const data: StoreRow[] = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        address: row.address,
+        archivedAt: row.archivedAt,
+        morningStart: row.morningStart,
+        morningEnd: row.morningEnd,
+        afternoonStart: row.afternoonStart,
+        afternoonEnd: row.afternoonEnd,
+        hoursSchedule: parseHoursSchedule(row.hoursSchedule),
+      }))
+      return { ok: true, data }
     } catch (err) {
       log.error('[ipc:get-stores] Error', err)
       return { ok: false, error: 'Error al leer los locales.', code: 'DB_ERROR' }

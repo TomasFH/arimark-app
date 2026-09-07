@@ -30,6 +30,7 @@
     "catalog:free-plu:prod": "cross-env APP_ENV=production ELECTRON_RUN_AS_NODE=1 electron scripts/freeInactivePlus.mjs",
     "catalog:pdf": "py -3 scripts/generatePriceListPdf.py",
     "firestore:soft-delete-debt": "node scripts/softDeleteDebtEvents.mjs",
+    "firestore:backfill-created-at-server": "node scripts/backfillCreatedAtServer.mjs",
     "firestore:backfill-sync": "node scripts/backfillSync.mjs",
     "test": "vitest run --config vitest.config.ts && vitest run --config vitest.config.renderer.ts",
     "test:main": "vitest run --config vitest.config.ts",

@@ -143,10 +143,10 @@ async function importShift(
   )
 
   const [salesSnap, expensesSnap, valesSnap, salarySnap] = await Promise.all([
-    getDocs(salesCol),
-    getDocs(expensesCol),
-    getDocs(valesCol),
-    getDocs(salaryCol),
+    getDocs(query(salesCol, where('importedAt', '==', null))),
+    getDocs(query(expensesCol, where('importedAt', '==', null))),
+    getDocs(query(valesCol, where('importedAt', '==', null))),
+    getDocs(query(salaryCol, where('importedAt', '==', null))),
   ])
   const salesData: MobileSale[] = salesSnap.docs.map(d => d.data() as MobileSale)
   const expensesData: MobileExpense[] = expensesSnap.docs.map(d => d.data() as MobileExpense)
@@ -185,6 +185,22 @@ async function importShift(
     salaryInserted: result.salaryInserted,
     shouldMarkImported: result.shouldMarkImported,
   })
+
+  const importedAt = new Date().toISOString()
+  await Promise.all([
+    ...salesSnap.docs.map(d => updateDoc(d.ref, { importedAt }).catch(err => {
+      log.warn('[mobileSync] No se pudo marcar sale importada', { id: d.id, err })
+    })),
+    ...expensesSnap.docs.map(d => updateDoc(d.ref, { importedAt }).catch(err => {
+      log.warn('[mobileSync] No se pudo marcar expense importado', { id: d.id, err })
+    })),
+    ...valesSnap.docs.map(d => updateDoc(d.ref, { importedAt }).catch(err => {
+      log.warn('[mobileSync] No se pudo marcar vale importado', { id: d.id, err })
+    })),
+    ...salarySnap.docs.map(d => updateDoc(d.ref, { importedAt }).catch(err => {
+      log.warn('[mobileSync] No se pudo marcar salary importado', { id: d.id, err })
+    })),
+  ])
 
   if (result.shouldMarkImported) {
     await markShiftImported(licenseKey, storeId, shiftData.id, firestore)

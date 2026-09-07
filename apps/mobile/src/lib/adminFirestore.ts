@@ -2,9 +2,8 @@
  * Capa de datos admin: tipos Firestore + helpers CRUD para todas las
  * colecciones del panel de administración móvil.
  *
- * Convención de lectura: getDocs sobre la colección completa y filtro en
- * memoria, siguiendo el patrón de adminHistory.ts. No hay índices compuestos
- * requeridos y simplifica el código.
+ * Convención de lectura: queries con `where` sobre el doc que se mira
+ * (pedido, cliente, turno). No bajar colecciones que crecen todos los días.
  */
 import {
   getFirestore,
@@ -13,6 +12,8 @@ import {
   doc,
   updateDoc,
   setDoc,
+  query,
+  where,
 } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import {
@@ -30,6 +31,8 @@ import {
   providerNameKey,
 } from './adminLedger'
 import { formatDisplayDate } from './week'
+import { debtEventServerTimestampFields, touchDebtCheckpointTail } from './debtCheckpointWrite'
+import { parseHoursSchedule, type StoreHoursBlock } from '@carniceria/shared'
 
 const firestore = getFirestore(firebaseApp)
 const col = (name: string) =>
@@ -198,6 +201,11 @@ export interface StoreDoc {
   address: string | null
   archivedAt: string | null
   createdAt: string
+  morningStart?: string | null
+  morningEnd?: string | null
+  afternoonStart?: string | null
+  afternoonEnd?: string | null
+  hoursSchedule?: StoreHoursBlock[] | null
 }
 
 export interface Expense {
@@ -235,7 +243,7 @@ export function calcProviderBalance(events: ProviderDebtEvent[]): number {
 // ---------------------------------------------------------------------------
 
 export async function fetchOrders(storeId?: string): Promise<Order[]> {
-  const snap = await getDocs(col('orders'))
+  const snap = await getDocs(query(col('orders'), where('status', 'in', ['pending', 'ready'])))
   const orders: Order[] = []
   for (const d of snap.docs) {
     const data = d.data() as Partial<Order>
@@ -336,7 +344,7 @@ function parseDebtPaymentMethod(
 export async function fetchCustomerDebtEvents(
   customerId: string,
 ): Promise<CustomerDebtEvent[]> {
-  const snap = await getDocs(col('customerDebtEvents'))
+  const snap = await getDocs(query(col('customerDebtEvents'), where('customerId', '==', customerId)))
   const list: CustomerDebtEvent[] = []
   for (const d of snap.docs) {
     const data = d.data() as Partial<CustomerDebtEvent>
@@ -359,13 +367,12 @@ export async function fetchCustomerDebtEvents(
 }
 
 export async function fetchAllCustomerDebtEvents(
-  storeId?: string,
+  storeId: string,
 ): Promise<CustomerDebtEvent[]> {
-  const snap = await getDocs(col('customerDebtEvents'))
+  const snap = await getDocs(query(col('customerDebtEvents'), where('storeId', '==', storeId)))
   const list: CustomerDebtEvent[] = []
   for (const d of snap.docs) {
     const data = d.data() as Partial<CustomerDebtEvent>
-    if (storeId && data.storeId !== storeId) continue
     list.push({
       id: data.id ?? d.id,
       customerId: data.customerId ?? '',
@@ -397,6 +404,12 @@ export async function createCustomerDebtEvent(
     eventType,
     amount,
     deleted: false,
+    ...debtEventServerTimestampFields(),
+  })
+  await touchDebtCheckpointTail({
+    kind: 'customer',
+    entityId: data.customerId,
+    storeId: data.storeId,
   })
 }
 
@@ -421,8 +434,8 @@ export async function fetchProviders(): Promise<Provider[]> {
   return list
 }
 
-export async function fetchProviderDebtEvents(): Promise<ProviderDebtEvent[]> {
-  const snap = await getDocs(col('providerDebtEvents'))
+export async function fetchProviderDebtEvents(providerId: string): Promise<ProviderDebtEvent[]> {
+  const snap = await getDocs(query(col('providerDebtEvents'), where('providerId', '==', providerId)))
   const list: ProviderDebtEvent[] = []
   for (const d of snap.docs) {
     const data = d.data() as Partial<ProviderDebtEvent> & {
@@ -471,10 +484,9 @@ export async function archiveProvider(id: string): Promise<void> {
 
 export async function restoreProvider(id: string): Promise<void> {
   await updateDoc(docRef('providers', id), { archivedAt: null })
-  const snap = await getDocs(col('providerDebtEvents'))
+  const snap = await getDocs(query(col('providerDebtEvents'), where('providerId', '==', id)))
   for (const d of snap.docs) {
-    const data = d.data() as { providerId?: string; deleted?: boolean }
-    if (data.providerId !== id) continue
+    const data = d.data() as { deleted?: boolean }
     if (data.deleted !== true) continue
     await updateDoc(d.ref, { deleted: false, deletedAt: null })
   }
@@ -486,11 +498,10 @@ export async function restoreProvider(id: string): Promise<void> {
  * una limpieza excepcional a mano.
  */
 export async function purgeProviderLedger(providerId: string): Promise<void> {
-  const snap = await getDocs(col('providerDebtEvents'))
+  const snap = await getDocs(query(col('providerDebtEvents'), where('providerId', '==', providerId)))
   const now = new Date().toISOString()
   for (const d of snap.docs) {
-    const data = d.data() as { providerId?: string; deleted?: boolean }
-    if (data.providerId !== providerId) continue
+    const data = d.data() as { deleted?: boolean }
     if (data.deleted === true) continue
     await updateDoc(d.ref, { deleted: true, deletedAt: now })
   }
@@ -518,6 +529,12 @@ export async function createProviderDebtEvent(
     expenseId: null,
     shiftId: null,
     deleted: false,
+    ...debtEventServerTimestampFields(),
+  })
+  await touchDebtCheckpointTail({
+    kind: 'provider',
+    entityId: data.providerId,
+    storeId: data.storeId,
   })
 }
 
@@ -703,7 +720,7 @@ export async function fetchEmployees(): Promise<Employee[]> {
 export async function fetchEmployeeValesForEmployee(
   employeeId: string,
 ): Promise<EmployeeVale[]> {
-  const snap = await getDocs(col('employeeVales'))
+  const snap = await getDocs(query(col('employeeVales'), where('employeeId', '==', employeeId)))
   const list: EmployeeVale[] = []
   for (const d of snap.docs) {
     const data = d.data() as Partial<EmployeeVale>
@@ -821,6 +838,10 @@ export async function updateUserAuthorizedStores(
 // Stores
 // ---------------------------------------------------------------------------
 
+function parseHhmm(raw: unknown): string | null {
+  return typeof raw === 'string' && /^\d{2}:\d{2}$/.test(raw) ? raw : null
+}
+
 export async function fetchAllStores(): Promise<StoreDoc[]> {
   const snap = await getDocs(col('stores'))
   const list: StoreDoc[] = []
@@ -832,13 +853,28 @@ export async function fetchAllStores(): Promise<StoreDoc[]> {
       address: data.address ?? null,
       archivedAt: asIsoTimestamp(data.archivedAt),
       createdAt: asIsoTimestamp(data.createdAt) ?? '',
+      morningStart: parseHhmm(data.morningStart),
+      morningEnd: parseHhmm(data.morningEnd),
+      afternoonStart: parseHhmm(data.afternoonStart),
+      afternoonEnd: parseHhmm(data.afternoonEnd),
+      hoursSchedule: parseHoursSchedule((data as { hoursSchedule?: unknown }).hoursSchedule),
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
   return list
 }
 
-export async function createStore(name: string, address: string | null): Promise<void> {
+export async function createStore(
+  name: string,
+  address: string | null,
+  hours?: {
+    morningStart?: string | null
+    morningEnd?: string | null
+    afternoonStart?: string | null
+    afternoonEnd?: string | null
+    hoursSchedule?: StoreHoursBlock[] | null
+  },
+): Promise<void> {
   const id = crypto.randomUUID()
   await setDoc(docRef('stores', id), {
     id,
@@ -846,14 +882,27 @@ export async function createStore(name: string, address: string | null): Promise
     address,
     archivedAt: null,
     createdAt: new Date().toISOString(),
+    morningStart: hours?.morningStart ?? null,
+    morningEnd: hours?.morningEnd ?? null,
+    afternoonStart: hours?.afternoonStart ?? null,
+    afternoonEnd: hours?.afternoonEnd ?? null,
+    hoursSchedule: hours?.hoursSchedule ?? null,
   })
 }
 
 export async function updateStore(
   id: string,
-  data: Partial<Pick<StoreDoc, 'name' | 'address'>>,
+  data: Partial<Pick<StoreDoc, 'name' | 'address' | 'morningStart' | 'morningEnd' | 'afternoonStart' | 'afternoonEnd' | 'hoursSchedule'>>,
 ): Promise<void> {
-  await updateDoc(docRef('stores', id), data)
+  const payload: Record<string, unknown> = {}
+  if (data.name !== undefined) payload.name = data.name
+  if (data.address !== undefined) payload.address = data.address
+  if (data.morningStart !== undefined) payload.morningStart = data.morningStart
+  if (data.morningEnd !== undefined) payload.morningEnd = data.morningEnd
+  if (data.afternoonStart !== undefined) payload.afternoonStart = data.afternoonStart
+  if (data.afternoonEnd !== undefined) payload.afternoonEnd = data.afternoonEnd
+  if (data.hoursSchedule !== undefined) payload.hoursSchedule = data.hoursSchedule
+  await updateDoc(docRef('stores', id), payload)
 }
 
 export async function archiveStore(id: string): Promise<void> {
@@ -869,7 +918,7 @@ export async function restoreStore(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function fetchExpensesForShift(shiftId: string): Promise<Expense[]> {
-  const snap = await getDocs(col('expenses'))
+  const snap = await getDocs(query(col('expenses'), where('shiftId', '==', shiftId)))
   const list: Expense[] = []
   for (const d of snap.docs) {
     const data = d.data() as Partial<Expense> & {

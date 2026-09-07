@@ -403,6 +403,10 @@ export default function CashierScreen({
     setActiveOrder(null)
   }
 
+  useEffect(() => {
+    if (cart.length === 0 && activeOrder) setActiveOrder(null)
+  }, [cart.length, activeOrder])
+
   // ── Hero input handlers ────────────────────────────────────────────────────
 
   function handleHeroChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -815,10 +819,21 @@ export default function CashierScreen({
 
                 {/* Contexto de pedido activo */}
                 {activeOrder && (
-                  <div className="mx-3 mt-3 rounded-lg bg-blue-950/60 border border-blue-800/50 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400 mb-0.5">Pedido activo</p>
-                    <p className="text-xs text-blue-200 truncate" title={activeOrder.customerName}>{activeOrder.customerName}</p>
-                    <p className="text-xs text-blue-300">Seña: <span className="font-semibold">{formatARS(activeOrder.depositAmount)}</span></p>
+                  <div className="mx-3 mt-3 rounded-lg bg-blue-950/60 border border-blue-800/50 px-3 py-2.5 space-y-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400 mb-0.5">Pedido activo</p>
+                      <p className="text-sm text-blue-100 truncate" title={activeOrder.customerName}>{activeOrder.customerName}</p>
+                      {activeOrder.depositAmount > 0 && (
+                        <p className="text-xs text-blue-300">Seña: <span className="font-semibold">{formatARS(activeOrder.depositAmount)}</span></p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearCart}
+                      className="w-full rounded-lg border border-zinc-500 bg-zinc-800 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-700 hover:border-zinc-400 transition-colors"
+                    >
+                      Cancelar cobro
+                    </button>
                   </div>
                 )}
 

@@ -29,6 +29,7 @@ import {
 } from '../../lib/adminFirestore'
 import { expenseNote, expenseTitle } from '../../lib/adminLedger'
 import { formatDepositPaymentsLine } from '../../lib/orderMapping'
+import { todayLocalYmd, addDaysYmd } from '../../lib/week'
 import type { PaymentMethod } from '../../types/pos'
 
 interface Props {
@@ -65,15 +66,18 @@ export function HistoryScreen({ onBack, stores }: Props) {
   const [shifts, setShifts] = useState<AdminShift[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [dateFrom, setDateFrom] = useState(() => addDaysYmd(todayLocalYmd(), -7))
+  const [dateTo, setDateTo] = useState(() => todayLocalYmd())
   const [selectedShift, setSelectedShift] = useState<AdminShift | null>(null)
 
   const loadShifts = useCallback(async (sid: string) => {
     setLoading(true)
     setError(null)
     try {
-      const list = await fetchAdminShifts(sid || undefined)
+      const list = await fetchAdminShifts(sid || undefined, {
+        fromDate: dateFrom || undefined,
+        toDate: dateTo || undefined,
+      })
       setShifts(list)
     } catch {
       setError('No se pudieron cargar los turnos.')
@@ -81,7 +85,7 @@ export function HistoryScreen({ onBack, stores }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dateFrom, dateTo])
 
   useEffect(() => {
     void loadShifts(storeId)

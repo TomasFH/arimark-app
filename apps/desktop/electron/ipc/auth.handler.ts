@@ -25,6 +25,8 @@ import { pushUnsyncedEmployeeOps, ensureEmployeesSynced, stopEmployeeSyncListene
 import { ensureOrdersSynced, stopOrderSyncListener } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, stopCustomerDebtSyncListener } from '../licensing/customerDebtSync'
 import { ensureSpecialCustomersSynced, stopSpecialCustomerSyncListener } from '../licensing/specialCustomerSync'
+import { startDebtCheckpointJob, stopDebtCheckpointJob } from '../licensing/debtCheckpointJob'
+import { startDebtBalanceLiveSync, stopDebtBalanceLiveSync } from '../licensing/debtBalanceLive'
 import { setSecret, SECRET_KEYS } from '../secureStorage'
 import type { IpcResult, SessionInfo } from '../../src/types/hw-api'
 
@@ -184,6 +186,8 @@ export function registerAuthHandlers(): void {
           log.warn('[ipc:login] syncAllStoreCatalogs (admin) falló (no bloqueante)', err)
         }
         startCatalogSyncListener(adminConfig.tenant_id)
+        startDebtBalanceLiveSync(adminConfig.tenant_id)
+        startDebtCheckpointJob(adminConfig.tenant_id)
         return {
           ok: true,
           data: {
@@ -347,6 +351,8 @@ export function registerAuthHandlers(): void {
       pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
         log.warn('[ipc:login-cashier] pushUnsyncedEmployeeOps falló (no bloqueante)', err)
       )
+      startDebtBalanceLiveSync(config.tenant_id)
+      startDebtCheckpointJob(config.tenant_id)
 
       log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
       return {
@@ -413,6 +419,8 @@ export function registerAuthHandlers(): void {
       stopCustomerDebtSyncListener()
       stopSpecialCustomerSyncListener()
       stopCatalogSyncListener()
+      stopDebtBalanceLiveSync()
+      stopDebtCheckpointJob()
       setActiveSession(null)
     } else if (role === 'admin') {
       stopProviderSyncListener()
@@ -422,6 +430,8 @@ export function registerAuthHandlers(): void {
       stopCustomerDebtSyncListener()
       stopSpecialCustomerSyncListener()
       stopCatalogSyncListener()
+      stopDebtBalanceLiveSync()
+      stopDebtCheckpointJob()
       await logoutAdmin()
     }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import NumericInput from '../components/NumericInput'
 import { detectShiftType } from '../lib/detectShiftType'
+import { civilYmd, hoursForDate, storeHoursSourceFromRecord } from '@carniceria/shared'
 import { parseNumericInput } from '../lib/numericInput'
 import type { ShiftInfo, ShiftType } from '../types/hw-api'
 
@@ -69,13 +70,14 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
 
       const now = new Date()
       const nowMinutes = now.getHours() * 60 + now.getMinutes()
+      const todayHours = hoursForDate(storeHoursSourceFromRecord(store), civilYmd(now))
 
       const detected = detectShiftType(
         nowMinutes,
-        store.morningStart,
-        store.morningEnd,
-        store.afternoonStart,
-        store.afternoonEnd,
+        todayHours.morningStart,
+        todayHours.morningEnd,
+        todayHours.afternoonStart,
+        todayHours.afternoonEnd,
       )
       setShiftType(detected)
     })

@@ -8,15 +8,20 @@ import {
   doc,
   setDoc,
   getDocs,
+  getDoc,
   onSnapshot,
+  query,
+  where,
   type Unsubscribe,
 } from 'firebase/firestore'
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { orders, shifts } from '../db/schema'
+import { orders, shifts, users } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
+import { notifyRenderer } from './notifyRenderer'
+import { IPC } from '../ipc/channels'
 
 interface RemoteOrderDoc {
   id: string
@@ -39,6 +44,9 @@ interface RemoteOrderDoc {
   createdBy?: string | null
   updatedAt?: string | null
   updatedBy?: string | null
+  readyAt?: string | null
+  readyBy?: string | null
+  readyByName?: string | null
   deleted?: boolean
 }
 
@@ -54,6 +62,10 @@ function resolveRemoteCreatedBy(raw: unknown, storeId: string): string {
 
 function resolveRemotePriority(raw: unknown): boolean {
   return raw === true || raw === 'high'
+}
+
+function resolveOptionalText(raw: unknown): string | null {
+  return typeof raw === 'string' && raw.trim() ? raw : null
 }
 
 function resolveRemoteDepositPayments(raw: unknown): string | null {
@@ -77,6 +89,9 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
 
   const createdBy = resolveRemoteCreatedBy(data.createdBy, data.storeId)
   if (data.updatedBy) ensureUserStub(data.updatedBy, data.storeId)
+  const readyAt = resolveOptionalText(data.readyAt)
+  const readyBy = resolveOptionalText(data.readyBy)
+  const readyByName = resolveOptionalText(data.readyByName)
 
   // FK opcional a shift: nullificar si el turno no existe en esta PC
   let depositShiftId: string | null = data.depositShiftId ?? null
@@ -106,6 +121,9 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
       createdBy,
       updatedAt: data.updatedAt ?? null,
       updatedBy: data.updatedBy ?? null,
+      readyAt,
+      readyBy,
+      readyByName,
       syncedAt: now,
     })
     .onConflictDoUpdate({
@@ -127,6 +145,9 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
         depositShiftId,
         updatedAt: data.updatedAt ?? null,
         updatedBy: data.updatedBy ?? null,
+        readyAt,
+        readyBy,
+        readyByName,
         syncedAt: now,
       },
     })
@@ -167,6 +188,13 @@ export async function pushUnsyncedOrders(tenantId: string): Promise<void> {
         createdBy: row.createdBy,
         updatedAt: row.updatedAt ?? null,
         updatedBy: row.updatedBy ?? null,
+        readyAt: row.readyAt ?? null,
+        readyBy: row.readyBy ?? null,
+        readyByName: row.readyByName ?? null,
+        deliveredAt: row.status === 'delivered' ? (row.updatedAt ?? null) : null,
+        deliveredByName: row.status === 'delivered' && row.updatedBy
+          ? (db.select({ name: users.name }).from(users).where(eq(users.id, row.updatedBy)).get()?.name?.trim() || null)
+          : null,
         deleted: false,
       }, { merge: true })
 
@@ -198,7 +226,7 @@ export async function pullOrdersFromFirestore(tenantId: string): Promise<void> {
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const col = collection(firestore, 'licenses', tenantId, 'orders')
-    const snap = await getDocs(col)
+    const snap = await getDocs(query(col, where('status', 'in', ['pending', 'ready'])))
 
     for (const d of snap.docs) {
       try {
@@ -225,16 +253,30 @@ export function startOrderSyncListener(tenantId: string): void {
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const col = collection(firestore, 'licenses', tenantId, 'orders')
+    // Recorte Spark: solo pending/ready (el trabajo de Pedidos). No escuchar la colección entera.
+    const live = query(col, where('status', 'in', ['pending', 'ready']))
 
-    const unsub = onSnapshot(col, snapshot => {
+    const unsub = onSnapshot(live, snapshot => {
+      let applied = 0
       for (const change of snapshot.docChanges()) {
-        if (change.type === 'removed') continue
         try {
+          if (change.type === 'removed') {
+            void getDoc(change.doc.ref).then(full => {
+              if (!full.exists()) return
+              upsertOrderFromRemote(full.data() as RemoteOrderDoc, full.id)
+              notifyRenderer(IPC.ORDER_SYNC_UPDATED)
+            }).catch(err => {
+              log.error('[orderSync] Error al leer pedido salido de pending/ready', { id: change.doc.id, err })
+            })
+            continue
+          }
           upsertOrderFromRemote(change.doc.data() as RemoteOrderDoc, change.doc.id)
+          applied += 1
         } catch (err) {
           log.error('[orderSync] Error al upsertear order desde snapshot', { id: change.doc.id, err })
         }
       }
+      if (applied > 0) notifyRenderer(IPC.ORDER_SYNC_UPDATED)
     }, err => {
       log.error('[orderSync] Error en listener', err)
     })

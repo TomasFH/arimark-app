@@ -111,3 +111,87 @@ export async function createTenantAuthUser(
     return { ok: false, error: 'Error al crear la cuenta. Intentar nuevamente.' }
   }
 }
+
+export interface TenantUserRef {
+  uid: string
+  email: string | null
+  role: string
+  employeeId: string | null
+  active: boolean
+}
+
+function mapUserDoc(
+  id: string,
+  data: Record<string, unknown>,
+): TenantUserRef {
+  return {
+    uid: id,
+    email: typeof data['email'] === 'string' ? data['email'] : null,
+    role: typeof data['role'] === 'string' ? data['role'] : '',
+    employeeId: typeof data['employeeId'] === 'string' ? data['employeeId'] : null,
+    active: data['active'] !== false,
+  }
+}
+
+function pickButcherProfile(users: TenantUserRef[]): TenantUserRef | null {
+  const butchers = users.filter(u => u.role === 'butcher')
+  if (butchers.length === 0) return null
+  return butchers.find(u => u.active === false) ?? butchers[0] ?? null
+}
+
+async function queryTenantUsers(
+  licenseKey: string,
+  field: 'employeeId' | 'email',
+  value: string,
+): Promise<TenantUserRef[]> {
+  const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore')
+  const db = getFirestore(getFirebaseApp())
+  const snap = await getDocs(
+    query(collection(db, 'licenses', licenseKey, 'users'), where(field, '==', value)),
+  )
+  return snap.docs.map(d => mapUserDoc(d.id, d.data() as Record<string, unknown>))
+}
+
+/** Perfil butcher ya creado para esta ficha de empleado (aunque esté desactivado). */
+export async function findTenantUserByEmployeeId(
+  licenseKey: string,
+  employeeId: string,
+): Promise<TenantUserRef | null> {
+  return pickButcherProfile(await queryTenantUsers(licenseKey, 'employeeId', employeeId))
+}
+
+export async function findTenantUserByEmail(
+  licenseKey: string,
+  email: string,
+): Promise<TenantUserRef | null> {
+  return pickButcherProfile(await queryTenantUsers(licenseKey, 'email', email))
+}
+
+/** Vuelve a habilitar un perfil Firestore existente. No toca Firebase Auth ni envía mail. */
+export async function reactivateTenantUser(opts: {
+  licenseKey: string
+  uid: string
+  displayName: string
+  employeeId: string
+}): Promise<IpcResult> {
+  try {
+    const { getFirestore, doc, updateDoc } = await import('firebase/firestore')
+    const db = getFirestore(getFirebaseApp())
+    await updateDoc(doc(db, 'licenses', opts.licenseKey, 'users', opts.uid), {
+      active: true,
+      deleted: false,
+      role: 'butcher',
+      displayName: opts.displayName,
+      employeeId: opts.employeeId,
+    })
+    log.info('[tenantAuth] Acceso reactivado', { uid: opts.uid, employeeId: opts.employeeId })
+    return { ok: true, data: undefined }
+  } catch (err) {
+    log.error('[tenantAuth] No se pudo reactivar el acceso', err)
+    return {
+      ok: false,
+      error: 'No se pudo restablecer el acceso. Verificá la conexión e intentá de nuevo.',
+      code: 'FIRESTORE_ERROR',
+    }
+  }
+}

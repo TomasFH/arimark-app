@@ -25,6 +25,15 @@ vi.mock('../../licensing/firebase', () => ({
 
 vi.mock('../../licensing/tenantAuth', () => ({
   createTenantAuthUser: vi.fn().mockResolvedValue({ ok: true, data: { uid: 'firebase-uid-butcher' } }),
+  findTenantUserByEmployeeId: vi.fn().mockResolvedValue(null),
+  findTenantUserByEmail: vi.fn().mockResolvedValue(null),
+  reactivateTenantUser: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+}))
+
+vi.mock('firebase/firestore', () => ({
+  getFirestore: vi.fn(() => ({})),
+  doc: vi.fn(() => ({})),
+  updateDoc: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../db/client', () => ({
@@ -39,8 +48,14 @@ import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { isFirebaseAvailable } from '../../licensing/firebase'
-import { createTenantAuthUser } from '../../licensing/tenantAuth'
+import {
+  findTenantUserByEmployeeId,
+  findTenantUserByEmail,
+  reactivateTenantUser,
+} from '../../licensing/tenantAuth'
 import { registerEmployeesHandlers } from '../employees.handler'
+import { eq } from 'drizzle-orm'
+import { updateDoc } from 'firebase/firestore'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
 
@@ -81,6 +96,9 @@ describe('employees.handler', () => {
 
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
     vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+    vi.mocked(findTenantUserByEmployeeId).mockResolvedValue(null)
+    vi.mocked(findTenantUserByEmail).mockResolvedValue(null)
+    vi.mocked(reactivateTenantUser).mockResolvedValue({ ok: true, data: undefined })
 
     registerEmployeesHandlers()
   })
@@ -430,6 +448,79 @@ describe('employees.handler', () => {
       expect(res.ok).toBe(false)
       expect(res.code).toBe('FORBIDDEN')
     })
+
+    it('sin email pide EMAIL_REQUIRED si no hay cuenta previa', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const created = getHandler('ipc:create-employee')(null, {
+        name: 'Sin Cuenta Previa',
+        weeklyWage: 1,
+        kind: 'butcher',
+      }) as { ok: boolean; data: { id: string } }
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: created.data.id,
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('EMAIL_REQUIRED')
+      expect(reactivateTenantUser).not.toHaveBeenCalled()
+    })
+
+    it('restablece la cuenta existente por employeeId sin pedir email', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(findTenantUserByEmployeeId).mockResolvedValue({
+        uid: 'uid-revocado',
+        email: 'carn@test.com',
+        role: 'butcher',
+        employeeId: 'emp-restablecer',
+        active: false,
+      })
+      db.insert(employees).values({
+        id: 'emp-restablecer',
+        name: 'Carnicero Revocado',
+        weeklyWage: 1,
+        kind: 'butcher',
+        active: true,
+        firebaseUid: null,
+        createdAt: new Date().toISOString(),
+      }).run()
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: 'emp-restablecer',
+      }) as Promise<{ ok: boolean; data?: { uid: string } }>)
+      expect(res.ok).toBe(true)
+      expect(res.data?.uid).toBe('uid-revocado')
+      expect(reactivateTenantUser).toHaveBeenCalledWith(expect.objectContaining({
+        uid: 'uid-revocado',
+        employeeId: 'emp-restablecer',
+      }))
+      const row = db.select().from(employees).where(eq(employees.id, 'emp-restablecer')).get()
+      expect(row?.firebaseUid).toBe('uid-revocado')
+    })
+
+    it('restablece por email si el perfil no trae employeeId', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(findTenantUserByEmail).mockResolvedValue({
+        uid: 'uid-mail',
+        email: 'viejo@test.com',
+        role: 'butcher',
+        employeeId: null,
+        active: false,
+      })
+      db.insert(employees).values({
+        id: 'emp-por-mail',
+        name: 'Por Mail',
+        weeklyWage: 1,
+        kind: 'butcher',
+        active: true,
+        firebaseUid: null,
+        createdAt: new Date().toISOString(),
+      }).run()
+      const res = await (getHandler('ipc:grant-butcher-access')(null, {
+        employeeId: 'emp-por-mail',
+        email: 'viejo@test.com',
+      }) as Promise<{ ok: boolean; data?: { uid: string } }>)
+      expect(res.ok).toBe(true)
+      expect(res.data?.uid).toBe('uid-mail')
+      expect(reactivateTenantUser).toHaveBeenCalled()
+    })
   })
 
   describe('REVOKE_BUTCHER_ACCESS', () => {
@@ -448,8 +539,7 @@ describe('employees.handler', () => {
         employeeId: 'emp-con-uid',
       }) as Promise<{ ok: boolean }>)
       expect(res.ok).toBe(true)
-      const row = db.select().from(employees).where(() => true as unknown as boolean).all()
-        .find(e => e.id === 'emp-con-uid')
+      const row = db.select().from(employees).where(eq(employees.id, 'emp-con-uid')).get()
       expect(row?.firebaseUid).toBeNull()
     })
 
@@ -463,6 +553,48 @@ describe('employees.handler', () => {
       }) as Promise<{ ok: boolean; code?: string }>)
       expect(res.ok).toBe(false)
       expect(res.code).toBe('NOT_FOUND')
+    })
+
+    it('con Firebase disponible marca active:false y limpia firebaseUid', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(updateDoc).mockResolvedValue(undefined as never)
+      db.insert(employees).values({
+        id: 'emp-revoke-ok',
+        name: 'Revocar Ok',
+        weeklyWage: 1,
+        kind: 'butcher',
+        active: true,
+        firebaseUid: 'uid-revocar',
+        createdAt: new Date().toISOString(),
+      }).run()
+      const res = await (getHandler('ipc:revoke-butcher-access')(null, {
+        employeeId: 'emp-revoke-ok',
+      }) as Promise<{ ok: boolean }>)
+      expect(res.ok).toBe(true)
+      expect(updateDoc).toHaveBeenCalled()
+      const row = db.select().from(employees).where(eq(employees.id, 'emp-revoke-ok')).get()
+      expect(row?.firebaseUid).toBeNull()
+    })
+
+    it('si Firestore falla no limpia firebaseUid', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(updateDoc).mockRejectedValueOnce(new Error('PERMISSION_DENIED'))
+      db.insert(employees).values({
+        id: 'emp-revoke-fail',
+        name: 'Revocar Fail',
+        weeklyWage: 1,
+        kind: 'butcher',
+        active: true,
+        firebaseUid: 'uid-sigue',
+        createdAt: new Date().toISOString(),
+      }).run()
+      const res = await (getHandler('ipc:revoke-butcher-access')(null, {
+        employeeId: 'emp-revoke-fail',
+      }) as Promise<{ ok: boolean; code?: string }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FIRESTORE_ERROR')
+      const row = db.select().from(employees).where(eq(employees.id, 'emp-revoke-fail')).get()
+      expect(row?.firebaseUid).toBe('uid-sigue')
     })
   })
 })

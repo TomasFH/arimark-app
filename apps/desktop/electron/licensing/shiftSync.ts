@@ -18,7 +18,7 @@
  * No-op completo cuando isFirebaseAvailable() === false (entorno dev).
  */
 
-import { getFirestore, doc, setDoc, collection, getDocs, query, where } from 'firebase/firestore'
+import { getFirestore, doc, setDoc, collection, getDocs, getDoc, query, where } from 'firebase/firestore'
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
@@ -132,12 +132,10 @@ export async function reconcileStoreShifts(
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const col = collection(firestore, 'licenses', tenantId, 'shifts')
-
-    const snap = filter.storeId
-      ? await getDocs(query(col, where('storeId', '==', filter.storeId)))
-      : filter.userId
-        ? await getDocs(query(col, where('userId', '==', filter.userId)))
-        : await getDocs(col)
+    const constraints = [where('closedAt', '==', null)]
+    if (filter.storeId) constraints.unshift(where('storeId', '==', filter.storeId))
+    else if (filter.userId) constraints.unshift(where('userId', '==', filter.userId))
+    const snap = await getDocs(query(col, ...constraints))
 
     const db = getDb()
     const now = new Date().toISOString()
@@ -212,6 +210,31 @@ export async function reconcileStoreShifts(
         db.update(shifts).set({ syncedAt: null }).where(eq(shifts.id, id)).run()
         applied++
       }
+    }
+
+    const seenRemote = new Set(snap.docs.map(d => d.id))
+    const localOpen = db.select().from(shifts).where(isNull(shifts.closedAt)).all()
+      .filter(row => {
+        if (filter.storeId && row.storeId !== filter.storeId) return false
+        if (filter.userId && row.userId !== filter.userId) return false
+        return !seenRemote.has(row.id)
+      })
+    for (const local of localOpen) {
+      const remoteSnap = await getDoc(doc(firestore, 'licenses', tenantId, 'shifts', local.id))
+      if (!remoteSnap.exists()) continue
+      const data = remoteSnap.data() as RemoteShiftDoc
+      const remoteClosedAt = data.closedAt ?? null
+      if (!remoteClosedAt) continue
+      db.update(shifts).set({
+        closedAt: remoteClosedAt,
+        closingCash: data.closingCash ?? local.closingCash,
+        safeAmount: data.safeAmount ?? local.safeAmount,
+        deliveredAmount: data.deliveredAmount ?? local.deliveredAmount,
+        deliveredTo: data.deliveredTo ?? local.deliveredTo,
+        notes: data.notes ?? local.notes,
+        syncedAt: now,
+      }).where(eq(shifts.id, local.id)).run()
+      applied++
     }
 
     log.info('[shiftSync] Shifts reconciliados desde Firestore', { count: snap.size, applied })

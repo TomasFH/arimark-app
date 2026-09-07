@@ -34,6 +34,8 @@ import { eq } from 'drizzle-orm'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
 import { providerNameKey } from '../ipc/providerUtils'
+import { debtEventServerTimestampFields } from './debtCheckpoint'
+import { touchDebtCheckpointTail } from './debtCheckpointTail'
 
 const listeners: Unsubscribe[] = []
 
@@ -90,7 +92,7 @@ function upsertProviderFromRemote(data: {
     .run()
 }
 
-function upsertProviderDebtEventFromRemote(data: {
+export function applyRemoteProviderDebtEvent(data: {
   id?: string
   storeId?: string
   providerId?: string | null
@@ -268,7 +270,17 @@ export async function pushUnsyncedDebtEvents(licenseKey: string): Promise<void> 
         createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
         description: evt.notes ?? null,
         notes: evt.notes ?? null,
+        ...debtEventServerTimestampFields(),
       }, { merge: true })
+
+      if (evt.providerId) {
+        await touchDebtCheckpointTail({
+          tenantId: licenseKey,
+          kind: 'provider',
+          entityId: evt.providerId,
+          storeId: evt.storeId,
+        })
+      }
 
       db.update(providerDebtEvents)
         .set({ syncedAt: now })
@@ -331,38 +343,8 @@ export function startProviderSyncListener(licenseKey: string): void {
       log.error('[providerSync] Error en listener de providers', err)
     })
 
-    const eventsCol = collection(firestore, 'licenses', licenseKey, 'providerDebtEvents')
-    const unsubEvents = onSnapshot(eventsCol, snapshot => {
-      for (const change of snapshot.docChanges()) {
-        if (change.type === 'removed') continue
-        try {
-          upsertProviderDebtEventFromRemote(change.doc.data() as {
-            id?: string
-            storeId?: string
-            providerId?: string | null
-            provider?: string
-            type?: 'debt' | 'payment'
-            amount?: number
-            expenseId?: string | null
-            shiftId?: string | null
-            createdAt?: string
-            date?: string
-            createdBy?: string
-            deleted?: boolean
-          }, change.doc.id)
-        } catch (err) {
-          log.error('[providerSync] Error al upsertear debt event desde snapshot', {
-            id: change.doc.id,
-            err,
-          })
-        }
-      }
-    }, err => {
-      log.error('[providerSync] Error en listener de providerDebtEvents', err)
-    })
-
-    listeners.push(unsubProviders, unsubEvents)
-    log.info('[providerSync] Listeners de providers y debt events iniciados')
+    listeners.push(unsubProviders)
+    log.info('[providerSync] Listener de providers iniciado')
   } catch (err) {
     log.error('[providerSync] No se pudo iniciar el listener', err)
   }

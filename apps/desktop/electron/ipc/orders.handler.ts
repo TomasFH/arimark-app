@@ -5,7 +5,14 @@ import log from 'electron-log'
 import { eq, and, desc, gte, lte, inArray, lt } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { orders, users } from '../db/schema'
+import { orders, stores, users } from '../db/schema'
+import {
+  checkPickupTimeOnDate,
+  parseHoursSchedule,
+  pickupSlotRegistrationError,
+  pickupTimeRegistrationError,
+  storeHoursSourceFromRecord,
+} from '@carniceria/shared'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedOrders, markOrderDeletedInFirestore } from '../licensing/orderSync'
@@ -33,9 +40,13 @@ const budgetCartLineSchema = z.object({
   name: z.string().min(1).max(100),
   unit: z.enum(['kg', 'unit']),
   pluNumber: z.number().int().positive().nullable().optional(),
-  estimatedQty: z.number().positive(),
+  estimatedQty: z.number().min(0),
   unitPrice: z.number().min(0),
-})
+  requestedUnits: z.number().int().positive().nullable().optional(),
+}).refine(
+  line => line.estimatedQty > 0 || (line.requestedUnits != null && line.requestedUnits > 0),
+  { message: 'Cada producto necesita kg, unidades, o ambos.' },
+)
 
 const createOrderSchema = z.object({
   customerName: z.string().min(1).max(100).transform(s => s.trim()),
@@ -52,6 +63,10 @@ const createOrderSchema = z.object({
   storeId: z.string().min(1).optional(),
   /** Carrito de presupuesto con productos y cantidades estimadas */
   budgetItems: z.array(budgetCartLineSchema).optional(),
+}).superRefine((d, ctx) => {
+  if (d.timeSlot === 'specific' && !d.pickupTime) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Horario específico sin hora.' })
+  }
 })
 
 const updateOrderStatusSchema = z.object({
@@ -74,6 +89,10 @@ const updateOrderSchema = z.object({
   depositAmount: z.number().min(0).optional(),
   depositPayments: z.array(depositPaymentSchema).optional().nullable(),
   budgetItems: z.array(budgetCartLineSchema).optional().nullable(),
+}).superRefine((d, ctx) => {
+  if (d.timeSlot === 'specific' && (d.pickupTime === null || d.pickupTime === '')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Horario específico sin hora.' })
+  }
 })
 
 const listOrdersSchema = z.object({
@@ -151,6 +170,49 @@ function buildOrderRow(row: typeof orders.$inferSelect, creatorName: string, upd
   }
 }
 
+function rejectPickupAgainstStoreHours(
+  db: ReturnType<typeof import('../db/client').getDb>,
+  storeId: string,
+  timeSlot: string | null | undefined,
+  pickupTime: string | null | undefined,
+  pickupDate: string,
+): { ok: false; error: string; code: string } | null {
+  const store = db
+    .select({
+      morningStart: stores.morningStart,
+      morningEnd: stores.morningEnd,
+      afternoonStart: stores.afternoonStart,
+      afternoonEnd: stores.afternoonEnd,
+      hoursSchedule: stores.hoursSchedule,
+    })
+    .from(stores)
+    .where(eq(stores.id, storeId))
+    .get()
+  const source = storeHoursSourceFromRecord({
+    morningStart: store?.morningStart,
+    morningEnd: store?.morningEnd,
+    afternoonStart: store?.afternoonStart,
+    afternoonEnd: store?.afternoonEnd,
+    hoursSchedule: parseHoursSchedule(store?.hoursSchedule),
+  })
+  const named = pickupSlotRegistrationError(timeSlot, source, pickupDate)
+  if (named) {
+    return { ok: false, error: named, code: 'STORE_CLOSED' }
+  }
+  if (timeSlot !== 'specific') return null
+  if (!pickupTime) {
+    return { ok: false, error: 'Ingresá el horario específico de retiro.', code: 'INVALID_PAYLOAD' }
+  }
+  const check = checkPickupTimeOnDate(pickupTime, source, pickupDate)
+  const error = pickupTimeRegistrationError(check)
+  if (!error) return null
+  return {
+    ok: false,
+    error,
+    code: check.status === 'no_hours' ? 'STORE_HOURS_MISSING' : 'STORE_CLOSED',
+  }
+}
+
 function resolveUserNames(db: ReturnType<typeof import('../db/client').getDb>, ids: string[]): Map<string, string> {
   if (ids.length === 0) return new Map()
   const rows = db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids)).all()
@@ -194,6 +256,7 @@ export function registerOrderHandlers(): void {
     // Cajeras solo pueden crear pedidos para su propio local.
     // El admin puede especificar un local diferente al de sesión.
     const effectiveStoreId = (session.role === 'admin' && overrideStoreId) ? overrideStoreId : session.storeId
+    if (!effectiveStoreId) return { ok: false, error: 'No hay local en la sesión.', code: 'NO_STORE' }
 
     // Seña sin turno: solo se bloquea para cajeras. El admin puede recibir transferencias fuera del horario de caja.
     if (depositAmount > 0 && !session.shiftId && session.role !== 'admin') {
@@ -208,6 +271,8 @@ export function registerOrderHandlers(): void {
 
     try {
       const db = getDb()
+      const closed = rejectPickupAgainstStoreHours(db, effectiveStoreId, timeSlot, pickupTime, pickupDate)
+      if (closed) return closed
       db.insert(orders).values({
         id,
         storeId: effectiveStoreId,
@@ -322,6 +387,9 @@ export function registerOrderHandlers(): void {
         : and(eq(orders.id, id), eq(orders.storeId, session.storeId))
       const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
+      if (existing.status === 'delivered') {
+        return { ok: false, error: 'Un pedido cobrado no se puede modificar.', code: 'INVALID_STATUS' }
+      }
 
       const setData: Partial<typeof orders.$inferInsert> = {
         status,
@@ -384,8 +452,9 @@ export function registerOrderHandlers(): void {
         : and(eq(orders.id, id), eq(orders.storeId, session.storeId))
       const existing = db.select().from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
-
-      // Bloquear modificación de seña si no hay turno activo (solo cajeras)
+      if (existing.status === 'delivered') {
+        return { ok: false, error: 'Un pedido cobrado no se puede editar.', code: 'INVALID_STATUS' }
+      }
       const newDepositAmount = 'depositPayments' in updates && updates.depositPayments
         ? updates.depositPayments.reduce((s, p) => s + p.amount, 0)
         : (updates.depositAmount ?? existing.depositAmount)
@@ -393,6 +462,12 @@ export function registerOrderHandlers(): void {
       if (depositIsBeingAdded && !session.shiftId && session.role !== 'admin') {
         return { ok: false, error: 'Se necesita un turno activo para modificar la seña.', code: 'NO_SHIFT' }
       }
+
+      const nextSlot = 'timeSlot' in updates ? updates.timeSlot : existing.timeSlot
+      const nextTime = 'pickupTime' in updates ? updates.pickupTime : existing.pickupTime
+      const nextDate = updates.pickupDate ?? existing.pickupDate
+      const closed = rejectPickupAgainstStoreHours(db, existing.storeId, nextSlot, nextTime, nextDate)
+      if (closed) return closed
 
       const setData: Partial<typeof orders.$inferInsert> = { updatedAt: now, updatedBy: session.userId, syncedAt: null }
       if (updates.customerName !== undefined) setData.customerName = updates.customerName
@@ -449,8 +524,11 @@ export function registerOrderHandlers(): void {
       const storeCondition = session.role === 'admin'
         ? eq(orders.id, id)
         : and(eq(orders.id, id), eq(orders.storeId, session.storeId))
-      const existing = db.select({ id: orders.id }).from(orders).where(storeCondition).all()[0]
+      const existing = db.select({ id: orders.id, status: orders.status }).from(orders).where(storeCondition).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
+      if (existing.status === 'delivered') {
+        return { ok: false, error: 'Un pedido cobrado no se puede cancelar.', code: 'INVALID_STATUS' }
+      }
 
       db.update(orders).set({
         status: 'cancelled',
@@ -487,8 +565,11 @@ export function registerOrderHandlers(): void {
 
     try {
       const db = getDb()
-      const existing = db.select({ id: orders.id }).from(orders).where(eq(orders.id, id)).all()[0]
+      const existing = db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.id, id)).all()[0]
       if (!existing) return { ok: false, error: 'Pedido no encontrado.', code: 'NOT_FOUND' }
+      if (existing.status !== 'cancelled') {
+        return { ok: false, error: 'Solo se pueden eliminar pedidos cancelados.', code: 'INVALID_STATUS' }
+      }
 
       db.delete(orders).where(eq(orders.id, id)).run()
 

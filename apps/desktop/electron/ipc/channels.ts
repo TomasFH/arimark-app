@@ -185,6 +185,8 @@ export const IPC = {
   SPECIAL_CUSTOMER_SYNC_UPDATED: 'ipc:special-customer-sync-updated',
   /** Merge de catálogo remoto aplicado en SQLite (push main → renderer). BLOQUE I-A. */
   CATALOG_SYNC_UPDATED: 'ipc:catalog-sync-updated',
+  /** Pedido remoto aplicado en SQLite (Listo del celu, etc.). Push main → renderer. */
+  ORDER_SYNC_UPDATED: 'ipc:order-sync-updated',
   /** Auditoría de ficha / visibilidad / retiro global. BLOQUE I-B. */
   LIST_CATALOG_AUDIT: 'ipc:list-catalog-audit',
   UI_SETTINGS_CHANGED: 'ipc:ui-settings-changed',

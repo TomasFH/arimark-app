@@ -29,6 +29,8 @@ import {
 } from '../licensing/providerSync'
 import { pushUnsyncedExpenses } from '../licensing/expenseSync'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
+import { getLiveProviderStoreBalances } from '../licensing/debtBalanceLive'
+import { PROVIDER_DEBT_CHECKPOINTS_COL } from '@carniceria/shared'
 import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore'
 import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderDebtEventRow } from '../../src/types/hw-api'
 import { stampAdminAdjustAuthor } from '../../src/lib/providerLedgerNotes'
@@ -805,72 +807,56 @@ async function getProvidersWithDebtFromFirestore(includeArchived: boolean): Prom
   // Cargar nombres de proveedores desde cache local
   const providerRows = db.select({ id: providers.id, name: providers.name, archivedAt: providers.archivedAt, phone: providers.phone, notes: providers.notes }).from(providers).all()
 
-  // Leer todos los eventos de deuda desde Firestore
-  const eventsCol = collection(firestore, 'licenses', config.tenant_id, 'providerDebtEvents')
-  const snap = await getDocs(eventsCol)
-
   interface BalanceEntry { balance: number; providerId: string; storeId: string }
   const balances = new Map<string, BalanceEntry>()
-  const firestoreIds = new Set<string>()
 
-  for (const docSnap of snap.docs) {
-    const evt = docSnap.data() as {
-      providerId?: string | null
-      provider: string
-      storeId: string
-      type: 'debt' | 'payment'
-      amount: number
-      deleted?: boolean
+  const live = getLiveProviderStoreBalances()
+  if (live.length > 0) {
+    for (const row of live) {
+      balances.set(`${row.providerId}::${row.storeId}`, {
+        balance: row.balance,
+        providerId: row.providerId,
+        storeId: row.storeId,
+      })
     }
-
-    if (evt.deleted === true) {
-      firestoreIds.add(docSnap.id)
-      continue
-    }
-
-    const pid = evt.providerId ?? null
-    if (!pid) continue
-
-    firestoreIds.add(docSnap.id)
-    const key = `${pid}::${evt.storeId}`
-    const existing = balances.get(key)
-    const delta = evt.type === 'debt' ? evt.amount : -evt.amount
-
-    if (existing) {
-      existing.balance += delta
-    } else {
-      balances.set(key, { balance: delta, providerId: pid, storeId: evt.storeId })
+  } else {
+    // Listener todavía no listo: checkpoints (1 doc por par), nunca el ledger entero.
+    const cpSnap = await getDocs(
+      collection(firestore, 'licenses', config.tenant_id, PROVIDER_DEBT_CHECKPOINTS_COL),
+    )
+    for (const d of cpSnap.docs) {
+      const data = d.data() as { entityId?: string; storeId?: string; saldoAcumulado?: number }
+      if (!data.entityId || !data.storeId) continue
+      balances.set(`${data.entityId}::${data.storeId}`, {
+        balance: typeof data.saldoAcumulado === 'number' ? data.saldoAcumulado : 0,
+        providerId: data.entityId,
+        storeId: data.storeId,
+      })
     }
   }
 
-  // Mezclar con eventos locales aún no sincronizados con Firestore.
-  // Garantiza que pagos recién registrados en esta PC (ej. settleProviderDebt)
-  // impacten el balance inmediatamente sin esperar el push async.
   const localEvents = db.select({
     id: providerDebtEvents.id,
     providerId: providerDebtEvents.providerId,
     storeId: providerDebtEvents.storeId,
     type: providerDebtEvents.type,
     amount: providerDebtEvents.amount,
+    syncedAt: providerDebtEvents.syncedAt,
   }).from(providerDebtEvents).all()
 
   for (const evt of localEvents) {
-    if (firestoreIds.has(evt.id)) continue   // ya contado desde Firestore
-    if (!evt.providerId) continue
+    if (evt.syncedAt != null || !evt.providerId) continue
     const key = `${evt.providerId}::${evt.storeId}`
     const existing = balances.get(key)
     const delta = evt.type === 'debt' ? evt.amount : -evt.amount
-    if (existing) {
-      existing.balance += delta
-    } else {
-      balances.set(key, { balance: delta, providerId: evt.providerId, storeId: evt.storeId })
-    }
+    if (existing) existing.balance += delta
+    else balances.set(key, { balance: delta, providerId: evt.providerId, storeId: evt.storeId })
   }
 
-  // Agregar por proveedor, construir perStore[]
-  const result = assembleProviderDebtRows(balances, storeNameMap, providerRows, includeArchived)
-
-  return { ok: true, data: result }
+  return {
+    ok: true,
+    data: assembleProviderDebtRows(balances, storeNameMap, providerRows, includeArchived),
+  }
 }
 
 // ---------------------------------------------------------------------------

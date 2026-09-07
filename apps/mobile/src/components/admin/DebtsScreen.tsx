@@ -15,7 +15,6 @@ import {
 } from './shared'
 import {
   fetchCustomers,
-  fetchAllCustomerDebtEvents,
   fetchCustomerDebtEvents,
   createCustomer,
   createCustomerDebtEvent,
@@ -26,11 +25,12 @@ import {
   type CustomerDebtEvent,
   type StoreDoc,
 } from '../../lib/adminFirestore'
-import type { LocalProfile, PaymentMethod } from '../../types/pos'
+import { subscribeKindBalances } from '../../lib/debtBalanceLive'
 import { parseNumericInput, formatNumericInputValue } from '../../lib/numericInput'
 import { paidTotal, remainderForField } from '../../lib/paymentSplit'
 import { planCustomerDebtPayments, type PlannedDebtPayment } from '../../lib/adminLedger'
 import NumericInput from '../NumericInput'
+import type { LocalProfile, PaymentMethod } from '../../types/pos'
 
 interface Props {
   onBack: () => void
@@ -60,7 +60,8 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
   useBackLayer(true, onBack)
   const [storeId, setStoreId] = useState<string>('')
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [allEvents, setAllEvents] = useState<CustomerDebtEvent[]>([])
+  const [allEvents] = useState<CustomerDebtEvent[]>([])
+  const [balances, setBalances] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -72,12 +73,8 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const [cList, eList] = await Promise.all([
-        fetchCustomers(sid || undefined),
-        fetchAllCustomerDebtEvents(sid || undefined),
-      ])
+      const cList = await fetchCustomers(sid || undefined)
       setCustomers(cList)
-      setAllEvents(eList)
     } catch {
       setError('No se pudieron cargar los fiados.')
     } finally {
@@ -89,8 +86,12 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
     void load(storeId)
   }, [storeId, load])
 
+  useEffect(() => {
+    return subscribeKindBalances('customer', next => setBalances(next))
+  }, [])
+
   const balanceFor = (customerId: string) =>
-    calcCustomerBalance(allEvents.filter(e => e.customerId === customerId))
+    balances.get(customerId) ?? calcCustomerBalance(allEvents.filter(e => e.customerId === customerId))
 
   const displayed = customers.filter(c => {
     const bal = balanceFor(c.id)

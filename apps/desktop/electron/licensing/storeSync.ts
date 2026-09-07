@@ -27,6 +27,7 @@ import { isNull, eq } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { stores } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
+import { parseHoursSchedule, serializeHoursSchedule } from '@carniceria/shared'
 
 const listeners: Unsubscribe[] = []
 
@@ -40,12 +41,18 @@ interface RemoteStoreDoc {
   morningEnd?: string | null
   afternoonStart?: string | null
   afternoonEnd?: string | null
+  hoursSchedule?: unknown
+}
+
+function hoursScheduleForSqlite(raw: unknown): string | null {
+  return serializeHoursSchedule(parseHoursSchedule(raw) ?? [])
 }
 
 function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
+  const hoursSchedule = hoursScheduleForSqlite(data.hoursSchedule)
 
   const existing = db
     .select({ syncedAt: stores.syncedAt })
@@ -65,6 +72,7 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
     morningEnd: data.morningEnd ?? null,
     afternoonStart: data.afternoonStart ?? null,
     afternoonEnd: data.afternoonEnd ?? null,
+    hoursSchedule,
     syncedAt: now,
   })
     .onConflictDoUpdate({
@@ -77,6 +85,7 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
         morningEnd: data.morningEnd ?? null,
         afternoonStart: data.afternoonStart ?? null,
         afternoonEnd: data.afternoonEnd ?? null,
+        hoursSchedule,
         syncedAt: now,
       },
     })
@@ -115,6 +124,7 @@ export async function pushUnsyncedStores(tenantId: string): Promise<void> {
         morningEnd: s.morningEnd ?? null,
         afternoonStart: s.afternoonStart ?? null,
         afternoonEnd: s.afternoonEnd ?? null,
+        hoursSchedule: parseHoursSchedule(s.hoursSchedule) ?? null,
       }, { merge: true })
 
       db.update(stores)

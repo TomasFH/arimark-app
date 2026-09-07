@@ -21,12 +21,26 @@ vi.mock('firebase/firestore', () => ({
   collection: vi.fn(() => ({})),
   setDoc: mockSetDoc,
   getDocs: mockGetDocs,
+  query: vi.fn((...args: unknown[]) => args),
+  where: vi.fn(),
+  getDoc: vi.fn(),
   onSnapshot: mockOnSnapshot,
+  serverTimestamp: vi.fn(() => 'SERVER_TS'),
+  runTransaction: vi.fn(async (_db: unknown, fn: (tx: { get: () => Promise<{ exists: () => boolean; data: () => undefined }>; set: () => void }) => Promise<unknown>) =>
+    fn({
+      get: async () => ({ exists: () => false, data: () => undefined }),
+      set: vi.fn(),
+    }),
+  ),
 }))
 
 vi.mock('../firebase', () => ({
   getFirebaseApp: vi.fn(() => ({})),
   isFirebaseAvailable: vi.fn(() => true),
+}))
+
+vi.mock('../notifyRenderer', () => ({
+  notifyRenderer: vi.fn(),
 }))
 
 vi.mock('electron-log', () => ({
@@ -39,7 +53,9 @@ vi.mock('../../db/client', () => ({
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { pushUnsyncedOrders, pullOrdersFromFirestore, stopOrderSyncListener, REMOTE_ORDER_UNKNOWN_USER } from '../orderSync'
+import { notifyRenderer } from '../notifyRenderer'
+import { IPC } from '../../ipc/channels'
+import { pushUnsyncedOrders, pullOrdersFromFirestore, startOrderSyncListener, stopOrderSyncListener, REMOTE_ORDER_UNKNOWN_USER } from '../orderSync'
 import {
   pushUnsyncedCustomers,
   pushUnsyncedCustomerDebtEvents,
@@ -390,6 +406,88 @@ describe('ops sync (orders / debts / special customers)', () => {
     const row = db.select().from(orders).all().find(r => r.id === 'ord-empty-author')
     expect(row).toBeDefined()
     expect(row!.createdBy).toBe(REMOTE_ORDER_UNKNOWN_USER)
+  })
+
+  it('pull de order listo copia readyAt/readyByName', async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'ord-ready',
+        data: () => ({
+          id: 'ord-ready',
+          storeId: 'store-001',
+          customerName: 'Marta',
+          items: 'vacío',
+          pickupDate: '2026-09-05',
+          status: 'ready',
+          depositAmount: 0,
+          createdAt: new Date().toISOString(),
+          createdBy: 'user-001',
+          readyAt: '2026-09-05T12:00:00.000Z',
+          readyBy: 'butcher-uid',
+          readyByName: 'Juan',
+        }),
+      }],
+    })
+
+    await pullOrdersFromFirestore(TENANT)
+
+    const row = db.select().from(orders).all().find(r => r.id === 'ord-ready')
+    expect(row?.status).toBe('ready')
+    expect(row?.readyAt).toBe('2026-09-05T12:00:00.000Z')
+    expect(row?.readyByName).toBe('Juan')
+  })
+
+  it('listener de pedidos aplica Listo y avisa al renderer una vez', () => {
+    db.insert(orders).values({
+      id: 'ord-live',
+      storeId: 'store-001',
+      customerName: 'Pedro',
+      items: 'asado',
+      pickupDate: '2026-09-05',
+      status: 'pending',
+      depositAmount: 0,
+      createdAt: new Date().toISOString(),
+      createdBy: 'user-001',
+    }).run()
+
+    let onSnap: ((snapshot: { docChanges: () => unknown[] }) => void) | undefined
+    mockOnSnapshot.mockImplementation((_q: unknown, cb: (snapshot: { docChanges: () => unknown[] }) => void) => {
+      onSnap = cb
+      return vi.fn()
+    })
+
+    startOrderSyncListener(TENANT)
+    expect(onSnap).toBeDefined()
+
+    onSnap!({
+      docChanges: () => [{
+        type: 'modified',
+        doc: {
+          id: 'ord-live',
+          data: () => ({
+            id: 'ord-live',
+            storeId: 'store-001',
+            customerName: 'Pedro',
+            items: 'asado',
+            pickupDate: '2026-09-05',
+            status: 'ready',
+            depositAmount: 0,
+            createdAt: new Date().toISOString(),
+            createdBy: 'user-001',
+            readyAt: '2026-09-05T15:00:00.000Z',
+            readyBy: 'butcher-uid',
+            readyByName: 'Juan',
+          }),
+        },
+      }],
+    })
+
+    const row = db.select().from(orders).all().find(r => r.id === 'ord-live')
+    expect(row?.status).toBe('ready')
+    expect(row?.readyByName).toBe('Juan')
+    expect(notifyRenderer).toHaveBeenCalledTimes(1)
+    expect(notifyRenderer).toHaveBeenCalledWith(IPC.ORDER_SYNC_UPDATED)
   })
 
   it('debt event sin cliente queda en cola y se aplica al llegar el customer', async () => {

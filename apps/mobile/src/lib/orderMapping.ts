@@ -4,6 +4,15 @@
  * depositPayments JSON string en Firestore.
  */
 
+import {
+  checkPickupTime,
+  checkPickupTimeOnDate,
+  pickupSlotRegistrationError,
+  pickupTimeRegistrationError,
+  hoursForDate,
+  type StoreHoursSource,
+} from '@carniceria/shared'
+
 export type DepositMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 export type OrderTimeSlot = 'morning' | 'afternoon' | 'specific'
 
@@ -39,11 +48,22 @@ export function parseTimeSlot(raw: unknown): OrderTimeSlot | null {
   return null
 }
 
-/** Línea de turno para listados: "Turno mañana" / "18:30". Null si no hay slot. */
-export function formatPickupSlotLine(slot: string | null | undefined, pickupTime?: string | null): string | null {
+/** Línea de turno para listados: "Turno mañana" / "Turno mañana · 11:00". Null si no hay slot. */
+export function formatPickupSlotLine(
+  slot: string | null | undefined,
+  pickupTime?: string | null,
+  hours?: StoreHoursSource | null,
+  pickupDate?: string | null,
+): string | null {
   const parsed = parseTimeSlot(slot)
   if (!parsed) return null
-  if (parsed === 'specific' && pickupTime) return pickupTime
+  if (parsed === 'specific' && pickupTime) {
+    const dayHours = pickupDate ? hoursForDate(hours, pickupDate) : hours
+    const check = dayHours ? checkPickupTime(pickupTime, dayHours) : null
+    if (check?.window === 'morning') return `Turno mañana · ${pickupTime}`
+    if (check?.window === 'afternoon') return `Turno tarde · ${pickupTime}`
+    return pickupTime
+  }
   return TIME_SLOT_LABELS[parsed]
 }
 
@@ -126,7 +146,10 @@ export interface MobileOrderDraft {
   createdBy: string
 }
 
-export function validateMobileOrderDraft(draft: MobileOrderDraft): string | null {
+export function validateMobileOrderDraft(
+  draft: MobileOrderDraft,
+  hours?: StoreHoursSource | null,
+): string | null {
   if (!draft.customerName.trim()) return 'El nombre del cliente es obligatorio.'
   if (!draft.items.trim()) return 'Los ítems del pedido son obligatorios.'
   if (!draft.storeId) return 'Seleccioná un local.'
@@ -136,6 +159,16 @@ export function validateMobileOrderDraft(draft: MobileOrderDraft): string | null
   }
   if (draft.timeSlot === 'specific' && !draft.pickupTime) {
     return 'Ingresá el horario específico de retiro.'
+  }
+  if (draft.timeSlot === 'specific' && draft.pickupTime && hours !== undefined) {
+    const closed = pickupTimeRegistrationError(
+      checkPickupTimeOnDate(draft.pickupTime, hours ?? null, draft.pickupDate),
+    )
+    if (closed) return closed
+  }
+  if (hours !== undefined && (draft.timeSlot === 'morning' || draft.timeSlot === 'afternoon')) {
+    const slotError = pickupSlotRegistrationError(draft.timeSlot, hours ?? null, draft.pickupDate)
+    if (slotError) return slotError
   }
   return null
 }

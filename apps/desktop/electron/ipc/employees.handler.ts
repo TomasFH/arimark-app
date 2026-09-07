@@ -7,7 +7,7 @@
  *   UPDATE_EMPLOYEE   — admin; nombre y/o sueldo
  *   ARCHIVE_EMPLOYEE  — admin; soft-delete (active=false)
  *   UNARCHIVE_EMPLOYEE — admin; reactive (active=true)
- *   GRANT_BUTCHER_ACCESS  — admin; crea cuenta Firebase para carnicero (email obligatorio)
+ *   GRANT_BUTCHER_ACCESS  — admin; crea o restablece la cuenta Firebase del carnicero
  *   REVOKE_BUTCHER_ACCESS — admin; desactiva cuenta Firebase del carnicero
  */
 import { ipcMain } from 'electron'
@@ -22,7 +22,7 @@ import { employees, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedEmployees } from '../licensing/employeeSync'
-import { createTenantAuthUser } from '../licensing/tenantAuth'
+import { createTenantAuthUser, findTenantUserByEmail, findTenantUserByEmployeeId, reactivateTenantUser } from '../licensing/tenantAuth'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
 import type { IpcResult, EmployeeRow } from '../../src/types/hw-api'
 
@@ -347,12 +347,12 @@ export function registerEmployeesHandlers(): void {
 
   // --------------------------------------------------------------------------
   // GRANT_BUTCHER_ACCESS — solo admin
-  // Crea Auth user + perfil Firestore para el carnicero, guarda UID en SQLite.
-  // El email es obligatorio: sin él no hay cuenta de acceso al celu.
+  // Si ya hay perfil Firestore (revocado), lo reactiva sin crear otra cuenta.
+  // El email solo es obligatorio la primera vez.
   // --------------------------------------------------------------------------
   const grantButcherSchema = z.object({
     employeeId: z.string().min(1),
-    email: z.string().email('El email es obligatorio y debe ser válido.'),
+    email: z.string().email('El email debe ser válido.').optional(),
   })
 
   ipcMain.handle(IPC.GRANT_BUTCHER_ACCESS, async (_event, payload: unknown): Promise<IpcResult<{ uid: string }>> => {
@@ -384,39 +384,84 @@ export function registerEmployeesHandlers(): void {
     let licenseKey: string
     try {
       licenseKey = getBusinessConfig().tenant_id
-    } catch (err) {
+    } catch {
       return { ok: false, error: 'Configuración del negocio no disponible.', code: 'UNAVAILABLE' }
     }
 
-    // Resolvemos todos los locales activos como authorizedStores (igual que cajeras)
-    const { getFirestore, collection, getDocs } = await import('firebase/firestore')
-    const app = getFirebaseApp()
-    const fsDb = getFirestore(app)
-    const storesSnap = await getDocs(collection(fsDb, 'licenses', licenseKey, 'stores'))
-    const authorizedStores = storesSnap.docs
-      .filter(d => !d.data()['archivedAt'])
-      .map(d => d.id)
+    const persistUid = (uid: string) => {
+      db.update(employees)
+        .set({ firebaseUid: uid, syncedAt: null })
+        .where(eq(employees.id, employeeId))
+        .run()
+    }
 
-    const result = await createTenantAuthUser({
-      licenseKey,
-      email,
-      displayName: existing.name,
-      role: 'butcher',
-      authorizedStores: authorizedStores.length > 0 ? authorizedStores : [existing.homeStoreId ?? 'default'],
-      employeeId,
-    })
+    const restoreProfile = async (uid: string): Promise<IpcResult<{ uid: string }>> => {
+      const reactivated = await reactivateTenantUser({
+        licenseKey,
+        uid,
+        displayName: existing.name,
+        employeeId,
+      })
+      if (!reactivated.ok) return reactivated
+      persistUid(uid)
+      log.info('[ipc:grant-butcher-access] Acceso celular restablecido', { employeeId, uid })
+      scheduleEmployeePush('ipc:grant-butcher-access')
+      return { ok: true, data: { uid } }
+    }
 
-    if (!result.ok) return result
+    try {
+      const byEmployee = await findTenantUserByEmployeeId(licenseKey, employeeId)
+      if (byEmployee) return await restoreProfile(byEmployee.uid)
 
-    // Guardar el UID en SQLite para vinculación
-    db.update(employees)
-      .set({ firebaseUid: result.data.uid, syncedAt: null })
-      .where(eq(employees.id, employeeId))
-      .run()
+      if (email) {
+        const byEmail = await findTenantUserByEmail(licenseKey, email)
+        if (byEmail) {
+          if (byEmail.employeeId && byEmail.employeeId !== employeeId) {
+            return { ok: false, error: 'Ya existe una cuenta con ese email.', code: 'ALREADY_EXISTS' }
+          }
+          return await restoreProfile(byEmail.uid)
+        }
 
-    log.info('[ipc:grant-butcher-access] Acceso celular otorgado', { employeeId, email, uid: result.data.uid })
-    scheduleEmployeePush('ipc:grant-butcher-access')
-    return { ok: true, data: { uid: result.data.uid } }
+        const { getFirestore, collection, getDocs } = await import('firebase/firestore')
+        const app = getFirebaseApp()
+        const fsDb = getFirestore(app)
+        const storesSnap = await getDocs(collection(fsDb, 'licenses', licenseKey, 'stores'))
+        const authorizedStores = storesSnap.docs
+          .filter(d => !d.data()['archivedAt'])
+          .map(d => d.id)
+
+        const result = await createTenantAuthUser({
+          licenseKey,
+          email,
+          displayName: existing.name,
+          role: 'butcher',
+          authorizedStores: authorizedStores.length > 0 ? authorizedStores : [existing.homeStoreId ?? 'default'],
+          employeeId,
+        })
+
+        if (!result.ok) {
+          if (result.code === 'ALREADY_EXISTS') {
+            const retry = await findTenantUserByEmail(licenseKey, email)
+            if (retry) return await restoreProfile(retry.uid)
+          }
+          return result
+        }
+
+        persistUid(result.data.uid)
+        log.info('[ipc:grant-butcher-access] Acceso celular otorgado', { employeeId, email, uid: result.data.uid })
+        scheduleEmployeePush('ipc:grant-butcher-access')
+        return { ok: true, data: { uid: result.data.uid } }
+      }
+
+      return {
+        ok: false,
+        error: 'Ingresá el email para crear la cuenta.',
+        code: 'EMAIL_REQUIRED',
+      }
+    } catch (err) {
+      log.error('[ipc:grant-butcher-access] Error inesperado', err)
+      return { ok: false, error: 'Error al otorgar el acceso. Intentá de nuevo.', code: 'FIRESTORE_ERROR' }
+    }
   })
 
   // --------------------------------------------------------------------------
@@ -454,11 +499,15 @@ export function registerEmployeesHandlers(): void {
           active: false,
         })
       } catch (err) {
-        log.warn('[ipc:revoke-butcher-access] No se pudo desactivar en Firestore (continúa)', err)
+        log.error('[ipc:revoke-butcher-access] No se pudo desactivar en Firestore', err)
+        return {
+          ok: false,
+          error: 'No se pudo revocar el acceso. Verificá la conexión e intentá de nuevo.',
+          code: 'FIRESTORE_ERROR',
+        }
       }
     }
 
-    // Limpiar el vínculo local independientemente de si Firebase respondió
     db.update(employees)
       .set({ firebaseUid: null, syncedAt: null })
       .where(eq(employees.id, employeeId))

@@ -34,6 +34,10 @@ vi.mock('../../licensing/expenseSync', () => ({
   markExpensesDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/debtBalanceLive', () => ({
+  getLiveProviderStoreBalances: vi.fn(() => []),
+}))
+
 // GET_PROVIDERS_WITH_DEBT usa Firebase o fallback local; en tests usa fallback local.
 vi.mock('../../licensing/firebase', () => ({
   isFirebaseAvailable: vi.fn(() => false),

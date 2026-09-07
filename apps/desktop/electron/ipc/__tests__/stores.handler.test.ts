@@ -241,6 +241,74 @@ describe('stores.handler', () => {
       expect(res.ok).toBe(false)
       expect(res.code).toBe('NOT_FOUND')
     })
+
+    it('rechaza turnos de mañana y tarde que se pisan', () => {
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, {
+        id: STORE_ID,
+        morningStart: '08:00',
+        morningEnd: '20:30',
+        afternoonStart: '16:00',
+        afternoonEnd: '20:30',
+      }) as { ok: boolean; error: string }
+      expect(res.ok).toBe(false)
+      expect(res.error).toMatch(/pisan/)
+    })
+
+    it('acepta un turno corrido sin tarde', () => {
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, {
+        id: STORE_ID,
+        morningStart: '08:00',
+        morningEnd: '20:30',
+        afternoonStart: null,
+        afternoonEnd: null,
+      }) as { ok: boolean }
+      expect(res.ok).toBe(true)
+    })
+
+    it('no borra horarios al renombrar el local', () => {
+      const handler = getHandler('ipc:update-store')
+      handler(null, {
+        id: STORE_ID,
+        morningStart: '08:00',
+        morningEnd: '14:00',
+        afternoonStart: '16:00',
+        afternoonEnd: '20:30',
+      })
+      const res = handler(null, { id: STORE_ID, name: 'Local Renombrado' }) as {
+        ok: boolean
+        data: { name: string; morningStart: string | null }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.name).toBe('Local Renombrado')
+      expect(res.data.morningStart).toBe('08:00')
+    })
+
+    it('guarda horarios distintos por día y rechaza un domingo a la tarde cerrado', () => {
+      const handler = getHandler('ipc:update-store')
+      const res = handler(null, {
+        id: STORE_ID,
+        hoursSchedule: [
+          {
+            days: [1, 2, 3, 4, 5, 6],
+            morningStart: '08:00',
+            morningEnd: '14:00',
+            afternoonStart: '16:00',
+            afternoonEnd: '20:30',
+          },
+          {
+            days: [0],
+            morningStart: '08:00',
+            morningEnd: '14:00',
+            afternoonStart: null,
+            afternoonEnd: null,
+          },
+        ],
+      }) as { ok: boolean; data: { hoursSchedule: { days: number[] }[] | null } }
+      expect(res.ok).toBe(true)
+      expect(res.data.hoursSchedule).toHaveLength(2)
+    })
   })
 
   // --------------------------------------------------------------------------

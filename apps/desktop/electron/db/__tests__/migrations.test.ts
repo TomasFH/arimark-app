@@ -149,6 +149,12 @@ describe('migrations', () => {
       expect(cols.map(c => c.name)).toContain('firebase_uid')
     })
 
+    it('tiene hours_schedule en stores (migración 0038)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(stores)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('hours_schedule')
+    })
+
   it('tiene el índice idx_debt_events_customer', async () => {
     const { db } = await createInMemoryDb()
     const indexes = db.all(

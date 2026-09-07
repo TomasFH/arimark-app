@@ -427,7 +427,7 @@ Pendiente de largo plazo (no bloqueante):
 - ABM de pedidos con estado (pendiente / listo / entregado / cancelado).
 - Panel admin: historial de ventas, reportes por turno/período. (El catálogo/precios se gestionan en Fase 4.)
 - Registro local de medios de pago. La app no interactúa con caja registradora ni terminal de pago.
-- **Rework de cobro (no implementado):** `FEAT-ORDER-CART-01`. El Cobrar actual pide un resto a mano; no arma carrito ni va al POS.
+- **Rework de cobro (hecho 2026-09-02, Pedidos PC cerrado 2026-09-04):** `FEAT-ORDER-CART-01`. Cobrar arma el carrito en el POS. Lista de Pedidos: [`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`](CHECKLIST_TESTEO_PEDIDOS_LISTA.md). Carnicero celu: [`CHECKLIST_TESTEO_CARNICERO.md`](CHECKLIST_TESTEO_CARNICERO.md).
 
 ### Fase 8 — Stock ⚠️ DISEÑO ACORDADO — IMPLEMENTACIÓN BLOQUEADA
 
@@ -675,19 +675,21 @@ Si el turno abierto pertenece a **otra** cajera, mantener el bloqueo actual con 
 
 ---
 
-### DT-04: Local por defecto por dispositivo PC
+### DT-04: Local por defecto por dispositivo PC — **hecho 2026-09-06 (último local + confirmación)**
 
 **Descripción del problema:**
 Las PCs son estáticas — cada una vive permanentemente en un local. Pedir a la cajera que seleccione el local en cada sesión es una fricción innecesaria y una fuente de error (selección de local equivocado → turno registrado en el local incorrecto → ver DT-01).
 
-**Solución:**
-Guardar en `safeStorage` el `storeId` por defecto de esa PC. El admin lo configura una sola vez desde la pantalla de gestión de locales (botón "Fijar este local como predeterminado para esta PC"). En los logins subsiguientes, el local se pre-selecciona automáticamente; la cajera solo confirma. Puede seguir cambiándolo si lo necesita.
+**Solución implementada (no es pin remoto ni admin en la PC del local):**
+Cada usuario, en cada PC, recuerda el **último local que eligió** (`localStorage` del renderer). En el picker se resalta **Último local**. Entrar ahí es un toque. Elegir **otro** pide confirmación extra (“¿Confirmás este local?”). La primera vez en esa PC no hay resaltado ni modal. Un solo local activo se sigue eligiendo solo.
 
-Para la app móvil no aplica — el teléfono viaja con la cajera, la selección manual es inevitable.
+No hace falta que el admin inicie sesión en la caja. Un pin remoto por máquina (inventario de PCs en Firestore) sería otro producto; no se hizo.
+
+Para la app móvil no aplica el mismo flujo de caja; el carnicero ya preselecciona el último local en el celu.
 
 **Prioridad:** Media — mejora UX pero DT-01 sub-problema 1 ya mitiga el riesgo principal.
 
-**Cuándo implementar:** Junto con DT-02 o antes de la entrega al cliente.
+**Cuándo implementar:** Hecho 2026-09-06.
 
 ---
 
@@ -748,7 +750,7 @@ Mueve ventas y gastos de "datos 100% locales" a "datos sincronizados con Firesto
 
 ### DT-07: Historial de proveedores a escala + memoria del celular (acordado 2026-08-20)
 
-**No implementar ahora.** Quedó de la pasada de proveedores / testeo 2026-08-20. El paginado visual actual (20 ítems en PC) no resuelve esto.
+**Estado (2026-09-04):** código de checkpoint + job + listener hecho. Documentación de la oleada: `docs/FIRESTORE_DT07_DT08.md`. Pendiente de producción: deploy de índices/reglas, `--apply` del backfill de `createdAtServer`, y recién ahí `mobile:deploy`. El detalle de **un** proveedor sigue pidiendo sus eventos (no el ledger entero al boot).
 
 **Problema:**
 Hoy el historial admin de PC pide a Firestore **todos** los eventos de un proveedor (`where providerId == X`, sin fecha ni `limit`). El celu admin, al entrar a Proveedores, hace `getDocs` de **toda** la colección `providerDebtEvents` para armar saldos e historial. El listener de PC (`onSnapshot` de esa colección) además **copia todos los eventos al SQLite de cada PC**.
@@ -770,13 +772,13 @@ Varias cajeras tienen el teléfono lleno (a veces no abre WhatsApp). **Requisito
 
 **Prioridad:** Media — no bloquea el testeo actual; conviene antes de meses de uso real, sobre todo en celu.
 
-**Cuándo implementar:** Cuando el desarrollador lo pida, en una pasada dedicada (proveedores + no bajar colecciones enteras al celu). No mezclar con el recorrido de la checklist.
+**Cuándo implementar:** Hecho en código (2026-09-04) junto con DT-08. Producción: ver `docs/FIRESTORE_DT07_DT08.md` §9.
 
 ---
 
 ### DT-08: Lecturas Firestore — Historial de ventas y “pedir solo lo que se mira” (acordado 2026-08-24)
 
-**No implementar ahora.** Quedó del testeo de Clientes especiales (charla cuota Spark / escala). El checklist sigue; esto no se codea hasta que el desarrollador lo pida. Conviene **antes de 6–12 meses de uso real**, no de un día para el otro.
+**Estado (2026-09-04):** recortes de Historial / pedidos / turnos / staging móvil / vales hechos (palanca 1). Documentación: `docs/FIRESTORE_DT07_DT08.md`. **No hecho:** cache + debounce del ↻ (palanca 2), mensaje de cuota agotada, historial de cajera. Conviene tener índices desplegados **antes** de 6–12 meses de uso real a 350 ventas/día.
 
 Fuente de verdad de este tema. DT-05 y DT-07 son piezas del mismo rompecabezas; no se contradicen.
 
@@ -804,14 +806,14 @@ Con (1)+(2), 8 h de alguien obsesivo quedan en el orden de miles de lecturas, no
 
 Un **script** que dispare `getDocs` en loop no se puede garantizar en Spark: no hay rate-limit nuestro en el servidor. No es el threat model (carnicería, no atacante). No se pone “máximo X consultas al día” en la UI. No se sube a Blaze “por las dudas”.
 
-**Dónde aplicar (cuando se pida codear DT-08)**
+**Dónde aplicar** (hecho 2026-09-04 salvo lo marcado)
 
 | Lugar | Qué cambia |
 |---|---|
 | `apps/mobile/src/lib/adminHistory.ts` | `fetchAdminShifts` / `fetchAdminSalesForShift` / vales de local: hoy `getDocs` de la colección y filtro en memoria. Pasar a `where` fecha/local/turno + `limit`. |
 | `apps/mobile/src/lib/adminFirestore.ts` | Gastos/pedidos/deudas de proveedor si aún bajan la colección entera. |
 | `apps/desktop/electron/licensing/historyFirestore.ts` | `fetchHistoryShiftsFromFirestore` (lista): mismas 5 colecciones enteras. La lista debe armarse desde `shifts` recortados, no sumando todas las `sales`. El detalle **ya** va por `shiftId` (+ fallback `saleId` de fiados viejos). |
-| Renderer Historial (celu + PC remota) | Cache del último detalle; debounce del ↻. |
+| Renderer Historial (celu + PC remota) | Cache del último detalle; debounce del ↻. **Pendiente.** |
 | DT-07 en la misma oleada | `providerDebtEvents` no puede ser `onSnapshot` de todo el ledger al boot de cada PC. |
 
 No reformular el producto (seguir viendo el ticket de hace 8 meses si se pide **ese** día). Reformular **cómo se pide**: el archivo vive en Firestore; el cliente no lo descarga hasta que alguien abre ese recorte.
@@ -860,6 +862,10 @@ Dispositivos: hasta **3 PCs** abiertas (caja del local grande, PC de dueños, fu
 
 #### Qué está mal hoy (código)
 
+**Actualizado 2026-09-04:** la lista de Historial y el detalle de turno en celu **ya no** bajan colecciones enteras (ver `docs/FIRESTORE_DT07_DT08.md`). Lo que sigue abierto está en §10 de ese doc (cache/↻, detalle de un proveedor, `refreshRemoteData`).
+
+Texto original del diagnóstico 2026-08-24 (para no perder el problema que se acordó):
+
 **Lista de Historial** (celu `adminHistory.ts` `fetchAdminShifts` + `fetchAdminSalesForShift`; PC remota `fetchHistoryShiftsFromFirestore`): `getDocs` de **todas** las `sales` (y turnos, gastos, pedidos, deudas) y filtro **en memoria**. Pedir “el martes” igual baja enero–agosto.
 
 **Detalle de un turno en PC** (`fetchHistoryShiftDetailFromFirestore`): ya hace `query(..., where('shiftId', '==', shiftId))`. Comentario en código: no baja la colección entera, a diferencia de la lista. Ese es el patrón correcto.
@@ -868,11 +874,11 @@ Dispositivos: hasta **3 PCs** abiertas (caja del local grande, PC de dueños, fu
 
 Misma familia: fiados/eventos de cliente y gastos si se listan enteros. DT-07 cubre `providerDebtEvents`.
 
-#### Qué hay que hacer (cuando se pida)
+#### Qué hay que hacer
 
-1. **Historial de ventas (celu y PC remota):** lista de turnos por **fecha y local** (query a `shifts` acotada), no sumar todas las ventas del año para armar las cards. Al abrir un turno: `where shiftId == ese` (como el detalle PC). Default razonable: día de hoy / últimos días, no “desde que existe la app”.
-2. **Cache + ↻ barato** (criterio “imposible a mano”): el detalle ya visto no se vuelve a bajar al navegar; el botón Actualizar tiene intervalo mínimo o solo pega deltas. Sin esto, un mash de ↻ sobre un turno grande todavía puede acercarse al cupo.
-3. **DT-07** en la misma oleada o justo antes: proveedores + no copiar el ledger entero a cada PC al encender.
+1. **Historial de ventas (celu y PC remota):** **hecho.** Lista de turnos por **fecha y local** (query a `shifts` acotada, default 7 días). Al abrir un turno: `where shiftId == ese`. Totales de la lista por `shiftId in (...)`, no bajando `sales` entero.
+2. **Cache + ↻ barato** (criterio “imposible a mano”): **pendiente.** El detalle ya visto no se vuelve a bajar al navegar; el botón Actualizar tiene intervalo mínimo o solo pega deltas. Sin esto, un mash de ↻ sobre un turno grande todavía puede acercarse al cupo.
+3. **DT-07** en la misma oleada: **hecho en código** (checkpoint + job + no copiar el ledger entero al encender). Backfill de `createdAtServer` pendiente de `--apply`.
 4. **Historial para cajeras** (idea de producto, no implementada): sí se puede — “los días que yo trabajé” / un día concreto. **Obligatorio** el mismo recorte por turno o fecha (~100–200 lecturas). Prohibido clonar el Historial admin actual (`getDocs` de todo). Admin y cajera el mismo día: con query por turno, suma chica; con “traer todo”, cada uno paga el archivo completo.
 5. **DT-05** (`daily_summaries`): para “¿cómo nos fue en marzo?” sin pintar 6.000 tickets. **No borra** ventas. No arregla el `getDocs` de Firestore. SQLite local, prioridad baja, cuando el `.sqlite` pese o las sumas anden lentas.
 6. **No compactar destruyendo.** A los 3 meses el detalle del ticket sigue existiendo por si hace falta. Lo que no se hace es **bajarlo** hasta que alguien pida ese día. El celu no es el archivo (DT-07): no cachear historial largo en el teléfono.
@@ -888,7 +894,7 @@ Misma familia: fiados/eventos de cliente y gastos si se listan enteros. DT-07 cu
 
 #### Prioridad y cuándo
 
-Media. No bloquea el testeo de la checklist (2026-08-24: Clientes especiales y Personal cerrados; Locales / Historial móvil **funcional** con fix pendiente de re-probar, no esta deuda). Implementar cuando el desarrollador lo pida, **antes** de varios meses a 350 ventas/día. El 80 % del producto (caja, catálogo, ABM chico) **ya escala**. El riesgo es una pantalla de historial mal pedida a los 6–12 meses, no el sync en vivo de un nombre.
+Media. Código de recortes + checkpoint **hecho 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`). Falta el paso a producción (índices, backfill, deploy). El 80 % del producto (caja, catálogo, ABM chico) **ya escala**. Lo que queda de DT-08 es palanca 2 (cache/↻) y el detalle de un ledger individual a escala.
 
 ---
 
@@ -902,11 +908,9 @@ La lógica existe: header del Área de Venta, desplegable “Precio de lista” 
 
 No implementar otra idea de “consulta en caja” hasta que el desarrollador lo pida.
 
-### FEAT-ORDER-CART-01: Pedido con presupuesto + cobro en POS (diseño cerrado 2026-08-27, no codear hasta que se pida)
+### FEAT-ORDER-CART-01: Pedido con presupuesto + cobro en POS (hecho 2026-09-02; Pedidos PC testeado 2026-09-04)
 
-El Cobrar de hoy **no** es este flujo: `orders.items` es texto libre y Cobrar pide el resto a mano. Checklist: Tanda 3.
-
-**Alcance v1: solo PC.** Celu después.
+El Cobrar inyecta el carrito en el POS. `budgetItems` es el presupuesto; las cantidades reales se tipear al cobrar. Checklist de lista PC: `CHECKLIST_TESTEO_PEDIDOS_LISTA.md`. **Alcance v1: solo PC.** Celu después.
 
 #### Al crear el pedido
 
@@ -923,13 +927,11 @@ El Cobrar de hoy **no** es este flujo: `orders.items` es texto libre y Cobrar pi
 5. **Siempre hay venta** con los kilos reales. Si la seña cubre el total → $0 a cobrar ahora (la seña ya entró al crear el pedido).
 6. **Cancelar el carrito del pedido:** no hay venta; el pedido sigue pendiente, como si no se hubiera tocado Cobrar.
 7. Sin turno abierto y hay resto → pedir abrir turno. No cobrar un pedido ya entregado.
-8. Sacar “Marcar listo” (desktop) cuando se implemente este flujo.
+8. ~~Sacar “Marcar listo” (desktop) cuando se implemente este flujo.~~ **Anulado (2026-09-02):** “Marcar listo” se conserva. Los carniceros lo usan desde el celular; la cajera lo ve en PC para cobrar. Ver FEAT-BUTCHER-01.
 
 #### Seña de más
 
 Si al retirar saca productos y el total queda **bajo** la seña: **no** se devuelve sola (la seña reserva). Caso excepcional (merma, culpa del local): la cajera registra un **Gasto** de devolución a mano. No hace falta un flujo extra en Cobrar.
-
-No implementar hasta que el desarrollador lo pida (testeo de otras tandas primero).
 
 ### FEAT-PAYROLL-01: Pago de sueldo en caja + archivo semanal (1.0 — hecho 2026-08-25)
 
@@ -990,3 +992,78 @@ Historial largo y proveedores en celu = admin (ya existe), no el POS de cajera.
 **Turno celu no se ve “en vivo” en el POS de PC:** no es un bug de esta pasada. Es **DT-06** (turno compartido). Hoy el celu sube a Firestore y la PC **importa** con `source='mobile'`, pero ese turno **no** es la caja activa del escritorio. Workaround: cerrar en el celu y abrir otro en la PC (quedan dos turnos en historial). Unificar en vivo = fase S2, no mezclar con el testeo.
 
 Implementado en POS móvil: gastos con proveedor (lista + deuda de este local), ingreso de efectivo, ventas del turno con anular, fiado en el cobro, **vales y liquidación de la semana en curso**. El celu no clona saldar dedicado, deuda cross-local, pedidos ni catálogo. Vales/sueldo del celu quedan en el turno `source=mobile` (DT-06).
+
+---
+
+### FEAT-BUTCHER-01: Cuenta de carnicero — solo celu (implementado 2026-09-02)
+
+**Track B (PC):** columnas `readyAt/readyBy/readyByName/budgetItems` en `orders`. Botón Listo con auditoría. Cobrar → inyecta carrito en POS (sin venta ficticia). Seña como crédito.
+
+**Track A (empleados):** columna `employees.firebaseUid`. IPC `GRANT_BUTCHER_ACCESS` / `REVOKE_BUTCHER_ACCESS`. La UI viva es **Empleados** (`StaffScreen`): Dar acceso / Revocar en la ficha del carnicero. `EmployeesScreen` no está en el menú. Desktop rechaza login de carnicero. Helper `tenantAuth.ts` compartido.
+
+**Shell móvil:**
+- `ButcherApp.tsx`: selector de local (persiste en localStorage), pedidos pending del local agrupados por día/turno, botón Listo (solo con red).
+- "Mi semana": sueldo + vales + neto semana en curso. Sin historial de semanas anteriores.
+- `butcherOrders.ts` / `butcherPayroll.ts`: queries filtradas por `employeeId`/`storeId` (no baja colecciones enteras).
+
+**Fuera de alcance:** UI carnicero en PC, historial de sueldos carnicero, asignar pedido a carnicero, carrito de pedidos en celu, stock.
+
+**Reglas Firestore:** los permisos `request.auth != null` existentes cubren al carnicero. Restricción fina (update solo `pending→ready`) se aplica en el código de la app; no requiere `get()` por request.
+
+---
+
+### FEAT-CASH-HANDOVER-01: Entrega del cambio (billetes) entre turnos — **pendiente, antes de v1.0** (acordado 2026-09-07)
+
+Hoy el cierre de PC ya deja anotar cuántos billetes de cada valor quedan en la registradora (`bill_denominations`) y calcula el total. Ese desglose **no se muestra** al abrir el turno siguiente: la apertura solo pide un monto suelto (`openingCash`). En el local eso sigue en la hoja del día. El celu ni cuenta billetes al cerrar ni al abrir.
+
+**Producto:** el “cambio” que deja una cajera es lo que ve (y puede corregir) la que abre. La corrección **no reescribe** el cierre anterior.
+
+#### Ciclo (mismo local)
+
+1. Cierre: conteo de billetes que **quedan en la registradora** (no lo entregado / caja fuerte). Filas vacías permitidas. El total de esa grilla es lo dejado.
+2. Apertura del turno siguiente (puede ser la misma persona): misma grilla **precargada** con lo que declaró la anterior. El `openingCash` es el total calculado de esa grilla (editable).
+3. Si coinciden los billetes, confirma sin tocar. Si no, corrige cantidades. Eso es “lo que encontré”, no un parche al cierre de la otra.
+4. Auditoría conserva **las dos versiones**: lo que la que cerró dijo que dejaba vs lo que la que abrió dijo que encontró (quién, cuándo, diferencia). La de la mañana puede demostrar lo que ella guardó aunque la de la tarde mienta o cuente mal (y al revés).
+
+Fuente del precargado: último turno **cerrado de ese local** (no tiene que ser “ayer”; cubre mañana→tarde, tarde→mañana, mismo día o después de un domingo cerrado).
+
+#### Cierre: conteo obligatorio, cero con confirmación
+
+En **producción** no se salta el paso de billetes. Cerrar con **todas las filas en 0** (caja vacía) es un caso raro pero válido: no bloquear; pedir un modal (“¿Confirmás que no queda ningún billete en caja?”). Un skip accidental es difícil; un vacío deliberado (se entregó todo) sigue posible.
+
+En **`APP_ENV=dev`** se puede omitir el conteo para no frenar pruebas (mismo espíritu que el bypass de login).
+
+#### Alcance v1.0: PC **y** POS de emergencia del celu
+
+Misma grilla al cerrar y al abrir en ambos. Si una cierra en celu y la otra abre en PC (o al revés), el desglose tiene que estar en Firestore: hoy `bill_denominations` es **solo SQLite** y `shiftSync` no lo sube. Hay que persistir el desglose en el doc del turno (array chico, ~10 denominaciones; no es una colección que crece — DT-08 no aplica como ledger).
+
+DT-06 (un turno vivo en PC+celu a la vez) **no** es este FEAT. Acá el relevo es **cierre → apertura del siguiente**.
+
+#### Datos (al implementar)
+
+- El cierre ya escrito **no se updatea** cuando la siguiente corrige.
+- El turno que **abre** guarda su propio conteo de apertura (distinto del de cierre del anterior).
+- Historial admin: en el turno cerrado, “dejó”; en el que abre, “encontró”; si no calzan, la diferencia visible.
+- Denominaciones vigentes las de cierre actuales (`CloseShiftScreen`: 20000…10). No hace falta el de $5.000.
+
+#### Fuera de este FEAT
+
+- No mezclar con DT-02 / DT-03 / DT-06.
+- No cambiar el flujo de “monto entregado / caja fuerte” del arqueo; el cambio es solo lo que queda en la registradora.
+- No es stock (Fase 8).
+
+**Cuándo implementar:** cuando el desarrollador lo pida; queda **antes de v1.0**. No codear hasta entonces.
+
+---
+
+### FEAT-AUTH-PASSWORD-01: Cambio de contraseña por el usuario + mail en español — **pendiente, antes de v1.0** (acordado 2026-09-07)
+
+Hoy no hay forma de que cajera, admin o carnicero **cambien su contraseña**. El alta manda `sendPasswordResetEmail` (definir la primera vez). El mail de Firebase está en **inglés genérico**.
+
+**Producto:**
+- Cada usuario lo hace **por su cuenta**, no el admin. Admin no resetea ni ve la clave.
+- Login (PC y celu): enlace **¿Olvidaste tu contraseña?** → mail de restablecer (mismo `sendPasswordResetEmail` que el alta).
+- Ya logueado: cambiar clave (pide la actual + la nueva). `updatePassword` de Firebase Auth exige login reciente; si no, reautenticar o mandar al flujo de mail.
+- El mail: asunto y cuerpo en español, con el nombre del negocio desde `business.json` (no hardcodear marca en código). El HTML/textos de plantilla de Auth **no viven en el repo**: se editan en Firebase Console → Authentication → Templates (Password reset). El remitente en Spark sigue siendo el de Firebase (`noreply@…firebaseapp.com`); SMTP propio / dominio = Blaze, fuera de este FEAT salvo que se pida.
+
+**Cuándo implementar:** cuando el desarrollador lo pida; queda **antes de v1.0**. No codear hasta entonces.

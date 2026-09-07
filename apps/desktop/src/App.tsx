@@ -19,6 +19,7 @@ import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
+import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
@@ -36,7 +37,7 @@ type AppState =
   | { screen: 'license-error'; reason: InitStatus['licenseReason'] & string; message: string }
   | { screen: 'activation'; licenseKey: string }
   | { screen: 'login'; initStatus: InitStatus }
-  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier' }
+  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier'; preferredStoreId?: string | null }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
   | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
@@ -181,6 +182,10 @@ export default function App() {
     })
   }, [])
 
+  async function loadPreferredStoreId(userId: string, availableStores: StoreRow[]): Promise<string | null> {
+    return preferredStoreIdFrom(availableStores, readLastStoreId(userId))
+  }
+
   async function handleLogin(email: string, password: string): Promise<void> {
     if (state.screen !== 'login') return
     const result = await window.hw.login({ email, password })
@@ -206,12 +211,19 @@ export default function App() {
 
     // No hay turno abierto → flujo normal (selector de local o selección automática)
     const storesResult = await window.hw.getStores()
-    const availableStores = storesResult.ok ? storesResult.data : []
+    const availableStores = storesResult.ok ? storesResult.data.filter(s => !s.archivedAt) : []
 
     if (availableStores.length === 1) {
       await handleSelectStore(session, availableStores[0]!.id, state.initStatus)
     } else {
-      setState({ screen: 'store-picker', partialSession: session, stores: availableStores, initStatus: state.initStatus })
+      const preferredStoreId = await loadPreferredStoreId(session.userId, availableStores)
+      setState({
+        screen: 'store-picker',
+        partialSession: session,
+        stores: availableStores,
+        initStatus: state.initStatus,
+        preferredStoreId,
+      })
     }
   }
 
@@ -223,6 +235,7 @@ export default function App() {
   ): Promise<void> {
     const r = await window.hw.selectStore({ storeId })
     if (!r.ok) throw new Error(r.error)
+    writeLastStoreId(partialSession.userId, storeId)
 
     const session: SessionInfo = {
       ...r.data,
@@ -251,20 +264,21 @@ export default function App() {
     }
 
     const storesResult = await window.hw.getStores()
-    const availableStores = storesResult.ok ? storesResult.data : []
+    const availableStores = storesResult.ok ? storesResult.data.filter(s => !s.archivedAt) : []
 
     if (availableStores.length <= 1) {
       // Un solo local (o ninguno): seleccionar automáticamente
       const storeId = availableStores[0]?.id ?? state.session.storeId ?? ''
       await handleSelectStore(state.session, storeId, state.initStatus, 'cashier')
     } else {
-      // Múltiples locales: pedir que elija en cuál va a trabajar
+      const preferredStoreId = await loadPreferredStoreId(state.session.userId, availableStores)
       setState({
         screen: 'store-picker',
         partialSession: state.session,
         stores: availableStores,
         initStatus: state.initStatus,
         intent: 'cashier',
+        preferredStoreId,
       })
     }
   }
@@ -360,8 +374,8 @@ export default function App() {
     const availableStores = storesResult.ok ? storesResult.data.filter(s => !s.archivedAt) : []
 
     if (availableStores.length > 1) {
-      // Volver al selector de local (sin cerrar sesión)
-      setState({ screen: 'store-picker', partialSession: session, stores: availableStores, initStatus })
+      const preferredStoreId = await loadPreferredStoreId(session.userId, availableStores)
+      setState({ screen: 'store-picker', partialSession: session, stores: availableStores, initStatus, preferredStoreId })
     } else {
       // Un solo local disponible: no tiene sentido volver al picker, ir al login
       await window.hw.logout({ role: session.role, storeId: session.storeId })
@@ -422,6 +436,7 @@ export default function App() {
           <StorePickerScreen
             stores={state.stores}
             intent={state.intent}
+            preferredStoreId={state.preferredStoreId}
             onSelect={async (storeId) => {
               await handleSelectStore(state.partialSession, storeId, state.initStatus, state.intent)
             }}
@@ -565,6 +580,7 @@ export default function App() {
           <OrdersScreen
             isAdmin={state.session.role === 'admin'}
             currentShiftId={state.fromCashier?.id ?? null}
+            sessionStoreId={state.session.storeId}
             onBack={() => {
               if (state.fromCashier) {
                 setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })

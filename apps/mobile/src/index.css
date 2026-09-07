@@ -41,3 +41,13 @@ html.is-pinching .overflow-auto {
   overflow: hidden;
   overscroll-behavior: none;
 }
+
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.toast-progress {
+  transform-origin: left center;
+  animation: toast-progress 7s linear forwards;
+}

@@ -16,7 +16,8 @@ import { StoreSelector } from './components/StoreSelector'
 import { OpenShiftScreen } from './components/OpenShiftScreen'
 import { PosScreen } from './components/PosScreen'
 import { AdminDashboard } from './components/AdminDashboard'
-import { signIn, signOut, restoreSession } from './lib/auth'
+import { ButcherApp } from './components/butcher/ButcherApp'
+import { signIn, signOut, restoreSession, revalidateProfileAccess, subscribeUserAccess, ACCESS_REVOKED_MESSAGE } from './lib/auth'
 import { syncCatalog, getCatalog, startCatalogLiveListener, stopCatalogLiveListener } from './lib/catalog'
 import { db } from './lib/db'
 import { triggerSync, registerOnlineListener } from './lib/sync'
@@ -31,6 +32,7 @@ type Screen =
   | 'checking'
   | 'login'
   | 'admin'
+  | 'butcher'
   | 'store-select'
   | 'loading'
   | 'open-shift'
@@ -56,6 +58,9 @@ export default function App() {
 
   const online = useOnlineStatus()
   const prevOnline = useRef(online)
+  const sessionRef = useRef(session)
+  const kickingOutRef = useRef(false)
+  sessionRef.current = session
 
   useEffect(() => {
     exitConfirmRef.current = exitConfirm
@@ -80,6 +85,7 @@ export default function App() {
       if (result.ok) {
         afterAuthentication(result.profile, result.mode)
       } else {
+        if (result.error) setLoginError(result.error)
         setScreen('login')
       }
     })
@@ -87,19 +93,34 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Al recuperar conexión: resincronizar catálogo y subir pendientes.
+  // Al recuperar conexión: revalidar acceso, resincronizar catálogo y subir pendientes.
   useEffect(() => {
     const reconnected = !prevOnline.current && online
     prevOnline.current = online
-    if (!reconnected || !session?.storeId) return
+    if (!reconnected || !session) return
 
     ;(async () => {
+      const access = await revalidateProfileAccess(session.profile.uid, session.profile.email)
+      if (access === 'revoked') {
+        await kickOutRevokedAccess()
+        return
+      }
+      if (!session.storeId) return
       await syncCatalog(session.storeId)
       const cat = await getCatalog(session.storeId)
       setCatalog(cat)
       triggerSync().catch(() => { /* silencioso */ })
     })()
   }, [online, session])
+
+  // Si el admin revoca el acceso con la app abierta, cerrar sesión al instante.
+  useEffect(() => {
+    const uid = session?.profile.uid
+    if (!uid || screen === 'login' || screen === 'checking') return undefined
+    return subscribeUserAccess(uid, () => {
+      void kickOutRevokedAccess()
+    })
+  }, [session?.profile.uid, screen])
 
   // Catálogo en vivo mientras hay local de POS (cambio de local / logout → stop + start).
   useEffect(() => {
@@ -133,6 +154,12 @@ export default function App() {
     if (profile.role === 'admin') {
       setSession({ profile, storeId: '', loginMode: mode })
       setScreen('admin')
+      return
+    }
+
+    if (profile.role === 'butcher') {
+      setSession({ profile, storeId: '', loginMode: mode })
+      setScreen('butcher')
       return
     }
 
@@ -272,6 +299,21 @@ export default function App() {
     setLoginError(null)
   }
 
+  async function kickOutRevokedAccess() {
+    if (kickingOutRef.current) return
+    kickingOutRef.current = true
+    stopCatalogLiveListener()
+    const uid = sessionRef.current?.profile.uid
+    if (uid) await db.profile.delete(uid).catch(() => undefined)
+    await signOut().catch(() => undefined)
+    setSession(null)
+    setActiveShift(null)
+    setCatalog([])
+    setLoginError(ACCESS_REVOKED_MESSAGE)
+    setScreen('login')
+    kickingOutRef.current = false
+  }
+
   // ----- Render -----
 
   function renderScreen() {
@@ -302,6 +344,15 @@ export default function App() {
           profile={session.profile}
           onLogout={handleLogout}
           onOperateAsCashier={() => { void startAdminPos() }}
+        />
+      )
+    }
+
+    if (screen === 'butcher' && session) {
+      return (
+        <ButcherApp
+          profile={session.profile}
+          onLogout={handleLogout}
         />
       )
     }
@@ -344,7 +395,7 @@ export default function App() {
           shift={activeShift}
           catalog={catalog}
           storeName={storeName}
-          viewerRole={session.profile.role}
+          viewerRole={session.profile.role as 'admin' | 'cashier'}
           viewerName={session.profile.displayName}
           onCloseShift={handleCloseShift}
           onReturnToAdmin={session.profile.role === 'admin' ? returnToAdminHub : undefined}

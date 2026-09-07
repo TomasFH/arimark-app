@@ -40,6 +40,12 @@ import {
   type DepositPayment,
   type OrderTimeSlot,
 } from '../../lib/orderMapping'
+import {
+  pickupHoursLiveErrorOnDate,
+  pickupSlotAvailability,
+  PICKUP_SPECIFIC_HINT,
+  storeHoursSourceFromRecord,
+} from '@carniceria/shared'
 import { todayLocalYmd } from '../../lib/week'
 
 interface Props {
@@ -230,8 +236,20 @@ export function OrdersScreen({ onBack, stores, createdBy }: Props) {
                   )}
                   <div className="mt-1 flex items-center gap-3 text-xs text-zinc-500">
                     <span>Retiro: {formatDate(order.pickupDate)}</span>
-                    {formatPickupSlotLine(order.timeSlot, order.pickupTime) && (
-                      <span>{formatPickupSlotLine(order.timeSlot, order.pickupTime)}</span>
+                    {formatPickupSlotLine(
+                      order.timeSlot,
+                      order.pickupTime,
+                      storeHoursSourceFromRecord(stores.find(s => s.id === order.storeId) ?? null),
+                      order.pickupDate,
+                    ) && (
+                      <span>
+                        {formatPickupSlotLine(
+                          order.timeSlot,
+                          order.pickupTime,
+                          storeHoursSourceFromRecord(stores.find(s => s.id === order.storeId) ?? null),
+                          order.pickupDate,
+                        )}
+                      </span>
                     )}
                     {order.depositAmount > 0 && (
                       <span className="font-mono">
@@ -364,14 +382,16 @@ function OrderActionsModal({
           </div>
         )}
 
-        <Btn
-          className="w-full"
-          variant="danger"
-          disabled={busy}
-          onClick={() => handle(() => onDelete(order))}
-        >
-          Eliminar pedido
-        </Btn>
+        {order.status === 'cancelled' && (
+          <Btn
+            className="w-full"
+            variant="danger"
+            disabled={busy}
+            onClick={() => handle(() => onDelete(order))}
+          >
+            Eliminar pedido
+          </Btn>
+        )}
       </div>
     </Modal>
   )
@@ -424,10 +444,54 @@ function CreateOrderModal({
     }
   }, [stores, storeId])
 
+  useEffect(() => {
+    const source = storeHoursSourceFromRecord(stores.find(s => s.id === storeId) ?? null)
+    const available = pickupSlotAvailability(source, pickupDate)
+    if (
+      (timeSlot === 'afternoon' && !available.afternoon)
+      || (timeSlot === 'morning' && !available.morning)
+    ) {
+      setTimeSlot('')
+    }
+  }, [stores, storeId, pickupDate, timeSlot])
+
   const payments: DepositPayment[] = (['cash', 'debit', 'wallet', 'credit'] as const)
     .map(method => ({ method, amount: parseDigits(depositByMethod[method]) }))
     .filter(p => p.amount > 0)
   const totalDeposit = depositTotal(payments)
+
+  const hours = storeHoursSourceFromRecord(stores.find(s => s.id === storeId) ?? null)
+  const livePickupHoursError = pickupHoursLiveErrorOnDate(timeSlot, pickupTime, hours, pickupDate)
+  const slotAvailability = pickupSlotAvailability(hours, pickupDate)
+  const pickupSlotOptions = (['morning', 'afternoon', 'specific'] as const).filter(slot => {
+    if (slot === 'morning') return slotAvailability.morning
+    if (slot === 'afternoon') return slotAvailability.afternoon
+    return true
+  })
+
+  async function persistDraft() {
+    const draft = {
+      storeId,
+      customerName,
+      phone,
+      items,
+      pickupDate,
+      timeSlot,
+      pickupTime,
+      priority,
+      payments,
+      notes,
+      createdBy,
+    }
+    setSaving(true)
+    setErr(null)
+    try {
+      await onCreate(toMobileOrderRecord(draft, new Date().toISOString()))
+    } catch {
+      setErr('No se pudo crear el pedido.')
+      setSaving(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -444,22 +508,16 @@ function CreateOrderModal({
       notes,
       createdBy,
     }
-    const validationError = validateMobileOrderDraft(draft)
+    const validationError = validateMobileOrderDraft(draft, hours)
     if (validationError) {
       setErr(validationError)
       return
     }
-    setSaving(true)
-    setErr(null)
-    try {
-      await onCreate(toMobileOrderRecord(draft, new Date().toISOString()))
-    } catch {
-      setErr('No se pudo crear el pedido.')
-      setSaving(false)
-    }
+    await persistDraft()
   }
 
   return (
+    <>
     <Modal title="Nuevo pedido" onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3">
         {stores.length > 1 && (
@@ -467,7 +525,17 @@ function CreateOrderModal({
             <span className="mb-1 block text-sm text-zinc-400">Local *</span>
             <select
               value={storeId}
-              onChange={e => setStoreId(e.target.value)}
+              onChange={e => {
+                const next = e.target.value
+                setStoreId(next)
+                const source = storeHoursSourceFromRecord(stores.find(s => s.id === next) ?? null)
+                const available = pickupSlotAvailability(source, pickupDate)
+                setTimeSlot(current => {
+                  if (current === 'afternoon' && !available.afternoon) return ''
+                  if (current === 'morning' && !available.morning) return ''
+                  return current
+                })
+              }}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
             >
               <option value="">Elegir un local</option>
@@ -523,15 +591,24 @@ function CreateOrderModal({
           <input
             type="date"
             value={pickupDate}
-            onChange={e => setPickupDate(e.target.value)}
+            onChange={e => {
+              const next = e.target.value
+              setPickupDate(next)
+              const available = pickupSlotAvailability(hours, next)
+              setTimeSlot(current => {
+                if (current === 'afternoon' && !available.afternoon) return ''
+                if (current === 'morning' && !available.morning) return ''
+                return current
+              })
+            }}
             className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
           />
         </label>
 
         <div className="space-y-2">
           <p className="text-sm text-zinc-400">Horario de retiro (opcional)</p>
-          <div className="grid grid-cols-3 gap-2">
-            {(['morning', 'afternoon', 'specific'] as const).map(slot => (
+          <div className={`grid gap-2 ${pickupSlotOptions.length === 3 ? 'grid-cols-3' : pickupSlotOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {pickupSlotOptions.map(slot => (
               <button
                 key={slot}
                 type="button"
@@ -547,12 +624,23 @@ function CreateOrderModal({
             ))}
           </div>
           {timeSlot === 'specific' && (
-            <input
-              type="time"
-              value={pickupTime}
-              onChange={e => setPickupTime(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none"
-            />
+            <>
+              <p className="text-xs text-amber-400/90 leading-snug">{PICKUP_SPECIFIC_HINT}</p>
+              <input
+                type="time"
+                value={pickupTime}
+                onChange={e => {
+                  setErr(null)
+                  setPickupTime(e.target.value)
+                }}
+                className={`w-full rounded-lg border bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 focus:outline-none ${
+                  livePickupHoursError ? 'border-red-500' : 'border-zinc-700'
+                }`}
+              />
+              {livePickupHoursError && (
+                <p className="text-sm text-red-400/90">{livePickupHoursError}</p>
+              )}
+            </>
           )}
         </div>
 
@@ -601,11 +689,12 @@ function CreateOrderModal({
           <Btn className="flex-1" variant="ghost" onClick={onClose}>
             Cancelar
           </Btn>
-          <Btn type="submit" className="flex-1" loading={saving}>
+          <Btn type="submit" className="flex-1" loading={saving} disabled={!!livePickupHoursError}>
             Crear pedido
           </Btn>
         </div>
       </form>
     </Modal>
+    </>
   )
 }

@@ -4,12 +4,11 @@
  * Modelo: sesión persistente de Firebase Auth. No hay PIN ni claves offline.
  *
  *  1. Login online (email + contraseña): verifica credenciales, lee el perfil
- *     desde Firestore y lo cachea en IndexedDB. Firebase guarda el refresh
- *     token localmente (ver `firebase.ts`).
- *  2. Restauración de sesión: al reabrir la app, `restoreSession()` recupera al
- *     usuario ya autenticado desde la persistencia local — con o SIN internet —
- *     y devuelve el perfil cacheado. La cajera nunca vuelve a ingresar
- *     credenciales mientras no cierre sesión explícitamente.
+ *     desde Firestore (servidor) y lo cachea en IndexedDB. Si `active === false`
+ *     o el doc no autoriza, cierra Auth y no entra.
+ *  2. Restauración: al reabrir, si hay internet revalida el perfil en Firestore
+ *     (no alcanza el caché local). Sin internet usa el caché. Un listener en
+ *     vivo cierra la sesión si el admin revoca el acceso con la app abierta.
  *
  * Requisito para operar offline: haber iniciado sesión al menos una vez con
  * internet en ese dispositivo (durante la configuración inicial).
@@ -20,12 +19,19 @@ import {
   onAuthStateChanged,
   type User,
 } from 'firebase/auth'
-import { getFirestore, doc, getDoc } from 'firebase/firestore'
+import { getFirestore, doc, getDocFromServer, onSnapshot } from 'firebase/firestore'
 import { firebaseApp, auth, LICENSE_KEY } from '../firebase'
 import { db } from './db'
 import type { LocalProfile } from '../types/pos'
+import {
+  accessDenialMessage,
+  buildLocalProfile,
+  denyUserAccess,
+  type AccessDenial,
+} from './userAccess'
 
 export type { LocalProfile }
+export { ACCESS_REVOKED_MESSAGE } from './userAccess'
 
 export type SignInResult =
   | { ok: true; profile: LocalProfile; mode: 'online' }
@@ -33,7 +39,7 @@ export type SignInResult =
 
 export type RestoreResult =
   | { ok: true; profile: LocalProfile; mode: 'online' | 'offline' }
-  | { ok: false }
+  | { ok: false; error?: string }
 
 const firestore = getFirestore(firebaseApp)
 
@@ -42,36 +48,44 @@ const NETWORK_ERRORS = new Set([
   'auth/network-request-failed',
   'auth/timeout',
   'auth/internal-error',
+  'unavailable',
 ])
 
+type FetchProfileResult =
+  | { ok: true; profile: LocalProfile }
+  | { ok: false; reason: AccessDenial }
+
+function userDocRef(uid: string) {
+  return doc(firestore, 'licenses', LICENSE_KEY, 'users', uid)
+}
+
+async function clearLocalProfileAndAuth(uid: string): Promise<void> {
+  await db.profile.delete(uid).catch(() => undefined)
+  await firebaseSignOut(auth).catch(() => undefined)
+}
+
 /**
- * Lee el perfil de Firestore para un uid, valida el rol y lo cachea localmente.
- * Devuelve null si el usuario no está registrado o su rol no está autorizado.
+ * Lee el perfil de Firestore para un uid, valida rol y `active`, y lo cachea.
+ * Con internet pide el servidor (no el caché de Firestore) para no entrar
+ * con un `active: true` viejo después de una revocación.
  */
 async function fetchAndCacheProfile(
   uid: string,
-  email: string
-): Promise<LocalProfile | null> {
-  const profileRef = doc(firestore, 'licenses', LICENSE_KEY, 'users', uid)
-  const snap = await getDoc(profileRef)
-  if (!snap.exists()) return null
+  email: string,
+): Promise<FetchProfileResult> {
+  const profileRef = userDocRef(uid)
+  const snap = await getDocFromServer(profileRef)
+  if (!snap.exists()) return { ok: false, reason: 'unauthorized' }
 
-  const data = snap.data()
-  const role = data['role'] as 'cashier' | 'admin'
-  if (role !== 'cashier' && role !== 'admin') return null
+  const data = snap.data() as Record<string, unknown>
+  const denial = denyUserAccess(data)
+  if (denial) return { ok: false, reason: denial }
 
-  const profile: LocalProfile = {
-    uid,
-    displayName: (typeof data['displayName'] === 'string' && data['displayName'].trim())
-      ? data['displayName'].trim()
-      : (email.split('@')[0] || email),
-    role,
-    authorizedStores: data['authorizedStores'] ?? [],
-    email,
-  }
+  const profile = buildLocalProfile(uid, email, data)
+  if (!profile) return { ok: false, reason: 'unauthorized' }
 
   await db.profile.put(profile)
-  return profile
+  return { ok: true, profile }
 }
 
 /** Login online con Firebase Auth + perfil Firestore. */
@@ -81,12 +95,12 @@ export async function signIn(email: string, password: string): Promise<SignInRes
     const uid = credential.user.uid
 
     const profile = await fetchAndCacheProfile(uid, email)
-    if (!profile) {
-      await firebaseSignOut(auth)
-      return { ok: false, error: 'Usuario no registrado o sin rol autorizado.' }
+    if (!profile.ok) {
+      await clearLocalProfileAndAuth(uid)
+      return { ok: false, error: accessDenialMessage(profile.reason) }
     }
 
-    return { ok: true, profile, mode: 'online' }
+    return { ok: true, profile: profile.profile, mode: 'online' }
   } catch (err: unknown) {
     const code = (err as { code?: string }).code ?? ''
     if (
@@ -109,39 +123,84 @@ export async function signIn(email: string, password: string): Promise<SignInRes
 /**
  * Restaura la sesión persistida al abrir la app.
  *
- * Espera a que Firebase resuelva el estado de auth desde la persistencia local
- * (funciona offline) y devuelve el perfil correspondiente:
- *  - Perfil cacheado en IndexedDB → uso inmediato (con o sin internet).
- *  - Sin caché pero con internet → lo baja de Firestore y lo cachea.
- *  - Sin sesión previa → { ok: false } (hay que loguearse).
+ *  - Con internet: revalida el doc de Firestore. Si está desactivado o no hay
+ *    perfil, cierra Auth, borra el caché y { ok: false }.
+ *  - Sin internet (o si Firestore no responde): usa el perfil cacheado.
+ *  - Sin sesión previa: { ok: false }.
  */
 export function restoreSession(): Promise<RestoreResult> {
   return new Promise((resolve) => {
-    const unsub = onAuthStateChanged(auth, async (user: User | null) => {
-      unsub()
-      if (!user) {
-        resolve({ ok: false })
-        return
-      }
-
-      const cached = await db.profile.get(user.uid)
-      if (cached) {
-        resolve({ ok: true, profile: cached, mode: navigator.onLine ? 'online' : 'offline' })
-        return
-      }
-
-      if (navigator.onLine) {
-        const profile = await fetchAndCacheProfile(user.uid, user.email ?? '')
-        if (profile) {
-          resolve({ ok: true, profile, mode: 'online' })
-          return
-        }
-      }
-
-      // Sesión válida pero sin perfil accesible (offline y sin caché).
-      resolve({ ok: false })
+    let settled = false
+    const unsub = onAuthStateChanged(auth, (user: User | null) => {
+      if (settled) return
+      settled = true
+      void restoreFromAuthUser(user).then((result) => {
+        unsub()
+        resolve(result)
+      })
     })
   })
+}
+
+async function restoreFromAuthUser(user: User | null): Promise<RestoreResult> {
+  if (!user) return { ok: false }
+
+  if (navigator.onLine) {
+    try {
+      const fetched = await fetchAndCacheProfile(user.uid, user.email ?? '')
+      if (fetched.ok) {
+        return { ok: true, profile: fetched.profile, mode: 'online' }
+      }
+      await clearLocalProfileAndAuth(user.uid)
+      return { ok: false, error: accessDenialMessage(fetched.reason) }
+    } catch {
+      // Sin servidor: caer al caché local si existe.
+    }
+  }
+
+  const cached = await db.profile.get(user.uid)
+  if (cached) {
+    return { ok: true, profile: cached, mode: navigator.onLine ? 'online' : 'offline' }
+  }
+
+  return { ok: false }
+}
+
+/**
+ * Reconsulta el perfil al recuperar internet. `revoked` cierra Auth y borra caché.
+ */
+export async function revalidateProfileAccess(
+  uid: string,
+  email: string,
+): Promise<'ok' | 'revoked' | 'unavailable'> {
+  try {
+    const fetched = await fetchAndCacheProfile(uid, email)
+    if (fetched.ok) return 'ok'
+    await clearLocalProfileAndAuth(uid)
+    return 'revoked'
+  } catch {
+    return 'unavailable'
+  }
+}
+
+/**
+ * Cierra la sesión en cuanto Firestore marca el usuario como inactivo o borra el doc.
+ */
+export function subscribeUserAccess(uid: string, onRevoked: () => void): () => void {
+  return onSnapshot(
+    userDocRef(uid),
+    snap => {
+      if (!snap.exists()) {
+        onRevoked()
+        return
+      }
+      const denial = denyUserAccess(snap.data() as Record<string, unknown>)
+      if (denial) onRevoked()
+    },
+    err => {
+      console.error('[auth] Error en listener de acceso', err)
+    },
+  )
 }
 
 export function signOut(): Promise<void> {

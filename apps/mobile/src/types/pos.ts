@@ -19,10 +19,12 @@ export const CASH_INJECT_CONCEPT = 'Aporte'
 export interface LocalProfile {
   uid: string
   displayName: string
-  role: 'cashier' | 'admin'
+  role: 'cashier' | 'admin' | 'butcher'
   authorizedStores: string[]
   /** Email para reautenticar al recuperar conexión. */
   email: string
+  /** FK al empleado en SQLite de la PC. Solo para carniceros. */
+  employeeId?: string
 }
 
 export interface CatalogProduct {

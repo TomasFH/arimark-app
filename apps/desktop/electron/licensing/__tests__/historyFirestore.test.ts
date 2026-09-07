@@ -16,8 +16,9 @@ vi.mock('firebase/firestore', () => ({
   getDocs: vi.fn(),
   doc: vi.fn(),
   getDoc: vi.fn(),
-  query: vi.fn((col: unknown) => col),
-  where: vi.fn(),
+  query: vi.fn((...args: unknown[]) => args),
+  where: vi.fn((...args: unknown[]) => args),
+  orderBy: vi.fn((...args: unknown[]) => args),
 }))
 
 vi.mock('electron-log', () => ({

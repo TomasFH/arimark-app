@@ -6,7 +6,15 @@
  */
 import { useState, useEffect } from 'react'
 import BackButton from '../components/BackButton'
+import StoreHoursScheduleEditor from '../components/StoreHoursScheduleEditor'
 import type { StoreRow } from '../types/hw-api'
+import {
+  editorScheduleFromStore,
+  formatWeekScheduleSummary,
+  hoursFieldsForSave,
+  validateWeekSchedule,
+  type StoreHoursBlock,
+} from '@carniceria/shared'
 
 interface Props {
   onBack: () => void
@@ -24,10 +32,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
   const [modal, setModal] = useState<{ mode: ModalMode; store?: StoreRow } | null>(null)
   const [formName, setFormName] = useState('')
   const [formAddress, setFormAddress] = useState('')
-  const [formMorningStart, setFormMorningStart] = useState('')
-  const [formMorningEnd, setFormMorningEnd] = useState('')
-  const [formAfternoonStart, setFormAfternoonStart] = useState('')
-  const [formAfternoonEnd, setFormAfternoonEnd] = useState('')
+  const [formSchedule, setFormSchedule] = useState<StoreHoursBlock[]>([])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -53,10 +58,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
   function openCreate() {
     setFormName('')
     setFormAddress('')
-    setFormMorningStart('')
-    setFormMorningEnd('')
-    setFormAfternoonStart('')
-    setFormAfternoonEnd('')
+    setFormSchedule(editorScheduleFromStore(null))
     setSaveError(null)
     setModal({ mode: 'create' })
   }
@@ -64,10 +66,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
   function openEdit(store: StoreRow) {
     setFormName(store.name)
     setFormAddress(store.address ?? '')
-    setFormMorningStart(store.morningStart ?? '')
-    setFormMorningEnd(store.morningEnd ?? '')
-    setFormAfternoonStart(store.afternoonStart ?? '')
-    setFormAfternoonEnd(store.afternoonEnd ?? '')
+    setFormSchedule(editorScheduleFromStore(store))
     setSaveError(null)
     setModal({ mode: 'edit', store })
   }
@@ -80,8 +79,20 @@ export default function StoreManagementScreen({ onBack }: Props) {
     setSaving(true)
     setSaveError(null)
 
+    const hoursError = validateWeekSchedule(formSchedule)
+    if (hoursError) {
+      setSaving(false)
+      setSaveError(hoursError)
+      return
+    }
+    const hours = hoursFieldsForSave(formSchedule)
+
     if (modal?.mode === 'create') {
-      const r = await window.hw.createStore({ name, address: formAddress.trim() || undefined })
+      const r = await window.hw.createStore({
+        name,
+        address: formAddress.trim() || undefined,
+        ...hours,
+      })
       setSaving(false)
       if (!r.ok) { setSaveError(r.error); return }
       setStores(prev => [...prev, r.data])
@@ -90,10 +101,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
         id: modal.store.id,
         name,
         address: formAddress.trim() || null,
-        morningStart: formMorningStart.trim() || null,
-        morningEnd: formMorningEnd.trim() || null,
-        afternoonStart: formAfternoonStart.trim() || null,
-        afternoonEnd: formAfternoonEnd.trim() || null,
+        ...hours,
       })
       setSaving(false)
       if (!r.ok) { setSaveError(r.error); return }
@@ -201,15 +209,9 @@ export default function StoreManagementScreen({ onBack }: Props) {
                         {store.address}
                       </p>
                     )}
-                    {(store.morningStart || store.afternoonStart) && (
-                      <p className="text-xs text-zinc-500 mt-0.5">
-                        {store.morningStart && store.morningEnd
-                          ? `Mañana: ${store.morningStart}–${store.morningEnd}`
-                          : ''}
-                        {store.morningStart && store.afternoonStart ? ' · ' : ''}
-                        {store.afternoonStart && store.afternoonEnd
-                          ? `Tarde: ${store.afternoonStart}–${store.afternoonEnd}`
-                          : ''}
+                    {formatWeekScheduleSummary(store) && (
+                      <p className="text-xs text-zinc-500 mt-0.5 truncate" title={formatWeekScheduleSummary(store)}>
+                        {formatWeekScheduleSummary(store)}
                       </p>
                     )}
                   </div>
@@ -248,7 +250,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
       {/* Modal crear / editar */}
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-modal-enter">
+          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-modal-enter">
             <h2 className="text-base font-semibold">
               {modal.mode === 'create' ? 'Nuevo local' : `Editar "${modal.store?.name}"`}
             </h2>
@@ -279,55 +281,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
                 />
               </div>
 
-              {/* Horarios de turno — solo en modo edición */}
-              {modal.mode === 'edit' && (
-                <div className="space-y-3 border-t border-zinc-700 pt-3">
-                  <p className="text-sm font-medium text-zinc-300">Horarios de turno (opcional)</p>
-                  <p className="text-xs text-zinc-500">Si se configuran, la app sugerirá el turno automáticamente al abrir.</p>
-
-                  <div className="space-y-1">
-                    <label className="text-xs text-zinc-400">Turno Mañana</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="time"
-                        value={formMorningStart}
-                        onChange={e => setFormMorningStart(e.target.value)}
-                        placeholder="HH:MM"
-                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm"
-                      />
-                      <span className="text-zinc-500 shrink-0 text-xs">hasta</span>
-                      <input
-                        type="time"
-                        value={formMorningEnd}
-                        onChange={e => setFormMorningEnd(e.target.value)}
-                        placeholder="HH:MM"
-                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs text-zinc-400">Turno Tarde</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="time"
-                        value={formAfternoonStart}
-                        onChange={e => setFormAfternoonStart(e.target.value)}
-                        placeholder="HH:MM"
-                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm"
-                      />
-                      <span className="text-zinc-500 shrink-0 text-xs">hasta</span>
-                      <input
-                        type="time"
-                        value={formAfternoonEnd}
-                        onChange={e => setFormAfternoonEnd(e.target.value)}
-                        placeholder="HH:MM"
-                        className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+              <StoreHoursScheduleEditor schedule={formSchedule} onChange={setFormSchedule} />
 
               {saveError && <p className="text-red-400 text-sm">{saveError}</p>}
 

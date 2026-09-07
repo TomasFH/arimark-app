@@ -52,6 +52,7 @@ import {
   isInitialShiftUpload,
 } from './syncPayloads'
 import { providerNameKey } from './adminLedger'
+import { debtEventServerTimestampFields, touchDebtCheckpointTail } from './debtCheckpointWrite'
 import type { LocalExpense, LocalSale, LocalShift } from '../types/pos'
 
 const firestore = getFirestore(firebaseApp)
@@ -238,7 +239,12 @@ async function uploadSale(storeId: string, shiftId: string, sale: LocalSale): Pr
     }
     if (debtPayload) {
       const eventRef = doc(firestore, 'licenses', LICENSE_KEY, 'customerDebtEvents', debtPayload.id)
-      await setDoc(eventRef, debtPayload, { merge: true })
+      await setDoc(eventRef, { ...debtPayload, ...debtEventServerTimestampFields() }, { merge: true })
+      await touchDebtCheckpointTail({
+        kind: 'customer',
+        entityId: debtPayload.customerId,
+        storeId: debtPayload.storeId,
+      })
     }
   }
 }
@@ -276,7 +282,12 @@ async function uploadExpense(storeId: string, shiftId: string, expense: LocalExp
 
   for (const event of events) {
     const eventRef = doc(firestore, 'licenses', LICENSE_KEY, 'providerDebtEvents', event.id)
-    await setDoc(eventRef, buildProviderDebtEventOpsPayload(event), { merge: true })
+    await setDoc(eventRef, { ...buildProviderDebtEventOpsPayload(event), ...debtEventServerTimestampFields() }, { merge: true })
+    await touchDebtCheckpointTail({
+      kind: 'provider',
+      entityId: event.providerId,
+      storeId: event.storeId,
+    })
     await db.providerDebtEvents.update(event.id, {
       syncStatus: 'synced',
       syncedAt: new Date().toISOString(),
