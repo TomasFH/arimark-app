@@ -5,8 +5,8 @@
  * Panel derecho: detalle completo del turno seleccionado.
  */
 import { useState, useEffect, useCallback } from 'react'
-import BackButton from '../components/BackButton'
 import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
+import { ScreenHeader } from '../components/ui'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import { injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
@@ -102,50 +102,48 @@ export default function HistoryScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
-        <h1 className="text-sm font-semibold text-zinc-100 min-w-0 flex-1">Historial de turnos</h1>
-        {availableStores.length > 0 && (
+    <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
+      <ScreenHeader
+        title="Historial de turnos"
+        onBack={onBack}
+        actions={availableStores.length > 0 ? (
           <StoreFilter
             stores={availableStores}
             value={storeIdFilter}
             onChange={v => { setStoreIdFilter(v); setSelectedShiftId(null); setDetail(null) }}
           />
-        )}
-      </header>
+        ) : undefined}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Panel izquierdo — lista de turnos */}
-        <div className="w-full sm:w-80 shrink-0 flex flex-col border-r border-zinc-700 bg-zinc-800 overflow-hidden">
-          {/* Filtro de fechas */}
-          <div className="px-3 py-2 border-b border-zinc-700 space-y-2">
-            <p className="text-xs text-zinc-500 uppercase tracking-wider">Filtrar por fecha</p>
+        <div className="w-full sm:w-80 shrink-0 flex flex-col border-r border-line bg-panel overflow-hidden">
+          <div className="px-3 py-2 border-b border-line space-y-2">
+            <p className="text-xs text-muted">Filtrar por fecha</p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] text-zinc-600">Desde</label>
+                <label className="text-[10px] text-subtle">Desde</label>
                 <input
                   type="date"
                   value={fromDate}
                   onChange={e => setFromDate(e.target.value)}
-                  className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-zinc-600">Hasta</label>
+                <label className="text-[10px] text-subtle">Hasta</label>
                 <input
                   type="date"
                   value={toDate}
                   onChange={e => setToDate(e.target.value)}
-                  className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
                 />
               </div>
             </div>
             {(fromDate || toDate) && (
               <button
                 onClick={() => { setFromDate(''); setToDate('') }}
-                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="text-xs text-muted hover:text-ink transition-colors"
               >
                 Limpiar filtro
               </button>
@@ -155,13 +153,13 @@ export default function HistoryScreen({ onBack }: Props) {
           {/* Lista */}
           <div className="flex-1 overflow-y-auto">
             {loading && (
-              <p className="text-zinc-500 text-sm text-center py-8 animate-pulse">Cargando turnos…</p>
+              <p className="text-muted text-sm text-center py-8 animate-pulse">Cargando turnos…</p>
             )}
             {error && (
-              <p className="text-red-400 text-sm text-center py-8">{error}</p>
+              <p className="text-danger text-sm text-center py-8">{error}</p>
             )}
             {!loading && !error && shifts.length === 0 && (
-              <p className="text-zinc-500 text-sm text-center py-8">No hay turnos en el período.</p>
+              <p className="text-muted text-sm text-center py-8">No hay turnos en el período.</p>
             )}
             {shifts.map(shift => (
               <ShiftListItem
@@ -178,17 +176,17 @@ export default function HistoryScreen({ onBack }: Props) {
         <div className="flex-1 overflow-y-auto">
           {!selectedShiftId && (
             <div className="flex items-center justify-center h-full">
-              <p className="text-zinc-600 text-sm">Seleccioná un turno para ver el detalle</p>
+              <p className="text-subtle text-sm">Seleccioná un turno para ver el detalle</p>
             </div>
           )}
           {detailLoading && (
             <div className="flex items-center justify-center h-full">
-              <p className="text-zinc-500 text-sm animate-pulse">Cargando detalle…</p>
+              <p className="text-muted text-sm animate-pulse">Cargando detalle…</p>
             </div>
           )}
           {detailError && (
             <div className="flex items-center justify-center h-full">
-              <p className="text-red-400 text-sm">{detailError}</p>
+              <p className="text-danger text-sm">{detailError}</p>
             </div>
           )}
           {detail && <ShiftDetail detail={detail} />}
@@ -209,39 +207,39 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-3 border-b border-zinc-800/60 transition-colors ${
-        selected ? 'bg-zinc-700 border-l-2 border-l-emerald-500' : 'hover:bg-zinc-700/50'
+      className={`w-full text-left px-3 py-3 border-b border-line transition-colors ${
+        selected ? 'bg-accent-soft' : 'hover:bg-hover'
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <p className="text-sm font-medium text-white min-w-0 truncate" title={`${date} — ${SHIFT_TYPE_LABEL[shift.shiftType]}`}>
+            <p className="text-sm font-medium text-ink min-w-0 truncate" title={`${date} — ${SHIFT_TYPE_LABEL[shift.shiftType]}`}>
               {date} — {SHIFT_TYPE_LABEL[shift.shiftType]}
             </p>
             <span
               className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                 isOpen
-                  ? 'bg-emerald-950/50 text-emerald-400/80 border border-emerald-900/40'
-                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                  ? 'bg-accent-soft text-success border border-line-accent'
+                  : 'bg-raised text-muted border border-line'
               }`}
             >
               {isOpen ? 'Abierto' : 'Cerrado'}
             </span>
             {shift.source === 'mobile' && (
               <span
-                className="shrink-0 rounded-full border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-medium text-sky-300"
+                className="shrink-0 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent"
                 title="Cierre hecho en el celular"
               >
                 Móvil
               </span>
             )}
           </div>
-          <p className="text-xs text-zinc-400 truncate" title={shift.cashierName}>{shift.cashierName}</p>
+          <p className="text-xs text-muted truncate" title={shift.cashierName}>{shift.cashierName}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-sm font-semibold font-mono text-zinc-100">{formatARS(shift.totalRevenue)}</p>
-          <p className="text-xs text-zinc-500">{shift.salesCount} ventas</p>
+          <p className="text-sm font-semibold font-mono text-ink">{formatARS(shift.totalRevenue)}</p>
+          <p className="text-xs text-muted">{shift.salesCount} ventas</p>
         </div>
       </div>
     </button>
@@ -264,34 +262,34 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   return (
     <div className="p-4 space-y-4">
       {/* Resumen financiero */}
-      <div className="bg-zinc-800 rounded-xl border border-zinc-700 p-4 space-y-3">
+      <div className="bg-panel rounded-xl border border-line p-4 space-y-3">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-white">
+            <h2 className="text-sm font-semibold text-ink">
               {toLocalDate(shift.startedAt)} — Turno {shiftLabel}
               {!shift.closedAt && (
-                <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-emerald-950/50 text-emerald-400/80 border border-emerald-900/40 align-middle">
+                <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-accent-soft text-success border border-line-accent align-middle">
                   Abierto
                 </span>
               )}
               {shift.source === 'mobile' && (
-                <span className="ml-2 rounded-full border border-sky-800/60 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 align-middle">
+                <span className="ml-2 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent align-middle">
                   Móvil
                 </span>
               )}
             </h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Cajera: {shift.cashierName}</p>
-            <p className="text-xs text-zinc-500">{start} → {end}</p>
+            <p className="text-xs text-muted mt-0.5">Cajera: {shift.cashierName}</p>
+            <p className="text-xs text-muted">{start} → {end}</p>
           </div>
           {shift.closingCash != null && (
             <div className="text-right shrink-0">
-              <p className="text-[10px] text-zinc-500">Efectivo al cerrar</p>
-              <p className="text-sm font-semibold text-white">{formatARS(shift.closingCash)}</p>
+              <p className="text-[10px] text-muted">Efectivo al cerrar</p>
+              <p className="text-sm font-semibold text-ink">{formatARS(shift.closingCash)}</p>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-zinc-800">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-line">
           <SummaryStat label="Ventas" value={String(summary.salesCount)} />
           <SummaryStat label="Total vendido" value={formatARS(summary.totalRevenue)} />
           <SummaryStat label="Efectivo ventas" value={formatARS(summary.totalCashSales)} />
@@ -307,10 +305,10 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
         </div>
 
         {shift.notes && (
-          <p className="text-xs text-zinc-400 pt-1">Notas: <span className="text-zinc-200">{shift.notes}</span></p>
+          <p className="text-xs text-muted pt-1">Notas: <span className="text-ink">{shift.notes}</span></p>
         )}
           {shift.deliveredAmount != null && shift.deliveredAmount > 0 && (
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-muted">
             Entregó {formatARS(shift.deliveredAmount)}
             {shift.deliveredTo ? ` a ${shift.deliveredTo}` : ''}
           </p>
@@ -320,7 +318,7 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
       {detail.cashHandover && <CashHandoverAuditCard audit={detail.cashHandover} />}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-zinc-800">
+      <div className="flex gap-1 border-b border-line">
         {([
           { key: 'sales', label: `Ventas (${sales.length})` },
           { key: 'expenses', label: `Gastos (${expenses.length})` },
@@ -333,8 +331,8 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
             onClick={() => setActiveTab(tab.key)}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               activeTab === tab.key
-                ? 'border-b-2 border-b-zinc-400 text-zinc-200'
-                : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                ? 'border-b-2 border-b-accent text-ink'
+                : 'border-transparent text-muted hover:text-ink'
             }`}
           >
             {tab.label}
@@ -345,42 +343,42 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
       {/* Tab contents */}
       {activeTab === 'sales' && (
         <div className="space-y-2">
-          {sales.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin ventas en este turno.</p>}
+          {sales.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin ventas en este turno.</p>}
           {sales.map(sale => (
             <div
               key={sale.id}
               className={`rounded-lg border p-3 text-sm ${
                 sale.status === 'cancelled'
-                  ? 'border-zinc-700 bg-zinc-800/40 opacity-50'
-                  : 'border-zinc-700 bg-zinc-800'
+                  ? 'border-line bg-panel opacity-50'
+                  : 'border-line bg-panel'
               }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-zinc-400">{toLocalTime(sale.createdAt)}</span>
+                    <span className="text-xs text-muted">{toLocalTime(sale.createdAt)}</span>
                     {sale.status === 'cancelled' && (
-                      <span className="text-[10px] text-zinc-500 font-medium line-through">Anulada</span>
+                      <span className="text-[10px] text-muted font-medium line-through">Anulada</span>
                     )}
-                    {sale.isDebt && <span className="text-[10px] text-zinc-400 font-medium">Fiado</span>}
-                    {sale.manualEntry && <span className="text-[10px] text-zinc-500 font-medium">Manual</span>}
+                    {sale.isDebt && <span className="text-[10px] text-muted font-medium">Fiado</span>}
+                    {sale.manualEntry && <span className="text-[10px] text-muted font-medium">Manual</span>}
                   </div>
                   <div className="flex gap-1 mt-0.5 flex-wrap">
                     {sale.paymentMethods.map(m => (
-                      <span key={m} className="text-[10px] text-zinc-500 bg-zinc-800 rounded px-1">
+                      <span key={m} className="text-[10px] text-muted bg-raised rounded px-1">
                         {PAYMENT_METHOD_LABELS[m] ?? m}
                       </span>
                     ))}
                   </div>
                 </div>
-                <span className={`font-semibold shrink-0 ${sale.status === 'cancelled' ? 'line-through text-zinc-500' : 'text-white'}`}>
+                <span className={`font-semibold shrink-0 ${sale.status === 'cancelled' ? 'line-through text-muted' : 'text-ink'}`}>
                   {formatARS(sale.total)}
                 </span>
               </div>
               {sale.items.length > 0 && (
-                <div className="mt-2 space-y-0.5 border-t border-zinc-800/60 pt-2">
+                <div className="mt-2 space-y-0.5 border-t border-line pt-2">
                   {sale.items.map((item, i) => (
-                    <div key={i} className="flex justify-between text-xs text-zinc-400">
+                    <div key={i} className="flex justify-between text-xs text-muted">
                       <span className="truncate min-w-0 flex-1" title={item.productName}>
                         {item.productName} × {item.unit === 'kg' ? `${item.quantity.toFixed(3)} kg` : item.quantity}
                       </span>
@@ -396,31 +394,31 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
 
       {activeTab === 'expenses' && (
         <div className="space-y-2">
-          {expenses.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin gastos en este turno.</p>}
+          {expenses.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin gastos en este turno.</p>}
           {expenses.map(exp => {
             const isInject = exp.kind === 'inject'
             const injectLabel = isInject ? injectHistoryLabel(exp.injectReason, exp.concept) : ''
             const title = isInject ? injectLabel : (exp.provider ?? exp.concept ?? '')
             return (
-            <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
+            <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   {isInject && (
-                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-emerald-400/90 border border-emerald-800/60 rounded px-1.5 py-0.5 truncate max-w-[11rem]" title={injectLabel}>
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-success border border-line-accent rounded px-1.5 py-0.5 truncate max-w-[11rem]" title={injectLabel}>
                       {injectLabel}
                     </span>
                   )}
-                  <p className="text-white font-medium truncate min-w-0 flex-1" title={title}>
+                  <p className="text-ink font-medium truncate min-w-0 flex-1" title={title}>
                     {isInject ? (exp.notes?.trim() || injectLabel) : (exp.provider ?? exp.concept ?? '—')}
                   </p>
                 </div>
-                <div className="flex gap-3 text-xs text-zinc-500 min-w-0">
+                <div className="flex gap-3 text-xs text-muted min-w-0">
                   <span className="shrink-0">{toLocalTime(exp.createdAt)}</span>
                   {!isInject && exp.provider && exp.concept && <span className="truncate" title={exp.concept}>{exp.concept}</span>}
                   {!isInject && exp.notes && <span className="truncate" title={exp.notes}>{exp.notes}</span>}
                 </div>
               </div>
-              <span className={`font-semibold shrink-0 font-mono ${isInject ? 'text-emerald-400' : 'text-zinc-400'}`}>
+              <span className={`font-semibold shrink-0 font-mono ${isInject ? 'text-success' : 'text-muted'}`}>
                 {isInject ? formatARS(exp.amount) : `- ${formatARS(exp.amount)}`}
               </span>
             </div>
@@ -431,17 +429,17 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
 
       {activeTab === 'debts' && (
         <div className="space-y-2">
-          {debts.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin fiados en este turno.</p>}
+          {debts.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin fiados en este turno.</p>}
           {debts.map(debt => (
-            <div key={debt.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
+            <div key={debt.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="text-white font-medium truncate" title={debt.customerName}>{debt.customerName}</p>
-                <div className="flex gap-3 text-xs text-zinc-500">
+                <p className="text-ink font-medium truncate" title={debt.customerName}>{debt.customerName}</p>
+                <div className="flex gap-3 text-xs text-muted">
                   <span>{toLocalTime(debt.createdAt)}</span>
                   {debt.notes && <span className="truncate" title={debt.notes}>{debt.notes}</span>}
                 </div>
               </div>
-              <span className="text-zinc-300 font-semibold shrink-0 font-mono">{formatARS(debt.amount)}</span>
+              <span className="text-ink font-semibold shrink-0 font-mono">{formatARS(debt.amount)}</span>
             </div>
           ))}
         </div>
@@ -449,25 +447,25 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
 
       {activeTab === 'deposits' && (
         <div className="space-y-2">
-          {deposits.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin señas en este turno.</p>}
+          {deposits.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin señas en este turno.</p>}
           {deposits.map(dep => {
             const breakdown = depositBreakdown(dep)
             return (
-            <div key={dep.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
+            <div key={dep.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="text-white font-medium truncate" title={dep.customerName}>{dep.customerName}</p>
-                <div className="flex gap-3 text-xs text-zinc-500 min-w-0">
+                <p className="text-ink font-medium truncate" title={dep.customerName}>{dep.customerName}</p>
+                <div className="flex gap-3 text-xs text-muted min-w-0">
                   <span className="shrink-0">{toLocalTime(dep.createdAt)}</span>
                   <span className="truncate" title={dep.items}>{dep.items}</span>
                 </div>
                 {breakdown && (
-                  <p className="text-[10px] text-zinc-400 truncate" title={breakdown}>{breakdown}</p>
+                  <p className="text-[10px] text-muted truncate" title={breakdown}>{breakdown}</p>
                 )}
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-zinc-300 font-semibold font-mono">{formatARS(dep.depositAmount)}</p>
+                <p className="text-ink font-semibold font-mono">{formatARS(dep.depositAmount)}</p>
                 {dep.status === 'cancelled' && (
-                  <p className="text-[10px] text-red-400/80">Pedido anulado</p>
+                  <p className="text-[10px] text-danger">Pedido anulado</p>
                 )}
               </div>
             </div>
@@ -478,12 +476,12 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
 
       {activeTab === 'vales' && (
         <div className="space-y-2">
-          {vales.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin vales en este turno.</p>}
+          {vales.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin vales en este turno.</p>}
           {vales.map(vale => (
-            <div key={vale.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
+            <div key={vale.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
               <div className="min-w-0">
-                <p className="text-white font-medium truncate" title={vale.employeeName}>{vale.employeeName}</p>
-                <div className="flex gap-3 text-xs text-zinc-500 min-w-0">
+                <p className="text-ink font-medium truncate" title={vale.employeeName}>{vale.employeeName}</p>
+                <div className="flex gap-3 text-xs text-muted min-w-0">
                   <span className="shrink-0">{toLocalTime(vale.createdAt)}</span>
                   {vale.items && vale.items.length > 0 ? (
                     <span className="truncate" title={vale.items.map(i => i.productName).join(', ')}>
@@ -496,10 +494,10 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
                   )}
                 </div>
                 {vale.cancelledAt && (
-                  <p className="text-[10px] text-red-400/80">Anulado</p>
+                  <p className="text-[10px] text-danger">Anulado</p>
                 )}
               </div>
-              <span className={`text-zinc-300 font-semibold shrink-0 font-mono ${vale.cancelledAt ? 'line-through text-zinc-500' : ''}`}>
+              <span className={`text-ink font-semibold shrink-0 font-mono ${vale.cancelledAt ? 'line-through text-muted' : ''}`}>
                 {formatARS(vale.amount)}
               </span>
             </div>
@@ -513,8 +511,8 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
 function SummaryStat({ label, value, highlight, negative }: { label: string; value: string; highlight?: boolean; negative?: boolean }) {
   return (
     <div className="space-y-0.5">
-      <p className="text-[10px] text-zinc-500">{label}</p>
-      <p className={`text-sm font-semibold font-mono ${highlight ? 'text-emerald-400/80' : negative ? 'text-zinc-400' : 'text-zinc-100'}`}>
+      <p className="text-[10px] text-muted">{label}</p>
+      <p className={`text-sm font-semibold font-mono ${highlight ? 'text-success' : negative ? 'text-muted' : 'text-ink'}`}>
         {value}
       </p>
     </div>

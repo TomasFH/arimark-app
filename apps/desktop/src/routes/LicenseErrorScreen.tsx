@@ -15,19 +15,19 @@ export default function LicenseErrorScreen({ reason, message }: Props) {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-950 p-6 gap-8">
+    <div className="flex flex-1 flex-col items-center justify-center bg-app p-6 gap-8">
       <div className="text-center space-y-3">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-950/40 text-4xl shadow-xl border border-red-900/30">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-panel text-4xl shadow-[0_12px_40px_rgba(28,28,30,0.16)] border border-danger">
           🔒
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">{titles[reason]}</h1>
-          <p className="mt-1 text-sm text-zinc-400">{message}</p>
+          <h1 className="text-2xl font-bold text-ink">{titles[reason]}</h1>
+          <p className="mt-1 text-sm text-muted">{message}</p>
         </div>
       </div>
 
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-7 shadow-2xl space-y-5">
-        <div className="rounded-xl border border-red-900/40 bg-red-950/25 px-4 py-3 text-sm text-red-300">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-7 shadow-[0_12px_40px_rgba(28,28,30,0.16)] space-y-5">
+        <div className="rounded-xl border border-danger bg-panel px-4 py-3 text-sm text-danger">
           Para resolver este problema, contactar al soporte técnico.
         </div>
 
@@ -35,12 +35,12 @@ export default function LicenseErrorScreen({ reason, message }: Props) {
           href={SUPPORT_URL}
           target="_blank"
           rel="noreferrer"
-          className="flex h-12 w-full items-center justify-center rounded-xl bg-emerald-600 font-semibold text-white transition-all hover:bg-emerald-500 active:scale-[0.98]"
+          className="flex h-12 w-full items-center justify-center rounded-xl bg-accent font-semibold text-accent-fg transition-all hover:bg-[color-mix(in_srgb,var(--accent)_86%,black)] active:scale-[0.98]"
         >
           Contactar soporte técnico
         </a>
 
-        <p className="text-center text-xs text-zinc-600">
+        <p className="text-center text-xs text-subtle">
           No cerrar la aplicación — tomar captura de pantalla de este mensaje.
         </p>
       </div>

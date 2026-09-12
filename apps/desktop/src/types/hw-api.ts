@@ -38,8 +38,11 @@ export interface AppInfo {
 // ---------------------------------------------------------------------------
 // UI settings — preferencias de la aplicación, persisten entre sesiones
 // ---------------------------------------------------------------------------
+export type ColorScheme = 'light' | 'dark'
+
 export interface UiSettings {
   zoomFactor: number
+  colorScheme: ColorScheme
 }
 
 // ---------------------------------------------------------------------------
@@ -1774,7 +1777,7 @@ export interface HwApi {
 
   // ---- Preferencias de UI ----
   getUiSettings: () => Promise<IpcResult<UiSettings>>
-  setUiSettings: (payload: UiSettings) => Promise<IpcResult<UiSettings>>
+  setUiSettings: (payload: Partial<UiSettings>) => Promise<IpcResult<UiSettings>>
 }
 
 declare global {

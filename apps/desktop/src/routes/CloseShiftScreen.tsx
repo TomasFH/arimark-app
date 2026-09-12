@@ -11,9 +11,9 @@
  *  4. Al confirmar → pantalla de resumen final con botón "Finalizar".
  */
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import NumericInput from '../components/NumericInput'
 import BillCountGrid from '../components/BillCountGrid'
+import { Button, Modal } from '../components/ui'
 import { parseNumericInput } from '../lib/numericInput'
 import {
   billRowsCountedTotal,
@@ -38,9 +38,9 @@ function saveBillMode(mode: BillMode): void {
   localStorage.setItem(BILL_MODE_KEY, mode)
 }
 
-/** Campo sobre panel 800: pozo 950 para que no se confunda con la card. */
+/** Campo sobre panel: input para que no se confunda con la card. */
 const FIELD =
-  'w-full rounded-lg border border-zinc-600 bg-zinc-950 px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600'
+  'w-full rounded-lg border border-line-strong bg-input px-3 py-2 text-ink placeholder-subtle focus:outline-none focus:border-line-accent'
 
 interface Props {
   onConfirmed: () => void
@@ -267,12 +267,12 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   return (
     <>
     {closed ? (
-      <div className="flex flex-1 min-h-0 h-full bg-zinc-950" aria-hidden />
+      <div className="flex flex-1 min-h-0 h-full bg-app" aria-hidden />
     ) : (
-    <div className="flex flex-1 min-h-0 h-full flex-col bg-zinc-950 text-white overflow-hidden">
-      <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-zinc-800">
+    <div className="flex flex-1 min-h-0 h-full flex-col bg-app text-ink overflow-hidden">
+      <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-line bg-panel">
         <h1 className="text-2xl font-bold">Cerrar caja</h1>
-        <p className="text-sm text-zinc-400">Registrá el arqueo antes de finalizar el turno</p>
+        <p className="text-sm text-muted">Registrá el arqueo antes de finalizar el turno</p>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
@@ -287,10 +287,10 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         )}
 
         {/* ── Resumen del turno ── */}
-        <div className="bg-zinc-800 rounded-xl border border-zinc-700 p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Resumen del turno</h2>
+        <div className="bg-panel rounded-xl border border-line p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-muted">Resumen del turno</h2>
           {loadError ? (
-            <p className="text-red-400 text-sm">{loadError}</p>
+            <p className="text-danger text-sm">{loadError}</p>
           ) : summary ? (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -329,25 +329,25 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
 
               {/* Desglose digital de ventas por tipo */}
               {totalDigital > 0 && (
-                <div className="mt-2 pt-3 border-t border-zinc-700">
-                  <p className="text-xs text-zinc-500 mb-2 font-semibold uppercase tracking-wider">Ventas — desglose digital</p>
+                <div className="mt-2 pt-3 border-t border-line">
+                  <p className="text-xs text-muted mb-2 font-semibold">Ventas — desglose digital</p>
                   <div className="grid grid-cols-3 gap-2">
                     {summary.totalDebitSales > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Débito</p>
-                        <p className="text-sm font-semibold text-sky-300">{fmt(summary.totalDebitSales)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Débito</p>
+                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalDebitSales)}</p>
                       </div>
                     )}
                     {summary.totalWalletSales > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Billetera Virtual</p>
-                        <p className="text-sm font-semibold text-violet-300">{fmt(summary.totalWalletSales)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Billetera Virtual</p>
+                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalWalletSales)}</p>
                       </div>
                     )}
                     {summary.totalCreditSales > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Crédito</p>
-                        <p className="text-sm font-semibold text-amber-300">{fmt(summary.totalCreditSales)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Crédito</p>
+                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalCreditSales)}</p>
                       </div>
                     )}
                   </div>
@@ -356,51 +356,51 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
 
               {/* Desglose de señas por medio de pago */}
               {summary.depositsCount > 0 && (
-                <div className="mt-2 pt-3 border-t border-zinc-700">
-                  <p className="text-xs text-zinc-500 mb-2 font-semibold uppercase tracking-wider">Señas — desglose por medio</p>
+                <div className="mt-2 pt-3 border-t border-line">
+                  <p className="text-xs text-muted mb-2 font-semibold">Señas — desglose por medio</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {summary.totalCashDeposits > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Efectivo</p>
-                        <p className="text-sm font-semibold text-emerald-300">{fmt(summary.totalCashDeposits)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Efectivo</p>
+                        <p className="text-sm font-semibold text-success">{fmt(summary.totalCashDeposits)}</p>
                       </div>
                     )}
                     {summary.totalDebitDeposits > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Débito</p>
-                        <p className="text-sm font-semibold text-sky-300">{fmt(summary.totalDebitDeposits)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Débito</p>
+                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalDebitDeposits)}</p>
                       </div>
                     )}
                     {summary.totalWalletDeposits > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Billetera Virtual</p>
-                        <p className="text-sm font-semibold text-violet-300">{fmt(summary.totalWalletDeposits)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Billetera Virtual</p>
+                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalWalletDeposits)}</p>
                       </div>
                     )}
                     {summary.totalCreditDeposits > 0 && (
-                      <div className="bg-zinc-700 rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-zinc-500">Crédito</p>
-                        <p className="text-sm font-semibold text-amber-300">{fmt(summary.totalCreditDeposits)}</p>
+                      <div className="bg-raised rounded-lg px-3 py-2">
+                        <p className="text-[10px] text-muted">Crédito</p>
+                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalCreditDeposits)}</p>
                       </div>
                     )}
                   </div>
-                  <p className="text-[10px] text-zinc-600 mt-2">
+                  <p className="text-[10px] text-subtle mt-2">
                     Solo el efectivo de señas se suma al efectivo esperado en caja. Los cobros digitales de señas no impactan el conteo físico.
                   </p>
                 </div>
               )}
             </>
           ) : (
-            <p className="text-zinc-500 text-sm">Cargando resumen…</p>
+            <p className="text-muted text-sm">Cargando resumen…</p>
           )}
         </div>
 
         {/* ── Monto a entregar / depositar ── */}
-        <div className="bg-zinc-800 rounded-xl border border-zinc-700 p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
+        <div className="bg-panel rounded-xl border border-line p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-muted">
             Entrega / depósito en caja fuerte
           </h2>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Si un admin retiró efectivo, o si dejás plata en la caja fuerte, registralo acá.
             Lo que queda en la registradora (vuelto del próximo turno) se cuenta abajo.
           </p>
@@ -428,9 +428,9 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
           )}
 
           {summary && deliveredAmount > 0 && (
-            <div className="rounded-lg bg-zinc-700 px-4 py-2 text-sm">
-              <span className="text-zinc-400">Efectivo a contar para caja: </span>
-              <span className="font-semibold text-emerald-400">{fmt(expectedRegister)}</span>
+            <div className="rounded-lg bg-raised px-4 py-2 text-sm">
+              <span className="text-muted">Efectivo a contar para caja: </span>
+              <span className="font-semibold text-success">{fmt(expectedRegister)}</span>
             </div>
           )}
         </div>
@@ -457,14 +457,14 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
               setShowEmptyConfirm(false)
               setShowConfirm(true)
             }}
-            className="w-full text-xs text-zinc-500 underline hover:text-zinc-300"
+            className="w-full text-xs text-muted underline hover:text-ink"
           >
             Omitir conteo (modo pruebas)
           </button>
         )}
 
         {/* ── Notas ── */}
-        <div className="bg-zinc-800 rounded-xl border border-zinc-700 p-5">
+        <div className="bg-panel rounded-xl border border-line p-5">
           <Field label="Notas del turno (opcional)">
             <textarea
               value={notes}
@@ -478,90 +478,105 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         </div>
 
         {saveError && (
-          <p className="text-red-400 text-sm text-center">{saveError}</p>
+          <p className="text-danger text-sm text-center">{saveError}</p>
         )}
       </div>
       </div>
 
-      <div className="sticky bottom-0 z-10 shrink-0 border-t border-zinc-700 bg-zinc-900 px-6 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
+      <div className="sticky bottom-0 z-10 shrink-0 border-t border-line bg-panel px-6 py-3 shadow-[0_8px_24px_rgba(28,28,30,0.12)]">
         <div className="max-w-2xl mx-auto flex gap-3">
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            className="flex-1"
             onClick={onCancel}
             disabled={saving}
-            className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
           >
             Cancelar
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="danger"
+            className="flex-1"
             onClick={() => void handleConfirm()}
             disabled={saving || !summary}
-            className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 font-semibold transition-colors disabled:opacity-40"
+            loading={saving}
           >
             {saving ? 'Cerrando…' : 'Cerrar caja'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
     )}
 
-    {showEmptyConfirm && createPortal(
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
-        <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-800 p-6 space-y-4 animate-modal-enter">
-          <h2 className="text-base font-semibold text-white">¿Caja vacía?</h2>
-          <p className="text-sm text-zinc-400">
-            ¿Confirmás que no queda ningún billete en caja?
-          </p>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setShowEmptyConfirm(false)}
-              className="flex-1 py-2.5 rounded-xl border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm"
-            >
-              Volver
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowEmptyConfirm(false)
-                setShowConfirm(true)
-              }}
-              className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 font-semibold transition-colors text-white text-sm"
-            >
-              Confirmar
-            </button>
-          </div>
-        </div>
-      </div>,
-      document.body,
-    )}
+    <Modal
+      open={showEmptyConfirm}
+      onClose={() => setShowEmptyConfirm(false)}
+      title="¿Caja vacía?"
+      size="sm"
+      closeOnOverlay={false}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => setShowEmptyConfirm(false)}>
+            Volver
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              setShowEmptyConfirm(false)
+              setShowConfirm(true)
+            }}
+          >
+            Confirmar
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-muted">
+        ¿Confirmás que no queda ningún billete en caja?
+      </p>
+    </Modal>
 
-    {showConfirm && summary && createPortal(
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
-        <div className="w-full max-w-sm max-h-[min(90vh,100dvh)] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-800 p-6 space-y-4 animate-modal-enter">
-          <h2 className="text-base font-semibold text-white">¿Cerrar el turno ahora?</h2>
-          <p className="text-sm text-zinc-400">
+    <Modal
+      open={showConfirm && summary != null}
+      onClose={() => setShowConfirm(false)}
+      title="¿Cerrar el turno ahora?"
+      size="sm"
+      closeOnOverlay={false}
+      closeOnEscape={!saving}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => setShowConfirm(false)} disabled={saving}>
+            Volver
+          </Button>
+          <Button variant="danger" onClick={() => void doCloseShift()} loading={saving}>
+            {saving ? 'Cerrando…' : 'Cerrar turno'}
+          </Button>
+        </>
+      }
+    >
+      {summary && (
+        <>
+          <p className="text-sm text-muted mb-4">
             Esta acción finaliza el turno y no puede deshacerse. Verificá los datos antes de confirmar.
           </p>
-
-          <div className="space-y-2 text-sm bg-zinc-700 rounded-xl p-4">
+          <div className="space-y-2 text-sm bg-raised rounded-xl p-4">
             <div className="flex justify-between">
-              <span className="text-zinc-400">Total vendido</span>
-              <span className="text-white font-semibold">{fmt(summary.totalRevenue)}</span>
+              <span className="text-muted">Total vendido</span>
+              <span className="text-ink font-semibold">{fmt(summary.totalRevenue)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">Efectivo esperado</span>
-              <span className="text-emerald-400 font-semibold">{fmt(summary.cashInHand)}</span>
+              <span className="text-muted">Efectivo esperado</span>
+              <span className="text-success font-semibold">{fmt(summary.cashInHand)}</span>
             </div>
             {deliveredAmount > 0 && (
               <div className="flex justify-between">
-                <span className="text-zinc-400">Monto a entregar</span>
-                <span className="text-white">{fmt(deliveredAmount)}</span>
+                <span className="text-muted">Monto a entregar</span>
+                <span className="text-ink">{fmt(deliveredAmount)}</span>
               </div>
             )}
             {countedRegister > 0 && (
-              <div className={`flex justify-between border-t border-zinc-600 pt-2 ${diff === 0 ? 'text-emerald-400' : diff > 0 ? 'text-blue-300' : 'text-red-400'}`}>
+              <div className={`flex justify-between border-t border-line pt-2 ${diff === 0 ? 'text-success' : diff > 0 ? 'text-ink' : 'text-danger'}`}>
                 <span>{diff === 0 ? 'Caja cuadrada' : diff > 0 ? 'Sobrante' : 'Faltante'}</span>
                 <span className="font-semibold">
                   {diff === 0 ? '✓' : fmt(Math.abs(diff))}
@@ -569,69 +584,44 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
               </div>
             )}
           </div>
+        </>
+      )}
+    </Modal>
 
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setShowConfirm(false)}
-              disabled={saving}
-              className="flex-1 py-2.5 rounded-xl border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm disabled:opacity-40"
-            >
-              Volver
-            </button>
-            <button
-              type="button"
-              onClick={() => void doCloseShift()}
-              disabled={saving}
-              className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 font-semibold transition-colors text-white text-sm disabled:opacity-40"
-            >
-              {saving ? 'Cerrando…' : 'Cerrar turno'}
-            </button>
-          </div>
-        </div>
-      </div>,
-      document.body,
-    )}
-
-    {closed && recapLines.length > 0 && createPortal(
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
-        <div className="w-full max-w-md max-h-[min(90vh,100dvh)] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-800 p-6 space-y-4 animate-modal-enter">
-          <div className="text-center space-y-1">
-            <p className="text-3xl" aria-hidden>✅</p>
-            <h2 className="text-xl font-bold text-emerald-400">Caja cerrada</h2>
-            <p className="text-sm text-zinc-400">El turno quedó registrado. Este es el resumen del cierre.</p>
-          </div>
-          <div className="space-y-2 text-sm bg-zinc-700 rounded-xl p-4">
-            <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Resumen del cierre</h3>
-            {recapLines.map(line => (
-              <div
-                key={line.label}
-                className={`flex justify-between gap-3 ${line.indent ? 'pl-3' : ''}`}
-              >
-                <span className="text-zinc-400 min-w-0 truncate" title={line.label}>{line.label}</span>
-                <span className={`shrink-0 font-medium ${
-                  line.tone === 'emphasis' ? 'text-emerald-400 font-semibold'
-                    : line.tone === 'ok' ? 'text-emerald-300'
-                      : line.tone === 'info' ? 'text-blue-300'
-                        : line.tone === 'bad' ? 'text-red-400'
-                          : 'text-white'
-                }`}>
-                  {line.value}
-                </span>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={onConfirmed}
-            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors"
+    <Modal
+      open={closed && recapLines.length > 0}
+      onClose={onConfirmed}
+      title="Caja cerrada"
+      size="md"
+      closeOnOverlay={false}
+      footer={
+        <Button fullWidth onClick={onConfirmed}>
+          Finalizar sesión
+        </Button>
+      }
+    >
+      <p className="text-sm text-muted mb-4">El turno quedó registrado. Este es el resumen del cierre.</p>
+      <div className="space-y-2 text-sm bg-raised rounded-xl p-4">
+        <h3 className="text-xs font-semibold text-muted">Resumen del cierre</h3>
+        {recapLines.map(line => (
+          <div
+            key={line.label}
+            className={`flex justify-between gap-3 ${line.indent ? 'pl-3' : ''}`}
           >
-            Finalizar sesión
-          </button>
-        </div>
-      </div>,
-      document.body,
-    )}
+            <span className="text-muted min-w-0 truncate" title={line.label}>{line.label}</span>
+            <span className={`shrink-0 font-medium ${
+              line.tone === 'emphasis' ? 'text-success font-semibold'
+                : line.tone === 'ok' ? 'text-success'
+                  : line.tone === 'info' ? 'text-ink'
+                    : line.tone === 'bad' ? 'text-danger'
+                      : 'text-ink'
+            }`}>
+              {line.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Modal>
     </>
   )
 }
@@ -647,7 +637,7 @@ function fmt(n: number) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-sm text-zinc-400">{label}</label>
+      <label className="text-sm text-muted">{label}</label>
       {children}
     </div>
   )
@@ -656,8 +646,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="space-y-0.5">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className={`text-base font-semibold ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value}</p>
+      <p className="text-xs text-muted">{label}</p>
+      <p className={`text-base font-semibold ${highlight ? 'text-success' : 'text-ink'}`}>{value}</p>
     </div>
   )
 }

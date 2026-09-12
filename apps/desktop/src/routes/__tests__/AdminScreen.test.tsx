@@ -45,24 +45,30 @@ describe('AdminScreen — permisos de catálogo', () => {
     vi.restoreAllMocks()
   })
 
-  it('cajera ve Cargar en balanza, no Versiones, y el título no dice Administración', async () => {
+  it('cajera ve Nuevo producto, no Versiones, y Cargar en balanza en el menú', async () => {
+    const user = userEvent.setup()
     render(<AdminScreen session={CASHIER} onLogout={() => {}} onReturnToHub={() => {}} />)
 
     expect(await screen.findByRole('heading', { name: 'Catálogo' })).toBeInTheDocument()
     expect(await screen.findByText('No hay productos cargados.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cargar en balanza' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Nuevo producto' })).toBeInTheDocument()
     expect(screen.queryByText('Versiones')).not.toBeInTheDocument()
     expect(screen.queryByText('Administración — Productos')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '+ Nuevo producto' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Más acciones' }))
+    expect(screen.getByRole('menuitem', { name: 'Cargar en balanza' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Versiones' })).not.toBeInTheDocument()
   })
 
-  it('admin ve Cargar en balanza, Versiones y el título de administración', async () => {
+  it('admin ve Cargar en balanza y Versiones en el menú', async () => {
+    const user = userEvent.setup()
     render(<AdminScreen session={ADMIN} onLogout={() => {}} onReturnToHub={() => {}} />)
 
     expect(await screen.findByRole('heading', { name: 'Administración — Productos' })).toBeInTheDocument()
     expect(await screen.findByText('No hay productos cargados.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cargar en balanza' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Versiones' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Nuevo producto' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Más acciones' }))
+    expect(screen.getByRole('menuitem', { name: 'Versiones' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Cargar en balanza' })).toBeInTheDocument()
   })
 })
 

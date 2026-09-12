@@ -3,10 +3,10 @@
  * Las acciones viven en el modal de la tarjeta; un solo alta elige el tipo.
  */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import { formatARS, toLocalDate } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
+import { Button, Modal, ScreenHeader } from '../components/ui'
 import { GrantButcherAccessModal, RevokeButcherAccessModal } from '../components/ButcherAccessModals'
 import { buildStaffRoster, type StaffKind, type StaffMember } from '../lib/staffRoster'
 import SalaryPaymentModal from './SalaryPaymentModal'
@@ -100,54 +100,62 @@ export default function StaffScreen({ onBack }: Props) {
   const visibleButchers = roster.butchers.filter(m => (showArchived ? !m.active : m.active))
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-950 text-white">
-      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3">
-        <BackButton onClick={onBack} />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold text-zinc-100">Empleados</h1>
-          <p className="mt-0.5 truncate text-[10px] text-zinc-500">
-            Cajeras y carniceros · sueldo, vales y acceso a la app
-          </p>
-        </div>
-        {!showArchived && (
+    <div className="flex h-screen flex-col bg-app text-ink">
+      <ScreenHeader
+        title="Empleados"
+        subtitle="Cajeras y carniceros · sueldo, vales y acceso a la app"
+        onBack={onBack}
+        actions={
+          !showArchived ? (
+            <Button size="sm" onClick={() => setShowCreate(true)}>+ Nuevo</Button>
+          ) : undefined
+        }
+      />
+
+      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-panel px-6 py-2.5">
+        <div className="flex rounded-xl bg-raised p-0.5">
           <button
             type="button"
+            onClick={() => setShowArchived(false)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              !showArchived ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink'
+            }`}
+          >
+            Activos
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowArchived(true)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              showArchived ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink'
+            }`}
+          >
+            Eliminados
+          </button>
+        </div>
+        {!showArchived && (
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setShowLiquidation(true)}
-            className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
             title="Sueldo menos vales de la semana"
           >
             Liquidación
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          onClick={() => setShowArchived(v => !v)}
-          className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
-        >
-          {showArchived ? 'Ver activos' : 'Ver eliminados'}
-        </button>
-        {!showArchived && (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="shrink-0 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium transition-colors hover:bg-emerald-500"
-          >
-            + Nuevo
-          </button>
-        )}
-      </header>
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {loading && (
-          <p className="py-16 text-center text-sm text-zinc-500">Cargando empleados…</p>
+          <p className="py-16 text-center text-sm text-muted">Cargando empleados…</p>
         )}
         {error && !loading && (
-          <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-4">
-            <p className="text-sm text-red-400/80">{error}</p>
+          <div className="rounded-xl border border-danger/40 bg-danger/10 p-4">
+            <p className="text-sm text-danger">{error}</p>
             <button
               type="button"
               onClick={() => void load()}
-              className="mt-2 text-xs text-zinc-500 hover:text-zinc-300"
+              className="mt-2 text-xs text-muted hover:text-ink"
             >
               Reintentar
             </button>
@@ -227,11 +235,11 @@ function StaffSection({
   onSelect: (m: StaffMember) => void
 }) {
   return (
-    <section className="rounded-2xl border border-zinc-700/80 bg-zinc-800 p-4">
-      <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
-      <p className="mt-0.5 text-[11px] text-zinc-500">{hint}</p>
+    <section>
+      <h2 className="text-sm font-semibold text-ink">{title}</h2>
+      <p className="mt-0.5 text-[11px] text-muted">{hint}</p>
       {members.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-600">{empty}</p>
+        <p className="mt-4 text-sm text-subtle">{empty}</p>
       ) : (
         <div className="mt-4 flex flex-wrap gap-3">
           {members.map(m => (
@@ -248,28 +256,28 @@ function EmployeeCard({ member, onClick }: { member: StaffMember; onClick: () =>
     <button
       type="button"
       onClick={onClick}
-      className={`w-[15.5rem] shrink-0 rounded-xl border px-3.5 py-3 text-left shadow-sm shadow-black/30 transition-colors hover:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-700/40 ${
+      className={`w-[15.5rem] shrink-0 rounded-xl border px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(28,28,30,0.08)] transition-colors hover:border-line-strong focus:outline-none focus:ring-2 focus:ring-accent/30 ${
         member.active
-          ? 'border-zinc-600 bg-zinc-700 hover:bg-zinc-600/80'
-          : 'border-zinc-700 bg-zinc-800/80 opacity-80'
+          ? 'border-line-strong bg-raised hover:bg-hover'
+          : 'border-line bg-panel opacity-80'
       }`}
     >
-      <p className="line-clamp-2 break-words text-sm font-medium text-zinc-100" title={member.name}>
+      <p className="line-clamp-2 break-words text-sm font-medium text-ink" title={member.name}>
         {member.name}
       </p>
-      <p className="mt-1 text-xs tabular-nums text-zinc-400">
+      <p className="mt-1 text-xs tabular-nums text-muted">
         {formatARS(member.weeklyWage)} / sem.
       </p>
       {member.email && (
-        <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={member.email}>
+        <p className="mt-0.5 truncate text-[11px] text-muted" title={member.email}>
           {member.email}
         </p>
       )}
       {member.kind === 'butcher' && member.firebaseUid && (
-        <p className="mt-1 text-[10px] text-emerald-500/80">Acceso celular</p>
+        <p className="mt-1 text-[10px] text-success">Acceso celular</p>
       )}
       {!member.active && (
-        <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-600">
+        <p className="mt-1 text-[10px] uppercase tracking-wide text-subtle">
           {member.kind === 'cashier' ? 'Inactiva' : 'Eliminado'}
         </p>
       )}
@@ -427,12 +435,15 @@ function EmployeeDetailModal({
   const roleLabel = member.kind === 'cashier' ? 'Cajera' : 'Carnicero'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
-      <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl border border-zinc-700 bg-zinc-800">
-        <div className="flex shrink-0 items-start gap-2 border-b border-zinc-800 px-5 py-4">
+    <>
+    <Modal
+      open
+      onClose={onClose}
+      header={
+        <div className="flex min-w-0 flex-1 items-start gap-2">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-semibold" title={member.name}>{member.name}</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">
+            <h2 className="truncate text-base font-semibold tracking-tight text-ink" title={member.name}>{member.name}</h2>
+            <p className="mt-0.5 text-xs text-muted">
               {roleLabel}
               {member.kind === 'cashier'
                 ? ' · acceso a la app'
@@ -441,19 +452,12 @@ function EmployeeDetailModal({
                   : ' · sueldo y vales'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
-            aria-label="Cerrar"
-          >
-            ✕
-          </button>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Cerrar">Cerrar</Button>
         </div>
-
-        <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-4">
+      }
+    >
           {member.email && (
-            <p className="truncate text-sm text-zinc-400" title={member.email}>
+            <p className="truncate text-sm text-muted" title={member.email}>
               {member.email}
             </p>
           )}
@@ -461,29 +465,29 @@ function EmployeeDetailModal({
           {editing ? (
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm text-zinc-300">Nombre</label>
+                <label className="mb-1 block text-sm text-ink">Nombre</label>
                 <input
                   type="text"
                   value={editName}
                   maxLength={100}
                   onChange={e => setEditName(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                  className="w-full rounded-lg border border-line bg-panel px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-zinc-300">Sueldo semanal ($)</label>
+                <label className="mb-1 block text-sm text-ink">Sueldo semanal ($)</label>
                 <NumericInput
                   value={editWage}
                   onChange={setEditWage}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                  className="w-full rounded-lg border border-line bg-panel px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-zinc-300">Local habitual</label>
+                <label className="mb-1 block text-sm text-ink">Local habitual</label>
                 <select
                   value={editHome}
                   onChange={e => setEditHome(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                  className="w-full rounded-lg border border-line bg-panel px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-accent/30"
                 >
                   <option value="">Ambos / sin asignar</option>
                   {stores.filter(s => !s.archivedAt).map(s => (
@@ -501,7 +505,7 @@ function EmployeeDetailModal({
                     setEditHome(member.homeStoreId ?? '')
                     setFormError(null)
                   }}
-                  className="flex-1 rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                  className="flex-1 rounded-lg px-4 py-2 text-sm text-ink hover:bg-hover"
                 >
                   Cancelar
                 </button>
@@ -509,23 +513,23 @@ function EmployeeDetailModal({
                   type="button"
                   disabled={saving}
                   onClick={() => void saveEdit()}
-                  className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:bg-zinc-700"
+                  className="flex-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium hover:bg-accent disabled:bg-raised"
                 >
                   {saving ? 'Guardando…' : 'Guardar'}
                 </button>
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3">
-              <p className="text-sm text-zinc-400">
+            <div className="rounded-lg border border-line bg-app px-4 py-3">
+              <p className="text-sm text-muted">
                 Sueldo:{' '}
-                <span className="font-semibold tabular-nums text-zinc-100">
+                <span className="font-semibold tabular-nums text-ink">
                   {formatARS(member.weeklyWage)} / sem.
                 </span>
               </p>
-              <p className="mt-1 text-sm text-zinc-400">
+              <p className="mt-1 text-sm text-muted">
                 Local habitual:{' '}
-                <span className="text-zinc-100">
+                <span className="text-ink">
                   {member.homeStoreId
                     ? (stores.find(s => s.id === member.homeStoreId)?.name ?? 'Local')
                     : 'Ambos'}
@@ -534,7 +538,7 @@ function EmployeeDetailModal({
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="mt-2 text-sm text-zinc-500 underline"
+                className="mt-2 text-sm text-muted underline"
               >
                 Editar datos
               </button>
@@ -544,27 +548,27 @@ function EmployeeDetailModal({
           {member.employeeId && (
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-xs uppercase tracking-wide text-zinc-500">Vales ({vales.length})</p>
+                <p className="text-xs uppercase tracking-wide text-muted">Vales ({vales.length})</p>
                 {vales.length > 0 && (
-                  <span className="font-mono text-sm text-zinc-300">{formatARS(valeTotal)}</span>
+                  <span className="font-mono text-sm text-ink">{formatARS(valeTotal)}</span>
                 )}
               </div>
               {loadingVales ? (
-                <p className="text-sm text-zinc-600">Cargando vales…</p>
+                <p className="text-sm text-subtle">Cargando vales…</p>
               ) : vales.length === 0 ? (
-                <p className="text-sm text-zinc-600">Sin vales registrados.</p>
+                <p className="text-sm text-subtle">Sin vales registrados.</p>
               ) : (
                 <ul className="max-h-40 space-y-1.5 overflow-y-auto">
                   {vales.slice(0, 30).map(v => (
                     <li key={v.id} className="flex min-w-0 items-center gap-2 text-sm">
-                      <span className="shrink-0 text-xs text-zinc-500">{toLocalDate(v.paidAt)}</span>
+                      <span className="shrink-0 text-xs text-muted">{toLocalDate(v.paidAt)}</span>
                       <span
-                        className="min-w-0 flex-1 truncate text-zinc-400"
+                        className="min-w-0 flex-1 truncate text-muted"
                         title={v.description ?? 'Adelanto'}
                       >
                         {v.description ?? 'Adelanto'}
                       </span>
-                      <span className="shrink-0 font-mono text-xs text-zinc-300">
+                      <span className="shrink-0 font-mono text-xs text-ink">
                         {formatARS(v.amount)}
                       </span>
                     </li>
@@ -574,11 +578,11 @@ function EmployeeDetailModal({
             </div>
           )}
 
-          {formError && <p className="text-sm text-red-400/80">{formError}</p>}
+          {formError && <p className="text-sm text-danger">{formError}</p>}
 
           {confirm ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-              <p className="text-sm text-zinc-300">
+            <div className="rounded-lg border border-line bg-app p-3">
+              <p className="text-sm text-ink">
                 {confirm === 'toggle' && (member.active
                   ? `¿Desactivar a ${member.name}? No podrá entrar a la app.`
                   : `¿Reactivar a ${member.name}?`)}
@@ -591,7 +595,7 @@ function EmployeeDetailModal({
                   type="button"
                   disabled={busy}
                   onClick={() => setConfirm(null)}
-                  className="flex-1 rounded-xl border border-zinc-700 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                  className="flex-1 rounded-xl border border-line py-2 text-sm text-ink hover:bg-hover"
                 >
                   Cancelar
                 </button>
@@ -601,8 +605,8 @@ function EmployeeDetailModal({
                   onClick={() => void runConfirm()}
                   className={`flex-1 rounded-xl py-2 text-sm font-semibold ${
                     confirm === 'restore' || (confirm === 'toggle' && !member.active)
-                      ? 'bg-emerald-700 text-white hover:bg-emerald-600'
-                      : 'border border-red-900/50 bg-red-900/60 text-red-400/90 hover:bg-red-900/80'
+                      ? 'bg-accent text-ink hover:bg-accent'
+                      : 'border border-danger/40 bg-danger/15 text-danger hover:bg-danger/25'
                   }`}
                 >
                   {busy ? '…' : confirm === 'restore' ? 'Restaurar' : confirm === 'toggle'
@@ -635,7 +639,7 @@ function EmployeeDetailModal({
                       setFormError(r.error ?? 'No se pudo otorgar el acceso.')
                     })
                   }}
-                  className="w-full rounded-lg border border-emerald-900/40 bg-emerald-950/30 px-4 py-2 text-sm text-emerald-400/90 hover:bg-emerald-950/50 disabled:opacity-50"
+                  className="w-full rounded-lg border border-line-accent bg-accent-soft px-4 py-2 text-sm text-success hover:bg-hover disabled:opacity-50"
                 >
                   {grantingAccess ? 'Restableciendo…' : 'Dar acceso al celular'}
                 </button>
@@ -653,7 +657,7 @@ function EmployeeDetailModal({
                 <button
                   type="button"
                   onClick={() => setConfirm('toggle')}
-                  className="w-full rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                  className="w-full rounded-lg border border-line px-4 py-2 text-sm text-ink hover:bg-hover"
                 >
                   {member.active ? 'Desactivar' : 'Reactivar'}
                 </button>
@@ -662,7 +666,7 @@ function EmployeeDetailModal({
                 <button
                   type="button"
                   onClick={() => setConfirm('delete')}
-                  className="w-full rounded-lg border border-red-900/40 px-4 py-2 text-sm text-red-400/80 hover:bg-red-950/40"
+                  className="w-full rounded-lg border border-danger/30 px-4 py-2 text-sm text-danger hover:bg-danger/10"
                 >
                   Eliminar
                 </button>
@@ -671,7 +675,7 @@ function EmployeeDetailModal({
                 <button
                   type="button"
                   onClick={() => setConfirm('archive')}
-                  className="w-full rounded-lg border border-red-900/40 px-4 py-2 text-sm text-red-400/80 hover:bg-red-950/40"
+                  className="w-full rounded-lg border border-danger/30 px-4 py-2 text-sm text-danger hover:bg-danger/10"
                 >
                   Eliminar
                 </button>
@@ -680,15 +684,14 @@ function EmployeeDetailModal({
                 <button
                   type="button"
                   onClick={() => setConfirm('restore')}
-                  className="w-full rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                  className="w-full rounded-lg border border-line px-4 py-2 text-sm text-ink hover:bg-hover"
                 >
                   Restaurar
                 </button>
               )}
             </div>
           )}
-        </div>
-      </div>
+    </Modal>
       {accessPanel === 'grant' && member.employeeId && (
         <GrantButcherAccessModal
           employeeName={member.name}
@@ -722,7 +725,7 @@ function EmployeeDetailModal({
           }}
         />
       )}
-    </div>
+    </>
   )
 }
 
@@ -828,136 +831,121 @@ function CreateEmployeeModal({
 
   if (createdEmail) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-overlay-fade">
-        <div className="w-full max-w-md space-y-3 rounded-xl bg-zinc-800 p-6 text-center shadow-xl">
-          <h2 className="text-lg font-semibold">Cajera creada</h2>
-          <p className="text-sm text-zinc-400">
-            Se envió un email a <strong className="text-white">{createdEmail}</strong> para que configure su contraseña.
-          </p>
-          <button
-            type="button"
-            onClick={() => void onSaved()}
-            className="mt-2 w-full rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-          >
-            Cerrar
-          </button>
-        </div>
-      </div>
+      <Modal
+        open
+        onClose={() => { void onSaved() }}
+        title="Cajera creada"
+        footer={<Button className="mr-auto" onClick={() => void onSaved()}>Cerrar</Button>}
+      >
+        <p className="text-sm text-muted">
+          Se envió un email a <strong className="text-ink">{createdEmail}</strong> para que configure su contraseña.
+        </p>
+      </Modal>
     )
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-overlay-fade"
-      onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}
+    <Modal
+      open
+      onClose={saving ? () => {} : onClose}
+      closeOnOverlay={!saving}
+      title="Nuevo empleado"
     >
-      <div className="w-full max-w-md rounded-xl bg-zinc-800 p-6 shadow-xl">
-        <h2 className="text-lg font-semibold">Nuevo empleado</h2>
         {!kind ? (
-          <div className="mt-4 space-y-3">
-            <p className="text-sm text-zinc-400">¿Qué tipo de empleado querés agregar?</p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted">¿Qué tipo de empleado querés agregar?</p>
             <button
               type="button"
               onClick={() => setKind('cashier')}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left hover:border-zinc-600"
+              className="w-full rounded-xl border border-line bg-raised px-4 py-3 text-left hover:bg-hover"
             >
               <p className="text-sm font-medium">Cajera</p>
-              <p className="mt-0.5 text-xs text-zinc-500">Acceso a la app · sueldo y vales</p>
+              <p className="mt-0.5 text-xs text-muted">Acceso a la app · sueldo y vales</p>
             </button>
             <button
               type="button"
               onClick={() => setKind('butcher')}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left hover:border-zinc-600"
+              className="w-full rounded-xl border border-line bg-raised px-4 py-3 text-left hover:bg-hover"
             >
               <p className="text-sm font-medium">Carnicero</p>
-              <p className="mt-0.5 text-xs text-zinc-500">Sueldo y vales. El acceso al celu se da después, desde la ficha.</p>
+              <p className="mt-0.5 text-xs text-muted">Sueldo y vales. El acceso al celu se da después, desde la ficha.</p>
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full rounded-lg px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
-            >
-              Cancelar
-            </button>
+            <Button fullWidth variant="secondary" onClick={onClose}>Cancelar</Button>
           </div>
         ) : (
-          <form onSubmit={e => void handleSubmit(e)} className="mt-4 space-y-4">
-            <p className="text-xs text-zinc-500">
+          <form onSubmit={e => void handleSubmit(e)} className="space-y-4">
+            <p className="text-xs text-muted">
               {kind === 'cashier'
                 ? 'Recibirá un email para definir su contraseña. Puede operar en todos los locales activos.'
                 : 'Queda registrado para asistencia, sueldo y vales. El acceso al celu se da desde la ficha.'}
             </p>
             <div>
-              <label className="mb-1 block text-sm text-zinc-300">Nombre</label>
+              <label className="mb-1 block text-sm text-ink">Nombre</label>
               <input
                 type="text"
                 value={name}
                 maxLength={100}
                 onChange={e => setName(e.target.value)}
                 autoFocus
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                className="w-full rounded-lg border border-line bg-input px-3 py-2.5 text-ink focus:border-line-accent focus:outline-none"
                 placeholder="Nombre del empleado"
               />
             </div>
             {kind === 'cashier' && (
               <div>
-                <label className="mb-1 block text-sm text-zinc-300">Email</label>
+                <label className="mb-1 block text-sm text-ink">Email</label>
                 <input
                   type="email"
                   value={email}
                   maxLength={120}
                   onChange={e => setEmail(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                  className="w-full rounded-lg border border-line bg-input px-3 py-2.5 text-ink focus:border-line-accent focus:outline-none"
                   placeholder="cajera@ejemplo.com"
                 />
               </div>
             )}
             <div>
-              <label className="mb-1 block text-sm text-zinc-300">Sueldo semanal ($)</label>
+              <label className="mb-1 block text-sm text-ink">Sueldo semanal ($)</label>
               <NumericInput
                 value={wage}
                 onChange={setWage}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                className="w-full rounded-lg border border-line bg-input px-3 py-2.5 text-ink focus:border-line-accent focus:outline-none"
                 placeholder="0"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-zinc-300">Local habitual</label>
+              <label className="mb-1 block text-sm text-ink">Local habitual</label>
               <select
                 value={homeStoreId}
                 onChange={e => setHomeStoreId(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+                className="w-full rounded-lg border border-line bg-input px-3 py-2.5 text-ink focus:border-line-accent focus:outline-none"
               >
                 <option value="">Ambos / sin asignar</option>
                 {stores.filter(s => !s.archivedAt).map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              <p className="mt-1 text-[11px] text-zinc-500">
+              <p className="mt-1 text-[11px] text-muted">
                 Si no asignás, aparece en asistencia y vales de todos los locales.
               </p>
             </div>
-            {formError && <p className="text-sm text-red-400/80">{formError}</p>}
+            {formError && <p className="text-sm text-danger">{formError}</p>}
             <div className="flex gap-2 pt-1">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                className="flex-1"
                 disabled={saving}
                 onClick={() => { setKind(null); setFormError(null) }}
-                className="flex-1 rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
               >
                 Atrás
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:bg-zinc-700"
-              >
-                {saving ? 'Guardando…' : kind === 'cashier' ? 'Crear y enviar email' : 'Crear'}
-              </button>
+              </Button>
+              <Button type="submit" className="flex-1" loading={saving}>
+                {kind === 'cashier' ? 'Crear y enviar email' : 'Crear'}
+              </Button>
             </div>
           </form>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }

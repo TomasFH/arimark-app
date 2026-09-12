@@ -485,11 +485,11 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
         if (e.target === e.currentTarget && !saving) void handleSaveAndClose()
       }}
     >
-      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh]">
-        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
+      <div className="flex flex-col bg-raised border border-line rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh]">
+        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-line px-5 py-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-white truncate">Conteo de stock</h2>
-            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={storeName ? `${dateLabel} · ${storeName}` : dateLabel}>
+            <h2 className="text-sm font-bold text-ink truncate">Conteo de stock</h2>
+            <p className="text-[10px] text-muted mt-0.5 truncate" title={storeName ? `${dateLabel} · ${storeName}` : dateLabel}>
               {dateLabel}
               {storeName ? ` · ${storeName}` : ''}
               {countStatus === 'draft' ? ' · Borrador' : countStatus === 'final' ? ' · Registrado' : ''}
@@ -499,7 +499,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
             type="button"
             onClick={() => void handleSaveAndClose()}
             disabled={saving}
-            className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-zinc-700 hover:text-white transition-colors disabled:opacity-50"
+            className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors disabled:opacity-50"
             aria-label="Cerrar"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -514,26 +514,26 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
 
         {successId ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-            <p className="text-emerald-300 font-medium">
+            <p className="text-success font-medium">
               {countStatus === 'final' && lastEditedBy && recordedBy && lastEditedBy !== recordedBy
                 ? 'Conteo actualizado'
                 : 'Conteo finalizado'}
             </p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted">
               Quedó registrado para {dateLabel}
               {storeName ? ` · ${storeName}` : ''}.
             </p>
             <button
               type="button"
               onClick={onClose}
-              className="mt-2 rounded-lg px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white"
+              className="mt-2 rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-success/100 text-ink"
             >
               Cerrar
             </button>
           </div>
         ) : (
           <>
-            <div className="shrink-0 px-4 pt-3 pb-2 bg-zinc-800 border-b border-zinc-700 space-y-2">
+            <div className="shrink-0 px-4 pt-3 pb-2 bg-raised border-b border-line space-y-2">
               {needsStorePicker && (
                 <div
                   ref={storePickerRef}
@@ -543,13 +543,13 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                       : ''
                   }`}
                 >
-                  <p className={`text-[10px] mb-1.5 ${storePrompt ? 'text-amber-300 font-medium' : 'text-zinc-500'}`}>
+                  <p className={`text-[10px] mb-1.5 ${storePrompt ? 'text-amber-300 font-medium' : 'text-muted'}`}>
                     {storePrompt
                       ? 'Elegí un local para guardar este conteo'
                       : 'Local de este conteo'}
                   </p>
                   {stores.length === 0 && !loading ? (
-                    <p className="text-xs text-zinc-500">No hay locales activos.</p>
+                    <p className="text-xs text-muted">No hay locales activos.</p>
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {stores.map(s => {
@@ -563,10 +563,10 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                             title={s.name}
                             className={`min-w-0 max-w-full truncate rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
                               selected
-                                ? 'border-emerald-600 bg-emerald-950/50 text-emerald-200'
+                                ? 'border-success/40 bg-success/10 text-success'
                                 : storePrompt
-                                  ? 'border-amber-600/70 bg-zinc-700 text-zinc-200 hover:border-amber-400'
-                                  : 'border-zinc-600 bg-zinc-700 text-zinc-300 hover:border-emerald-700/60'
+                                  ? 'border-amber-600/70 bg-hover text-ink hover:border-amber-400'
+                                  : 'border-line bg-hover text-ink hover:border-success/40'
                             }`}
                           >
                             {s.name}
@@ -590,7 +590,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                   Anotó {recordedByName ?? 'la cajera'}. Editado después por {lastEditedByName ?? 'otra persona'}.
                 </p>
               )}
-              <p className="text-[10px] text-zinc-500">
+              <p className="text-[10px] text-muted">
                 Si lo dejás vacío, no entra en el conteo (packs, ofertas, o lo que no hay). + y − suman o restan un peso a lo ya anotado.
               </p>
               {!loading && rows.length > 0 && (
@@ -602,10 +602,10 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                     maxLength={100}
                     placeholder="Buscar producto o PLU…"
                     disabled={saving}
-                    className="w-full rounded-lg bg-zinc-700 border border-zinc-600 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full rounded-lg bg-hover border border-line px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                   />
                   {searchNorm && (
-                    <p className="text-[10px] text-zinc-500">
+                    <p className="text-[10px] text-muted">
                       {filteredRows.length} de {rows.length} productos
                     </p>
                   )}
@@ -615,15 +615,15 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
             <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0">
 
               {loading && (
-                <p className="text-sm text-zinc-500 text-center py-8">Cargando productos…</p>
+                <p className="text-sm text-muted text-center py-8">Cargando productos…</p>
               )}
 
               {!loading && rows.length === 0 && !error && (
-                <p className="text-sm text-zinc-500 text-center py-8">No hay productos en el catálogo.</p>
+                <p className="text-sm text-muted text-center py-8">No hay productos en el catálogo.</p>
               )}
 
               {!loading && filteredRows.length === 0 && rows.length > 0 && (
-                <p className="text-sm text-zinc-500 text-center py-6">Ningún producto coincide con la búsqueda.</p>
+                <p className="text-sm text-muted text-center py-6">Ningún producto coincide con la búsqueda.</p>
               )}
 
               {!loading &&
@@ -632,16 +632,16 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                   return (
                     <div
                       key={row.product.id}
-                      className="rounded-xl border border-zinc-600 bg-zinc-700 px-3 py-2.5 space-y-2"
+                      className="rounded-xl border border-line bg-hover px-3 py-2.5 space-y-2"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="shrink-0 text-[10px] text-zinc-500 tabular-nums w-8">
+                        <span className="shrink-0 text-[10px] text-muted tabular-nums w-8">
                           {row.product.pluNumber}
                         </span>
-                        <p className="min-w-0 flex-1 text-sm text-white truncate" title={row.product.name}>
+                        <p className="min-w-0 flex-1 text-sm text-ink truncate" title={row.product.name}>
                           {row.product.name}
                         </p>
-                        <span className="shrink-0 text-[10px] text-zinc-600 uppercase">
+                        <span className="shrink-0 text-[10px] text-subtle uppercase">
                           {row.product.unit === 'kg' ? 'kg' : 'unid.'}
                         </span>
                       </div>
@@ -650,16 +650,16 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                           <>
                             {row.product.unit === 'kg' ? (
                               <div className="col-span-1">
-                                <label className="block text-[10px] text-zinc-500 mb-0.5">Kg anotados</label>
+                                <label className="block text-[10px] text-muted mb-0.5">Kg anotados</label>
                                 <div className="flex items-center gap-1">
                                   <button
                                     type="button"
                                     disabled={saving}
                                     onClick={() => toggleAdjust(row.product.id, 'kg', 'subtract')}
-                                    className={`shrink-0 h-8 w-8 rounded-lg border text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 ${
+                                    className={`shrink-0 h-8 w-8 rounded-lg border text-ink hover:bg-hover disabled:opacity-50 ${
                                       isAdjusting && adjust.direction === 'subtract'
-                                        ? 'border-emerald-600 bg-zinc-800 text-emerald-300'
-                                        : 'border-zinc-600'
+                                        ? 'border-success/40 bg-raised text-success'
+                                        : 'border-line'
                                     }`}
                                     title="Restar un peso de lo anotado"
                                   >
@@ -672,16 +672,16 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                                     weightMode
                                     disabled={saving}
                                     placeholder="0,000"
-                                    className="min-w-0 flex-1 rounded-lg bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                                    className="min-w-0 flex-1 rounded-lg bg-raised border border-line px-2.5 py-1.5 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                                   />
                                   <button
                                     type="button"
                                     disabled={saving}
                                     onClick={() => toggleAdjust(row.product.id, 'kg', 'add')}
-                                    className={`shrink-0 h-8 w-8 rounded-lg border text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 ${
+                                    className={`shrink-0 h-8 w-8 rounded-lg border text-ink hover:bg-hover disabled:opacity-50 ${
                                       isAdjusting && adjust.direction === 'add'
-                                        ? 'border-emerald-600 bg-zinc-800 text-emerald-300'
-                                        : 'border-zinc-600'
+                                        ? 'border-success/40 bg-raised text-success'
+                                        : 'border-line'
                                     }`}
                                     title="Sumar un peso a lo anotado"
                                   >
@@ -691,16 +691,16 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                               </div>
                             ) : (
                               <div className="col-span-1">
-                                <label className="block text-[10px] text-zinc-500 mb-0.5">Unidades anotadas</label>
+                                <label className="block text-[10px] text-muted mb-0.5">Unidades anotadas</label>
                                 <div className="flex items-center gap-1">
                                   <button
                                     type="button"
                                     disabled={saving}
                                     onClick={() => toggleAdjust(row.product.id, 'units', 'subtract')}
-                                    className={`shrink-0 h-8 w-8 rounded-lg border text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 ${
+                                    className={`shrink-0 h-8 w-8 rounded-lg border text-ink hover:bg-hover disabled:opacity-50 ${
                                       isAdjusting && adjust.direction === 'subtract'
-                                        ? 'border-emerald-600 bg-zinc-800 text-emerald-300'
-                                        : 'border-zinc-600'
+                                        ? 'border-success/40 bg-raised text-success'
+                                        : 'border-line'
                                     }`}
                                     title="Restar unidades de lo anotado"
                                   >
@@ -711,16 +711,16 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                                     onChange={v => updateRow(row.product.id, { unitsText: v })}
                                     disabled={saving}
                                     placeholder="0"
-                                    className="min-w-0 flex-1 rounded-lg bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                                    className="min-w-0 flex-1 rounded-lg bg-raised border border-line px-2.5 py-1.5 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                                   />
                                   <button
                                     type="button"
                                     disabled={saving}
                                     onClick={() => toggleAdjust(row.product.id, 'units', 'add')}
-                                    className={`shrink-0 h-8 w-8 rounded-lg border text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 ${
+                                    className={`shrink-0 h-8 w-8 rounded-lg border text-ink hover:bg-hover disabled:opacity-50 ${
                                       isAdjusting && adjust.direction === 'add'
-                                        ? 'border-emerald-600 bg-zinc-800 text-emerald-300'
-                                        : 'border-zinc-600'
+                                        ? 'border-success/40 bg-raised text-success'
+                                        : 'border-line'
                                     }`}
                                     title="Sumar unidades a lo anotado"
                                   >
@@ -730,14 +730,14 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                               </div>
                             )}
                             <div className="col-span-1 sm:col-span-2">
-                              <label className="block text-[10px] text-zinc-500 mb-0.5">Nota (opcional)</label>
+                              <label className="block text-[10px] text-muted mb-0.5">Nota (opcional)</label>
                               <input
                                 type="text"
                                 value={row.notes}
                                 maxLength={500}
                                 disabled={saving}
                                 onChange={e => updateRow(row.product.id, { notes: e.target.value })}
-                                className="w-full rounded-lg bg-zinc-800 border border-zinc-600 px-2.5 py-1.5 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                                className="w-full rounded-lg bg-raised border border-line px-2.5 py-1.5 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                                 placeholder="—"
                               />
                             </div>
@@ -745,8 +745,8 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                         )}
                       </div>
                       {isAdjusting && (
-                        <div className="flex items-center gap-2 min-w-0 rounded-lg bg-zinc-800 border border-zinc-600 px-2 py-1.5">
-                          <p className="shrink-0 text-[10px] text-zinc-400">
+                        <div className="flex items-center gap-2 min-w-0 rounded-lg bg-raised border border-line px-2 py-1.5">
+                          <p className="shrink-0 text-[10px] text-muted">
                             {adjust.direction === 'add' ? 'Sumar' : 'Restar'}
                           </p>
                           {adjust.kind === 'kg' ? (
@@ -768,7 +768,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                                   setDeltaText('')
                                 }
                               }}
-                              className="min-w-0 flex-1 rounded-md bg-zinc-900 border border-zinc-600 px-2 py-1 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                              className="min-w-0 flex-1 rounded-md bg-input border border-line px-2 py-1 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                             />
                           ) : (
                             <NumericInput
@@ -787,14 +787,14 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                                   setDeltaText('')
                                 }
                               }}
-                              className="min-w-0 flex-1 rounded-md bg-zinc-900 border border-zinc-600 px-2 py-1 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                              className="min-w-0 flex-1 rounded-md bg-input border border-line px-2 py-1 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                             />
                           )}
                           <button
                             type="button"
                             disabled={saving}
                             onClick={() => applyAdjust(row)}
-                            className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                            className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium bg-accent hover:bg-success/100 text-ink disabled:opacity-50"
                           >
                             Aplicar
                           </button>
@@ -805,21 +805,21 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 })}
 
               {error && !storePrompt && (
-                <div className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2">
-                  <p className="text-sm text-red-300">{error}</p>
+                <div className="rounded-lg bg-danger/10 border border-danger/30 px-3 py-2">
+                  <p className="text-sm text-danger">{error}</p>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-zinc-700 px-5 py-3">
+            <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
               {error && !storePrompt && (
-                <p className="min-w-0 flex-1 text-xs text-red-300 truncate" title={error}>{error}</p>
+                <p className="min-w-0 flex-1 text-xs text-danger truncate" title={error}>{error}</p>
               )}
               <button
                 type="button"
                 onClick={() => handleCancelClick()}
                 disabled={saving}
-                className="shrink-0 rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg px-4 py-2 text-sm text-muted hover:text-ink hover:bg-hover transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -827,7 +827,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={handleFinalizeClick}
                 disabled={saving || loading || rows.length === 0}
-                className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-success/100 text-ink transition-colors disabled:opacity-50"
               >
                 {saving ? 'Guardando…' : countStatus === 'final' ? 'Guardar cambios' : 'Finalizar conteo'}
               </button>
@@ -843,11 +843,11 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
             if (e.target === e.currentTarget && !saving) setConfirmFinalize(false)
           }}
         >
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4 shadow-xl">
-            <h2 className="text-base font-semibold text-white">
+          <div className="bg-raised rounded-2xl border border-line w-full max-w-sm p-6 space-y-4 shadow-xl">
+            <h2 className="text-base font-semibold text-ink">
               {countStatus === 'final' ? '¿Guardar los cambios?' : '¿Finalizar el conteo?'}
             </h2>
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm text-muted">
               {countStatus === 'final'
                 ? `Se actualiza el conteo${storeName ? ` de ${storeName}` : ''}. La anotación original de la cajera se conserva para comparar.`
                 : `Queda registrado${storeName ? ` para ${storeName}` : ''}. Mientras la caja no esté cerrada se puede volver a abrir y corregir (cliente de último minuto). El admin también puede editarlo después; esa edición queda marcada aparte.`}
@@ -857,7 +857,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={() => setConfirmFinalize(false)}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
               >
                 Volver
               </button>
@@ -865,7 +865,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={() => void handleFinalizeConfirm()}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl bg-accent hover:bg-success/100 text-ink font-semibold transition-colors disabled:opacity-40"
               >
                 {saving ? 'Guardando…' : countStatus === 'final' ? 'Sí, guardar' : 'Sí, finalizar'}
               </button>
@@ -880,11 +880,11 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
             if (e.target === e.currentTarget && !saving) setConfirmCancel(false)
           }}
         >
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4 shadow-xl">
-            <h2 className="text-base font-semibold text-white">
+          <div className="bg-raised rounded-2xl border border-line w-full max-w-sm p-6 space-y-4 shadow-xl">
+            <h2 className="text-base font-semibold text-ink">
               {countStatus === 'final' ? '¿Descartar los cambios?' : '¿Borrar lo anotado?'}
             </h2>
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm text-muted">
               {countStatus === 'final'
                 ? 'Los kilos que cambiaste ahora no se guardan. El conteo ya registrado se mantiene como estaba.'
                 : 'Se borra todo lo cargado en este conteo. Esta acción no se puede deshacer.'}
@@ -894,7 +894,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={() => setConfirmCancel(false)}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
               >
                 Volver
               </button>
@@ -902,7 +902,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={() => void handleCancelConfirm()}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white font-semibold transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-ink font-semibold transition-colors disabled:opacity-40"
               >
                 {saving ? 'Borrando…' : countStatus === 'final' ? 'Sí, descartar' : 'Sí, borrar'}
               </button>

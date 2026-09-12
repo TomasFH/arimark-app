@@ -14,14 +14,14 @@ interface Props {
 export default function StoreFilter({ stores, value, onChange }: Props) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-xs text-zinc-500 shrink-0">Local:</span>
+      <span className="text-xs text-muted shrink-0">Local:</span>
       <div className="flex flex-wrap gap-1">
         <button
           onClick={() => onChange('all')}
           className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
             value === 'all'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              ? 'bg-accent text-accent-fg'
+              : 'bg-raised text-muted hover:bg-hover hover:text-ink'
           }`}
         >
           Todos
@@ -33,8 +33,8 @@ export default function StoreFilter({ stores, value, onChange }: Props) {
             title={s.name}
             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors truncate max-w-[150px] ${
               value === s.id
-                ? 'bg-indigo-600 text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                ? 'bg-accent text-accent-fg'
+                : 'bg-raised text-muted hover:bg-hover hover:text-ink'
             }`}
           >
             {s.name}

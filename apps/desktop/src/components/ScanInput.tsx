@@ -344,16 +344,16 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
+    <div className="border-t border-line px-3 py-2 space-y-2">
       {/* Tabs — ambas opciones son alternativas/emergencia cuando no hay lector USB */}
-      <div className="flex rounded-md overflow-hidden border border-zinc-700 text-[10px] font-semibold">
+      <div className="flex rounded-md overflow-hidden border border-line text-[10px] font-semibold">
         <button
           type="button"
           onClick={() => handleTabChange('manual')}
           className={`flex-1 py-1 transition-colors ${
             tab === 'manual'
-              ? 'bg-zinc-700 text-zinc-100'
-              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+              ? 'bg-input text-ink'
+              : 'bg-panel text-muted hover:text-ink'
           }`}
         >
           ⚡ PLU + precio
@@ -363,8 +363,8 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
           onClick={() => handleTabChange('scan')}
           className={`flex-1 py-1 transition-colors ${
             tab === 'scan'
-              ? 'bg-zinc-700 text-zinc-100'
-              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'
+              ? 'bg-input text-ink'
+              : 'bg-panel text-muted hover:text-ink'
           }`}
         >
           📱 Código manual
@@ -374,7 +374,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
       {/* ── Pestaña Código manual (alternativa sin lector USB) ───────── */}
       {tab === 'scan' && (
         <form onSubmit={handleBarcodeSubmit} className="space-y-2">
-          <p className="text-[10px] text-zinc-500 leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             Ingresá el código del ticket (13 dígitos). Con el lector USB no hace falta.
           </p>
           <input
@@ -385,10 +385,10 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
             onChange={handleBarcodeChange}
             placeholder="2001060000012"
             data-barcode-input="true"
-            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+            className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
           />
           {barcodePreview && (
-            <p className="text-[10px] text-emerald-400/80 truncate">
+            <p className="text-[10px] text-success truncate">
               PLU {barcodePreview.plu}{barcodePreview.name ? ` — ${barcodePreview.name}` : ''} · {formatARS(barcodePreview.total)}
             </p>
           )}
@@ -398,7 +398,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
           <button
             type="submit"
             disabled={!barcode.trim()}
-            className="w-full rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-ink hover:bg-accent disabled:opacity-40"
           >
             Agregar a la venta
           </button>
@@ -408,13 +408,13 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
       {/* ── Pestaña PLU + precio (emergencia) ────────────────────────── */}
       {tab === 'manual' && (
         <form onSubmit={handleManualSubmit} className="space-y-2">
-          <p className="text-[10px] text-zinc-500 leading-snug">
+          <p className="text-[10px] text-muted leading-snug">
             Emergencia: ingresá el PLU y los datos del producto.
           </p>
 
           {/* PLU con autocomplete — acepta número PLU o nombre del producto */}
           <div className="relative">
-            <label className="block text-[9px] text-zinc-500 mb-0.5">PLU o nombre</label>
+            <label className="block text-[9px] text-muted mb-0.5">PLU o nombre</label>
             <input
               ref={pluInputRef}
               type="text"
@@ -424,21 +424,21 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
               onFocus={() => pluRaw.trim() && setShowSuggestions(true)}
               placeholder="ej. 5 o 'vacío'"
               autoComplete="off"
-              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
             />
             {showSuggestions && suggestions.length > 0 && (
-              <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-xl">
+              <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-52 overflow-y-auto rounded-md border border-line bg-panel shadow-xl">
                 {suggestions.map(p => (
                   <li key={p.id}>
                     <button
                       type="button"
                       onMouseDown={() => pickSuggestion(p)}
-                      className="w-full px-2 py-1.5 text-left hover:bg-zinc-800 transition-colors"
+                      className="w-full px-2 py-1.5 text-left hover:bg-hover transition-colors"
                     >
-                      <span className="text-[10px] font-bold text-zinc-500 mr-1">{p.pluNumber}</span>
-                      <span className="text-[10px] text-zinc-200 truncate">{p.name}</span>
+                      <span className="text-[10px] font-bold text-muted mr-1">{p.pluNumber}</span>
+                      <span className="text-[10px] text-ink truncate">{p.name}</span>
                       {p.price != null && (
-                        <span className="text-[10px] text-zinc-400 ml-1">
+                        <span className="text-[10px] text-muted ml-1">
                           {formatARS(p.price)}/{p.unit === 'unit' ? 'u.' : 'kg'}
                         </span>
                       )}
@@ -452,52 +452,52 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
           {/* Info del producto */}
           {pluNum !== null && matchedProduct && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="text-[10px] text-zinc-300 truncate">
+              <p className="text-[10px] text-ink truncate">
                 {matchedProduct.name} · {CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}
                 {refPrice && (
-                  <span className="text-zinc-400"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
+                  <span className="text-muted"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
                 )}
               </p>
               <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold ${
-                isUnit ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-800 text-zinc-400'
+                isUnit ? 'bg-raised text-muted' : 'bg-raised text-muted'
               }`}>
                 {isUnit ? 'Por unidad' : 'Por kg'}
               </span>
             </div>
           )}
           {pluNum !== null && !matchedProduct && pluRaw.trim() && (
-            <p className="text-[10px] text-zinc-500">PLU {pluNum} — no encontrado en el catálogo</p>
+            <p className="text-[10px] text-muted">PLU {pluNum} — no encontrado en el catálogo</p>
           )}
 
           {/* ── Campos: productos por unidad ── */}
           {isUnit ? (
             <div className="space-y-2">
               <div>
-                <label className="block text-[9px] text-zinc-500 mb-0.5">Cantidad</label>
+                <label className="block text-[9px] text-muted mb-0.5">Cantidad</label>
                 <NumericInput
                   value={weightRaw}
                   onChange={handleUnitQuantityChange}
                   placeholder="ej. 2"
                   ref={weightInputRef}
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                 />
               </div>
 
               {/* Precio calculado (solo lectura, sin precio especial) */}
               {!specialPrice && autoPrice !== null && (
-                <div className="rounded-md bg-zinc-800/60 px-2 py-1.5 flex justify-between items-center">
-                  <span className="text-[10px] text-zinc-400">Precio total</span>
-                  <span className="text-xs font-semibold text-zinc-300">{formatARS(autoPrice)}</span>
+                <div className="rounded-md bg-raised px-2 py-1.5 flex justify-between items-center">
+                  <span className="text-[10px] text-muted">Precio total</span>
+                  <span className="text-xs font-semibold text-ink">{formatARS(autoPrice)}</span>
                 </div>
               )}
 
               {/* Campo de precio por unidad con precio especial */}
               {specialPrice && (
                 <div>
-                  <label className="block text-[9px] text-zinc-500 mb-0.5">
+                  <label className="block text-[9px] text-muted mb-0.5">
                     Precio por unidad ($)
                     {refPrice && (
-                      <span className="ml-1 text-zinc-500">· Lista: {formatARS(refPrice)}/u.</span>
+                      <span className="ml-1 text-muted">· Lista: {formatARS(refPrice)}/u.</span>
                     )}
                   </label>
                   <DecimalInput
@@ -505,7 +505,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     value={priceRaw}
                     onChange={v => { setPriceRaw(v); setManualError('') }}
                     placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
-                    className="w-full rounded-md border border-orange-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="w-full rounded-md border border-orange-700 bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                   />
                   {priceRaw && parseNumericInput(weightRaw) && parseDecimalInput(priceRaw) && (
                     <p className="mt-0.5 text-[9px] text-orange-300">
@@ -520,7 +520,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
             <div className="space-y-1.5">
               <div className="flex gap-2">
                 <div className="w-24 shrink-0">
-                  <label className="block text-[9px] text-zinc-500 mb-0.5">Peso (kg)</label>
+                  <label className="block text-[9px] text-muted mb-0.5">Peso (kg)</label>
                   <DecimalInput
                     value={weightRaw}
                     onChange={handleKgWeightChange}
@@ -528,14 +528,14 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     weightMode
                     ref={weightInputRef}
                     placeholder="ej. 0,490"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-[9px] text-zinc-500 mb-0.5">
+                  <label className="block text-[9px] text-muted mb-0.5">
                     Precio total ($)
                     {refPrice && !specialPrice && (
-                      <span className="ml-1 text-zinc-500">· {formatARS(refPrice)}/kg</span>
+                      <span className="ml-1 text-muted">· {formatARS(refPrice)}/kg</span>
                     )}
                   </label>
                   <DecimalInput
@@ -543,15 +543,15 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     value={priceRaw}
                     onChange={handleKgPriceChange}
                     placeholder="ej. 7.350"
-                    className={`w-full rounded-md border bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none ${
-                      specialPrice ? 'border-zinc-600 focus:border-zinc-500' : 'border-zinc-700 focus:border-zinc-500'
+                    className={`w-full rounded-md border bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:outline-none ${
+                      specialPrice ? 'border-line-strong focus:border-line-accent' : 'border-line focus:border-line-accent'
                     }`}
                   />
                 </div>
               </div>
               {/* Aviso cuando el producto existe pero no tiene precio en el catálogo */}
               {matchedProduct && !refPrice && !specialPrice && (
-                <p className="text-[10px] text-zinc-500 leading-snug">
+                <p className="text-[10px] text-muted leading-snug">
                   Sin precio de lista — ingresá el precio total manualmente.
                 </p>
               )}
@@ -566,15 +566,15 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                   type="checkbox"
                   checked={specialPrice}
                   onChange={e => handleSpecialPriceToggle(e.target.checked)}
-                  className="accent-zinc-500 h-3.5 w-3.5 shrink-0"
+                  className="accent-accent h-3.5 w-3.5 shrink-0"
                 />
-                <span className="text-[10px] text-zinc-300">Precio especial</span>
-                <span className="text-[9px] text-zinc-600">
+                <span className="text-[10px] text-ink">Precio especial</span>
+                <span className="text-[9px] text-subtle">
                   {isUnit ? '(fuera de lista por unidad)' : '(desvincula peso y precio)'}
                 </span>
               </label>
               {specialPrice && (
-                <p className="rounded bg-zinc-800/60 px-2 py-1.5 text-[10px] text-zinc-400 leading-snug">
+                <p className="rounded bg-raised px-2 py-1.5 text-[10px] text-muted leading-snug">
                   ⚠ Precio fuera de lista. Confirmá que no es un error antes de agregar.
                 </p>
               )}
@@ -589,7 +589,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
             const implied = refPrice ? w * refPrice : null
             const match = implied !== null && Math.abs(implied - p) < 1
             return (
-              <p className={`text-[10px] ${match ? 'text-emerald-400/70' : 'text-zinc-300'}`}>
+              <p className={`text-[10px] ${match ? 'text-success' : 'text-ink'}`}>
                 {formatKg(w)} · {formatARS(p)} {match ? '✓' : ''}
               </p>
             )
@@ -602,7 +602,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
           <button
             type="submit"
             disabled={!canSubmit}
-            className="w-full rounded-md bg-emerald-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-ink hover:bg-accent disabled:opacity-40"
           >
             Agregar a la venta
           </button>

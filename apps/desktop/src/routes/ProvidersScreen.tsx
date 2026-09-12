@@ -12,7 +12,7 @@ import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
 import type { ProviderWithDebtRow, ProviderRow, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
 import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
-import BackButton from '../components/BackButton'
+import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
 
 interface Props {
   onBack: () => void
@@ -24,18 +24,18 @@ type ModalMode =
   | { type: 'edit'; provider: ProviderRow }
   | { type: 'remove'; provider: ProviderWithDebtRow }
   | { type: 'compensate'; provider: ProviderWithDebtRow }
+  | { type: 'history'; provider: ProviderWithDebtRow }
 
 function storeBalanceDisplay(balance: number): { label: string; className: string } {
-  if (balance > 0) return { label: formatARS(balance), className: 'text-orange-400' }
-  if (balance < 0) return { label: `A favor ${formatARS(-balance)}`, className: 'text-emerald-400' }
-  return { label: 'Sin deuda', className: 'text-green-400' }
+  if (balance > 0) return { label: formatARS(balance), className: 'text-amber-600' }
+  if (balance < 0) return { label: `A favor ${formatARS(-balance)}`, className: 'text-success' }
+  return { label: 'Sin deuda', className: 'text-success' }
 }
 
 const HISTORY_PAGE = 20
 
-/** Campo sobre panel 800 / chip 700: pozo 950 para no fundirse con el gris claro. */
 const FIELD =
-  'w-full rounded-lg border border-zinc-600 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600'
+  'w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent'
 
 function initialLedgerStoreId(stores: Array<{ storeId: string }>): string {
   if (stores.length === 1) return stores[0].storeId
@@ -54,7 +54,7 @@ function LedgerStoreSelect({
   if (stores.length <= 1) return null
   return (
     <div className="space-y-1">
-      <label className="text-sm text-zinc-400">Local</label>
+      <label className="text-sm text-muted">Local</label>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -129,44 +129,34 @@ export default function ProvidersScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">Proveedores</h1>
-          <p className="text-xs text-zinc-500">
-            {showArchived ? 'Eliminados — restaurar para volver a usarlos' : 'Deuda combinada entre todos los locales'}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowArchived(v => !v)}
-          className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-        >
-          {showArchived ? 'Ver activos' : 'Ver eliminados'}
-        </button>
-        {!showArchived && (
-          <button
-            onClick={() => setModal({ type: 'create' })}
-            className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium transition-colors"
-          >
-            + Nuevo
-          </button>
-        )}
-      </header>
+    <div className="flex flex-col h-screen bg-app text-ink">
+      <ScreenHeader
+        title="Proveedores"
+        subtitle={showArchived ? 'Eliminados — restaurar para volver a usarlos' : 'Deuda combinada entre todos los locales'}
+        onBack={onBack}
+        actions={
+          <>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setShowArchived(v => !v)}>
+              {showArchived ? 'Ver activos' : 'Ver eliminados'}
+            </Button>
+            {!showArchived && (
+              <Button size="sm" onClick={() => setModal({ type: 'create' })}>+ Nuevo</Button>
+            )}
+          </>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex justify-center items-center py-16">
-            <p className="text-zinc-500 text-sm">Cargando proveedores…</p>
+            <p className="text-muted text-sm">Cargando proveedores…</p>
           </div>
         )}
 
         {error && !loading && (
-          <div className="mx-4 mt-4 p-4 rounded-xl bg-red-950/40 border border-red-800/60">
-            <p className="text-red-300 text-sm">{error}</p>
-            <button onClick={() => void load()} className="mt-2 text-xs text-zinc-300 hover:underline">
+          <div className="mx-4 mt-4 p-4 rounded-xl bg-danger/10 border border-danger/40">
+            <p className="text-danger text-sm">{error}</p>
+            <button onClick={() => void load()} className="mt-2 text-xs text-ink hover:underline">
               Reintentar
             </button>
           </div>
@@ -176,11 +166,11 @@ export default function ProvidersScreen({ onBack }: Props) {
           <div className="p-4 space-y-3">
             {list.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-zinc-500 text-sm">
+                <p className="text-muted text-sm">
                   {showArchived ? 'No hay proveedores eliminados.' : 'No hay proveedores registrados.'}
                 </p>
                 {!showArchived && (
-                  <p className="text-zinc-600 text-xs mt-1">Los proveedores se crean al registrar gastos o desde el botón "+ Nuevo".</p>
+                  <p className="text-subtle text-xs mt-1">Los proveedores se crean al registrar gastos o desde el botón "+ Nuevo".</p>
                 )}
               </div>
             )}
@@ -195,8 +185,8 @@ export default function ProvidersScreen({ onBack }: Props) {
                   key={p.id}
                   className={`rounded-xl border transition-colors ${
                     p.total > 0 || anyStoreHasDebt
-                      ? 'border-orange-800/50 bg-orange-950/20'
-                      : 'border-zinc-700 bg-zinc-800'
+                      ? 'border-amber-500/30 bg-amber-500/10'
+                      : 'border-line bg-panel'
                   }`}
                 >
                   {/* Fila principal */}
@@ -205,102 +195,88 @@ export default function ProvidersScreen({ onBack }: Props) {
                       className="flex-1 min-w-0 flex items-center gap-3 text-left"
                       onClick={() => toggleExpand(p.id)}
                     >
-                      <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-raised flex items-center justify-center text-xs font-bold text-ink shrink-0">
                         {p.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate" title={p.name}>{p.name}</p>
                         {p.phone && (
-                          <p className="text-xs text-zinc-400 truncate" title={formatPhoneInput(p.phone)}>
+                          <p className="text-xs text-muted truncate" title={formatPhoneInput(p.phone)}>
                             {formatPhoneInput(p.phone)}
                           </p>
                         )}
                         {p.total > 0 && (
-                          <p className="text-xs text-orange-400">
+                          <p className="text-xs text-amber-600">
                             Deuda total: {formatARS(p.total)}
                           </p>
                         )}
                         {p.total < 0 && (
-                          <p className="text-xs text-emerald-400">
+                          <p className="text-xs text-success">
                             Saldo a favor: {formatARS(-p.total)}
                           </p>
                         )}
                         {p.total === 0 && anyStoreHasDebt && (
-                          <p className="text-xs text-amber-400">Saldo compensado entre locales</p>
+                          <p className="text-xs text-amber-600">Saldo compensado entre locales</p>
                         )}
                         {p.total === 0 && !anyStoreHasDebt && !anyStoreHasCredit && (
-                          <p className="text-xs text-green-500">Sin deuda pendiente</p>
+                          <p className="text-xs text-success">Sin deuda pendiente</p>
                         )}
                       </div>
-                      <span className="text-zinc-600 text-sm shrink-0">
+                      <span className="text-subtle text-sm shrink-0">
                         {isExpanded ? '▲' : '▼'}
                       </span>
                     </button>
 
-                    {/* Acciones */}
-                    <button
-                      onClick={() => setModal({ type: 'history', provider: p })}
-                      className="shrink-0 text-xs text-zinc-300 hover:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-800 transition-colors"
-                      title="Ver historial de movimientos"
-                    >
-                      Historial
-                    </button>
-                    {showArchived ? (
-                      <button
-                        onClick={() => void handleRestore(p)}
-                        disabled={restoringId === p.id}
-                        className="shrink-0 text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-40"
-                        title="Restaurar proveedor"
-                      >
-                        {restoringId === p.id ? 'Restaurando…' : 'Restaurar'}
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setModal({ type: 'edit', provider: { id: p.id, name: p.name, phone: p.phone, notes: p.notes } })}
-                          className="shrink-0 text-xs text-zinc-400 hover:text-white px-2 py-1 rounded-lg hover:bg-zinc-800 transition-colors"
-                          title="Editar proveedor"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => setModal({ type: 'remove', provider: p })}
-                          className="shrink-0 text-xs text-zinc-500 hover:text-red-400 px-2 py-1 rounded-lg hover:bg-zinc-800 transition-colors"
-                          title="Eliminar proveedor"
-                        >
-                          Eliminar
-                        </button>
-                      </>
-                    )}
+                    <ActionMenu
+                      items={
+                        showArchived
+                          ? [{
+                              id: 'restore',
+                              label: restoringId === p.id ? 'Restaurando…' : 'Restaurar',
+                              disabled: restoringId === p.id,
+                              onSelect: () => { void handleRestore(p) },
+                            }]
+                          : [
+                              { id: 'history', label: 'Historial', onSelect: () => setModal({ type: 'history', provider: p }) },
+                              {
+                                id: 'edit',
+                                label: 'Editar',
+                                onSelect: () => setModal({
+                                  type: 'edit',
+                                  provider: { id: p.id, name: p.name, phone: p.phone, notes: p.notes },
+                                }),
+                              },
+                              ...(anyStoreHasDebt && anyStoreHasCredit
+                                ? [{
+                                    id: 'compensate',
+                                    label: compensatingId === p.id ? 'Compensando…' : 'Compensar entre locales',
+                                    disabled: compensatingId === p.id,
+                                    onSelect: () => setModal({ type: 'compensate', provider: p }),
+                                  }]
+                                : []),
+                              { id: 'remove', label: 'Eliminar', danger: true, onSelect: () => setModal({ type: 'remove', provider: p }) },
+                            ]
+                      }
+                    />
                   </div>
 
                   {/* Desglose por local */}
                   {isExpanded && (
-                    <div className="border-t border-zinc-800/60 px-4 py-3 space-y-2">
+                    <div className="border-t border-line px-4 py-3 space-y-2">
                       {p.perStore.length === 0 && (
-                        <p className="text-xs text-zinc-500">Sin eventos de deuda registrados.</p>
+                        <p className="text-xs text-muted">Sin eventos de deuda registrados.</p>
                       )}
                       {p.perStore.map(s => {
                         const display = storeBalanceDisplay(s.balance)
                         return (
                           <div key={s.storeId} className="flex items-center justify-between gap-2">
-                            <p className="text-sm text-zinc-300 min-w-0 truncate" title={s.storeName}>{s.storeName}</p>
+                            <p className="text-sm text-ink min-w-0 truncate" title={s.storeName}>{s.storeName}</p>
                             <p className={`text-sm font-semibold shrink-0 ${display.className}`}>
                               {display.label}
                             </p>
                           </div>
                         )
                       })}
-                      {anyStoreHasDebt && anyStoreHasCredit && !showArchived && (
-                        <button
-                          type="button"
-                          onClick={() => setModal({ type: 'compensate', provider: p })}
-                          disabled={compensatingId === p.id}
-                          className="w-full mt-1 py-2 rounded-lg border border-amber-800/60 text-amber-300 text-xs font-medium hover:bg-amber-950/40 disabled:opacity-40"
-                        >
-                          {compensatingId === p.id ? 'Compensando…' : 'Compensar entre locales'}
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -454,11 +430,11 @@ function ProviderFormModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm shadow-xl p-6 space-y-4">
+      <div className="bg-panel rounded-2xl border border-line w-full max-w-sm shadow-xl p-6 space-y-4">
         <h2 className="text-lg font-semibold">{title}</h2>
 
         <div className="space-y-1">
-          <label className="text-sm text-zinc-400">Nombre *</label>
+          <label className="text-sm text-muted">Nombre *</label>
           <input
             type="text"
             value={name}
@@ -471,7 +447,7 @@ function ProviderFormModal({
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm text-zinc-400">Teléfono (opcional)</label>
+          <label className="text-sm text-muted">Teléfono (opcional)</label>
           <input
             type="text"
             value={phone}
@@ -484,7 +460,7 @@ function ProviderFormModal({
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm text-zinc-400">Notas (opcional)</label>
+          <label className="text-sm text-muted">Notas (opcional)</label>
           <input
             type="text"
             value={notes}
@@ -515,20 +491,20 @@ function ProviderFormModal({
             </button>
           </div>
         )}
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-danger text-sm">{error}</p>}
 
         <div className="flex gap-2 pt-1">
           <button
             onClick={onCancel}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40 text-sm"
+            className="flex-1 py-2.5 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40 text-sm"
           >
             Cancelar
           </button>
           <button
             onClick={() => void handleSave()}
             disabled={saving || !!clash}
-            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold transition-colors disabled:opacity-40 text-sm"
+            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent font-semibold transition-colors disabled:opacity-40 text-sm"
           >
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
@@ -651,21 +627,21 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-2xl shadow-xl flex flex-col max-h-[85vh] border border-zinc-700">
+      <div className="bg-panel rounded-t-2xl sm:rounded-2xl w-full sm:max-w-2xl shadow-xl flex flex-col max-h-[85vh] border border-line">
         {/* Header del modal */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-zinc-800 shrink-0">
-          <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 shrink-0">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-line shrink-0">
+          <div className="w-8 h-8 rounded-full bg-raised flex items-center justify-center text-xs font-bold text-ink shrink-0">
             {provider.name.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold truncate" title={provider.name}>
               {provider.name}
             </h2>
-            <p className="text-xs text-zinc-500">Historial de movimientos</p>
+            <p className="text-xs text-muted">Historial de movimientos</p>
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800 text-lg"
+            className="shrink-0 text-muted hover:text-ink transition-colors p-1 rounded-lg hover:bg-hover text-lg"
             title="Cerrar"
           >
             ✕
@@ -679,8 +655,8 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
               onClick={() => { setStoreFilter(null); setPage(0) }}
               className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 storeFilter === null
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                  ? 'bg-accent text-ink'
+                  : 'bg-panel text-muted hover:bg-hover hover:text-ink'
               }`}
             >
               Todos
@@ -691,8 +667,8 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
                 onClick={() => { setStoreFilter(s.storeId); setPage(0) }}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors truncate max-w-[140px] ${
                   storeFilter === s.storeId
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
+                    ? 'bg-accent text-ink'
+                    : 'bg-panel text-muted hover:bg-hover hover:text-ink'
                 }`}
                 title={s.storeName}
               >
@@ -706,20 +682,20 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
         <div ref={historyListRef} className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex justify-center items-center py-12">
-              <p className="text-zinc-500 text-sm">Cargando historial…</p>
+              <p className="text-muted text-sm">Cargando historial…</p>
             </div>
           )}
 
           {error && !loading && (
-            <div className="mx-4 mt-4 p-4 rounded-xl bg-red-950/40 border border-red-800/60">
-              <p className="text-red-300 text-sm">{error}</p>
+            <div className="mx-4 mt-4 p-4 rounded-xl bg-danger/10 border border-danger/40">
+              <p className="text-danger text-sm">{error}</p>
             </div>
           )}
 
           {!loading && !error && events.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <p className="text-zinc-400 text-sm">Sin movimientos registrados</p>
-              <p className="text-zinc-600 text-xs mt-1">
+              <p className="text-muted text-sm">Sin movimientos registrados</p>
+              <p className="text-subtle text-xs mt-1">
                 Usá Saldar deuda o Ajustar deuda para registrar un movimiento.
               </p>
             </div>
@@ -727,12 +703,12 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
 
           {!loading && !error && events.length > 0 && displayEvents.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <p className="text-zinc-400 text-sm">Sin movimientos para este local</p>
+              <p className="text-muted text-sm">Sin movimientos para este local</p>
             </div>
           )}
 
           {!loading && !error && displayEvents.length > 0 && (
-            <div className="divide-y divide-zinc-800/60">
+            <div className="divide-y divide-line">
               {pagedEvents.map(evt => {
                 const isAdjust = isAdminAdjustNote(evt.notes)
                 const isDebt = evt.type === 'debt'
@@ -740,7 +716,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
                   evt.runningBalance > 0
                     ? 'text-orange-400'
                     : evt.runningBalance < 0
-                      ? 'text-emerald-400'
+                      ? 'text-success'
                       : 'text-green-400'
                 const balanceLabel =
                   evt.runningBalance > 0
@@ -765,13 +741,13 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
                           {typeLabel}
                         </span>
                         {!isAdjust && (
-                          <span className="text-sm font-semibold text-white shrink-0">
+                          <span className="text-sm font-semibold text-ink shrink-0">
                             {formatARS(evt.amount)}
                           </span>
                         )}
                         {!storeFilter && (
                           <span
-                            className="text-xs text-zinc-500 min-w-0 truncate"
+                            className="text-xs text-muted min-w-0 truncate"
                             title={evt.storeName}
                           >
                             · {evt.storeName}
@@ -784,12 +760,12 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
                         </p>
                       )}
                       <div className="flex items-center gap-1 min-w-0">
-                        <span className="text-xs text-zinc-500 shrink-0">
+                        <span className="text-xs text-muted shrink-0">
                           {toLocalDateTime(evt.createdAt)}
                         </span>
-                        <span className="text-xs text-zinc-600 shrink-0">·</span>
+                        <span className="text-xs text-subtle shrink-0">·</span>
                         <span
-                          className="text-xs text-zinc-500 min-w-0 truncate"
+                          className="text-xs text-muted min-w-0 truncate"
                           title={evt.createdByName}
                         >
                           {isAdjust ? `Determinado por ${evt.createdByName}` : evt.createdByName}
@@ -799,7 +775,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
 
                     {/* Balance acumulado después de este evento */}
                     <div className="shrink-0 text-right">
-                      <p className="text-xs text-zinc-600">Saldo</p>
+                      <p className="text-xs text-subtle">Saldo</p>
                       <p className={`text-sm font-semibold ${balanceColor}`}>
                         {balanceLabel}
                       </p>
@@ -811,23 +787,23 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
           )}
         </div>
         {displayEvents.length > HISTORY_PAGE && (
-          <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-t border-zinc-800/60">
+          <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-t border-line">
             <button
               type="button"
               disabled={historyPage === 0}
               onClick={() => setPage(p => Math.max(0, p - 1))}
-              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-1.5 text-xs text-ink disabled:opacity-40"
             >
               Anterior
             </button>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-muted">
               {historyPage + 1} / {historyPages}
             </span>
             <button
               type="button"
               disabled={historyPage >= historyPages - 1}
               onClick={() => setPage(p => Math.min(historyPages - 1, p + 1))}
-              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-1.5 text-xs text-ink disabled:opacity-40"
             >
               Siguiente
             </button>
@@ -836,14 +812,14 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
 
         {/* Footer: saldo + acciones */}
         {!loading && !error && (
-          <div className="shrink-0 border-t border-zinc-800 px-4 py-3 space-y-2">
+          <div className="shrink-0 border-t border-line px-4 py-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-sm text-zinc-400">
+              <span className="text-sm text-muted">
                 {storeFilter
                   ? `Saldo — ${storeList.find(s => s.storeId === storeFilter)?.storeName ?? storeFilter}`
                   : 'Saldo actual (total)'}
               </span>
-              <span className={`text-sm font-bold ${currentBalance > 0 ? 'text-orange-400' : currentBalance < 0 ? 'text-emerald-400' : 'text-green-400'}`}>
+              <span className={`text-sm font-bold ${currentBalance > 0 ? 'text-orange-400' : currentBalance < 0 ? 'text-success' : 'text-green-400'}`}>
                 {currentBalance > 0
                   ? formatARS(currentBalance)
                   : currentBalance < 0
@@ -856,7 +832,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
                 type="button"
                 disabled={!canSettle}
                 onClick={() => setOverlay('settle')}
-                className="flex-1 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-sm font-medium disabled:opacity-40 disabled:hover:bg-emerald-700"
+                className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent text-sm font-medium disabled:opacity-40 disabled:hover:bg-accent"
               >
                 Saldar deuda
               </button>
@@ -871,7 +847,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
             <button
               type="button"
               onClick={() => setOverlay('adjust')}
-              className="w-full py-2 rounded-xl border border-zinc-700 text-zinc-300 text-sm hover:bg-zinc-800"
+              className="w-full py-2 rounded-xl border border-line text-ink text-sm hover:bg-hover"
             >
               Ajustar deuda
             </button>
@@ -981,29 +957,29 @@ function AdminSettleDebtOverlay({
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg shadow-xl border border-zinc-700 p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+      <div className="bg-panel rounded-2xl w-full max-w-lg shadow-xl border border-line p-5 space-y-4 max-h-[85vh] overflow-y-auto">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold">Saldar deuda</h2>
-            <p className="text-xs text-zinc-500 truncate" title={providerName}>{providerName}</p>
+            <p className="text-xs text-muted truncate" title={providerName}>{providerName}</p>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 text-zinc-400 hover:text-white p-1" title="Cerrar">✕</button>
+          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink p-1" title="Cerrar">✕</button>
         </div>
         {visible.length === 0 ? (
-          <p className="text-sm text-zinc-500">No hay deuda pendiente en {storeFilter ? 'este local' : 'ningún local'}.</p>
+          <p className="text-sm text-muted">No hay deuda pendiente en {storeFilter ? 'este local' : 'ningún local'}.</p>
         ) : (
           <>
             {visible.length > 1 && (
               <button
                 type="button"
                 onClick={fillAll}
-                className="w-full py-2 rounded-lg border border-emerald-800/60 text-emerald-300 text-xs"
+                className="w-full py-2 rounded-lg border border-line-accent text-accent text-xs"
               >
                 Pagar todo
               </button>
             )}
             {visible.map(s => (
-              <div key={s.storeId} className="rounded-xl border border-zinc-600 bg-zinc-700 px-3 py-2 space-y-2">
+              <div key={s.storeId} className="rounded-xl border border-line-strong bg-raised px-3 py-2 space-y-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="min-w-0 flex-1 truncate text-sm" title={s.storeName}>{s.storeName}</p>
                   <p className="shrink-0 text-xs text-orange-400">{formatARS(s.balance)}</p>
@@ -1018,7 +994,7 @@ function AdminSettleDebtOverlay({
                   <button
                     type="button"
                     onClick={() => setAmounts(prev => ({ ...prev, [s.storeId]: formatIntegerWithDots(String(Math.round(s.balance))) }))}
-                    className="shrink-0 px-2 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300"
+                    className="shrink-0 px-2 py-2 rounded-lg border border-line text-xs text-ink"
                   >
                     Todo
                   </button>
@@ -1027,10 +1003,10 @@ function AdminSettleDebtOverlay({
             ))}
           </>
         )}
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex gap-2">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-sm disabled:opacity-40">Cancelar</button>
-          <button type="button" onClick={() => void handleSubmit()} disabled={saving || visible.length === 0} className="flex-1 py-2.5 rounded-xl bg-emerald-600 font-semibold text-sm disabled:opacity-40">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-line text-sm disabled:opacity-40">Cancelar</button>
+          <button type="button" onClick={() => void handleSubmit()} disabled={saving || visible.length === 0} className="flex-1 py-2.5 rounded-xl bg-accent font-semibold text-sm disabled:opacity-40">
             {saving ? 'Registrando…' : 'Registrar pago'}
           </button>
         </div>
@@ -1075,12 +1051,12 @@ function AdminRecordDebtOverlay({
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg shadow-xl border border-zinc-700 p-5 space-y-4">
+      <div className="bg-panel rounded-2xl w-full max-w-lg shadow-xl border border-line p-5 space-y-4">
         <div className="flex items-start gap-2">
           <h2 className="flex-1 text-base font-semibold">Registrar deuda</h2>
-          <button type="button" onClick={onClose} className="shrink-0 text-zinc-400 hover:text-white p-1" title="Cerrar">✕</button>
+          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink p-1" title="Cerrar">✕</button>
         </div>
-        <p className="text-xs text-zinc-500">Sin movimiento de caja. Solo suma deuda en el local elegido.</p>
+        <p className="text-xs text-muted">Sin movimiento de caja. Solo suma deuda en el local elegido.</p>
         <LedgerStoreSelect stores={stores} value={storeId} onChange={id => { setStoreId(id); setError(null) }} />
         <NumericInput
           value={amountRaw}
@@ -1088,9 +1064,9 @@ function AdminRecordDebtOverlay({
           placeholder="0"
           className={FIELD}
         />
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex gap-2">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-sm disabled:opacity-40">Cancelar</button>
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-line text-sm disabled:opacity-40">Cancelar</button>
           <button type="button" onClick={() => void handleSubmit()} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 font-semibold text-sm disabled:opacity-40">
             {saving ? 'Registrando…' : 'Registrar'}
           </button>
@@ -1143,20 +1119,20 @@ function AdminAdjustDebtOverlay({
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg shadow-xl border border-zinc-700 p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+      <div className="bg-panel rounded-2xl w-full max-w-lg shadow-xl border border-line p-5 space-y-4 max-h-[85vh] overflow-y-auto">
         <div className="flex items-start gap-2">
           <h2 className="flex-1 text-base font-semibold">Ajustar deuda</h2>
-          <button type="button" onClick={onClose} className="shrink-0 text-zinc-400 hover:text-white p-1" title="Cerrar">✕</button>
+          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink p-1" title="Cerrar">✕</button>
         </div>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted">
           Salida de emergencia: fijá el saldo que corresponde hoy, sin justificar los movimientos anteriores.
           Queda en el historial que un admin lo determinó, con su nombre.
         </p>
         <LedgerStoreSelect stores={stores} value={storeId} onChange={id => { setStoreId(id); setError(null) }} />
         {storeId ? (
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-muted">
             Hoy la app muestra:{' '}
-            <span className={current > 0 ? 'text-orange-400' : current < 0 ? 'text-emerald-400' : 'text-zinc-300'}>
+            <span className={current > 0 ? 'text-orange-400' : current < 0 ? 'text-success' : 'text-ink'}>
               {current > 0 ? formatARS(current) : current < 0 ? `A favor ${formatARS(-current)}` : 'Sin deuda'}
             </span>
           </p>
@@ -1175,8 +1151,8 @@ function AdminAdjustDebtOverlay({
               onClick={() => { setKind(opt.id); setError(null) }}
               className={`flex-1 py-2 rounded-lg text-xs font-medium border ${
                 kind === opt.id
-                  ? 'border-emerald-600 bg-emerald-950/40 text-white'
-                  : 'border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                  ? 'border-line-accent bg-accent-soft text-ink'
+                  : 'border-line text-muted hover:bg-hover'
               }`}
             >
               {opt.label}
@@ -1194,10 +1170,10 @@ function AdminAdjustDebtOverlay({
         <p className="text-xs text-violet-200/90">
           {formatAdminAdjustNote(target)}
         </p>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex gap-2">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-sm disabled:opacity-40">Cancelar</button>
-          <button type="button" onClick={() => void handleSubmit()} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm disabled:opacity-40">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-line text-sm disabled:opacity-40">Cancelar</button>
+          <button type="button" onClick={() => void handleSubmit()} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent font-semibold text-sm disabled:opacity-40">
             {saving ? 'Guardando…' : 'Confirmar ajuste'}
           </button>
         </div>
@@ -1223,13 +1199,13 @@ function CompensateConfirmModal({
 }: CompensateConfirmModalProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h2 className="text-base font-semibold text-white">
+      <div className="bg-panel rounded-2xl border border-line w-full max-w-sm shadow-xl p-6 space-y-4">
+        <h2 className="text-base font-semibold text-ink">
           ¿Compensar entre locales?
         </h2>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted">
           El saldo a favor de un local se usa contra la deuda del otro en{' '}
-          <span className="text-zinc-200" title={providerName}>{providerName}</span>.
+          <span className="text-ink" title={providerName}>{providerName}</span>.
           No se puede deshacer. Si te equivocás, hay que ajustar la deuda a mano.
         </p>
         <div className="flex gap-3 pt-1">
@@ -1237,7 +1213,7 @@ function CompensateConfirmModal({
             type="button"
             onClick={onCancel}
             disabled={saving}
-            className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
+            className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
           >
             Cancelar
           </button>
@@ -1245,7 +1221,7 @@ function CompensateConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={saving}
-            className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm transition-colors disabled:opacity-40"
+            className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent font-semibold text-sm transition-colors disabled:opacity-40"
           >
             {saving ? 'Compensando…' : 'Compensar'}
           </button>
@@ -1279,8 +1255,8 @@ function RemoveProviderModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h2 className="text-base font-semibold text-white min-w-0">
+      <div className="bg-panel rounded-2xl border border-line w-full max-w-sm shadow-xl p-6 space-y-4">
+        <h2 className="text-base font-semibold text-ink min-w-0">
           ¿Estás seguro que querés eliminar{' '}
           <span className="truncate inline-block max-w-full align-bottom" title={providerName}>
             {providerName}
@@ -1288,14 +1264,14 @@ function RemoveProviderModal({
           ?
         </h2>
 
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-danger text-sm">{error}</p>}
 
         <div className="flex gap-3 pt-1">
           <button
             type="button"
             onClick={onCancel}
             disabled={saving}
-            className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
+            className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
           >
             Cancelar
           </button>
@@ -1303,7 +1279,7 @@ function RemoveProviderModal({
             type="button"
             onClick={() => void handle()}
             disabled={saving}
-            className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold transition-colors disabled:opacity-40"
+            className="flex-1 py-2 rounded-xl bg-danger/15 hover:bg-danger/25 border border-danger/40 text-danger font-semibold transition-colors disabled:opacity-40"
           >
             {saving ? 'Eliminando…' : 'Eliminar'}
           </button>

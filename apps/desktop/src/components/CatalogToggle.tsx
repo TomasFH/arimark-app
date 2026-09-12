@@ -10,7 +10,7 @@ export default function CatalogToggle({ checked, onChange, disabled }: Props) {
       type="button"
       disabled={disabled}
       onClick={onChange}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${checked ? 'bg-green-600' : 'bg-zinc-600'}`}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${checked ? 'bg-success' : 'bg-input'}`}
       role="switch"
       aria-checked={checked}
       aria-busy={disabled || undefined}

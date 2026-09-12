@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import NumericInput from '../components/NumericInput'
 import BillCountGrid from '../components/BillCountGrid'
+import { Button, Modal } from '../components/ui'
 import { detectShiftType } from '../lib/detectShiftType'
 import { civilYmd, hoursForDate, storeHoursSourceFromRecord, isEmptyBillCount } from '@carniceria/shared'
 import { parseNumericInput } from '../lib/numericInput'
@@ -217,10 +217,10 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   const expectedTotal = handover ? handover.bills.reduce((s, l) => s + l.denomination * l.quantity, 0) : undefined
 
   return (
-    <div className="flex flex-1 min-h-0 h-full flex-col bg-zinc-900 text-white overflow-hidden">
-      <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-zinc-800">
+    <div className="flex flex-1 min-h-0 h-full flex-col bg-app text-ink overflow-hidden">
+      <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-line bg-panel">
         <h1 className="text-2xl font-bold">Abrir turno</h1>
-        <p className="text-sm text-zinc-400 truncate" title={handover
+        <p className="text-sm text-muted truncate" title={handover
           ? `Precargado con lo que dejó ${handover.fromCashierName}. Corregí si no coincide — no se pisa el cierre anterior.`
           : 'Contá el efectivo que hay en la registradora'}
         >
@@ -233,15 +233,15 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
       <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
         <form onSubmit={handleSubmit} className="max-w-md mx-auto p-6 space-y-4">
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-zinc-300">Turno</label>
+            <label className="block text-sm font-medium text-ink">Turno</label>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setShiftType('morning')}
                 className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
                   shiftType === 'morning'
-                    ? 'border-emerald-500 bg-emerald-700/40 text-emerald-100'
-                    : 'border-transparent bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                    ? 'border-line-accent bg-accent-soft text-ink'
+                    : 'border-transparent bg-panel text-muted hover:bg-hover'
                 }`}
               >
                 🌅 Mañana
@@ -251,8 +251,8 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                 onClick={() => setShiftType('evening')}
                 className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
                   shiftType === 'evening'
-                    ? 'border-emerald-500 bg-emerald-700/40 text-emerald-100'
-                    : 'border-transparent bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                    ? 'border-line-accent bg-accent-soft text-ink'
+                    : 'border-transparent bg-panel text-muted hover:bg-hover'
                 }`}
               >
                 🌙 Tarde
@@ -281,36 +281,36 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                 setSkipBills(true)
                 setShowEmptyConfirm(false)
               }}
-              className="w-full text-xs text-zinc-500 underline hover:text-zinc-300"
+              className="w-full text-xs text-muted underline hover:text-ink"
             >
               Omitir conteo (modo pruebas)
             </button>
           )}
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-zinc-300">
+            <label className="block text-sm font-medium text-ink">
               Efectivo inicial en caja
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted font-semibold">
                 $
               </span>
               <NumericInput
                 value={openingCash}
                 onChange={setOpeningCash}
                 placeholder="0"
-                className="w-full rounded-lg bg-zinc-800 pl-8 pr-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+                className="w-full rounded-lg border border-line bg-input pl-8 pr-4 py-3 text-ink placeholder-subtle focus:outline-none focus:border-line-accent"
                 required
               />
             </div>
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-[11px] text-muted">
               Lo que arranca el turno: vuelto que te dejaron, lo que te entregaron, o lo que sacaste de la caja fuerte. No es el conteo de la registradora de arriba.
             </p>
           </div>
 
           {error && (
             <div className="space-y-2">
-              <p className="rounded-lg bg-red-900/40 px-3 py-2 text-sm text-red-300">{error}</p>
+              <p className="rounded-lg border border-danger bg-panel px-3 py-2 text-sm text-danger">{error}</p>
               <div className="flex flex-col gap-2">
                 <button
                   type="button"
@@ -319,7 +319,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                     void checkExistingShift().finally(() => setChecking(false))
                   }}
                   disabled={checking || forceClosing}
-                  className="w-full rounded-lg border border-zinc-700 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-50"
+                  className="w-full rounded-lg border border-line py-2 text-sm text-ink transition-colors hover:bg-hover disabled:opacity-50"
                 >
                   {checking ? 'Comprobando…' : 'Volver a comprobar'}
                 </button>
@@ -345,7 +345,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                       })()
                     }}
                     disabled={forceClosing || checking}
-                    className="w-full rounded-lg bg-zinc-700 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-600 disabled:opacity-50"
+                    className="w-full rounded-lg bg-raised py-2 text-sm font-medium text-ink transition-colors hover:bg-hover disabled:opacity-50"
                   >
                     {forceClosing ? 'Cerrando turno…' : `Cerrar el turno de ${blockingShift.userName}`}
                   </button>
@@ -354,55 +354,49 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
-            disabled={loading || !!blockingShift}
-            className="w-full rounded-lg bg-emerald-600 py-3 font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+            fullWidth
+            size="lg"
+            loading={loading}
+            disabled={!!blockingShift}
           >
             {loading ? 'Abriendo turno…' : 'Abrir turno'}
-          </button>
+          </Button>
           {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="w-full rounded-lg bg-zinc-700 py-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-600"
-            >
+            <Button type="button" variant="secondary" fullWidth onClick={onCancel}>
               {cancelLabel}
-            </button>
+            </Button>
           )}
         </form>
       </div>
 
-      {showEmptyConfirm && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
-          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-800 p-6 space-y-4 animate-modal-enter">
-            <h2 className="text-base font-semibold text-white">¿Caja vacía?</h2>
-            <p className="text-sm text-zinc-400">
-              ¿Confirmás que no queda ningún billete en caja?
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShowEmptyConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm"
-              >
-                Volver
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEmptyConfirm(false)
-                  void submitOpen(true)
-                }}
-                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold transition-colors text-white text-sm"
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+      <Modal
+        open={showEmptyConfirm}
+        onClose={() => setShowEmptyConfirm(false)}
+        title="¿Caja vacía?"
+        size="sm"
+        closeOnOverlay={false}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowEmptyConfirm(false)}>
+              Volver
+            </Button>
+            <Button
+              onClick={() => {
+                setShowEmptyConfirm(false)
+                void submitOpen(true)
+              }}
+            >
+              Confirmar
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          ¿Confirmás que no queda ningún billete en caja?
+        </p>
+      </Modal>
     </div>
   )
 }

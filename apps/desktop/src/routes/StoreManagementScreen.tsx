@@ -5,8 +5,8 @@
  * en una sección colapsable.
  */
 import { useState, useEffect } from 'react'
-import BackButton from '../components/BackButton'
 import StoreHoursScheduleEditor from '../components/StoreHoursScheduleEditor'
+import { Button, Modal, ScreenHeader } from '../components/ui'
 import type { StoreRow } from '../types/hw-api'
 import {
   editorScheduleFromStore,
@@ -139,42 +139,39 @@ export default function StoreManagementScreen({ onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-zinc-100 truncate">Gestión de locales</h1>
-          <p className="text-[10px] text-zinc-500">
-            {showDeleted ? 'Locales eliminados — restaurar para volver a usarlos' : 'Locales registrados en el sistema'}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowDeleted(v => !v)}
-          className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-        >
-          {showDeleted ? 'Ver activos' : 'Ver eliminados'}
-        </button>
-        {!showDeleted && (
-          <button
-            onClick={openCreate}
-            className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold transition-colors"
-          >
-            + Nuevo local
-          </button>
-        )}
-      </header>
+    <div className="flex flex-col h-screen bg-app text-ink">
+      <ScreenHeader
+        title="Gestión de locales"
+        subtitle={showDeleted ? 'Locales eliminados — restaurar para volver a usarlos' : 'Locales registrados en el sistema'}
+        onBack={onBack}
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowDeleted(v => !v)}
+            >
+              {showDeleted ? 'Ver activos' : 'Ver eliminados'}
+            </Button>
+            {!showDeleted && (
+              <Button type="button" size="sm" onClick={openCreate}>
+                + Nuevo local
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-6 py-6">
-        <section className="rounded-2xl border border-zinc-700 bg-zinc-800 p-4 space-y-2">
+        <section className="rounded-2xl border border-line bg-raised p-4 space-y-2">
 
-        {loading && <p className="text-zinc-500 text-sm animate-pulse">Cargando…</p>}
+        {loading && <p className="text-muted text-sm animate-pulse">Cargando…</p>}
         {error && <p className="text-red-400/80 text-sm">{error}</p>}
 
         {saveSuccessMsg && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-emerald-900/50 bg-emerald-950/30 text-emerald-400/80 text-sm">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-success/30 bg-success/15 text-success text-sm">
             <span>✓</span>
             {saveSuccessMsg}
           </div>
@@ -185,32 +182,32 @@ export default function StoreManagementScreen({ onBack }: Props) {
             {/* Lista: activos o eliminados (opt-in) */}
             <div className="space-y-2">
               {!showDeleted && activeStores.length === 0 && (
-                <p className="text-zinc-500 text-sm text-center py-8">No hay locales activos.</p>
+                <p className="text-muted text-sm text-center py-8">No hay locales activos.</p>
               )}
               {showDeleted && deletedStores.length === 0 && (
-                <p className="text-zinc-500 text-sm text-center py-8">No hay locales eliminados.</p>
+                <p className="text-muted text-sm text-center py-8">No hay locales eliminados.</p>
               )}
               {(showDeleted ? deletedStores : activeStores).map(store => (
                 <div
                   key={store.id}
                   className={`rounded-xl border px-5 py-4 flex items-center gap-3 min-w-0 ${
-                    showDeleted ? 'border-zinc-600 bg-zinc-700/60 opacity-70' : 'border-zinc-600 bg-zinc-700'
+                    showDeleted ? 'border-line-strong bg-input/60 opacity-70' : 'border-line-strong bg-input'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 min-w-0">
-                      <p className={`font-medium truncate ${showDeleted ? 'text-zinc-400' : 'text-white'}`} title={store.name}>{store.name}</p>
+                      <p className={`font-medium truncate ${showDeleted ? 'text-muted' : 'text-ink'}`} title={store.name}>{store.name}</p>
                       {showDeleted && (
-                        <span className="shrink-0 text-[10px] bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded-full">Eliminado</span>
+                        <span className="shrink-0 text-[10px] bg-raised text-muted px-1.5 py-0.5 rounded-full">Eliminado</span>
                       )}
                     </div>
                     {store.address && (
-                      <p className="text-sm text-zinc-400 truncate" title={store.address}>
+                      <p className="text-sm text-muted truncate" title={store.address}>
                         {store.address}
                       </p>
                     )}
                     {formatWeekScheduleSummary(store) && (
-                      <p className="text-xs text-zinc-500 mt-0.5 truncate" title={formatWeekScheduleSummary(store)}>
+                      <p className="text-xs text-muted mt-0.5 truncate" title={formatWeekScheduleSummary(store)}>
                         {formatWeekScheduleSummary(store)}
                       </p>
                     )}
@@ -218,21 +215,21 @@ export default function StoreManagementScreen({ onBack }: Props) {
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => openEdit(store)}
-                      className="px-3 py-1.5 text-xs rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+                      className="px-3 py-1.5 text-xs rounded-lg border border-line text-ink hover:bg-hover hover:text-ink transition-colors"
                     >
                       Editar
                     </button>
                     {showDeleted ? (
                       <button
                         onClick={() => void handleRestore(store)}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+                        className="px-3 py-1.5 text-xs rounded-lg border border-line text-muted hover:bg-hover hover:text-ink transition-colors"
                       >
                         Restaurar
                       </button>
                     ) : (
                       <button
                         onClick={() => openDeleteConfirm(store)}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-zinc-700 text-zinc-500 hover:bg-red-950/30 hover:text-red-400/80 hover:border-red-900/50 transition-colors"
+                        className="px-3 py-1.5 text-xs rounded-lg border border-line text-muted hover:bg-red-950/30 hover:text-red-400/80 hover:border-red-900/50 transition-colors"
                       >
                         Eliminar
                       </button>
@@ -250,34 +247,34 @@ export default function StoreManagementScreen({ onBack }: Props) {
       {/* Modal crear / editar */}
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-modal-enter">
+          <div className="bg-raised rounded-2xl border border-line w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-modal-enter">
             <h2 className="text-base font-semibold">
               {modal.mode === 'create' ? 'Nuevo local' : `Editar "${modal.store?.name}"`}
             </h2>
 
             <form onSubmit={e => void handleSave(e)} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-sm text-zinc-400">Nombre del local *</label>
+                <label className="text-sm text-muted">Nombre del local *</label>
                 <input
                   type="text"
                   value={formName}
                   onChange={e => setFormName(e.target.value)}
                   maxLength={100}
                   placeholder="Ej: Local Centro"
-                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-input border border-line-strong rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
                   autoFocus
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-zinc-400">Dirección (opcional)</label>
+                <label className="text-sm text-muted">Dirección (opcional)</label>
                 <input
                   type="text"
                   value={formAddress}
                   onChange={e => setFormAddress(e.target.value)}
                   maxLength={200}
                   placeholder="Ej: Av. Corrientes 1234"
-                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-input border border-line-strong rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
                 />
               </div>
 
@@ -290,14 +287,14 @@ export default function StoreManagementScreen({ onBack }: Props) {
                   type="button"
                   onClick={() => setModal(null)}
                   disabled={saving}
-                  className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
+                  className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={saving || !formName.trim()}
-                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold transition-colors disabled:opacity-40"
+                  className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent font-semibold transition-colors disabled:opacity-40"
                 >
                   {saving ? 'Guardando…' : modal.mode === 'create' ? 'Crear local' : 'Guardar cambios'}
                 </button>
@@ -310,8 +307,8 @@ export default function StoreManagementScreen({ onBack }: Props) {
       {/* Modal confirmar eliminación */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4">
-            <h2 className="text-base font-semibold text-white min-w-0">
+          <div className="bg-raised rounded-2xl border border-line w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-ink min-w-0">
               ¿Estás seguro que querés eliminar{' '}
               <span className="truncate inline-block max-w-full align-bottom" title={deleteTarget.name}>
                 {deleteTarget.name}
@@ -325,14 +322,14 @@ export default function StoreManagementScreen({ onBack }: Props) {
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={actioning}
-                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => void handleDelete()}
                 disabled={actioning}
-                className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold text-white transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold text-ink transition-colors disabled:opacity-40"
               >
                 {actioning ? 'Eliminando…' : 'Eliminar'}
               </button>

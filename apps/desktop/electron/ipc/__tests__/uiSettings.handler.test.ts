@@ -55,14 +55,21 @@ describe('uiSettings.handler', () => {
     it('devuelve defaults si el archivo no existe', () => {
       registerUiSettingsHandlers()
       const result = getHandler('ipc:get-ui-settings')({}, undefined)
-      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.0 } })
+      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.0, colorScheme: 'light' } })
     })
 
     it('devuelve el valor guardado si el archivo existe', () => {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ zoomFactor: 1.2, colorScheme: 'dark' }))
+      registerUiSettingsHandlers()
+      const result = getHandler('ipc:get-ui-settings')({}, undefined)
+      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.2, colorScheme: 'dark' } })
+    })
+
+    it('completa colorScheme=light si el archivo viejo no lo tiene', () => {
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ zoomFactor: 1.2 }))
       registerUiSettingsHandlers()
       const result = getHandler('ipc:get-ui-settings')({}, undefined)
-      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.2 } })
+      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.2, colorScheme: 'light' } })
     })
   })
 
@@ -78,7 +85,7 @@ describe('uiSettings.handler', () => {
       ])
       registerUiSettingsHandlers()
       const result = getHandler('ipc:set-ui-settings')({}, { zoomFactor: 1.3 })
-      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.3 } })
+      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.3, colorScheme: 'light' } })
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         SETTINGS_PATH,
         expect.stringContaining('"zoomFactor": 1.3'),
@@ -104,6 +111,37 @@ describe('uiSettings.handler', () => {
       const result = getHandler('ipc:set-ui-settings')({}, { zoomFactor: 0.1 })
       expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
     })
+
+    it('guarda colorScheme dark y conserva el zoom actual', () => {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ zoomFactor: 1.2, colorScheme: 'light' }))
+      registerUiSettingsHandlers()
+      const result = getHandler('ipc:set-ui-settings')({}, { colorScheme: 'dark' })
+      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.2, colorScheme: 'dark' } })
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        SETTINGS_PATH,
+        expect.stringContaining('"colorScheme": "dark"'),
+        'utf-8',
+      )
+    })
+
+    it('un cambio de zoom no resetea colorScheme dark', () => {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ zoomFactor: 1.0, colorScheme: 'dark' }))
+      registerUiSettingsHandlers()
+      const result = getHandler('ipc:set-ui-settings')({}, { zoomFactor: 1.3 })
+      expect(result).toEqual({ ok: true, data: { zoomFactor: 1.3, colorScheme: 'dark' } })
+    })
+
+    it('rechaza colorScheme inválido', () => {
+      registerUiSettingsHandlers()
+      const result = getHandler('ipc:set-ui-settings')({}, { colorScheme: 'system' })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
+
+    it('rechaza payload que no es un objeto', () => {
+      registerUiSettingsHandlers()
+      const result = getHandler('ipc:set-ui-settings')({}, 'dark')
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -113,7 +151,7 @@ describe('uiSettings.handler', () => {
   it('readSettings devuelve defaults si el JSON es inválido', () => {
     vi.mocked(fs.readFileSync).mockReturnValue('{ broken json {{')
     const s = readSettings()
-    expect(s).toEqual({ zoomFactor: 1.0 })
+    expect(s).toEqual({ zoomFactor: 1.0, colorScheme: 'light' })
   })
 
   // -------------------------------------------------------------------------
@@ -137,11 +175,12 @@ describe('uiSettings.handler', () => {
   // -------------------------------------------------------------------------
 
   it('schema acepta valores de borde válidos', () => {
-    expect(uiSettingsSchema.parse({ zoomFactor: 0.6 })).toEqual({ zoomFactor: 0.6 })
-    expect(uiSettingsSchema.parse({ zoomFactor: 2.0 })).toEqual({ zoomFactor: 2.0 })
+    expect(uiSettingsSchema.parse({ zoomFactor: 0.6 })).toEqual({ zoomFactor: 0.6, colorScheme: 'light' })
+    expect(uiSettingsSchema.parse({ zoomFactor: 2.0 })).toEqual({ zoomFactor: 2.0, colorScheme: 'light' })
+    expect(uiSettingsSchema.parse({ colorScheme: 'dark' })).toEqual({ zoomFactor: 1.0, colorScheme: 'dark' })
   })
 
-  it('schema usa default 1.0 si zoomFactor no está presente', () => {
-    expect(uiSettingsSchema.parse({})).toEqual({ zoomFactor: 1.0 })
+  it('schema usa defaults si el objeto está vacío', () => {
+    expect(uiSettingsSchema.parse({})).toEqual({ zoomFactor: 1.0, colorScheme: 'light' })
   })
 })

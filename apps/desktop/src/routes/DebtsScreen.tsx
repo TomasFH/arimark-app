@@ -6,8 +6,8 @@
  * Accesible desde el panel de cajera (botón "📒 Fiados") y desde el Admin Hub.
  */
 import { useState, useEffect, useCallback } from 'react'
-import BackButton from '../components/BackButton'
 import { formatARS, formatRelativeDate } from '../lib/datetime'
+import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
 import type { CustomerDebtSummary, DebtEventRow, StoreRow } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
@@ -33,15 +33,15 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
     reopened: 'Deuda reabierta',
   }
   const eventColors: Record<DebtEventRow['eventType'], string> = {
-    created: 'text-zinc-400',
-    partial_payment: 'text-zinc-300',
-    paid: 'text-emerald-400/80',
-    cancelled: 'text-zinc-600',
-    reopened: 'text-zinc-400',
+    created: 'text-muted',
+    partial_payment: 'text-ink',
+    paid: 'text-success',
+    cancelled: 'text-subtle',
+    reopened: 'text-muted',
   }
 
   return (
-    <ul className="divide-y divide-zinc-800/50 text-xs mt-2">
+    <ul className="divide-y divide-line text-xs mt-2">
       {[...events].reverse().map(e => (
         <li key={e.id} className="flex items-start justify-between gap-2 py-2">
           <div className="flex-1 min-w-0">
@@ -49,23 +49,23 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
               {eventLabels[e.eventType]}
             </span>
             {e.paymentMethod && (
-              <span className="ml-1.5 text-zinc-500">
+              <span className="ml-1.5 text-muted">
                 · {PAYMENT_METHOD_LABELS[e.paymentMethod]}
               </span>
             )}
             {e.notes && (
-              <span className="ml-1.5 text-zinc-500 truncate">— {e.notes}</span>
+              <span className="ml-1.5 text-muted truncate">— {e.notes}</span>
             )}
             {e.dueDate && (
               <span className="ml-1.5 text-amber-600/70">
                 · vence {formatRelativeDate(e.dueDate)}
               </span>
             )}
-            <span className="block text-zinc-600 text-[10px]">
+            <span className="block text-subtle text-[10px]">
               {new Date(e.createdAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
             </span>
           </div>
-          <span className={`shrink-0 font-semibold font-mono ${e.amount > 0 ? 'text-red-400/70' : 'text-emerald-400/70'}`}>
+          <span className={`shrink-0 font-semibold font-mono ${e.amount > 0 ? 'text-danger' : 'text-success'}`}>
             {e.amount > 0 ? '+' : ''}{formatARS(Math.abs(e.amount))}
           </span>
         </li>
@@ -95,62 +95,57 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
   const isDue = nextDueDate && new Date(nextDueDate) <= new Date()
 
   return (
-    <div className={`rounded-xl border ${isDue ? 'border-red-900/50 bg-red-950/20' : 'border-zinc-700 bg-zinc-800'} overflow-hidden`}>
-      {/* Cabecera */}
-      <div className="flex items-start gap-3 px-4 py-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-white text-sm">{summary.customerName}</span>
+    <div className={`overflow-hidden rounded-2xl border ${isDue ? 'border-danger/40 bg-danger/5' : 'border-line bg-panel'}`}>
+      <button
+        type="button"
+        onClick={() => setExpanded(p => !p)}
+        className="flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left hover:bg-hover"
+        aria-expanded={expanded}
+        title={expanded ? 'Ocultar historial' : 'Ver historial'}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-sm font-semibold text-ink" title={summary.customerName}>{summary.customerName}</span>
             {isDue && (
-              <span className="text-[10px] bg-red-950/60 text-red-400/80 border border-red-900/40 rounded px-1.5 py-0.5 shrink-0">
+              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-danger ring-1 ring-danger/30">
                 Vencida
               </span>
             )}
           </div>
           {(summary.customerDni || summary.customerPhone) && (
-            <p className="text-xs text-zinc-500 mt-0.5">
+            <p className="mt-0.5 truncate text-xs text-muted">
               {[summary.customerDni, summary.customerPhone].filter(Boolean).join(' · ')}
             </p>
           )}
           {nextDueDate && (
-            <p className={`text-xs mt-0.5 ${isDue ? 'text-red-400' : 'text-amber-500/70'}`}>
+            <p className={`mt-0.5 text-xs ${isDue ? 'text-danger' : 'text-amber-600'}`}>
               Fecha acordada: {new Date(nextDueDate).toLocaleDateString('es-AR')}
             </p>
           )}
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-lg font-bold text-zinc-100 font-mono">{formatARS(summary.balance)}</p>
-          <p className="text-[10px] text-zinc-600">saldo pendiente</p>
+          <p className="font-mono text-lg font-bold text-ink">{formatARS(summary.balance)}</p>
+          <p className="text-[10px] text-subtle">saldo pendiente</p>
         </div>
+        <svg
+          className={`mt-1 h-4 w-4 shrink-0 text-subtle transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          aria-hidden
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      <div className="flex items-center gap-2 px-4 pb-3">
+        <Button size="sm" onClick={onPayment}>Registrar pago</Button>
+        <ActionMenu
+          items={[{ id: 'cancel', label: 'Cancelar deuda', danger: true, onSelect: onCancel }]}
+        />
       </div>
 
-      {/* Acciones */}
-      <div className="flex gap-2 px-4 pb-3">
-        <button
-          onClick={onPayment}
-          className="flex-1 rounded-lg bg-emerald-700/30 border border-emerald-700/50 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-700/50 transition-colors"
-        >
-          💰 Registrar pago
-        </button>
-        <button
-          onClick={onCancel}
-          className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 py-1.5 text-xs font-semibold text-zinc-400 hover:text-red-400 hover:border-red-800/60 transition-colors"
-        >
-          Cancelar deuda
-        </button>
-        <button
-          onClick={() => setExpanded(p => !p)}
-          className="rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-          title={expanded ? 'Ocultar historial' : 'Ver historial'}
-        >
-          {expanded ? '▲' : '▼'}
-        </button>
-      </div>
-
-      {/* Ledger expandible */}
       {expanded && (
-        <div className="border-t border-zinc-800 px-4 pb-3">
-          <p className="text-[10px] text-zinc-600 mt-2 mb-1">Historial de eventos</p>
+        <div className="border-t border-line px-4 pb-3">
+          <p className="mb-1 mt-2 text-[10px] text-subtle">Historial de eventos</p>
           <DebtLedger events={summary.events} />
         </div>
       )}
@@ -179,38 +174,54 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
   const isValid = amount > 0 && amount <= summary.balance + 0.01 && paymentMethod !== null
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget && !loading) onClose() }}
+    <Modal
+      open
+      onClose={loading ? () => {} : onClose}
+      closeOnOverlay={!loading}
+      size="sm"
+      title="Registrar pago"
+      footer={
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onClose} disabled={loading}>Cancelar</Button>
+          <Button
+            loading={loading}
+            disabled={!isValid}
+            onClick={() => {
+              if (!paymentMethod) return
+              onConfirm(amount, paymentMethod, notes.trim() || undefined)
+            }}
+          >
+            Confirmar
+          </Button>
+        </>
+      }
     >
-      <div className="w-full max-w-sm rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl p-6 space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold text-zinc-300">Registrar pago</h3>
-          <p className="text-lg font-bold text-white truncate" title={summary.customerName}>{summary.customerName}</p>
-          <p className="text-xs text-zinc-500">Saldo: {formatARS(summary.balance)}</p>
-        </div>
+        <p className="truncate text-lg font-bold text-ink" title={summary.customerName}>{summary.customerName}</p>
+        <p className="mb-4 text-xs text-muted">Saldo: {formatARS(summary.balance)}</p>
 
+        <div className="space-y-4">
         <div>
-          <label className="block text-xs text-zinc-400 mb-1">Monto cobrado</label>
+          <label className="mb-1 block text-xs text-muted">Monto cobrado</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">$</span>
             <NumericInput
               value={amountRaw}
               onChange={setAmountRaw}
               autoFocus
-              className="w-full rounded-lg border border-zinc-600 bg-zinc-700 pl-7 pr-3 py-2.5 text-white focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-lg border border-line bg-input py-2.5 pl-7 pr-3 text-ink focus:border-line-accent focus:outline-none"
             />
           </div>
           <button
+            type="button"
             onClick={() => setAmountRaw(formatIntegerWithDots(String(Math.round(summary.balance))))}
-            className="mt-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="mt-1 text-xs text-muted transition-colors hover:text-ink"
           >
             Paga el total · {formatARS(summary.balance)}
           </button>
         </div>
 
         <div>
-          <p className="block text-xs text-zinc-400 mb-1.5">Medio de pago *</p>
+          <p className="mb-1.5 block text-xs text-muted">Medio de pago *</p>
           <div className="grid grid-cols-2 gap-2">
             {(['cash', 'debit', 'wallet', 'credit'] as const).map(method => (
               <button
@@ -219,8 +230,8 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
                 onClick={() => setPaymentMethod(method)}
                 className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
                   paymentMethod === method
-                    ? 'border-zinc-400 bg-zinc-700 text-white'
-                    : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-white'
+                    ? 'border-line-accent bg-accent-soft text-ink'
+                    : 'border-line bg-panel text-muted hover:border-line-strong hover:text-ink'
                 }`}
               >
                 {PAYMENT_METHOD_LABELS[method]}
@@ -230,36 +241,20 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
         </div>
 
         <div>
-          <label className="block text-xs text-zinc-400 mb-1">Notas <span className="text-zinc-600">(opcional)</span></label>
+          <label className="mb-1 block text-xs text-muted">Notas <span className="text-subtle">(opcional)</span></label>
           <input
             type="text"
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="ej. pagó mitad en efectivo…"
             maxLength={500}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
           />
         </div>
 
-        {error && <p className="text-xs text-red-400 bg-red-900/20 border border-red-800/50 rounded px-3 py-2">{error}</p>}
-
-        <div className="flex gap-2">
-          <button onClick={onClose} disabled={loading} className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-white transition-colors">
-            Cancelar
-          </button>
-          <button
-            onClick={() => {
-              if (!paymentMethod) return
-              onConfirm(amount, paymentMethod, notes.trim() || undefined)
-            }}
-            disabled={!isValid || loading}
-            className="flex-1 rounded-lg bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition-colors disabled:opacity-40"
-          >
-            {loading ? 'Registrando...' : 'Confirmar'}
-          </button>
+        {error && <p className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -370,36 +365,31 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
     : debts
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white">
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
-        {onBack && <BackButton onClick={onBack} />}
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-zinc-100">Fiados / Cuentas corrientes</h1>
-          <p className="text-xs text-zinc-500">
-            {debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
-          </p>
-        </div>
-        {isAdmin && availableStores.length > 0 && (
-          <StoreFilter
-            stores={availableStores}
-            value={storeIdFilter}
-            onChange={v => setStoreIdFilter(v)}
-          />
-        )}
-        <button
-          onClick={loadDebts}
-          disabled={loadingList}
-          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
-        >
-          {loadingList ? '...' : '↺ Actualizar'}
-        </button>
-      </header>
+    <div className="flex h-full flex-1 flex-col bg-app text-ink">
+      <ScreenHeader
+        title="Fiados / Cuentas corrientes"
+        subtitle={debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
+        onBack={onBack}
+        actions={
+          <>
+            {isAdmin && availableStores.length > 0 && (
+              <StoreFilter
+                stores={availableStores}
+                value={storeIdFilter}
+                onChange={v => setStoreIdFilter(v)}
+              />
+            )}
+            <Button variant="ghost" size="sm" onClick={() => void loadDebts()} disabled={loadingList}>
+              {loadingList ? '…' : 'Actualizar'}
+            </Button>
+          </>
+        }
+      />
 
       {/* Alerta de vencimientos */}
       {dueSoonDebts.length > 0 && (
-        <div className="border-b border-zinc-700 bg-zinc-800 px-6 py-2.5">
-          <p className="text-xs text-zinc-500">
+        <div className="border-b border-line bg-panel px-6 py-2.5">
+          <p className="text-xs text-muted">
             {dueSoonDebts.length} deuda{dueSoonDebts.length > 1 ? 's' : ''} vencida{dueSoonDebts.length > 1 ? 's' : ''}: {dueSoonDebts.map(d => d.customerName).join(', ')}
           </p>
         </div>
@@ -413,7 +403,7 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Filtrar por nombre de cliente..."
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-input px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
           />
         </div>
       )}
@@ -421,20 +411,19 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto p-6 space-y-3">
         {loadingList && (
-          <p className="text-sm text-zinc-500 text-center mt-12">Cargando...</p>
+          <p className="text-sm text-muted text-center mt-12">Cargando...</p>
         )}
         {listError && (
-          <p className="text-sm text-red-400 text-center mt-12">{listError}</p>
+          <p className="text-sm text-danger text-center mt-12">{listError}</p>
         )}
         {!loadingList && !listError && debts.length === 0 && (
-          <div className="text-center mt-12 space-y-2">
-            <p className="text-4xl">✅</p>
-            <p className="text-sm text-zinc-400">No hay deudas pendientes.</p>
+          <div className="mt-12 space-y-2 text-center">
+            <p className="text-sm text-muted">No hay deudas pendientes.</p>
           </div>
         )}
         {!loadingList && !listError && debts.length > 0 && filteredDebts.length === 0 && (
-          <p className="text-sm text-zinc-500 text-center mt-8">
-            Ningún cliente coincide con "<span className="text-white">{search}</span>".
+          <p className="text-sm text-muted text-center mt-8">
+            Ningún cliente coincide con "<span className="text-ink">{search}</span>".
           </p>
         )}
         {filteredDebts.map(d => (
@@ -460,60 +449,46 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
 
       {/* Modal de cancelación con doble confirmación */}
       {cancelTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={e => { if (e.target === e.currentTarget && !cancelLoading) setCancelTarget(null) }}
+        <Modal
+          open
+          onClose={cancelLoading ? () => {} : () => setCancelTarget(null)}
+          closeOnOverlay={!cancelLoading}
+          size="sm"
+          title="Cancelar deuda"
+          footer={
+            !cancelConfirm ? (
+              <>
+                <Button variant="secondary" className="mr-auto" onClick={() => setCancelTarget(null)} disabled={cancelLoading}>
+                  Volver sin cancelar
+                </Button>
+                <Button variant="danger" onClick={() => setCancelConfirm(true)}>
+                  Cancelar la deuda
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="secondary" className="mr-auto" onClick={() => setCancelConfirm(false)} disabled={cancelLoading}>
+                  No, volver
+                </Button>
+                <Button variant="danger" loading={cancelLoading} onClick={() => void handleCancelDebt()}>
+                  Sí, cancelar
+                </Button>
+              </>
+            )
+          }
         >
-          <div className="w-full max-w-sm rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl p-6 space-y-4">
-            <h3 className="text-sm font-semibold text-red-400">Cancelar deuda</h3>
-            <p className="text-sm text-zinc-300">
+            <p className="text-sm text-ink">
               ¿Cancelar la deuda de <strong>{cancelTarget.customerName}</strong> por{' '}
-              <strong className="text-amber-400">{formatARS(cancelTarget.balance)}</strong>?
+              <strong className="text-amber-600">{formatARS(cancelTarget.balance)}</strong>?
             </p>
-            <p className="text-xs text-zinc-500">
+            <p className="mt-2 text-xs text-muted">
               El saldo quedará en cero. La acción quedará registrada en el historial y no borrará los eventos anteriores.
             </p>
-
-            {!cancelConfirm ? (
-              <button
-                onClick={() => setCancelConfirm(true)}
-                className="w-full rounded-lg bg-red-950/40 border border-red-900/50 py-2.5 text-sm font-semibold text-red-400/80 hover:bg-red-950/60 transition-colors"
-              >
-                Cancelar la deuda
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-red-400 font-medium text-center">¿Confirmás? Esta acción no se puede revertir.</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setCancelConfirm(false)}
-                    disabled={cancelLoading}
-                    className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 py-2.5 text-sm text-zinc-400 hover:text-white transition-colors"
-                  >
-                    No, volver
-                  </button>
-                  <button
-                    onClick={handleCancelDebt}
-                    disabled={cancelLoading}
-                    className="flex-1 rounded-lg bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 transition-colors disabled:opacity-40"
-                  >
-                    {cancelLoading ? 'Cancelando...' : 'Sí, cancelar'}
-                  </button>
-                </div>
-              </div>
+            {cancelConfirm && (
+              <p className="mt-3 text-center text-xs font-medium text-danger">¿Confirmás? Esta acción no se puede revertir.</p>
             )}
-
-            {cancelError && <p className="text-xs text-red-400">{cancelError}</p>}
-
-            <button
-              onClick={() => setCancelTarget(null)}
-              disabled={cancelLoading}
-              className="w-full text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Volver sin cancelar
-            </button>
-          </div>
-        </div>
+            {cancelError && <p className="mt-3 text-xs text-danger">{cancelError}</p>}
+        </Modal>
       )}
     </div>
   )

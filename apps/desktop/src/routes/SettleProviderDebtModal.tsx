@@ -246,7 +246,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
           leftover > 0
             ? 'bg-amber-50 border border-amber-200'
             : leftoverCredit > 0
-              ? 'bg-emerald-50 border border-emerald-200'
+              ? 'bg-success/10 border border-success/30'
               : 'bg-green-50 border border-green-200'
         }
         result={
@@ -258,8 +258,8 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             </>
           ) : leftoverCredit > 0 ? (
             <>
-              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Sin deuda</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-1">A favor {formatARS(leftoverCredit)}</p>
+              <p className="text-xs font-semibold text-success uppercase tracking-wide">Sin deuda</p>
+              <p className="text-2xl font-bold text-success mt-1">A favor {formatARS(leftoverCredit)}</p>
             </>
           ) : (
             <>
@@ -275,7 +275,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             <span className="font-bold text-gray-900">{formatARS(receipt.cashOut)}</span>
           </div>
           {receipt.usedCredit && (
-            <div className="flex justify-between text-emerald-700">
+            <div className="flex justify-between text-success">
               <span>Compensación entre locales</span>
               <span className="font-semibold">Aplicada</span>
             </div>
@@ -284,7 +284,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             <div key={l.storeName} className="border-t border-gray-100 pt-2 space-y-0.5">
               <p className="text-xs text-gray-500 truncate" title={l.storeName}>{l.storeName}</p>
               {l.creditUsed > 0 && (
-                <div className="flex justify-between text-emerald-700">
+                <div className="flex justify-between text-success">
                   <span>Saldo a favor usado</span>
                   <span>− {formatARS(l.creditUsed)}</span>
                 </div>
@@ -297,7 +297,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
               )}
               <div className="flex justify-between">
                 <span className="text-gray-600">Saldo del local</span>
-                <span className={`font-semibold ${l.remaining > 0 ? 'text-amber-700' : l.remaining < 0 ? 'text-emerald-700' : 'text-green-700'}`}>
+                <span className={`font-semibold ${l.remaining > 0 ? 'text-amber-700' : l.remaining < 0 ? 'text-success' : 'text-green-700'}`}>
                   {l.remaining > 0
                     ? formatARS(l.remaining)
                     : l.remaining < 0
@@ -308,7 +308,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             </div>
           ))}
           {isSettled && receipt.usedCredit && (
-            <p className="text-[11px] text-emerald-700 pt-1">
+            <p className="text-[11px] text-success pt-1">
               Se usó saldo a favor de otro local. No hace falta anotarlo de nuevo.
             </p>
           )}
@@ -321,16 +321,16 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-zinc-800 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg min-h-[70vh] sm:min-h-[32rem] shadow-xl flex flex-col max-h-[90vh] border border-zinc-700">
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-zinc-700 shrink-0">
+      <div className="bg-raised rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg min-h-[70vh] sm:min-h-[32rem] shadow-xl flex flex-col max-h-[90vh] border border-line">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-line shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold">Saldar deuda</h2>
-            <p className="text-xs text-zinc-500">El efectivo sale de esta caja. No hace falta una visita.</p>
+            <p className="text-xs text-muted">El efectivo sale de esta caja. No hace falta una visita.</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+            className="shrink-0 text-muted hover:text-ink p-1 rounded-lg hover:bg-hover"
             title="Cerrar"
           >
             ✕
@@ -338,7 +338,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
         </div>
 
         <div className="shrink-0 px-4 pt-4 pb-2 relative">
-          <label className="text-sm text-zinc-400">Proveedor</label>
+          <label className="text-sm text-muted">Proveedor</label>
           <input
             type="text"
             value={providerInput}
@@ -353,15 +353,15 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
             placeholder="Nombre del proveedor"
-            className="mt-1 w-full rounded-lg border border-zinc-600 bg-zinc-950 px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-600"
+            className="mt-1 w-full rounded-lg border border-line bg-input px-3 py-2 text-ink placeholder:text-subtle focus:outline-none focus:border-success/40"
           />
           {showSuggestions && filtered.length > 0 && (
-            <ul className="absolute z-20 left-4 right-4 bg-zinc-800 border border-zinc-700 rounded-lg mt-1 max-h-56 overflow-y-auto shadow-lg">
+            <ul className="absolute z-20 left-4 right-4 bg-raised border border-line rounded-lg mt-1 max-h-56 overflow-y-auto shadow-lg">
               {filtered.map(p => (
                 <li key={p.id}>
                   <button
                     type="button"
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-700 truncate"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-hover truncate"
                     title={p.name}
                     onMouseDown={() => selectProvider(p)}
                   >
@@ -374,21 +374,21 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-4 min-h-0">
-          {loading && <p className="text-sm text-zinc-500">Consultando saldos…</p>}
+          {loading && <p className="text-sm text-muted">Consultando saldos…</p>}
 
           {!loading && selected && rows.length > 0 && (
             <div className="space-y-2">
               {hasMixed && (
-                <label className="flex items-start gap-2 cursor-pointer select-none rounded-xl border border-emerald-800/50 bg-emerald-950/20 px-3 py-2">
+                <label className="flex items-start gap-2 cursor-pointer select-none rounded-xl border border-success/30 bg-success/10 px-3 py-2">
                   <input
                     type="checkbox"
                     checked={useCredit}
                     onChange={e => toggleCredit(e.target.checked)}
-                    className="mt-0.5 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-zinc-900"
+                    className="mt-0.5 rounded border-line bg-raised text-accent focus:ring-accent focus:ring-offset-panel"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-emerald-200">Usar saldo a favor de otros locales</span>
-                    <span className="block text-[11px] text-zinc-500 mt-0.5">
+                    <span className="block text-sm text-success">Usar saldo a favor de otros locales</span>
+                    <span className="block text-[11px] text-muted mt-0.5">
                       Opcional. Aplica {formatARS(creditTotal)} de {creditRows.map(r => r.storeName).join(', ')} contra la deuda. No sale efectivo. Podés desmarcarlo.
                     </span>
                   </span>
@@ -398,7 +398,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
                 <button
                   type="button"
                   onClick={fillAllDebts}
-                  className="w-full py-2 rounded-lg border border-emerald-800/60 text-emerald-300 text-xs font-medium hover:bg-emerald-950/40"
+                  className="w-full py-2 rounded-lg border border-success/30 text-success text-xs font-medium hover:bg-success/10"
                 >
                   Pagar todo (todos los locales)
                 </button>
@@ -410,14 +410,14 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
                 const debt = Math.max(0, effective)
                 const credit = Math.max(0, -effective)
                 return (
-                  <div key={r.storeId} className="rounded-xl border border-zinc-600 bg-zinc-700 px-3 py-2 space-y-2">
+                  <div key={r.storeId} className="rounded-xl border border-line bg-hover px-3 py-2 space-y-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <p className="min-w-0 flex-1 truncate text-sm text-zinc-200" title={r.storeName}>
+                      <p className="min-w-0 flex-1 truncate text-sm text-ink" title={r.storeName}>
                         {r.storeName}
                       </p>
                       <p
                         className={`shrink-0 text-xs font-semibold ${
-                          debt > 0 ? 'text-orange-400' : credit > 0 ? 'text-emerald-400' : 'text-zinc-500'
+                          debt > 0 ? 'text-orange-400' : credit > 0 ? 'text-success' : 'text-muted'
                         }`}
                       >
                         {debt > 0
@@ -428,13 +428,13 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
                       </p>
                     </div>
                     {applyCredit && originalDebt > debt && (
-                      <p className="text-[11px] text-emerald-400/80">
+                      <p className="text-[11px] text-success">
                         Resta pagar {formatARS(debt)}
                         {originalDebt > 0 ? ` (era ${formatARS(originalDebt)})` : ''}
                       </p>
                     )}
                     {applyCredit && originalCredit > 0 && credit === 0 && originalDebt === 0 && (
-                      <p className="text-[11px] text-emerald-400/80">
+                      <p className="text-[11px] text-success">
                         Se usa el saldo a favor de {formatARS(originalCredit)}
                       </p>
                     )}
@@ -449,12 +449,12 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
                           value={r.amountRaw}
                           onChange={v => setAmount(r.storeId, v)}
                           placeholder="0"
-                          className="min-w-0 flex-1 rounded-lg border border-zinc-600 bg-zinc-950 px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-600"
+                          className="min-w-0 flex-1 rounded-lg border border-line bg-input px-3 py-2 text-ink text-sm focus:outline-none focus:border-success/40"
                         />
                         <button
                           type="button"
                           onClick={() => fillStore(r.storeId, debt)}
-                          className="shrink-0 px-2 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800"
+                          className="shrink-0 px-2 py-2 rounded-lg border border-line text-xs text-ink hover:bg-hover"
                         >
                           Todo
                         </button>
@@ -467,37 +467,37 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
           )}
 
           {selected && !loading && !anyDebt && rows.length > 0 && (
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted">
               Este proveedor no tiene deuda pendiente. Si trajo mercadería, usá Gastos.
             </p>
           )}
 
           {!loading && selected && remainingTotal >= 0 && (anyDebt || applyCredit) && (
-            <div className="space-y-1 border-t border-zinc-700 pt-3 text-sm">
+            <div className="space-y-1 border-t border-line pt-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-zinc-400">Resta pagar</span>
-                <span className={`font-bold ${remainingTotal > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                <span className="text-muted">Resta pagar</span>
+                <span className={`font-bold ${remainingTotal > 0 ? 'text-amber-300' : 'text-success'}`}>
                   {formatARS(remainingTotal)}
                 </span>
               </div>
               {total > 0 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-400">Sale de esta caja</span>
-                  <span className="font-bold text-white">{formatARS(total)}</span>
+                  <span className="text-muted">Sale de esta caja</span>
+                  <span className="font-bold text-ink">{formatARS(total)}</span>
                 </div>
               )}
             </div>
           )}
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-danger">{error}</p>}
         </div>
 
-        <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-zinc-700">
+        <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-line">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-sm disabled:opacity-40"
+            className="flex-1 py-2.5 rounded-xl border border-line text-ink hover:bg-hover text-sm disabled:opacity-40"
           >
             Cancelar
           </button>
@@ -505,7 +505,7 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!canSubmit}
-            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm disabled:opacity-40"
+            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-success/100 font-semibold text-sm disabled:opacity-40"
           >
             {saving ? 'Registrando…' : total > 0 ? 'Registrar pago' : 'Confirmar'}
           </button>

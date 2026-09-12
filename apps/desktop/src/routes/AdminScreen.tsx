@@ -6,10 +6,10 @@
  * Versiones y retiro global: solo admin.
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
-import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
 import KretzSyncModal from '../components/KretzSyncModal'
 import CatalogToggle from '../components/CatalogToggle'
+import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { useAvailabilityToggle } from '../lib/useAvailabilityToggle'
 import type {
@@ -249,114 +249,82 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
     return parsed !== original
   }).length
 
+  const catalogOverflow = [
+    ...(isAdmin
+      ? [{ id: 'revisions', label: 'Versiones', onSelect: () => setShowRevisions(true) }]
+      : []),
+    { id: 'bulk', label: 'Editar precios', onSelect: () => { setBulkMode(true); setBulkDraft(new Map()) } },
+    { id: 'sync', label: 'Cargar en balanza', onSelect: () => setShowSync(true) },
+  ]
+
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
-      {/* Header — chrome de página, no una barra extra del mismo gris que la tabla */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 px-6 py-3">
-        <BackButton onClick={onReturnToHub} />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-zinc-100 truncate">
-            {isAdmin ? 'Administración — Productos' : 'Catálogo'}
-          </h1>
-          {isAdmin && stores.length > 1 && (
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[10px] text-zinc-500 shrink-0">Local:</span>
-              <select
-                value={selectedStoreId}
-                onChange={e => {
-                  const next = e.target.value
-                  if (bulkMode && pendingChanges > 0) {
-                    setPendingStoreId(next)
-                  } else {
-                    setBulkMode(false)
-                    setBulkDraft(new Map())
-                    setSelectedStoreId(next)
-                  }
-                }}
-                className="text-[10px] bg-zinc-800 border border-zinc-600 rounded px-2 py-0.5 text-zinc-300"
-              >
-                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
-          )}
-          {stores.length === 1 && (
-            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={stores[0]?.name}>
-              {stores[0]?.name}
-            </p>
-          )}
-        </div>
-        <button onClick={onLogout} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-200 transition-colors">
-          Cerrar sesión
-        </button>
-      </header>
+    <div className="flex flex-col h-screen bg-app text-ink">
+      <ScreenHeader
+        title={isAdmin ? 'Administración — Productos' : 'Catálogo'}
+        subtitle={stores.length === 1 ? stores[0]?.name : undefined}
+        onBack={onReturnToHub}
+        actions={
+          <Button variant="ghost" size="sm" onClick={onLogout}>Cerrar sesión</Button>
+        }
+      />
 
       <div className="flex shrink-0 items-center gap-2 px-6 pt-4 pb-3">
+        {isAdmin && stores.length > 1 && (
+          <label className="flex min-w-0 shrink-0 items-center gap-2">
+            <span className="text-xs text-muted">Local</span>
+            <select
+              value={selectedStoreId}
+              onChange={e => {
+                const next = e.target.value
+                if (bulkMode && pendingChanges > 0) {
+                  setPendingStoreId(next)
+                } else {
+                  setBulkMode(false)
+                  setBulkDraft(new Map())
+                  setSelectedStoreId(next)
+                }
+              }}
+              className="rounded-lg border border-line bg-input px-2 py-2 text-xs text-ink"
+            >
+              {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+        )}
         <input
           type="text"
           placeholder="Buscar por nombre o PLU…"
           value={filterText}
           onChange={e => setFilterText(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
         />
 
         {bulkMode ? (
           <>
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => { setBulkMode(false); setBulkDraft(new Map()) }}
               disabled={bulkSaving}
-              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
             >
               Cancelar
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="sm"
               onClick={() => void handleBulkSave()}
-              disabled={bulkSaving || pendingChanges === 0}
-              className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:bg-zinc-700"
+              loading={bulkSaving}
+              disabled={pendingChanges === 0}
             >
-              {bulkSaving
-                ? 'Guardando…'
-                : pendingChanges > 0
-                  ? `Guardar ${pendingChanges} cambio${pendingChanges !== 1 ? 's' : ''}`
-                  : 'Sin cambios'}
-            </button>
+              {pendingChanges > 0
+                ? `Guardar ${pendingChanges} cambio${pendingChanges !== 1 ? 's' : ''}`
+                : 'Sin cambios'}
+            </Button>
           </>
         ) : (
           <>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setShowRevisions(true)}
-                className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
-                title="Restaurar una versión anterior del catálogo publicado"
-              >
-                Versiones
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => { setBulkMode(true); setBulkDraft(new Map()) }}
-              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
-              title="Editar varios precios de una vez"
-            >
-              Editar precios
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSync(true)}
-              className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700"
-              title="Enviar el catálogo del local a la balanza conectada por USB"
-            >
-              Cargar en balanza
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-            >
+            <Button size="sm" onClick={() => setShowCreate(true)}>
               + Nuevo producto
-            </button>
+            </Button>
+            <ActionMenu items={catalogOverflow} />
           </>
         )}
       </div>
@@ -368,19 +336,19 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
       )}
 
       {error && (
-        <div className="mx-6 mb-3 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-2 text-sm text-red-400/90">
+        <div className="mx-6 mb-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-sm text-danger">
           {error}
         </div>
       )}
 
       <div className="min-h-0 flex-1 px-6 pb-4">
-        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-800">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-panel">
           {loading ? (
             <div className="flex h-40 items-center justify-center">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-500 border-t-transparent" />
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-transparent" />
             </div>
           ) : filtered.length === 0 ? (
-            <p className="mt-16 text-center text-sm text-zinc-500">
+            <p className="mt-16 text-center text-sm text-muted">
               {filterText ? 'Sin resultados para esa búsqueda.' : 'No hay productos cargados.'}
             </p>
           ) : (
@@ -389,7 +357,7 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                 <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
                   <CatalogColgroup />
                   <thead>
-                    <tr className="text-left text-zinc-300">
+                    <tr className="text-left text-ink">
                       {([
                         { key: 'plu' as const, label: 'PLU' },
                         { key: 'name' as const, label: 'Nombre' },
@@ -400,21 +368,21 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                       ]).map(col => (
                         <th
                           key={col.key}
-                          className={`bg-zinc-700 px-3 py-2.5 font-medium first:pl-4 ${col.cls ?? ''}`}
+                          className={`bg-raised px-3 py-2.5 font-medium first:pl-4 ${col.cls ?? ''}`}
                         >
                           <button
                             type="button"
                             onClick={() => toggleSort(col.key)}
-                            className="inline-flex items-center gap-1 hover:text-white"
+                            className="inline-flex items-center gap-1 hover:text-ink"
                           >
                             {col.label}
                             {sortKey === col.key && (
-                              <span className="text-[10px] text-zinc-400">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                              <span className="text-[10px] text-muted">{sortDir === 'asc' ? '↑' : '↓'}</span>
                             )}
                           </button>
                         </th>
                       ))}
-                      <th className="bg-zinc-700 px-3 py-2.5 pr-4" />
+                      <th className="bg-raised px-3 py-2.5 pr-4" />
                     </tr>
                   </thead>
                 </table>
@@ -428,31 +396,31 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                   const draftParsed = draftRaw !== undefined ? parseNumericInput(draftRaw) : null
                   const isChanged = draftParsed !== null && draftParsed !== (p.price ?? null)
                   const rowBg = isChanged
-                    ? 'bg-emerald-950/40 group-hover:bg-emerald-900/40'
+                    ? 'bg-accent-soft group-hover:bg-accent-soft'
                     : i % 2 === 0
-                      ? 'bg-zinc-800 group-hover:bg-zinc-700'
-                      : 'bg-zinc-800/60 group-hover:bg-zinc-700'
+                      ? 'bg-panel group-hover:bg-hover'
+                      : 'bg-raised group-hover:bg-hover'
 
                   return (
                     <tr key={p.id} className="group">
-                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 pl-4 tabular-nums text-zinc-400 ${rowBg}`}>
-                        {p.pluNumber ?? <span className="text-zinc-600">—</span>}
+                      <td className={`border-t border-line px-3 py-2.5 pl-4 tabular-nums text-muted ${rowBg}`}>
+                        {p.pluNumber ?? <span className="text-subtle">—</span>}
                       </td>
-                      <td className={`min-w-0 border-t border-zinc-700/60 px-3 py-2.5 font-medium ${rowBg}`}>
+                      <td className={`min-w-0 border-t border-line px-3 py-2.5 font-medium ${rowBg}`}>
                         <span className="block truncate" title={p.name}>{p.name}</span>
                       </td>
-                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-zinc-400 ${rowBg}`}>
+                      <td className={`border-t border-line px-3 py-2.5 text-muted ${rowBg}`}>
                         {CATEGORY_LABELS[p.category]}
                       </td>
-                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-zinc-400 ${rowBg}`}>
+                      <td className={`border-t border-line px-3 py-2.5 text-muted ${rowBg}`}>
                         {p.unit === 'kg' ? 'kg' : 'unidad'}
                       </td>
-                      <td className={`border-t border-zinc-700/60 px-3 py-1.5 text-right ${rowBg}`}>
+                      <td className={`border-t border-line px-3 py-1.5 text-right ${rowBg}`}>
                         {bulkMode ? (
                           <NumericInput
                             value={draftRaw ?? (p.price != null ? formatNumericInputValue(String(p.price)) : '')}
                             onChange={v => handleBulkDraftChange(p.id, v)}
-                            className={`w-28 rounded border bg-zinc-700 px-2 py-1 text-right text-sm text-white focus:outline-none focus:ring-1 ${isChanged ? 'border-emerald-500 focus:ring-emerald-500' : 'border-zinc-500 focus:ring-emerald-700/50'}`}
+                            className={`w-28 rounded border bg-raised px-2 py-1 text-right text-sm text-ink focus:outline-none focus:ring-1 ${isChanged ? 'border-line-accent focus:ring-accent/40' : 'border-line-strong focus:ring-accent/30'}`}
                             placeholder="—"
                           />
                         ) : (
@@ -460,15 +428,15 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                             <button
                               type="button"
                               onClick={() => setPriceProduct(p)}
-                              className="tabular-nums text-zinc-100 hover:text-emerald-400 transition-colors"
+                              className="tabular-nums text-ink hover:text-success transition-colors"
                               title="Cambiar precio"
                             >
-                              {p.price != null ? fmtARS(p.price) : <span className="text-xs text-zinc-500">Sin precio</span>}
+                              {p.price != null ? fmtARS(p.price) : <span className="text-xs text-muted">Sin precio</span>}
                             </button>
                             <button
                               type="button"
                               onClick={() => setHistoryProduct(p)}
-                              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                              className="text-xs text-muted hover:text-ink transition-colors"
                               title="Ver historial de precios"
                             >
                               ↓
@@ -476,19 +444,19 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                           </div>
                         )}
                       </td>
-                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 text-center ${rowBg}`}>
+                      <td className={`border-t border-line px-3 py-2.5 text-center ${rowBg}`}>
                         <CatalogToggle
                           checked={p.available}
                           disabled={isAvailabilityPending(p.id)}
                           onChange={() => void toggleAvailability(p)}
                         />
                       </td>
-                      <td className={`border-t border-zinc-700/60 px-3 py-2.5 pr-4 text-right ${rowBg}`}>
+                      <td className={`border-t border-line px-3 py-2.5 pr-4 text-right ${rowBg}`}>
                         {!bulkMode && (
                           <button
                             type="button"
                             onClick={() => setEditProduct(p)}
-                            className="rounded-lg px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-600 hover:text-white transition-colors"
+                            className="rounded-lg px-2 py-1 text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
                           >
                             Editar
                           </button>
@@ -604,25 +572,25 @@ function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId:
   }, [productId, storeId])
 
   if (loading) {
-    return <p className="text-xs text-zinc-600">Cargando actividad…</p>
+    return <p className="text-xs text-subtle">Cargando actividad…</p>
   }
   if (rows.length === 0) {
-    return <p className="text-xs text-zinc-600">Sin cambios de ficha registrados.</p>
+    return <p className="text-xs text-subtle">Sin cambios de ficha registrados.</p>
   }
 
   return (
     <div className="space-y-1.5 max-h-40 overflow-auto">
       {rows.map(row => (
-        <div key={row.id} className="rounded-lg border border-zinc-800 bg-zinc-800/30 px-3 py-1.5">
+        <div key={row.id} className="rounded-lg border border-line bg-raised px-3 py-1.5">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted">
               {AUDIT_ACTION_LABELS[row.action] ?? row.action}
             </span>
-            <p className="min-w-0 flex-1 truncate text-xs text-zinc-300" title={row.summary}>
+            <p className="min-w-0 flex-1 truncate text-xs text-ink" title={row.summary}>
               {row.summary}
             </p>
           </div>
-          <p className="text-[10px] text-zinc-600 mt-0.5 truncate" title={`${fmtDate(row.createdAt)} · ${row.actorName}`}>
+          <p className="text-[10px] text-subtle mt-0.5 truncate" title={`${fmtDate(row.createdAt)} · ${row.actorName}`}>
             {fmtDate(row.createdAt)} · {row.actorName}
           </p>
         </div>
@@ -646,23 +614,23 @@ function PriceHistoryBlock({ productId, storeId }: { productId: string; storeId:
   }, [productId, storeId])
 
   if (loading) {
-    return <p className="text-xs text-zinc-600">Cargando precios…</p>
+    return <p className="text-xs text-subtle">Cargando precios…</p>
   }
   if (history.length === 0) {
-    return <p className="text-xs text-zinc-600">Sin historial de precios para este local.</p>
+    return <p className="text-xs text-subtle">Sin historial de precios para este local.</p>
   }
 
   return (
     <div className="space-y-2 max-h-40 overflow-auto">
       {history.map(h => (
-        <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-emerald-900/50 bg-emerald-950/30' : 'border-zinc-800 bg-zinc-800/30'}`}>
+        <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-line-accent bg-accent-soft' : 'border-line bg-raised'}`}>
           <div className="flex items-center justify-between">
             <span className="font-semibold tabular-nums">{fmtARS(h.price)}</span>
             {h.validTo == null
-              ? <span className="text-xs text-emerald-400/80 font-medium">Vigente</span>
-              : <span className="text-xs text-zinc-500">Hasta {fmtDate(h.validTo)}</span>}
+              ? <span className="text-xs text-success font-medium">Vigente</span>
+              : <span className="text-xs text-muted">Hasta {fmtDate(h.validTo)}</span>}
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5 truncate" title={`Desde ${fmtDate(h.validFrom)} · Por ${h.createdBy}`}>
+          <p className="text-xs text-muted mt-0.5 truncate" title={`Desde ${fmtDate(h.validFrom)} · Por ${h.createdBy}`}>
             Desde {fmtDate(h.validFrom)} · Por {h.createdBy}
           </p>
         </div>
@@ -676,22 +644,22 @@ function ProductHistoryDisclosure({ productId, storeId }: { productId: string; s
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="mt-4 pt-3 border-t border-zinc-800">
+    <div className="mt-4 pt-3 border-t border-line">
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        className="text-xs text-muted hover:text-ink transition-colors"
       >
         {open ? 'Ocultar historial' : 'Historial'}
       </button>
       {open && (
         <div className="mt-3 space-y-4">
           <div>
-            <p className="text-xs font-medium text-zinc-400 mb-2">Ficha y visibilidad</p>
+            <p className="text-xs font-medium text-muted mb-2">Ficha y visibilidad</p>
             <CatalogAuditBlock productId={productId} storeId={storeId} />
           </div>
           <div>
-            <p className="text-xs font-medium text-zinc-400 mb-2">Precios de este local</p>
+            <p className="text-xs font-medium text-muted mb-2">Precios de este local</p>
             <PriceHistoryBlock productId={productId} storeId={storeId} />
           </div>
         </div>
@@ -823,26 +791,34 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
   }
 
   return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-5">{isEdit ? 'Editar producto' : 'Nuevo producto'}</h2>
+    <Modal
+      open
+      onClose={onClose}
+      title={isEdit ? 'Editar producto' : 'Nuevo producto'}
+      footer={
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onClose}>Cancelar</Button>
+          <Button loading={saving} onClick={() => void handleSave()}>Guardar</Button>
+        </>
+      }
+    >
         <div className="space-y-4">
           <Field label="Nombre">
             <input type="text" value={name} onChange={e => setName(e.target.value)}
               maxLength={100}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
               placeholder="Nombre del producto" autoFocus />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Categoría">
               <select value={category} onChange={e => setCategory(e.target.value as AdminProductRow['category'])}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500">
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40">
                 {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </Field>
             <Field label="Unidad">
               <select value={unit} onChange={e => setUnit(e.target.value as 'kg' | 'unit')}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500">
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40">
                 <option value="kg">kg (pesable)</option>
                 <option value="unit">Unidad</option>
               </select>
@@ -851,12 +827,12 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
           <Field label="Número de PLU (1–999, opcional)">
             <input type="text" inputMode="numeric" value={pluRaw}
               onChange={e => setPluRaw(e.target.value.replace(/\D/g, '').slice(0, 3))}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
               placeholder="Sin asignar" />
           </Field>
           <div className="space-y-3">
               <div className="flex items-center justify-between gap-2 min-w-0">
-                <p className="text-xs font-medium text-zinc-400 shrink-0">
+                <p className="text-xs font-medium text-muted shrink-0">
                   Precio ($/{unitLabel}{isEdit ? '' : ', opcional'})
                 </p>
                 {stores.length > 1 && (
@@ -865,9 +841,9 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
                       type="checkbox"
                       checked={samePriceAll}
                       onChange={e => handleToggleSamePrice(e.target.checked)}
-                      className="shrink-0 accent-red-500"
+                      className="shrink-0 accent-accent"
                     />
-                    <span className="text-xs text-zinc-300 truncate" title="Usar el mismo precio en todos los locales">
+                    <span className="text-xs text-ink truncate" title="Usar el mismo precio en todos los locales">
                       Mismo precio en todos
                     </span>
                   </label>
@@ -876,17 +852,17 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
 
               {(samePriceAll || stores.length <= 1) ? (
                 <NumericInput value={sharedPriceRaw} onChange={setSharedPriceRaw}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
                   placeholder="Dejar en blanco si no tiene precio aún" />
               ) : (
-                <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 divide-y divide-zinc-700/80">
+                <div className="rounded-lg border border-line bg-raised divide-y divide-line">
                   {stores.map(s => (
                     <div key={s.id} className="flex items-center gap-2 min-w-0 px-3 py-2">
-                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-200" title={s.name}>{s.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink" title={s.name}>{s.name}</span>
                       <NumericInput
                         value={perStorePriceRaw[s.id] ?? ''}
                         onChange={v => setPerStorePriceRaw(prev => ({ ...prev, [s.id]: v }))}
-                        className="w-28 shrink-0 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white text-right focus:outline-none focus:ring-1 focus:ring-red-500"
+                        className="w-28 shrink-0 bg-panel border border-line rounded-lg px-2 py-1.5 text-sm text-ink text-right focus:outline-none focus:ring-1 focus:ring-accent/40"
                         placeholder="—"
                       />
                     </div>
@@ -900,29 +876,22 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
                 </p>
               )}
               {!samePriceAll && stores.length > 1 && (
-                <p className="text-xs text-zinc-600">Dejá en blanco los locales sin precio por ahora.</p>
+                <p className="text-xs text-subtle">Dejá en blanco los locales sin precio por ahora.</p>
               )}
             </div>
         </div>
-        {error && <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/90">{error}</div>}
+        {error && <div className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>}
         {isEdit && product && (
           <ProductHistoryDisclosure productId={product.id} storeId={storeId} />
         )}
-        <div className="flex gap-3 mt-6">
-          <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
-          <button onClick={() => void handleSave()} disabled={saving}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
-            {saving ? 'Guardando…' : 'Guardar'}
-          </button>
-        </div>
 
         {isEdit && allowGlobalDelete && onRequestGlobalDelete && (
-          <div className="mt-5 pt-4 border-t border-zinc-800">
-            <p className="text-xs text-zinc-600 mb-2">Zona de peligro</p>
+          <div className="mt-5 pt-4 border-t border-line">
+            <p className="text-xs text-subtle mb-2">Zona de peligro</p>
             <button
               type="button"
               onClick={onRequestGlobalDelete}
-              className="text-xs text-red-500 hover:text-red-400 hover:bg-red-950/30 px-3 py-1.5 rounded-lg transition-colors border border-red-900/30 w-full"
+              className="text-xs text-danger hover:text-danger hover:bg-danger/10 px-3 py-1.5 rounded-lg transition-colors border border-danger/30 w-full"
             >
               Quitar del catálogo (libera el PLU en todos los locales)
             </button>
@@ -930,8 +899,8 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
         )}
 
         {isEdit && !allowGlobalDelete && product && (
-          <div className="mt-5 pt-4 border-t border-zinc-800">
-            <p className="text-xs text-zinc-600 mb-2">Este local</p>
+          <div className="mt-5 pt-4 border-t border-line">
+            <p className="text-xs text-subtle mb-2">Este local</p>
             <button
               type="button"
               disabled={saving}
@@ -950,14 +919,13 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
                   onSaved()
                 })()
               }}
-              className="text-xs text-zinc-300 hover:text-white hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors border border-zinc-700 w-full"
+              className="text-xs text-ink hover:text-ink hover:bg-hover px-3 py-1.5 rounded-lg transition-colors border border-line w-full"
             >
               {product.available ? 'Quitar de este local' : 'Mostrar en este local'}
             </button>
           </div>
         )}
-      </div>
-    </ModalOverlay>
+    </Modal>
   )
 }
 
@@ -993,32 +961,33 @@ export function PriceModal({ product, storeId, onClose, onSaved }: PriceModalPro
   }
 
   return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-800 rounded-xl w-full max-w-sm p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-1">Cambiar precio</h2>
-        <p className="text-sm text-zinc-400 mb-5 truncate" title={product.name}>{product.name}</p>
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="Cambiar precio"
+      footer={
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onClose}>Cancelar</Button>
+          <Button loading={saving} onClick={() => void handleSave()}>Confirmar</Button>
+        </>
+      }
+    >
+        <p className="mb-4 truncate text-sm text-muted" title={product.name}>{product.name}</p>
         <Field label={`Precio ($/${product.unit === 'kg' ? 'kg' : 'unidad'})`}>
           <NumericInput value={priceRaw} onChange={setPriceRaw}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+            className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink focus:outline-none focus:border-line-accent"
             placeholder="0" autoFocus />
         </Field>
-        {product.price != null && <p className="text-xs text-zinc-500 mt-1">Precio actual: {fmtARS(product.price)}</p>}
+        {product.price != null && <p className="mt-1 text-xs text-muted">Precio actual: {fmtARS(product.price)}</p>}
         {priceOverLimit && (
-          <p className="text-xs text-amber-400 mt-2">
+          <p className="mt-2 text-xs text-amber-400">
             El precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — este producto no podrá cargarse en la balanza.
           </p>
         )}
-        <p className="text-xs text-zinc-600 mt-2">Dejar en blanco o poner 0 para quitar el precio.</p>
-        {error && <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/90">{error}</div>}
-        <div className="flex gap-3 mt-6">
-          <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">Cancelar</button>
-          <button onClick={() => void handleSave()} disabled={saving}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
-            {saving ? 'Guardando…' : 'Confirmar'}
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
+        <p className="mt-2 text-xs text-subtle">Dejar en blanco o poner 0 para quitar el precio.</p>
+        {error && <div className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>}
+    </Modal>
   )
 }
 
@@ -1034,27 +1003,24 @@ interface PriceHistoryModalProps {
 
 export function PriceHistoryModal({ product, storeId, onClose }: PriceHistoryModalProps) {
   return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-1">Historial</h2>
-        <p className="text-sm text-zinc-400 mb-4 truncate" title={product.name}>{product.name}</p>
-
+    <Modal
+      open
+      onClose={onClose}
+      title="Historial"
+      footer={<Button variant="secondary" className="mr-auto" onClick={onClose}>Cerrar</Button>}
+    >
+        <p className="mb-4 truncate text-sm text-muted" title={product.name}>{product.name}</p>
         <div className="space-y-4">
           <div>
-            <p className="text-xs font-medium text-zinc-400 mb-2">Precios de este local</p>
+            <p className="mb-2 text-xs font-medium text-muted">Precios de este local</p>
             <PriceHistoryBlock productId={product.id} storeId={storeId} />
           </div>
           <div>
-            <p className="text-xs font-medium text-zinc-400 mb-2">Ficha y visibilidad</p>
+            <p className="mb-2 text-xs font-medium text-muted">Ficha y visibilidad</p>
             <CatalogAuditBlock productId={product.id} storeId={storeId} />
           </div>
         </div>
-
-        <button onClick={onClose} className="w-full mt-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
-          Cerrar
-        </button>
-      </div>
-    </ModalOverlay>
+    </Modal>
   )
 }
 
@@ -1090,60 +1056,48 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
   }
 
   return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-zinc-800 rounded-xl w-full max-w-md p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-1">Versiones del catálogo</h2>
-        <p className="text-sm text-zinc-400 mb-4 truncate" title={storeName}>
+    <Modal
+      open
+      onClose={onClose}
+      title="Versiones del catálogo"
+      footer={<Button variant="secondary" className="mr-auto" onClick={onClose}>Cerrar</Button>}
+    >
+        <p className="mb-4 truncate text-sm text-muted" title={storeName}>
           {storeName || 'Local seleccionado'} — se guarda una copia antes de cada confirmación de precios. Máximo 10.
         </p>
 
         {loading ? (
           <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-zinc-600 border-t-transparent rounded-full animate-spin" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-line-strong border-t-transparent" />
           </div>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-zinc-500 text-center py-6">
+          <p className="py-6 text-center text-sm text-muted">
             Todavía no hay versiones. Cada vez que confirmes un cambio de precios se guarda la copia anterior.
           </p>
         ) : (
-          <div className="space-y-2 max-h-80 overflow-auto">
+          <div className="max-h-80 space-y-2 overflow-auto">
             {rows.map(row => (
-              <div key={row.id} className="rounded-lg border border-zinc-800 bg-zinc-800/30 px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
+              <div key={row.id} className="rounded-lg border border-line bg-raised px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm text-zinc-200 truncate" title={fmtDate(row.archivedAt)}>
+                    <p className="truncate text-sm text-ink" title={fmtDate(row.archivedAt)}>
                       {fmtDate(row.archivedAt)}
                     </p>
-                    <p className="text-xs text-zinc-500">{row.productCount} productos</p>
+                    <p className="text-xs text-muted">{row.productCount} productos</p>
                   </div>
                   {confirmId === row.id ? (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        disabled={restoringId !== null}
-                        onClick={() => setConfirmId(null)}
-                        className="text-xs text-zinc-400 px-2 py-1 rounded hover:bg-zinc-800"
-                      >
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button variant="ghost" size="sm" disabled={restoringId !== null} onClick={() => setConfirmId(null)}>
                         No
-                      </button>
-                      <button
-                        type="button"
-                        disabled={restoringId !== null}
-                        onClick={() => void handleRestore(row.id)}
-                        className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-medium disabled:opacity-50"
-                      >
+                      </Button>
+                      <Button size="sm" disabled={restoringId !== null} onClick={() => void handleRestore(row.id)}>
                         {restoringId === row.id ? '…' : 'Sí, restaurar'}
-                      </button>
+                      </Button>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      disabled={restoringId !== null}
-                      onClick={() => setConfirmId(row.id)}
-                      className="shrink-0 text-xs border border-zinc-600 hover:border-zinc-400 text-zinc-300 px-2 py-1 rounded"
-                    >
+                    <Button variant="secondary" size="sm" disabled={restoringId !== null} onClick={() => setConfirmId(row.id)}>
                       Restaurar
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -1151,13 +1105,8 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
           </div>
         )}
 
-        {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
-
-        <button onClick={onClose} className="w-full mt-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors">
-          Cerrar
-        </button>
-      </div>
-    </ModalOverlay>
+        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+    </Modal>
   )
 }
 
@@ -1165,21 +1114,10 @@ function CatalogRevisionsModal({ storeId, storeName, onClose, onRestored }: Cata
 // Helpers de UI
 // ---------------------------------------------------------------------------
 
-function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="animate-modal-enter w-full flex justify-center">
-        {children}
-      </div>
-    </div>
-  )
-}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs text-zinc-400 mb-1">{label}</label>
+      <label className="mb-1 block text-xs text-muted">{label}</label>
       {children}
     </div>
   )
@@ -1198,43 +1136,33 @@ interface GlobalDeleteProductModalProps {
 
 function GlobalDeleteProductModal({ product, deleting, onConfirm, onCancel }: GlobalDeleteProductModalProps) {
   return (
-    <ModalOverlay onClose={onCancel}>
-      <div className="bg-zinc-800 rounded-xl w-full max-w-sm p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-2">Quitar del catálogo</h2>
-        <p className="text-sm text-zinc-400 mb-1">
+    <Modal
+      open
+      onClose={onCancel}
+      size="sm"
+      title="Quitar del catálogo"
+      footer={
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onCancel} disabled={deleting}>Cancelar</Button>
+          <Button variant="danger" loading={deleting} onClick={onConfirm}>Quitar y liberar PLU</Button>
+        </>
+      }
+    >
+        <p className="mb-1 text-sm text-muted">
           ¿Quitar{' '}
-          <span className="text-zinc-200 font-medium truncate inline-block max-w-full align-bottom" title={product.name}>
+          <span className="inline-block max-w-full truncate align-bottom font-medium text-ink" title={product.name}>
             {product.name}
           </span>
           {' '}del catálogo?
         </p>
-        <p className="text-xs text-amber-400/80 mb-3">
+        <p className="mb-3 text-xs text-amber-400/80">
           Desaparece de todos los locales y libera el PLU {product.pluNumber ?? '—'}.
           Usalo para productos de prueba o fichas que no deberían existir.
         </p>
-        <p className="text-xs text-zinc-500 mb-5">
+        <p className="text-xs text-muted">
           Si el producto se vende en otro local, no lo quites: desactivá el toggle Disponible en este local.
         </p>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={deleting}
-            className="flex-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 text-sm font-medium py-2 rounded-lg transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={deleting}
-            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
-          >
-            {deleting ? 'Quitando…' : 'Quitar y liberar PLU'}
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
+    </Modal>
   )
 }
 
@@ -1251,28 +1179,22 @@ interface UnsavedChangesModalProps {
 
 function UnsavedChangesModal({ pendingChanges, onSave, onDiscard, onCancel }: UnsavedChangesModalProps) {
   return (
-    <ModalOverlay onClose={onCancel}>
-      <div className="bg-zinc-800 rounded-xl w-full max-w-sm p-6 shadow-xl">
-        <h2 className="text-lg font-semibold mb-2">Cambios sin guardar</h2>
-        <p className="text-sm text-zinc-400 mb-5">
+    <Modal open onClose={onCancel} size="sm" title="Cambios sin guardar">
+        <p className="mb-4 text-sm text-muted">
           Tenés {pendingChanges} cambio{pendingChanges !== 1 ? 's' : ''} de precio sin guardar en este local.
           ¿Qué querés hacer antes de cambiar de local?
         </p>
         <div className="space-y-2">
-          <button onClick={onSave}
-            className="w-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">
+          <Button fullWidth onClick={onSave}>
             Guardar cambios y continuar
-          </button>
-          <button onClick={onDiscard}
-            className="w-full bg-zinc-800 hover:bg-red-900/40 text-zinc-300 hover:text-red-300 text-sm font-medium py-2 rounded-lg transition-colors">
+          </Button>
+          <Button fullWidth variant="danger" onClick={onDiscard}>
             Descartar cambios y continuar
-          </button>
-          <button onClick={onCancel}
-            className="w-full text-zinc-500 hover:text-zinc-300 text-sm py-2 rounded-lg transition-colors">
+          </Button>
+          <Button fullWidth variant="ghost" onClick={onCancel}>
             Cancelar (quedarme en este local)
-          </button>
+          </Button>
         </div>
-      </div>
-    </ModalOverlay>
+    </Modal>
   )
 }

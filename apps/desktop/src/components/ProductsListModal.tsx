@@ -132,7 +132,7 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
   })
 
   function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <span className="text-zinc-700 ml-1">↕</span>
+    if (sortKey !== col) return <span className="text-subtle ml-1">↕</span>
     return <span className="text-orange-400 ml-1">{sortAsc ? '↑' : '↓'}</span>
   }
 
@@ -143,11 +143,11 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh]">
-        <div className="flex items-center justify-between gap-3 border-b border-zinc-700 px-5 py-3">
+      <div className="flex flex-col bg-raised border border-line rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh]">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-white">Catálogo de productos</h2>
-            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={storeName ?? undefined}>
+            <h2 className="text-sm font-bold text-ink">Catálogo de productos</h2>
+            <p className="text-[10px] text-muted mt-0.5 truncate" title={storeName ?? undefined}>
               {sorted.length} producto{sorted.length !== 1 ? 's' : ''}
               {storeName ? ` · ${storeName}` : ''}
             </p>
@@ -156,21 +156,21 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
             <button
               type="button"
               onClick={() => setShowSync(true)}
-              className="rounded-md border border-zinc-600 bg-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+              className="rounded-md border border-line bg-raised px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-hover"
             >
               Cargar en balanza
             </button>
             <button
               type="button"
               onClick={() => setShowCreate(true)}
-              className="rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+              className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-success/100"
             >
               + Nuevo producto
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+              className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors"
               aria-label="Cerrar"
             >
               <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -180,29 +180,29 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
           </div>
         </div>
 
-        <div className="px-5 py-2 border-b border-zinc-800">
+        <div className="px-5 py-2 border-b border-line">
           <input
             ref={searchRef}
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Buscar por nombre, PLU o categoría…"
-            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
+            className="w-full rounded-md border border-line bg-input px-3 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-orange-500 focus:outline-none"
           />
         </div>
 
         {error && (
-          <div className="mx-5 mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-1.5 text-xs text-red-400/90">
+          <div className="mx-5 mt-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
             {error}
           </div>
         )}
 
         <div className="flex min-h-0 flex-1 flex-col">
           {loading && (
-            <p className="py-8 text-center text-xs text-zinc-500">Cargando catálogo…</p>
+            <p className="py-8 text-center text-xs text-muted">Cargando catálogo…</p>
           )}
           {!loading && sorted.length === 0 && (
-            <p className="py-8 text-center text-xs text-zinc-500">
+            <p className="py-8 text-center text-xs text-muted">
               {search ? 'Sin resultados para esa búsqueda.' : 'No hay productos cargados.'}
             </p>
           )}
@@ -214,39 +214,39 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
                   <thead>
                     <tr>
                       <th
-                        className="bg-zinc-800 px-5 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        className="bg-raised px-5 py-2 text-left font-semibold text-muted cursor-pointer hover:text-ink select-none shadow-[0_1px_0_0] shadow-[var(--border)]"
                         onClick={() => handleSort('pluNumber')}
                       >
                         PLU <SortIcon col="pluNumber" />
                       </th>
                       <th
-                        className="bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        className="bg-raised px-3 py-2 text-left font-semibold text-muted cursor-pointer hover:text-ink select-none shadow-[0_1px_0_0] shadow-[var(--border)]"
                         onClick={() => handleSort('name')}
                       >
                         Producto <SortIcon col="name" />
                       </th>
                       <th
-                        className="bg-zinc-800 px-3 py-2 text-right font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        className="bg-raised px-3 py-2 text-right font-semibold text-muted cursor-pointer hover:text-ink select-none shadow-[0_1px_0_0] shadow-[var(--border)]"
                         onClick={() => handleSort('price')}
                       >
                         Precio <SortIcon col="price" />
                       </th>
                       <th
-                        className="bg-zinc-800 px-3 py-2 text-left font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        className="bg-raised px-3 py-2 text-left font-semibold text-muted cursor-pointer hover:text-ink select-none shadow-[0_1px_0_0] shadow-[var(--border)]"
                         onClick={() => handleSort('category')}
                       >
                         Cat. <SortIcon col="category" />
                       </th>
-                      <th className="bg-zinc-800 px-3 py-2 text-right font-semibold text-zinc-400 shadow-[0_1px_0_0] shadow-zinc-700">
+                      <th className="bg-raised px-3 py-2 text-right font-semibold text-muted shadow-[0_1px_0_0] shadow-[var(--border)]">
                         Unidad
                       </th>
                       <th
-                        className="bg-zinc-800 px-2 py-2 text-center font-semibold text-zinc-400 cursor-pointer hover:text-white select-none shadow-[0_1px_0_0] shadow-zinc-700"
+                        className="bg-raised px-2 py-2 text-center font-semibold text-muted cursor-pointer hover:text-ink select-none shadow-[0_1px_0_0] shadow-[var(--border)]"
                         onClick={() => handleSort('available')}
                       >
                         Disp. <SortIcon col="available" />
                       </th>
-                      <th className="bg-zinc-800 px-3 py-2 shadow-[0_1px_0_0] shadow-zinc-700" />
+                      <th className="bg-raised px-3 py-2 shadow-[0_1px_0_0] shadow-[var(--border)]" />
                     </tr>
                   </thead>
                 </table>
@@ -256,11 +256,11 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
                   <ProductsListColgroup />
                   <tbody>
                     {sorted.map(p => (
-                      <tr key={p.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
+                      <tr key={p.id} className="border-b border-line hover:bg-hover/40 transition-colors">
                         <td className="px-5 py-2 font-bold text-orange-400 tabular-nums">
-                          {p.pluNumber ?? <span className="text-zinc-600 font-normal">—</span>}
+                          {p.pluNumber ?? <span className="text-subtle font-normal">—</span>}
                         </td>
-                        <td className="min-w-0 px-3 py-2 text-white">
+                        <td className="min-w-0 px-3 py-2 text-ink">
                           <span className="block truncate" title={p.name}>{p.name}</span>
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -271,20 +271,20 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
                               className="tabular-nums text-amber-300 font-medium hover:text-amber-200"
                               title="Cambiar precio"
                             >
-                              {p.price != null ? formatARS(p.price) : <span className="text-zinc-500 font-normal">—</span>}
+                              {p.price != null ? formatARS(p.price) : <span className="text-muted font-normal">—</span>}
                             </button>
                             <button
                               type="button"
                               onClick={() => setHistoryProduct(p)}
-                              className="text-zinc-600 hover:text-zinc-300"
+                              className="text-subtle hover:text-ink"
                               title="Ver historial de precios"
                             >
                               ↓
                             </button>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-zinc-400">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                        <td className="px-3 py-2 text-right text-zinc-500">{UNIT_LABELS[p.unit] ?? p.unit}</td>
+                        <td className="px-3 py-2 text-muted">{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                        <td className="px-3 py-2 text-right text-muted">{UNIT_LABELS[p.unit] ?? p.unit}</td>
                         <td className="px-2 py-2 text-center">
                           <CatalogToggle
                             checked={p.available}
@@ -296,7 +296,7 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
                           <button
                             type="button"
                             onClick={() => setEditProduct(p)}
-                            className="rounded px-1.5 py-0.5 text-[11px] text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                            className="rounded px-1.5 py-0.5 text-[11px] text-ink hover:bg-hover hover:text-ink"
                           >
                             Editar
                           </button>
@@ -310,8 +310,8 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
           )}
         </div>
 
-        <div className="border-t border-zinc-800 px-5 py-2">
-          <p className="text-[10px] text-zinc-600">
+        <div className="border-t border-line px-5 py-2">
+          <p className="text-[10px] text-subtle">
             Los cambios de precio aplican al próximo ítem del ticket, no a lo que ya está cargado.
             Tras actualizar precios, usá «Cargar en balanza» en esta misma pantalla.
           </p>

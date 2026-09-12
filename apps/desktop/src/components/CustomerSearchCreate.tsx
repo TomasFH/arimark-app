@@ -153,22 +153,22 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           }}
           placeholder="Buscar por nombre o teléfono..."
           maxLength={CUSTOMER_NAME_MAX_LENGTH}
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded-lg border border-line bg-raised px-3 py-2.5 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
         />
 
         {/* Área de resultados — altura mínima fija para evitar saltos de layout */}
         <div className="min-h-[2.5rem]">
           {results.length > 0 && (
-            <ul className="divide-y divide-zinc-800 rounded-lg border border-zinc-700 overflow-hidden max-h-48 overflow-y-auto">
+            <ul className="divide-y divide-line rounded-lg border border-line overflow-hidden max-h-48 overflow-y-auto">
               {results.map(c => (
                 <li key={c.id}>
                   <button
                     onClick={() => onSelect(c)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-zinc-800 transition-colors"
+                    className="w-full text-left px-3 py-2.5 hover:bg-hover transition-colors"
                   >
-                    <span className="text-sm font-medium text-white">{c.name}</span>
+                    <span className="text-sm font-medium text-ink">{c.name}</span>
                     {c.phone && (
-                      <span className="ml-2 text-xs text-zinc-500">
+                      <span className="ml-2 text-xs text-muted">
                         {formatPhoneInput(c.phone)}
                       </span>
                     )}
@@ -179,16 +179,16 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           )}
 
           {searched && query.trim().length >= 2 && results.length === 0 && (
-            <div className="rounded-lg border border-dashed border-zinc-700 px-3 py-2.5 flex items-center gap-2 min-w-0">
+            <div className="rounded-lg border border-dashed border-line px-3 py-2.5 flex items-center gap-2 min-w-0">
               <p
-                className="text-xs text-zinc-400 min-w-0 flex-1 truncate"
+                className="text-xs text-muted min-w-0 flex-1 truncate"
                 title={`No se encontró "${query.trim()}"`}
               >
-                No se encontró <span className="text-white font-medium">"{query.trim()}"</span>
+                No se encontró <span className="text-ink font-medium">"{query.trim()}"</span>
               </p>
               <button
                 onClick={handleConfirmName}
-                className="shrink-0 rounded-md bg-zinc-700/40 border border-zinc-600 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+                className="shrink-0 rounded-md bg-input/40 border border-line-strong px-2 py-1 text-xs text-ink hover:bg-hover transition-colors"
               >
                 Registrar como nuevo
               </button>
@@ -205,20 +205,20 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
       <div className="flex items-center gap-2 min-w-0">
         <button
           onClick={() => { setMode('search'); setPhoneError('') }}
-          className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="text-xs text-muted hover:text-ink transition-colors"
         >
           ←
         </button>
         <p
-          className="text-xs text-zinc-400 min-w-0 flex-1 truncate"
+          className="text-xs text-muted min-w-0 flex-1 truncate"
           title={query.trim()}
         >
-          Nuevo cliente: <span className="text-white font-medium">{query.trim()}</span>
+          Nuevo cliente: <span className="text-ink font-medium">{query.trim()}</span>
         </p>
       </div>
 
       <div>
-        <label className="block text-xs text-zinc-400 mb-1">Teléfono *</label>
+        <label className="block text-xs text-muted mb-1">Teléfono *</label>
         <input
           ref={phoneRef}
           type="text"
@@ -229,7 +229,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
           onFocus={handlePhoneFocus}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handlePhoneConfirm() } }}
           placeholder="Ej. 11-4567-8901"
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded-lg border border-line bg-raised px-3 py-2 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
           maxLength={15}
         />
         {phoneError && <p className="text-xs text-red-400 mt-1">{phoneError}</p>}
@@ -237,7 +237,7 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
 
       <button
         onClick={handlePhoneConfirm}
-        className="w-full rounded-lg bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition-colors"
+        className="w-full rounded-lg bg-accent py-2.5 text-sm font-bold text-ink hover:bg-accent transition-colors"
       >
         Continuar
       </button>

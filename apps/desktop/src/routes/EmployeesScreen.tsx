@@ -98,16 +98,16 @@ export default function EmployeesScreen({
   }
 
   return (
-    <div className={`flex flex-col ${embedded ? '' : 'h-screen'} bg-zinc-950 text-white`}>
-      <header className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-900/50 px-6 py-3 shrink-0">
+    <div className={`flex flex-col ${embedded ? '' : 'h-screen'} bg-app text-ink`}>
+      <header className="flex items-center gap-3 border-b border-line bg-panel/50 px-6 py-3 shrink-0">
         {!embedded && onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-zinc-100 truncate">
+          <h1 className="text-sm font-semibold text-ink truncate">
             {embedded
               ? (kind === 'cashier' ? 'Sueldo y vales' : 'Alta y sueldos')
               : 'Empleados'}
           </h1>
-          <p className="text-[10px] text-zinc-500 truncate">
+          <p className="text-[10px] text-muted truncate">
             {showArchived ? 'Eliminados — restaurar para volver a usarlos' : 'Sueldo semanal y liquidación'}
           </p>
         </div>
@@ -115,7 +115,7 @@ export default function EmployeesScreen({
           <button
             type="button"
             onClick={() => setShowLiquidation(true)}
-            className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="shrink-0 px-3 py-2 rounded-lg border border-line text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
             title="Sueldo menos vales de la semana"
           >
             Liquidación
@@ -124,7 +124,7 @@ export default function EmployeesScreen({
         <button
           type="button"
           onClick={() => setShowArchived(v => !v)}
-          className="shrink-0 px-3 py-2 rounded-lg border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+          className="shrink-0 px-3 py-2 rounded-lg border border-line text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
         >
           {showArchived ? 'Ver activos' : 'Ver eliminados'}
         </button>
@@ -132,7 +132,7 @@ export default function EmployeesScreen({
           <button
             type="button"
             onClick={() => setModal({ type: 'create' })}
-            className="shrink-0 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium transition-colors"
+            className="shrink-0 px-4 py-2 rounded-lg bg-accent hover:bg-accent text-sm font-medium transition-colors"
           >
             + Nuevo
           </button>
@@ -142,7 +142,7 @@ export default function EmployeesScreen({
       <div className={embedded ? '' : 'flex-1 overflow-y-auto'}>
         {loading && (
           <div className="flex justify-center items-center py-16">
-            <p className="text-zinc-500 text-sm">Cargando empleados…</p>
+            <p className="text-muted text-sm">Cargando empleados…</p>
           </div>
         )}
 
@@ -152,7 +152,7 @@ export default function EmployeesScreen({
             <button
               type="button"
               onClick={() => void load()}
-              className="mt-2 text-xs text-zinc-500 hover:text-zinc-300"
+              className="mt-2 text-xs text-muted hover:text-ink"
             >
               Reintentar
             </button>
@@ -163,16 +163,16 @@ export default function EmployeesScreen({
           <div className="p-4 space-y-2">
             {list.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-zinc-500 text-sm">
+                <p className="text-muted text-sm">
                   {showArchived ? `No hay ${roleLabel} eliminados.` : `No hay ${roleLabel} activos.`}
                 </p>
                 {!showArchived && !hideCreate && (
-                  <p className="text-zinc-600 text-xs mt-1">
+                  <p className="text-subtle text-xs mt-1">
                     Creá uno con “+ Nuevo” para registrar asistencia y vales.
                   </p>
                 )}
                 {!showArchived && hideCreate && kind === 'cashier' && (
-                  <p className="text-zinc-600 text-xs mt-1">
+                  <p className="text-subtle text-xs mt-1">
                     Las cajeras con cuenta de login aparecen acá para sueldo y vales.
                   </p>
                 )}
@@ -182,19 +182,19 @@ export default function EmployeesScreen({
             {list.map(emp => (
               <div
                 key={emp.id}
-                className="flex items-center gap-2 min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
+                className="flex items-center gap-2 min-w-0 rounded-xl border border-line bg-panel px-4 py-3"
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-medium truncate" title={emp.name}>
                     {emp.name}
                   </p>
-                  <p className="text-xs text-zinc-400 tabular-nums">
+                  <p className="text-xs text-muted tabular-nums">
                     Sueldo semanal: {formatARS(emp.weeklyWage)}
                     {!emp.active && (
-                      <span className="ml-2 text-zinc-500">· Eliminado</span>
+                      <span className="ml-2 text-muted">· Eliminado</span>
                     )}
                     {emp.kind === 'butcher' && emp.firebaseUid && (
-                      <span className="ml-2 text-emerald-500/80">· Acceso celular activo</span>
+                      <span className="ml-2 text-success">· Acceso celular activo</span>
                     )}
                   </p>
                 </div>
@@ -203,7 +203,7 @@ export default function EmployeesScreen({
                     type="button"
                     disabled={restoringId === emp.id}
                     onClick={() => void handleUnarchive(emp)}
-                    className="shrink-0 text-xs text-zinc-300 hover:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-800 disabled:opacity-50"
+                    className="shrink-0 text-xs text-ink hover:text-ink px-2 py-1 rounded-lg hover:bg-hover disabled:opacity-50"
                   >
                     {restoringId === emp.id ? 'Restaurando…' : 'Restaurar'}
                   </button>
@@ -214,7 +214,7 @@ export default function EmployeesScreen({
                         <button
                           type="button"
                           onClick={() => setModal({ type: 'revokeAccess', employee: emp })}
-                          className="shrink-0 text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg hover:bg-zinc-800"
+                          className="shrink-0 text-xs text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg hover:bg-hover"
                           title="Revocar acceso al celular"
                         >
                           Revocar acceso
@@ -224,7 +224,7 @@ export default function EmployeesScreen({
                           type="button"
                           disabled={grantingAccessId === emp.id}
                           onClick={() => void handleGrantAccess(emp)}
-                          className="shrink-0 text-xs text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded-lg hover:bg-zinc-800 disabled:opacity-50"
+                          className="shrink-0 text-xs text-success hover:text-success px-2 py-1 rounded-lg hover:bg-hover disabled:opacity-50"
                           title="Dar acceso al celular"
                         >
                           {grantingAccessId === emp.id ? 'Restableciendo…' : 'Dar acceso'}
@@ -234,14 +234,14 @@ export default function EmployeesScreen({
                     <button
                       type="button"
                       onClick={() => setModal({ type: 'edit', employee: emp })}
-                      className="shrink-0 text-xs text-zinc-300 hover:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-800"
+                      className="shrink-0 text-xs text-ink hover:text-ink px-2 py-1 rounded-lg hover:bg-hover"
                     >
                       Editar
                     </button>
                     <button
                       type="button"
                       onClick={() => setModal({ type: 'delete', employee: emp })}
-                      className="shrink-0 text-xs text-zinc-400 hover:text-red-400 px-2 py-1 rounded-lg hover:bg-zinc-800"
+                      className="shrink-0 text-xs text-muted hover:text-red-400 px-2 py-1 rounded-lg hover:bg-hover"
                     >
                       Eliminar
                     </button>
@@ -383,18 +383,18 @@ function EmployeeFormModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
       <form
         onSubmit={e => void handleSubmit(e)}
-        className="w-full max-w-md rounded-2xl bg-zinc-900 border border-zinc-700 p-5 space-y-4"
+        className="w-full max-w-md rounded-2xl bg-panel border border-line p-5 space-y-4"
       >
         <h2 className="text-lg font-semibold">{title}</h2>
 
         <div>
-          <label className="block text-sm text-zinc-300 mb-1">Nombre</label>
+          <label className="block text-sm text-ink mb-1">Nombre</label>
           <input
             type="text"
             value={name}
             maxLength={100}
             onChange={e => setName(e.target.value)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-raised border border-line rounded-lg px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="Nombre del carnicero"
             autoFocus
             required
@@ -402,11 +402,11 @@ function EmployeeFormModal({
         </div>
 
         <div>
-          <label className="block text-sm text-zinc-300 mb-1">Sueldo semanal ($)</label>
+          <label className="block text-sm text-ink mb-1">Sueldo semanal ($)</label>
           <NumericInput
             value={wage}
             onChange={setWage}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-raised border border-line rounded-lg px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="0"
           />
         </div>
@@ -420,14 +420,14 @@ function EmployeeFormModal({
             type="button"
             onClick={onCancel}
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm text-zinc-300 hover:bg-zinc-800"
+            className="px-4 py-2 rounded-lg text-sm text-ink hover:bg-hover"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent hover:bg-accent disabled:bg-input"
           >
             {saving ? 'Guardando…' : 'Guardar'}
           </button>
@@ -450,8 +450,8 @@ function DeleteConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
-      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 p-6 space-y-4">
-        <h2 className="text-base font-semibold text-white min-w-0">
+      <div className="w-full max-w-sm rounded-2xl bg-panel border border-line p-6 space-y-4">
+        <h2 className="text-base font-semibold text-ink min-w-0">
           ¿Estás seguro que querés eliminar{' '}
           <span className="truncate inline-block max-w-full align-bottom" title={name}>{name}</span>
           ?
@@ -461,7 +461,7 @@ function DeleteConfirmModal({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+            className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover disabled:opacity-40"
           >
             Cancelar
           </button>

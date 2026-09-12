@@ -18,7 +18,7 @@ interface Props {
 }
 
 const timeInputClass =
-  'flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 text-sm'
+  'flex-1 bg-input border border-line-strong rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent text-sm'
 
 function dayOwnerIndex(schedule: StoreHoursBlock[], day: Weekday): number {
   return schedule.findIndex(block => block.days.includes(day))
@@ -39,7 +39,7 @@ function ShiftRange({
 }) {
   return (
     <div className="space-y-1">
-      <label className="text-xs text-zinc-400">{label}</label>
+      <label className="text-xs text-muted">{label}</label>
       <div className="flex items-center gap-2 min-w-0">
         <input
           type="time"
@@ -47,7 +47,7 @@ function ShiftRange({
           onChange={e => onStart(e.target.value)}
           className={timeInputClass}
         />
-        <span className="text-zinc-500 shrink-0 text-xs">hasta</span>
+        <span className="text-muted shrink-0 text-xs">hasta</span>
         <input
           type="time"
           value={end ?? ''}
@@ -61,10 +61,10 @@ function ShiftRange({
 
 export default function StoreHoursScheduleEditor({ schedule, onChange }: Props) {
   return (
-    <div className="space-y-3 border-t border-zinc-700 pt-3">
+    <div className="space-y-3 border-t border-line pt-3">
       <div>
-        <p className="text-sm font-medium text-zinc-300">Horarios de atención (opcional)</p>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <p className="text-sm font-medium text-ink">Horarios de atención (opcional)</p>
+        <p className="text-xs text-muted mt-0.5">
           Marcá los días que comparten el mismo horario. Los días sin marcar quedan cerrados.
           Si un día es distinto, agregá otro horario.
         </p>
@@ -78,17 +78,17 @@ export default function StoreHoursScheduleEditor({ schedule, onChange }: Props) 
         return (
           <div
             key={index}
-            className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/40 p-3"
+            className="space-y-3 rounded-xl border border-line bg-panel/40 p-3"
           >
             <div className="flex items-center gap-2 min-w-0">
-              <p className="min-w-0 flex-1 text-xs font-medium text-zinc-400 truncate">
+              <p className="min-w-0 flex-1 text-xs font-medium text-muted truncate">
                 Horario {schedule.length > 1 ? index + 1 : ''}
               </p>
               {schedule.length > 1 && (
                 <button
                   type="button"
                   onClick={() => onChange(removeHoursBlock(schedule, index))}
-                  className="shrink-0 text-xs text-zinc-500 hover:text-red-400/80 transition-colors"
+                  className="shrink-0 text-xs text-muted hover:text-red-400/80 transition-colors"
                 >
                   Quitar
                 </button>
@@ -114,10 +114,10 @@ export default function StoreHoursScheduleEditor({ schedule, onChange }: Props) 
                     onClick={() => onChange(toggleDayInSchedule(schedule, index, day))}
                     className={`shrink-0 min-w-[2.5rem] rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors ${
                       selectedHere
-                        ? 'bg-emerald-600 text-white'
+                        ? 'bg-accent text-ink'
                         : selectedOther
-                          ? 'border border-zinc-600 bg-zinc-800 text-zinc-500'
-                          : 'border border-zinc-600 bg-zinc-800 text-zinc-300 hover:border-zinc-500'
+                          ? 'border border-line-strong bg-raised text-muted'
+                          : 'border border-line-strong bg-raised text-ink hover:border-line-strong'
                     }`}
                   >
                     {WEEKDAY_SHORT_LABELS[day]}
@@ -151,7 +151,7 @@ export default function StoreHoursScheduleEditor({ schedule, onChange }: Props) 
       <button
         type="button"
         onClick={() => onChange(addHoursBlock(schedule))}
-        className="w-full py-2 rounded-xl border border-dashed border-zinc-600 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
+        className="w-full py-2 rounded-xl border border-dashed border-line-strong text-xs text-muted hover:border-line-strong hover:text-ink transition-colors"
       >
         + Otro horario
       </button>

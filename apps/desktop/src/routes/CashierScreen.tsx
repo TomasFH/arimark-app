@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
@@ -16,8 +16,10 @@ import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import DebtModal from '../components/DebtModal'
 import ChangePasswordModal from '../components/ChangePasswordModal'
+import { BrandMark, Button, ListRow, ScreenHeader, SectionLabel, cx } from '../components/ui'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, SpecialCustomerRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
+import { applyColorScheme, type ColorScheme } from '../lib/theme'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS, normalizeCashDiscountRule, parseCashDiscountSchedule, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock } from '@carniceria/shared'
 import { applySpecialUnitPrice, buildItemFromBarcode } from '../lib/barcodeItem'
@@ -131,55 +133,40 @@ const IconScan = () => (
 // ---------------------------------------------------------------------------
 
 interface SidebarBtnProps {
-  icon: React.ReactNode
+  icon: ReactNode
   label: string
   onClick: () => void
   active?: boolean
-  danger?: boolean
 }
 
-function SidebarBtn({ icon, label, onClick, active, danger }: SidebarBtnProps) {
+function SidebarBtn({ icon, label, onClick, active }: SidebarBtnProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex flex-col items-center justify-center gap-1 py-3 rounded-lg transition-all active:scale-95 select-none ${
-        danger
-          ? 'text-red-500 hover:bg-red-950/40 hover:text-red-400'
-          : active
-            ? 'bg-zinc-700 text-zinc-100'
-            : 'text-zinc-500 hover:bg-zinc-700/70 hover:text-zinc-300'
-      }`}
+      title={label}
+      aria-current={active ? 'page' : undefined}
+      className={cx(
+        'w-full flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl transition-colors duration-150 select-none',
+        active
+          ? 'bg-accent-soft text-accent'
+          : 'text-muted hover:bg-hover hover:text-ink',
+      )}
     >
       <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
-      <span className="text-[9px] font-medium tracking-wide leading-none">{label}</span>
+      <span className="text-[11px] font-medium leading-none">{label}</span>
     </button>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Menu overlay action
-// ---------------------------------------------------------------------------
-
-interface MenuActionProps {
-  emoji: string
-  label: string
-  onClick: () => void
-  danger?: boolean
-  muted?: boolean
-}
-
-function MenuAction({ emoji, label, onClick, danger, muted }: MenuActionProps) {
+function MenuDangerItem({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-zinc-700/80 active:bg-zinc-700 ${
-        danger ? 'text-red-400 hover:text-red-300' : muted ? 'text-zinc-600 hover:text-zinc-400' : 'text-zinc-300 hover:text-zinc-100'
-      }`}
+      className="flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-sm font-medium text-danger transition-colors hover:bg-hover"
     >
-      <span className="text-base shrink-0 w-5 text-center">{emoji}</span>
-      {label}
+      <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
     </button>
   )
 }
@@ -258,6 +245,9 @@ export default function CashierScreen({
   const [heroInput, setHeroInput] = useState('')
   const [heroError, setHeroError] = useState('')
   const heroInputRef = useRef<HTMLInputElement>(null)
+  const [colorScheme, setColorScheme] = useState<ColorScheme>(() => (
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+  ))
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -272,6 +262,28 @@ export default function CashierScreen({
   }, [reloadPosCatalog])
 
   useCatalogSyncReload(reloadPosCatalog)
+
+  useEffect(() => {
+    void window.hw.getUiSettings().then(r => {
+      if (!r.ok) return
+      setColorScheme(r.data.colorScheme)
+      applyColorScheme(r.data.colorScheme)
+    })
+    return window.hw.onUiSettingsChanged(settings => {
+      setColorScheme(settings.colorScheme)
+      applyColorScheme(settings.colorScheme)
+    })
+  }, [])
+
+  async function handleColorScheme(scheme: ColorScheme): Promise<void> {
+    applyColorScheme(scheme)
+    setColorScheme(scheme)
+    const r = await window.hw.setUiSettings({ colorScheme: scheme })
+    if (r.ok) {
+      setColorScheme(r.data.colorScheme)
+      applyColorScheme(r.data.colorScheme)
+    }
+  }
 
   useEffect(() => {
     const storeId = session.storeId ?? shift.storeId
@@ -586,86 +598,111 @@ export default function CashierScreen({
 
   function closeMenu() { setShowMenuPanel(false) }
 
+  useEffect(() => {
+    if (!showMenuPanel) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setShowMenuPanel(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showMenuPanel])
+
+  const railActive: 'menu' | 'venta' | 'vales' | 'gastos' | 'turno' = showMenuPanel
+    ? 'menu'
+    : showValesModal
+      ? 'vales'
+      : showExpenseModal
+        ? 'gastos'
+        : showSalesModal
+          ? 'turno'
+          : 'venta'
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
+    <div className="flex h-screen overflow-hidden bg-app text-ink font-sans">
 
       {/* ━━━ SIDEBAR ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <nav className="flex w-16 flex-none flex-col items-center border-r border-zinc-700 bg-zinc-800 py-2 gap-0.5 z-10">
-        <SidebarBtn icon={<IconMenu />} label="Menú" onClick={() => setShowMenuPanel(v => !v)} active={showMenuPanel} />
+      <nav className="flex w-16 flex-none flex-col items-center border-r border-line bg-panel px-1.5 py-2 gap-0.5 z-10">
+        <SidebarBtn
+          icon={<IconMenu />}
+          label="Menú"
+          onClick={() => setShowMenuPanel(v => !v)}
+          active={railActive === 'menu'}
+        />
 
-        <div className="my-1.5 w-8 h-px bg-zinc-700 shrink-0" />
+        <div className="my-1.5 w-8 h-px bg-line shrink-0" />
 
-        <SidebarBtn icon={<IconCart />} label="Venta" onClick={() => { setShowMenuPanel(false) }} active={!showMenuPanel} />
-        <SidebarBtn icon={<IconBanknote />} label="Vales" onClick={() => setShowValesModal(true)} />
-        <SidebarBtn icon={<IconReceipt />} label="Gastos" onClick={() => setShowExpenseModal(true)} />
-        <SidebarBtn icon={<IconCashInject />} label="Ingreso" onClick={() => setShowCashInjectModal(true)} />
-        <SidebarBtn icon={<IconCebo />} label="Cebo" onClick={() => setShowCeboModal(true)} />
-        <SidebarBtn icon={<IconSettle />} label="Saldar" onClick={() => setShowSettleDebtModal(true)} />
-        <SidebarBtn icon={<IconClock />} label="Turno" onClick={() => setShowSalesModal(true)} />
+        <SidebarBtn
+          icon={<IconCart />}
+          label="Venta"
+          onClick={() => setShowMenuPanel(false)}
+          active={railActive === 'venta'}
+        />
+        <SidebarBtn
+          icon={<IconBanknote />}
+          label="Vales"
+          onClick={() => { setShowMenuPanel(false); setShowValesModal(true) }}
+          active={railActive === 'vales'}
+        />
+        <SidebarBtn
+          icon={<IconReceipt />}
+          label="Gastos"
+          onClick={() => { setShowMenuPanel(false); setShowExpenseModal(true) }}
+          active={railActive === 'gastos'}
+        />
+        <SidebarBtn
+          icon={<IconClock />}
+          label="Turno"
+          onClick={() => { setShowMenuPanel(false); setShowSalesModal(true) }}
+          active={railActive === 'turno'}
+        />
 
         <div className="flex-1" />
 
-        {/* Brand mark */}
-        <div className="my-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-700">
-          <span className="text-sm">🥩</span>
+        <div className="mb-1.5 flex items-center justify-center">
+          <BrandMark size={32} />
         </div>
       </nav>
 
       {/* ━━━ MAIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
 
-        {/* Status bar */}
-        <header className="flex items-center gap-3 border-b border-zinc-700 bg-zinc-800 px-5 py-2 shrink-0">
-          {storeName && (
-            <span className="text-sm font-semibold text-zinc-100 truncate max-w-[12rem]" title={storeName}>
-              {storeName}
-            </span>
-          )}
-          <span className="text-xs text-zinc-500 shrink-0">{shiftLabel}</span>
-          {cashInHand !== null && (
-            <span className="font-mono text-xs text-emerald-400 shrink-0" title="Efectivo estimado en caja">
-              {formatARS(cashInHand)} en caja
-            </span>
-          )}
-          <div className="flex-1" />
-          {SHOW_SPECIAL_CUSTOMER_POS_SELECTOR && specialCustomers.length > 0 && (
-            <select
-              value={specialCustomerId ?? ''}
-              onChange={e => {
-                const id = e.target.value || null
-                setSpecialCustomerId(id)
-                void loadSpecialPrices(id)
-              }}
-              title={specialCustomerId
-                ? specialCustomers.find(c => c.id === specialCustomerId)?.name
-                : 'Precio de lista'}
-              className="max-w-[11rem] truncate rounded-md border border-zinc-600 bg-zinc-700 px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
-            >
-              <option value="">Precio de lista</option>
-              {specialCustomers.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            onClick={() => void handleRefreshRemote()}
-            disabled={refreshing}
-            title="Actualizar catálogo y datos remotos"
-            className="rounded-md px-2 py-1 text-xs text-zinc-600 hover:text-zinc-300 transition-colors disabled:opacity-40"
-          >
-            {refreshing ? '…' : '↺'}
-          </button>
-          <button
-            type="button"
-            onClick={onCloseShift}
-            className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-1.5 text-xs text-red-400 hover:border-red-700/70 hover:text-red-300 transition-colors"
-          >
-            Cerrar caja
-          </button>
-        </header>
+        <ScreenHeader
+          title={storeName ?? 'Caja'}
+          subtitle={shiftLabel}
+          actions={
+            <>
+              {cashInHand !== null && (
+                <span className="font-mono text-xs tabular-nums text-success shrink-0" title="Efectivo estimado en caja">
+                  {formatARS(cashInHand)} en caja
+                </span>
+              )}
+              {SHOW_SPECIAL_CUSTOMER_POS_SELECTOR && specialCustomers.length > 0 && (
+                <select
+                  value={specialCustomerId ?? ''}
+                  onChange={e => {
+                    const id = e.target.value || null
+                    setSpecialCustomerId(id)
+                    void loadSpecialPrices(id)
+                  }}
+                  title={specialCustomerId
+                    ? specialCustomers.find(c => c.id === specialCustomerId)?.name
+                    : 'Precio de lista'}
+                  className="max-w-[11rem] truncate rounded-lg border border-line bg-input px-2 py-1 text-xs text-ink focus:outline-none"
+                >
+                  <option value="">Precio de lista</option>
+                  {specialCustomers.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+            </>
+          }
+        />
 
         {/* Body */}
         <div className="flex-1 overflow-hidden">
@@ -675,13 +712,16 @@ export default function CashierScreen({
             <div className="flex flex-1 flex-col min-w-0 gap-4">
 
               {/* Page title */}
-              <h1 className="text-base font-semibold text-zinc-100 shrink-0">Área de Venta</h1>
+              <p className="text-base font-semibold text-ink shrink-0">Área de Venta</p>
 
               {/* Hero scan input + manual toggle */}
               <div className="shrink-0 flex gap-2">
                 <form onSubmit={handleHeroSubmit} className="flex-1 min-w-0">
-                  <div className={`flex h-14 items-center gap-3 rounded-xl border bg-zinc-800 px-4 transition-colors focus-within:border-emerald-600 ${heroError ? 'border-red-900/70' : 'border-zinc-700'}`}>
-                    <span className="shrink-0 text-zinc-600"><IconScan /></span>
+                  <div className={cx(
+                    'flex h-14 items-center gap-3 rounded-xl border bg-panel px-4 transition-colors focus-within:border-accent',
+                    heroError ? 'border-danger' : 'border-line',
+                  )}>
+                    <span className="shrink-0 text-muted"><IconScan /></span>
                     <input
                       ref={heroInputRef}
                       type="text"
@@ -691,38 +731,38 @@ export default function CashierScreen({
                       placeholder="Escaneá el ticket de la balanza"
                       data-barcode-input="true"
                       autoFocus
-                      className="min-w-0 flex-1 bg-transparent text-base text-zinc-100 placeholder-zinc-600 focus:outline-none"
+                      className="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-subtle focus:outline-none"
                     />
                     {scanFlash ? (
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-emerald-400 animate-pulse">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        <span className="max-w-[8rem] truncate">{scanFlash}</span>
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-success animate-pulse">
+                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                        <span className="max-w-[8rem] truncate" title={scanFlash}>{scanFlash}</span>
                       </span>
                     ) : (
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-600">
-                        <span className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
+                        <span className="h-1.5 w-1.5 rounded-full bg-line" />
                         Lector listo
                       </span>
                     )}
                   </div>
                   {heroError && (
-                    <p className="mt-1.5 px-1 text-xs text-red-400">{heroError}</p>
+                    <p className="mt-1.5 px-1 text-xs text-danger">{heroError}</p>
                   )}
                 </form>
 
-                {/* Manual PLU button — mismo alto que el hero input */}
                 <button
                   type="button"
                   onClick={() => setShowManualPanel(v => !v)}
                   title="Ingresar producto manualmente por PLU y precio"
-                  className={`h-14 shrink-0 rounded-xl border px-4 text-sm font-medium transition-all active:scale-95 ${
+                  className={cx(
+                    'h-14 shrink-0 rounded-xl border px-4 text-sm font-medium transition-colors',
                     showManualPanel
-                      ? 'border-emerald-700 bg-zinc-700 text-zinc-100'
-                      : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
-                  }`}
+                      ? 'border-accent bg-accent-soft text-ink'
+                      : 'border-line bg-panel text-muted hover:bg-hover hover:text-ink',
+                  )}
                 >
                   <span className="flex items-center gap-2">
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5 3 12l3.75 4.5m6.75-9L17.25 12l-3.75 4.5M11.25 3l-1.5 18" />
                     </svg>
                     <span>Manual</span>
@@ -732,7 +772,7 @@ export default function CashierScreen({
 
               {/* Manual PLU panel */}
               {showManualPanel && (
-                <div className="shrink-0 rounded-xl border border-zinc-700 bg-zinc-800">
+                <div className="shrink-0 rounded-xl border border-line bg-panel">
                   <ScanInput
                     onAddItem={addItem}
                     products={products}
@@ -742,8 +782,8 @@ export default function CashierScreen({
               )}
 
               {/* Cart section header */}
-              <div className="flex items-center justify-between shrink-0">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+              <div className="flex items-center justify-between shrink-0 gap-2 min-w-0">
+                <span className="min-w-0 truncate text-xs font-medium text-muted">
                   {cart.length > 0
                     ? `${cart.length} producto${cart.length !== 1 ? 's' : ''} en la venta`
                     : 'Sin productos'}
@@ -752,7 +792,7 @@ export default function CashierScreen({
                   <button
                     type="button"
                     onClick={clearCart}
-                    className="text-[11px] text-zinc-600 hover:text-red-400 transition-colors"
+                    className="shrink-0 text-xs text-muted hover:text-danger transition-colors"
                   >
                     Vaciar
                   </button>
@@ -760,18 +800,18 @@ export default function CashierScreen({
               </div>
 
               {/* Cart items — panel elevado para no fundirse con el fondo */}
-              <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-800">
+              <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_8px_24px_rgba(28,28,30,0.06)]">
                 <div className="h-full overflow-y-auto space-y-0.5 p-1">
                 {cart.length === 0 ? (
-                  <div className="flex h-48 flex-col items-center justify-center gap-3 text-zinc-600">
-                    <svg className="h-10 w-10 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+                  <div className="flex h-48 flex-col items-center justify-center gap-3 text-muted">
+                    <svg className="h-10 w-10 text-subtle" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2} aria-hidden>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
                     </svg>
-                    <div className="text-center space-y-1">
-                      <p className="text-sm text-zinc-600">Escaneá un producto para empezar</p>
-                      <p className="text-xs text-zinc-700">
+                    <div className="text-center space-y-1 px-4">
+                      <p className="text-sm text-muted">Escaneá un producto para empezar</p>
+                      <p className="text-xs text-subtle">
                         Sin lector o balanza → usá el botón{' '}
-                        <span className="font-medium text-zinc-500">Manual</span>{' '}
+                        <span className="font-medium text-muted">Manual</span>{' '}
                         para ingresar PLU y precio
                       </p>
                     </div>
@@ -780,54 +820,50 @@ export default function CashierScreen({
                   cart.map(item => (
                     <div
                       key={item.localId}
-                      className="group flex items-center gap-3 rounded-lg px-3 py-3 hover:bg-zinc-700 transition-colors"
+                      className="group flex items-center gap-3 min-w-0 rounded-xl px-3 py-3 hover:bg-hover transition-colors"
                     >
-                      {/* PLU badge */}
                       {item.pluNumber ? (
-                        <span className="w-9 shrink-0 rounded bg-zinc-700 px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-zinc-400 tabular-nums">
+                        <span className="w-9 shrink-0 rounded-md bg-hover px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-muted tabular-nums">
                           {item.pluNumber}
                         </span>
                       ) : (
                         <span className="w-9 shrink-0" />
                       )}
 
-                      {/* Product info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="truncate text-sm text-zinc-200" title={item.productName}>
+                          <span className="truncate text-sm text-ink" title={item.productName}>
                             {item.productName}
                           </span>
                           {item.manualEntry && (
-                            <span className="shrink-0 rounded bg-orange-900/50 px-1 py-0.5 text-[9px] text-orange-300">
+                            <span className="shrink-0 rounded bg-hover px-1 py-0.5 text-[10px] text-muted">
                               manual
                             </span>
                           )}
                           {item.priceDiscrepancy && (
                             <span
-                              className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[9px] text-red-300"
+                              className="shrink-0 rounded px-1 py-0.5 text-[10px] text-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
                               title="El precio del ticket no coincide con el catálogo. Verificar la balanza."
                             >
-                              ⚠ precio
+                              precio
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 font-mono text-[11px] text-zinc-500 tabular-nums">
+                        <p className="mt-0.5 font-mono text-[11px] text-muted tabular-nums">
                           {item.unit === 'unit'
                             ? `${Math.round(item.weightKg)} u. × ${formatARS(item.unitPrice)}/u.`
                             : `${formatKg(item.weightKg)} @ ${formatARS(item.unitPrice)}/kg`}
                         </p>
                       </div>
 
-                      {/* Subtotal */}
-                      <span className="shrink-0 font-mono text-sm font-semibold text-zinc-100 tabular-nums">
+                      <span className="shrink-0 font-mono text-sm font-semibold text-ink tabular-nums">
                         {formatARS(item.subtotal)}
                       </span>
 
-                      {/* Remove */}
                       <button
                         type="button"
                         onClick={() => removeItem(item.localId)}
-                        className="shrink-0 flex items-center rounded px-1.5 py-1 text-zinc-400 hover:bg-red-950/40 hover:text-red-400 transition-colors"
+                        className="shrink-0 flex items-center rounded-lg px-1.5 py-1 text-muted hover:bg-hover hover:text-danger transition-colors"
                         title="Quitar de la venta"
                         aria-label="Quitar de la venta"
                       >
@@ -842,89 +878,79 @@ export default function CashierScreen({
 
             {/* ━━━ RIGHT COLUMN — CHECKOUT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
             <div className="w-80 flex-none flex flex-col gap-4">
-              <div className="flex flex-col flex-1 rounded-xl border border-zinc-700 bg-zinc-800 overflow-hidden shadow-xl">
+              <div className="flex flex-col flex-1 rounded-xl border border-line bg-panel overflow-hidden shadow-[0_8px_24px_rgba(28,28,30,0.06)]">
 
-                {/* Panel header */}
-                <div className="border-b border-zinc-700 bg-zinc-700/40 px-5 py-4 shrink-0">
-                  <h2 className="text-sm font-semibold text-zinc-100">Total de la Venta</h2>
+                <div className="border-b border-line px-5 py-4 shrink-0">
+                  <h2 className="text-sm font-semibold text-ink">Total de la Venta</h2>
                 </div>
 
-                {/* Contexto de pedido activo */}
                 {activeOrder && (
-                  <div className="mx-3 mt-3 rounded-lg bg-blue-950/60 border border-blue-800/50 px-3 py-2.5 space-y-2">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400 mb-0.5">Pedido activo</p>
-                      <p className="text-sm text-blue-100 truncate" title={activeOrder.customerName}>{activeOrder.customerName}</p>
+                  <div className="mx-3 mt-3 rounded-xl bg-accent-soft px-3 py-2.5 space-y-2">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-accent mb-0.5">Pedido activo</p>
+                      <p className="text-sm text-ink truncate" title={activeOrder.customerName}>{activeOrder.customerName}</p>
                       {activeOrder.depositAmount > 0 && (
-                        <p className="text-xs text-blue-300">Seña: <span className="font-semibold">{formatARS(activeOrder.depositAmount)}</span></p>
+                        <p className="text-xs text-muted">Seña: <span className="font-semibold text-ink">{formatARS(activeOrder.depositAmount)}</span></p>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={clearCart}
-                      className="w-full rounded-lg border border-zinc-500 bg-zinc-800 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-700 hover:border-zinc-400 transition-colors"
-                    >
+                    <Button variant="secondary" size="sm" fullWidth onClick={clearCart}>
                       Cancelar cobro
-                    </button>
+                    </Button>
                   </div>
                 )}
 
-                {/* Summary rows */}
                 <div className="flex-1 space-y-2 px-5 py-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-500">Subtotal</span>
-                    <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartTotal)}</span>
+                    <span className="text-sm text-muted">Subtotal</span>
+                    <span className="font-mono text-sm text-ink tabular-nums">{formatARS(cartTotal)}</span>
                   </div>
                   {activeOrder && activeOrder.depositAmount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-blue-400">Seña descontada</span>
-                      <span className="font-mono text-sm text-blue-300 tabular-nums">−{formatARS(activeOrder.depositAmount)}</span>
+                      <span className="text-sm text-accent">Seña descontada</span>
+                      <span className="font-mono text-sm text-accent tabular-nums">−{formatARS(activeOrder.depositAmount)}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400 font-medium">A cobrar</span>
-                    <span className="font-mono text-sm text-zinc-300 tabular-nums">{formatARS(cartNetTotal)}</span>
+                    <span className="text-sm text-ink font-medium">A cobrar</span>
+                    <span className="font-mono text-sm text-ink tabular-nums">{formatARS(cartNetTotal)}</span>
                   </div>
                 </div>
 
-                {/* Big total + cobrar */}
-                <div className="shrink-0 space-y-4 border-t border-zinc-700 px-5 pb-5 pt-4">
+                <div className="shrink-0 space-y-4 border-t border-line px-5 pb-5 pt-4">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600 mb-1.5">
-                      {activeOrder ? 'A COBRAR' : 'TOTAL'}
+                    <p className="text-xs font-semibold text-muted mb-1.5">
+                      {activeOrder ? 'A cobrar' : 'Total'}
                     </p>
-                    <p className="font-mono text-5xl font-bold leading-none text-zinc-100 tabular-nums">
+                    <p className="font-mono text-5xl font-bold leading-none text-ink tabular-nums tracking-tight">
                       {formatARS(cartNetTotal)}
                     </p>
                   </div>
 
                   {error && (
-                    <div className="rounded-lg border border-red-900/40 bg-red-950/30 px-3 py-2">
-                      <p className="text-xs text-red-300">{error}</p>
+                    <div className="rounded-lg px-3 py-2 bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]">
+                      <p className="text-xs text-danger">{error}</p>
                     </div>
                   )}
                   {lastSaleId && (
-                    <div className="rounded-lg border border-emerald-900/40 bg-emerald-950/30 px-3 py-2">
-                      <p className="text-xs text-emerald-300">✓ Venta confirmada</p>
+                    <div className="rounded-lg px-3 py-2 bg-[color-mix(in_srgb,var(--success)_12%,transparent)]">
+                      <p className="text-xs text-success">Venta confirmada</p>
                     </div>
                   )}
 
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={loading}
+                    disabled={cart.length === 0}
                     onClick={openPaymentModal}
-                    disabled={loading || cart.length === 0}
-                    className="flex h-14 w-full items-center justify-center rounded-xl bg-emerald-500 text-lg font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-30"
+                    className="!h-14 text-lg"
                   >
-                    {loading ? (
-                      'Procesando…'
-                    ) : (
-                      <span>Cobrar</span>
-                    )}
-                  </button>
+                    Cobrar
+                  </Button>
                 </div>
               </div>
 
-              {/* DevTools — en modo dev queda abajo del panel */}
               <DevToolsPanel onDataChanged={refreshBalance} />
             </div>
 
@@ -935,50 +961,103 @@ export default function CashierScreen({
       {/* ━━━ MENU OVERLAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {showMenuPanel && (
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 z-40"
             onClick={closeMenu}
           />
-          {/* Panel */}
-          <div className="fixed left-16 top-0 z-50 flex h-full w-64 flex-col border-r border-zinc-700 bg-zinc-800 shadow-2xl">
-            <div className="shrink-0 border-b border-zinc-700 px-4 py-4">
-              <p className="text-sm font-semibold text-zinc-100">Opciones</p>
+          <div
+            role="dialog"
+            aria-label="Opciones"
+            className="fixed left-16 top-0 z-50 flex h-full w-64 flex-col border-r border-line bg-panel shadow-[0_8px_28px_rgba(28,28,30,0.16)]"
+          >
+            <div className="shrink-0 border-b border-line px-4 py-4">
+              <p className="text-sm font-semibold text-ink">Opciones</p>
               {storeName && (
-                <p className="mt-0.5 text-xs text-zinc-500">
+                <p className="mt-0.5 min-w-0 truncate text-xs text-muted" title={`${storeName} · Turno ${shiftLabel}`}>
                   {storeName} · Turno {shiftLabel}
                 </p>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto py-1.5">
-              <MenuAction emoji="🏷️" label="Catálogo" onClick={() => { setShowProductsModal(true); closeMenu() }} />
+            <div className="flex-1 overflow-y-auto py-2">
+              <SectionLabel className="px-4">Caja</SectionLabel>
+              <ListRow
+                title="Ingreso"
+                leading={<span className="text-muted"><IconCashInject /></span>}
+                onClick={() => { setShowCashInjectModal(true); closeMenu() }}
+              />
+              <ListRow
+                title="Cebo"
+                leading={<span className="text-muted"><IconCebo /></span>}
+                onClick={() => { setShowCeboModal(true); closeMenu() }}
+              />
+              <ListRow
+                title="Saldar"
+                leading={<span className="text-muted"><IconSettle /></span>}
+                onClick={() => { setShowSettleDebtModal(true); closeMenu() }}
+              />
+
+              <SectionLabel className="mt-4 px-4">Consultas</SectionLabel>
+              <ListRow title="Catálogo" onClick={() => { setShowProductsModal(true); closeMenu() }} />
               {onViewOrders && (
-                <MenuAction emoji="📦" label="Pedidos" onClick={() => { onViewOrders(); closeMenu() }} />
+                <ListRow title="Pedidos" onClick={() => { onViewOrders(); closeMenu() }} />
               )}
               {onViewDebts && (
-                <MenuAction emoji="📒" label="Fiados" onClick={() => { onViewDebts(); closeMenu() }} />
+                <ListRow title="Fiados" onClick={() => { onViewDebts(); closeMenu() }} />
               )}
               {onViewSpecialCustomers && (
-                <MenuAction emoji="👤" label="Clientes especiales" onClick={() => { onViewSpecialCustomers(); closeMenu() }} />
+                <ListRow title="Clientes especiales" onClick={() => { onViewSpecialCustomers(); closeMenu() }} />
               )}
-              <MenuAction emoji="⚖️" label="Conteo de stock" onClick={() => { setShowStockCountModal(true); closeMenu() }} />
-              <MenuAction emoji="💰" label="Liquidación / pago de sueldo" onClick={() => { setShowSalaryModal(true); closeMenu() }} />
-              <MenuAction emoji="💲" label="Descuento efectivo" onClick={() => { setShowCashDiscountModal(true); closeMenu() }} />
-              <MenuAction emoji="📋" label="Ver gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
-              <MenuAction emoji="↺" label={refreshing ? 'Actualizando…' : 'Actualizar datos'} onClick={() => { void handleRefreshRemote(); closeMenu() }} muted={refreshing} />
+
+              <SectionLabel className="mt-4 px-4">Operación</SectionLabel>
+              <ListRow title="Stock" onClick={() => { setShowStockCountModal(true); closeMenu() }} />
+              <ListRow title="Liquidación" onClick={() => { setShowSalaryModal(true); closeMenu() }} />
+              <ListRow title="Desc. efectivo" onClick={() => { setShowCashDiscountModal(true); closeMenu() }} />
+              <ListRow title="Gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
+              <ListRow
+                title={refreshing ? 'Actualizando…' : 'Actualizar'}
+                disabled={refreshing}
+                onClick={() => { void handleRefreshRemote(); closeMenu() }}
+              />
               {SHOW_ATTENDANCE_UI && (
-                <MenuAction emoji="✓" label="Asistencia" onClick={() => { setShowAttendanceModal(true); closeMenu() }} />
+                <ListRow title="Asistencia" onClick={() => { setShowAttendanceModal(true); closeMenu() }} />
               )}
             </div>
 
-            <div className="shrink-0 border-t border-zinc-800 py-1.5">
+            <div className="shrink-0 max-h-[55%] overflow-y-auto border-t border-line py-2">
+              <SectionLabel className="px-4">Apariencia</SectionLabel>
+              <div className="mx-3 mb-3 flex rounded-xl bg-hover p-1">
+                <button
+                  type="button"
+                  onClick={() => { void handleColorScheme('light') }}
+                  aria-pressed={colorScheme === 'light'}
+                  className={cx(
+                    'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
+                    colorScheme === 'light' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
+                  )}
+                >
+                  Claro
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void handleColorScheme('dark') }}
+                  aria-pressed={colorScheme === 'dark'}
+                  className={cx(
+                    'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
+                    colorScheme === 'dark' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
+                  )}
+                >
+                  Oscuro
+                </button>
+              </div>
+
+              <SectionLabel className="px-4">Sesión</SectionLabel>
               {onReturnToHub && (
-                <MenuAction emoji="←" label="Volver al hub admin" onClick={() => { onReturnToHub(); closeMenu() }} />
+                <ListRow title="Hub" onClick={() => { onReturnToHub(); closeMenu() }} />
               )}
-              <MenuAction emoji="⏹" label="Cerrar caja" onClick={() => { onCloseShift(); closeMenu() }} danger />
-              <MenuAction emoji="🔑" label="Cambiar contraseña" onClick={() => { setShowChangePassword(true); closeMenu() }} />
-              <MenuAction emoji="→" label="Cerrar sesión" onClick={() => { onLogout(); closeMenu() }} />
+              <MenuDangerItem label="Cerrar caja" onClick={() => { onCloseShift(); closeMenu() }} />
+              <ListRow title="Contraseña" onClick={() => { setShowChangePassword(true); closeMenu() }} />
+              <ListRow title="Cerrar sesión" onClick={() => { onLogout(); closeMenu() }} />
             </div>
           </div>
         </>

@@ -209,11 +209,11 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
         if (e.target === e.currentTarget && !saving) onClose()
       }}
     >
-      <div className="flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh]">
-        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
+      <div className="flex flex-col bg-input border border-line rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh]">
+        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-line px-5 py-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-white truncate">Asistencia</h2>
-            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={dateLabel}>
+            <h2 className="text-sm font-bold text-ink truncate">Asistencia</h2>
+            <p className="text-[10px] text-muted mt-0.5 truncate" title={dateLabel}>
               {dateLabel}
               {storeName ? ` · ${storeName}` : ' · carniceros del local'}
             </p>
@@ -222,7 +222,7 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors disabled:opacity-50"
+            className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors disabled:opacity-50"
             aria-label="Cerrar"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -238,11 +238,11 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           {needsStorePicker && stores.length > 1 && (
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Local</label>
+              <label className="mb-1 block text-xs text-muted">Local</label>
               <select
                 value={chosenStoreId}
                 onChange={e => setChosenStoreId(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+                className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink"
               >
                 <option value="">Elegí un local…</option>
                 {stores.map(s => (
@@ -253,17 +253,17 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
           )}
 
           {loading && (
-            <p className="text-sm text-zinc-500 text-center py-8">Cargando…</p>
+            <p className="text-sm text-muted text-center py-8">Cargando…</p>
           )}
 
           {!loading && !effectiveStoreId && (
-            <p className="text-sm text-zinc-500 text-center py-8">Elegí el local para ver la lista.</p>
+            <p className="text-sm text-muted text-center py-8">Elegí el local para ver la lista.</p>
           )}
 
           {!loading && effectiveStoreId && rows.length === 0 && !error && (
             <div className="text-center py-8 space-y-1">
-              <p className="text-sm text-zinc-500">Nadie para marcar en este local.</p>
-              <p className="text-xs text-zinc-600">
+              <p className="text-sm text-muted">Nadie para marcar en este local.</p>
+              <p className="text-xs text-subtle">
                 Si vino alguien de otro local, agregalo como visitante.
               </p>
             </div>
@@ -273,14 +273,14 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
             rows.map(row => (
               <div
                 key={row.employeeId}
-                className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-3 space-y-2"
+                className="rounded-xl border border-line bg-raised px-3 py-3 space-y-2"
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <p className="min-w-0 flex-1 text-sm font-medium text-white truncate" title={row.name}>
+                  <p className="min-w-0 flex-1 text-sm font-medium text-ink truncate" title={row.name}>
                     {row.name}
                   </p>
                   {row.visitor && (
-                    <span className="shrink-0 rounded-md bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                    <span className="shrink-0 rounded-md bg-raised px-1.5 py-0.5 text-[10px] text-muted">
                       Visitante
                     </span>
                   )}
@@ -302,11 +302,11 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
                         className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors border ${
                           selected
                             ? opt.value === 'absent'
-                              ? 'bg-red-700/40 border-red-600 text-red-200'
+                              ? 'bg-red-700/40 border-red-600 text-danger'
                               : opt.value === 'late' || opt.value === 'early_departure'
                                 ? 'bg-amber-700/40 border-amber-600 text-amber-200'
-                                : 'bg-emerald-700/40 border-emerald-600 text-emerald-200'
-                            : 'bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                                : 'bg-success/15 border-success/40 text-success'
+                            : 'bg-raised border-line text-muted hover:border-line-strong hover:text-ink'
                         }`}
                       >
                         {opt.label}
@@ -316,7 +316,7 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
                 </div>
                 {needsNote(row.status) && (
                   <div>
-                    <label className="block text-[10px] text-zinc-500 mb-1">
+                    <label className="block text-[10px] text-muted mb-1">
                       Nota (opcional)
                     </label>
                     <input
@@ -328,7 +328,7 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
                       placeholder={
                         row.status === 'absent' ? 'Motivo de la ausencia…' : 'Detalle opcional…'
                       }
-                      className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                      className="w-full rounded-lg bg-input border border-line px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                     />
                   </div>
                 )}
@@ -340,7 +340,7 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
               <button
                 type="button"
                 onClick={() => setShowVisitors(v => !v)}
-                className="text-xs text-emerald-400 hover:text-emerald-300"
+                className="text-xs text-accent hover:text-ink"
               >
                 {showVisitors ? 'Ocultar visitantes' : 'Agregar visitante'}
               </button>
@@ -351,7 +351,7 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
                       <button
                         type="button"
                         onClick={() => addVisitor(c.id)}
-                        className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 hover:border-zinc-600"
+                        className="w-full rounded-lg border border-line bg-input px-3 py-2 text-left text-sm text-ink hover:border-line-strong"
                       >
                         <span className="truncate block" title={c.name}>{c.name}</span>
                       </button>
@@ -363,23 +363,23 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
           )}
 
           {error && (
-            <div className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2">
-              <p className="text-sm text-red-300 whitespace-pre-line">{error}</p>
+            <div className="rounded-lg bg-danger/10 border border-danger/30 px-3 py-2">
+              <p className="text-sm text-danger whitespace-pre-line">{error}</p>
             </div>
           )}
           {success && (
-            <div className="rounded-lg bg-emerald-950/40 border border-emerald-800/60 px-3 py-2">
-              <p className="text-sm text-emerald-300">{success}</p>
+            <div className="rounded-lg bg-success/10 border border-success/30 px-3 py-2">
+              <p className="text-sm text-success">{success}</p>
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-700 px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="shrink-0 rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            className="shrink-0 rounded-lg px-4 py-2 text-sm text-muted hover:text-ink hover:bg-hover transition-colors disabled:opacity-50"
           >
             Cerrar
           </button>
@@ -387,7 +387,7 @@ export default function AttendanceModal({ onClose, storeId }: Props) {
             type="button"
             onClick={() => void handleSave()}
             disabled={saving || loading || rows.length === 0 || !effectiveStoreId}
-            className="shrink-0 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-40"
+            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-ink hover:bg-accent disabled:opacity-40"
           >
             {saving ? 'Guardando…' : 'Guardar'}
           </button>

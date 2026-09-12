@@ -17,6 +17,7 @@ import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import type { CustomerRow, SalePaymentPayload } from '../types/hw-api'
 import { PAYMENT_LABELS } from '../lib/paymentMethod'
 import type { PaymentMethod } from '../lib/paymentMethod'
+import { Button, Modal } from './ui'
 
 interface Props {
   total: number
@@ -42,6 +43,9 @@ const METHOD_ICONS: Record<PaymentMethod, string> = {
   credit: '🪙',
 }
 
+const fieldClass =
+  'w-full rounded-xl border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
+
 export default function DebtModal({ total, onConfirm, onClose, loading = false, error }: Props) {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
   const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; phone: string } | null>(null)
@@ -51,7 +55,6 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
   const [notes, setNotes] = useState('')
   const [step, setStep] = useState<'pick-customer' | 'confirm'>('pick-customer')
 
-  // Pago del monto inicial: modo simple (un solo método) o dividido
   const [payMode, setPayMode] = useState<'single' | 'split'>('single')
   const [singleMethod, setSingleMethod] = useState<PaymentMethod>('cash')
   type SplitRow = { id: string; method: PaymentMethod; amountRaw: string }
@@ -64,7 +67,6 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
   const initialPayment = parseNumericInput(initialPaymentRaw) ?? 0
   const debtAmount = Math.max(0, total - initialPayment)
 
-  // Actualizar el primer split row cuando cambia initialPayment (por comodidad)
   useEffect(() => {
     if (payMode === 'split') {
       setSplitRows(prev => prev.map((r, i) =>
@@ -73,14 +75,6 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPayment, payMode])
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !loading) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, loading])
 
   function handleSelectCustomer(c: CustomerRow) {
     setSelectedCustomer(c)
@@ -133,232 +127,237 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
   const customerLabel = selectedCustomer?.name ?? pendingNewCustomer?.name ?? ''
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget && !loading) onClose() }}
-    >
-      <div className="relative w-full max-w-md rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center gap-3 border-b border-zinc-800 px-6 py-4">
+    <Modal
+      open
+      onClose={onClose}
+      closeOnOverlay={!loading}
+      closeOnEscape={!loading}
+      size="md"
+      footer={step === 'confirm' ? (
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={() => setStep('pick-customer')} disabled={loading}>
+            Volver
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleConfirm}
+            disabled={loading || debtAmount <= 0}
+            loading={loading}
+          >
+            {loading ? 'Registrando...' : `Registrar fiado · ${formatARS(debtAmount)}`}
+          </Button>
+        </>
+      ) : (
+        <Button variant="secondary" className="mr-auto" onClick={onClose} disabled={loading}>
+          Cerrar
+        </Button>
+      )}
+      header={(
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {step === 'confirm' && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setStep('pick-customer')}
               disabled={loading}
-              className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              aria-label="Volver"
+              className="px-2"
             >
               ←
-            </button>
+            </Button>
           )}
-          <div className="flex-1">
-            <h2 className="text-sm font-semibold text-zinc-300">Cobro diferido (fiado)</h2>
-            <p className="text-2xl font-bold font-mono text-zinc-100">{formatARS(total)}</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-base font-semibold tracking-tight text-ink" title="Cobro diferido (fiado)">
+              Cobro diferido (fiado)
+            </h2>
+            <p className="text-2xl font-bold tabular-nums text-ink">{formatARS(total)}</p>
           </div>
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-          >
-            ✕
-          </button>
         </div>
+      )}
+    >
+      {step === 'pick-customer' && (
+        <div className="space-y-4">
+          <p className="text-xs text-muted">
+            Buscá al cliente o escribí su nombre si no está registrado.
+          </p>
+          <CustomerSearchCreate
+            onSelect={handleSelectCustomer}
+            onCreateNew={handleCreateNew}
+            autoFocus
+          />
+        </div>
+      )}
 
-        <div className="p-6 max-h-[80vh] overflow-y-auto">
-          {/* ── PASO 1: elegir cliente ── */}
-          {step === 'pick-customer' && (
-            <div className="space-y-4">
-              <p className="text-xs text-zinc-400">
-                Buscá al cliente o escribí su nombre si no está registrado.
-              </p>
-              <CustomerSearchCreate
-                onSelect={handleSelectCustomer}
-                onCreateNew={handleCreateNew}
-                autoFocus
+      {step === 'confirm' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-line bg-raised px-4 py-3">
+            <p className="mb-0.5 text-xs text-muted">
+              {selectedCustomer ? 'Cliente registrado' : 'Cliente nuevo (se creará al confirmar)'}
+            </p>
+            <p className="truncate text-base font-semibold text-ink" title={customerLabel}>{customerLabel}</p>
+            {selectedCustomer?.phone && (
+              <p className="mt-0.5 text-xs text-muted">{formatPhoneInput(selectedCustomer.phone)}</p>
+            )}
+            {pendingNewCustomer?.phone && (
+              <p className="mt-0.5 text-xs text-muted">{formatPhoneInput(pendingNewCustomer.phone)}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-muted">
+              ¿Cuánto paga ahora? <span className="text-subtle">(0 = no paga nada)</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">$</span>
+              <NumericInput
+                value={initialPaymentRaw}
+                onChange={v => {
+                  const n = parseNumericInput(v) ?? 0
+                  setInitialPaymentRaw(n >= total ? String(total) : v)
+                }}
+                onFocus={e => e.target.select()}
+                placeholder="0"
+                className={`${fieldClass} pl-7`}
               />
             </div>
-          )}
+            {initialPayment > 0 && initialPayment < total && (
+              <p className="mt-1 text-xs text-muted">
+                Queda pendiente: <span className="font-semibold text-ink">{formatARS(debtAmount)}</span>
+              </p>
+            )}
+          </div>
 
-          {/* ── PASO 2: detalles del fiado ── */}
-          {step === 'confirm' && (
-            <div className="space-y-4">
-              {/* Resumen del cliente */}
-              <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 px-4 py-3">
-                <p className="text-xs text-zinc-400/70 mb-0.5">
-                  {selectedCustomer ? 'Cliente registrado' : 'Cliente nuevo (se creará al confirmar)'}
-                </p>
-                <p className="text-base font-semibold text-zinc-100">{customerLabel}</p>
-                {selectedCustomer?.phone && (
-                  <p className="text-xs text-zinc-500 mt-0.5">{formatPhoneInput(selectedCustomer.phone)}</p>
-                )}
-                {pendingNewCustomer?.phone && (
-                  <p className="text-xs text-zinc-500 mt-0.5">{formatPhoneInput(pendingNewCustomer.phone)}</p>
-                )}
+          {initialPayment > 0 && (
+            <div className="space-y-2.5 rounded-xl border border-line bg-raised p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-muted">Medio de pago</p>
+                <button
+                  type="button"
+                  onClick={() => setPayMode(m => m === 'single' ? 'split' : 'single')}
+                  className="text-xs text-muted transition-colors hover:text-ink"
+                >
+                  {payMode === 'single' ? 'Dividir pago' : 'Un solo medio'}
+                </button>
               </div>
 
-              {/* Monto que paga ahora */}
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  ¿Cuánto paga ahora? <span className="text-zinc-600">(0 = no paga nada)</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">$</span>
-                  <NumericInput
-                    value={initialPaymentRaw}
-                    onChange={v => {
-                      const n = parseNumericInput(v) ?? 0
-                      setInitialPaymentRaw(n >= total ? String(total) : v)
-                    }}
-                    onFocus={e => e.target.select()}
-                    placeholder="0"
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-7 pr-3 py-2 text-sm text-white focus:border-zinc-500 focus:outline-none"
-                  />
-                </div>
-                {initialPayment > 0 && initialPayment < total && (
-                  <p className="text-xs text-zinc-400/80 mt-1">
-                    Queda pendiente: <span className="font-semibold">{formatARS(debtAmount)}</span>
-                  </p>
-                )}
-              </div>
-
-              {/* Medio de pago del monto inicial — solo si paga algo */}
-              {initialPayment > 0 && (
-                <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-3 space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-zinc-400 font-medium">Medio de pago</p>
+              {payMode === 'single' && (
+                <div className="grid grid-cols-4 gap-1.5">
+                  {METHODS.map(m => (
                     <button
+                      key={m}
                       type="button"
-                      onClick={() => setPayMode(m => m === 'single' ? 'split' : 'single')}
-                      className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                      onClick={() => setSingleMethod(m)}
+                      className={`flex flex-col items-center gap-0.5 rounded-lg border px-1 py-2 text-xs transition-colors ${
+                        singleMethod === m
+                          ? 'border-line-accent bg-accent-soft text-ink'
+                          : 'border-line text-muted hover:border-line-strong hover:bg-hover'
+                      }`}
                     >
-                      {payMode === 'single' ? 'Dividir pago' : 'Un solo medio'}
+                      <span className="text-base" aria-hidden>{METHOD_ICONS[m]}</span>
+                      <span className="truncate" title={PAYMENT_LABELS[m]}>{PAYMENT_LABELS[m]}</span>
                     </button>
-                  </div>
-
-                  {payMode === 'single' && (
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {METHODS.map(m => (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => setSingleMethod(m)}
-                          className={`flex flex-col items-center gap-0.5 rounded-lg border px-1 py-2 text-xs transition-colors ${
-                            singleMethod === m
-                              ? 'border-zinc-500 bg-zinc-700/40 text-zinc-100'
-                              : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                          }`}
-                        >
-                          <span className="text-base">{METHOD_ICONS[m]}</span>
-                          <span>{PAYMENT_LABELS[m]}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {payMode === 'split' && (
-                    <div className="space-y-2">
-                      {splitRows.map((row, idx) => (
-                        <div key={row.id} className="flex items-center gap-2">
-                          <select
-                            value={row.method}
-                            onChange={e => setSplitRows(prev => prev.map(r =>
-                              r.id === row.id ? { ...r, method: e.target.value as PaymentMethod } : r
-                            ))}
-                            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white focus:border-zinc-500 focus:outline-none"
-                          >
-                            {METHODS.map(m => (
-                              <option key={m} value={m}>{METHOD_ICONS[m]} {PAYMENT_LABELS[m]}</option>
-                            ))}
-                          </select>
-                          <div className="relative w-28">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">$</span>
-                            <NumericInput
-                              value={row.amountRaw}
-                              onChange={v => setSplitRows(prev => prev.map(r =>
-                                r.id === row.id ? { ...r, amountRaw: v } : r
-                              ))}
-                              placeholder="0"
-                              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-5 pr-2 py-1.5 text-xs text-white focus:border-zinc-500 focus:outline-none"
-                            />
-                          </div>
-                          {splitRows.length > 2 && (
-                            <button type="button" onClick={() => setSplitRows(prev => prev.filter(r => r.id !== row.id))}
-                              className="text-zinc-600 hover:text-red-400 text-xs">✕</button>
-                          )}
-                          {idx === splitRows.length - 1 && splitRows.length < 4 && (
-                            <button type="button"
-                              onClick={() => setSplitRows(prev => [
-                                ...prev,
-                                { id: String(Date.now()), method: 'debit', amountRaw: '' }
-                              ])}
-                              className="text-zinc-400 hover:text-zinc-200 text-xs whitespace-nowrap">+ fila</button>
-                          )}
-                        </div>
-                      ))}
-                      <div className="flex items-center justify-between text-xs pt-1">
-                        <span className="text-zinc-500">Total ingresado</span>
-                        <span className={`font-semibold ${Math.abs(splitTotal() - initialPayment) > 1 ? 'text-red-400' : 'text-emerald-400'}`}>
-                          {formatARS(splitTotal())} / {formatARS(initialPayment)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                  ))}
                 </div>
               )}
 
-              {/* Fecha de pago acordada */}
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  Fecha acordada de pago <span className="text-zinc-600">(opcional)</span>
-                </label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  min={todayIso}
-                  onChange={e => { setDueDate(e.target.value); setDueDateError('') }}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white focus:border-zinc-500 focus:outline-none [color-scheme:dark]"
-                />
-                {dueDateError && <p className="text-xs text-red-400 mt-1">{dueDateError}</p>}
-              </div>
-
-              {/* Notas */}
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  Notas <span className="text-zinc-600">(opcional)</span>
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder="ej. paga el viernes, lleva solo la mitad…"
-                  rows={2}
-                  maxLength={500}
-                  className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                />
-              </div>
-
-              {error && (
-                <p className="text-xs text-red-400 rounded-lg bg-red-900/20 border border-red-800/50 px-3 py-2">
-                  {error}
-                </p>
+              {payMode === 'split' && (
+                <div className="space-y-2">
+                  {splitRows.map((row, idx) => (
+                    <div key={row.id} className="flex items-center gap-2 min-w-0">
+                      <select
+                        value={row.method}
+                        onChange={e => setSplitRows(prev => prev.map(r =>
+                          r.id === row.id ? { ...r, method: e.target.value as PaymentMethod } : r
+                        ))}
+                        className="min-w-0 flex-1 rounded-xl border border-line bg-input px-2 py-1.5 text-xs text-ink focus:border-line-accent focus:outline-none"
+                      >
+                        {METHODS.map(m => (
+                          <option key={m} value={m}>{PAYMENT_LABELS[m]}</option>
+                        ))}
+                      </select>
+                      <div className="relative w-28 shrink-0">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted">$</span>
+                        <NumericInput
+                          value={row.amountRaw}
+                          onChange={v => setSplitRows(prev => prev.map(r =>
+                            r.id === row.id ? { ...r, amountRaw: v } : r
+                          ))}
+                          placeholder="0"
+                          className="w-full rounded-xl border border-line bg-input py-1.5 pl-5 pr-2 text-xs text-ink focus:border-line-accent focus:outline-none"
+                        />
+                      </div>
+                      {splitRows.length > 2 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSplitRows(prev => prev.filter(r => r.id !== row.id))}
+                          className="px-1 text-muted hover:text-danger"
+                        >
+                          ✕
+                        </Button>
+                      )}
+                      {idx === splitRows.length - 1 && splitRows.length < 4 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSplitRows(prev => [
+                            ...prev,
+                            { id: String(Date.now()), method: 'debit', amountRaw: '' },
+                          ])}
+                        >
+                          + fila
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-muted">Total ingresado</span>
+                    <span className={`font-semibold tabular-nums ${Math.abs(splitTotal() - initialPayment) > 1 ? 'text-danger' : 'text-success'}`}>
+                      {formatARS(splitTotal())} / {formatARS(initialPayment)}
+                    </span>
+                  </div>
+                </div>
               )}
-
-              <button
-                onClick={handleConfirm}
-                disabled={loading || debtAmount <= 0}
-                className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40 flex items-center justify-center gap-2"
-              >
-                {loading && (
-                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                )}
-                {loading ? 'Registrando...' : `Registrar fiado · ${formatARS(debtAmount)}`}
-              </button>
             </div>
           )}
+
+          <div>
+            <label className="mb-1 block text-xs text-muted">
+              Fecha acordada de pago <span className="text-subtle">(opcional)</span>
+            </label>
+            <input
+              type="date"
+              value={dueDate}
+              min={todayIso}
+              onChange={e => { setDueDate(e.target.value); setDueDateError('') }}
+              className={fieldClass}
+            />
+            {dueDateError && <p className="mt-1 text-xs text-danger">{dueDateError}</p>}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-muted">
+              Notas <span className="text-subtle">(opcional)</span>
+            </label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="ej. paga el viernes, lleva solo la mitad…"
+              rows={2}
+              maxLength={500}
+              className={`${fieldClass} resize-none`}
+            />
+          </div>
+
+          {error && (
+            <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {error}
+            </p>
+          )}
         </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   )
 }
-
-

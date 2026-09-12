@@ -5,8 +5,8 @@
  * Admin: igual + eliminación permanente.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import BackButton from '../components/BackButton'
 import NumericInput from '../components/NumericInput'
+import { ActionMenu, Button, ScreenHeader } from '../components/ui'
 import DecimalInput from '../components/DecimalInput'
 import { parseNumericInput, formatNumericInputValue, parseDecimalInput } from '../lib/numericInput'
 import { addDaysYmd, formatARS, formatYmd, todayLocalYmd, toLocalDateTime } from '../lib/datetime'
@@ -60,9 +60,9 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: 'bg-amber-950/50 text-amber-400/80 border-amber-900/40',
-  ready: 'bg-zinc-800/70 text-zinc-300 border-zinc-700/60',
-  delivered: 'bg-emerald-950/50 text-emerald-400/70 border-emerald-900/40',
-  cancelled: 'bg-zinc-800/40 text-zinc-500 border-zinc-700/40',
+  ready: 'bg-raised text-ink border-line',
+  delivered: 'bg-accent-soft text-success border-line-accent',
+  cancelled: 'bg-raised text-muted border-line',
 }
 
 /** Línea editable en el carrito de presupuesto (UI) */
@@ -208,17 +208,17 @@ interface ConfirmModalProps {
   onCancel: () => void
 }
 
-function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-emerald-600 hover:bg-emerald-700', onConfirm, onCancel }: ConfirmModalProps) {
+function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-accent hover:bg-accent', onConfirm, onCancel }: ConfirmModalProps) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4 overflow-hidden animate-modal-enter">
-        <h2 className="text-base font-semibold text-white break-words">{title}</h2>
-        <div className="text-sm text-zinc-400 break-words">{message}</div>
+      <div className="bg-panel rounded-2xl border border-line w-full max-w-sm p-6 space-y-4 overflow-hidden animate-modal-enter">
+        <h2 className="text-base font-semibold text-ink break-words">{title}</h2>
+        <div className="text-sm text-muted break-words">{message}</div>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors">
+          <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors">
             Cancelar
           </button>
-          <button onClick={onConfirm} className={`flex-1 py-2 rounded-xl font-semibold transition-colors text-white ${confirmClassName}`}>
+          <button onClick={onConfirm} className={`flex-1 py-2 rounded-xl font-semibold transition-colors text-ink ${confirmClassName}`}>
             {confirmLabel}
           </button>
         </div>
@@ -708,76 +708,61 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
   }
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-zinc-100">Pedidos</h1>
-          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-            {urgentTodayCount > 0 && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-950/60 text-red-400/80 border border-red-900/40">
-                {urgentTodayCount} hoy
-              </span>
+    <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
+      <ScreenHeader
+        title="Pedidos"
+        subtitle={
+          [urgentTodayCount > 0 ? `${urgentTodayCount} para hoy` : '', urgentTomorrowCount > 0 ? `${urgentTomorrowCount} para mañana` : '']
+            .filter(Boolean)
+            .join(' · ') || undefined
+        }
+        onBack={onBack}
+        actions={
+          <>
+            {showStoreFilter && availableStores.length > 0 && (
+              <StoreFilter
+                stores={availableStores}
+                value={storeIdFilter}
+                onChange={v => setStoreIdFilter(v)}
+              />
             )}
-            {urgentTomorrowCount > 0 && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">
-                {urgentTomorrowCount} mañana
-              </span>
+            {!search.trim() && (
+              <Button
+                type="button"
+                variant={showClosed ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setShowClosed(v => !v)}
+                title={showClosed ? 'Volver a listos y pendientes' : 'Ver cobrados y cancelados'}
+              >
+                Entregados y cancelados
+              </Button>
             )}
-          </div>
-        </div>
-        {showStoreFilter && availableStores.length > 0 && (
-          <StoreFilter
-            stores={availableStores}
-            value={storeIdFilter}
-            onChange={v => setStoreIdFilter(v)}
-          />
-        )}
-        {!search.trim() && (
-          <button
-            type="button"
-            onClick={() => setShowClosed(v => !v)}
-            aria-pressed={showClosed}
-            title={showClosed ? 'Volver a listos y pendientes' : 'Ver cobrados y cancelados'}
-            className={`text-xs px-2.5 py-1.5 rounded-lg border shrink-0 transition-colors ${
-              showClosed
-                ? 'border-zinc-600 bg-zinc-800 text-zinc-200'
-                : 'border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800/50'
-            }`}
-          >
-            Entregados y cancelados
-          </button>
-        )}
-        <button
-          onClick={openCreate}
-          className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold transition-colors shrink-0"
-        >
-          + Nuevo pedido
-        </button>
-      </header>
+            <Button size="sm" onClick={openCreate}>+ Nuevo pedido</Button>
+          </>
+        }
+      />
 
       {/* Filters */}
-      <div className="px-4 py-2 border-b border-zinc-800/60 shrink-0">
+      <div className="px-4 py-2 border-b border-line shrink-0">
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar cliente, teléfono o producto (incluye entregados)"
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+          className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
         />
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-        {loading && <p className="text-zinc-500 text-sm text-center py-8 animate-pulse">Cargando pedidos…</p>}
-        {error && <p className="text-red-400 text-sm text-center py-8">{error}</p>}
+        {loading && <p className="text-muted text-sm text-center py-8 animate-pulse">Cargando pedidos…</p>}
+        {error && <p className="text-danger text-sm text-center py-8">{error}</p>}
         {!loading && !error && ordersView.mode === 'search' && (
           ordersView.results.length === 0 ? (
-            <p className="text-zinc-500 text-sm text-center py-8">Ningún pedido coincide.</p>
+            <p className="text-muted text-sm text-center py-8">Ningún pedido coincide.</p>
           ) : (
             <section className="space-y-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
                 Resultados <span className="tabular-nums">({ordersView.results.length})</span>
               </h2>
               {ordersView.results.map(renderOrderCard)}
@@ -786,11 +771,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
         )}
         {!loading && !error && ordersView.mode === 'closed' && (
           <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
               Entregados y cancelados <span className="tabular-nums">({ordersView.results.length})</span>
             </h2>
             {ordersView.results.length === 0 ? (
-              <p className="text-xs text-zinc-600 px-1">No hay entregados ni cancelados.</p>
+              <p className="text-xs text-subtle px-1">No hay entregados ni cancelados.</p>
             ) : (
               ordersView.results.map(renderOrderCard)
             )}
@@ -799,21 +784,21 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
         {!loading && !error && ordersView.mode === 'grouped' && (
           <>
             <section className="space-y-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                Listos <span className="tabular-nums text-zinc-500">({ordersView.ready.length})</span>
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                Listos <span className="tabular-nums text-muted">({ordersView.ready.length})</span>
               </h2>
               {ordersView.ready.length === 0 ? (
-                <p className="text-xs text-zinc-600 px-1">No hay pedidos listos.</p>
+                <p className="text-xs text-subtle px-1">No hay pedidos listos.</p>
               ) : (
                 ordersView.ready.map(renderOrderCard)
               )}
             </section>
             <section className="space-y-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                Pendientes <span className="tabular-nums text-zinc-500">({ordersView.pending.length})</span>
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                Pendientes <span className="tabular-nums text-muted">({ordersView.pending.length})</span>
               </h2>
               {ordersView.pending.length === 0 ? (
-                <p className="text-xs text-zinc-600 px-1">No hay pedidos pendientes.</p>
+                <p className="text-xs text-subtle px-1">No hay pedidos pendientes.</p>
               ) : (
                 ordersView.pending.map(renderOrderCard)
               )}
@@ -825,12 +810,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       {/* Create / Edit form modal */}
       {(showCreate || editingOrder) && (
         <div className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg bg-zinc-800 rounded-t-2xl sm:rounded-2xl border border-zinc-700 max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+          <div className="w-full sm:max-w-lg bg-panel rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between">
               <h2 className="text-base font-semibold">
                 {editingOrder ? 'Editar pedido' : 'Nuevo pedido'}
               </h2>
-              <button onClick={closeForm} className="text-zinc-400 hover:text-white text-xl">×</button>
+              <button onClick={closeForm} className="text-muted hover:text-ink text-xl">×</button>
             </div>
 
             <div className="px-5 py-4 space-y-4">
@@ -854,7 +839,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                         return { ...f, storeId, timeSlot }
                       })
                     }}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-sm"
+                    className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink focus:outline-none focus:border-line-accent text-sm"
                   >
                     <option value="">— Seleccioná un local —</option>
                     {availableStores.map(s => (
@@ -872,7 +857,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                   onChange={e => setForm(f => ({ ...f, priority: e.target.checked }))}
                   className="w-4 h-4 accent-orange-500"
                 />
-                <span className="text-sm font-medium text-zinc-400">⚡ Pedido prioritario / importante</span>
+                <span className="text-sm font-medium text-muted">⚡ Pedido prioritario / importante</span>
               </label>
 
               <Field label="Nombre del cliente *">
@@ -882,7 +867,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                   onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
                   placeholder="Ej: Restaurante El Sol"
                   maxLength={100}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
                 />
               </Field>
 
@@ -894,15 +879,15 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                   onChange={e => setForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) }))}
                   placeholder="+54 9 11 1234-5678"
                   maxLength={30}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
                 />
               </Field>
 
               {/* Productos del pedido (obligatorio) */}
-              <div className="space-y-3 bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/60">
-                <p className="text-sm font-medium text-zinc-300">Productos *</p>
+              <div className="space-y-3 bg-raised rounded-xl p-4 border border-line">
+                <p className="text-sm font-medium text-ink">Productos *</p>
                 {editingOrder && form.budgetCart.length === 0 && form.items && (
-                  <p className="text-[11px] text-zinc-500 break-words" title={form.items}>
+                  <p className="text-[11px] text-muted break-words" title={form.items}>
                     Texto anterior: {form.items}
                   </p>
                 )}
@@ -914,10 +899,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                       const missingWeight = kgLineMissingWeight(line)
                       return (
                       <div key={idx} className="space-y-1">
-                      <div className="flex items-center gap-2 bg-zinc-700/40 rounded-lg px-3 py-1.5">
+                      <div className="flex items-center gap-2 bg-hover rounded-lg px-3 py-1.5">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs text-zinc-200 truncate" title={line.name}>{line.name}</p>
-                          <p className="text-[10px] text-zinc-500">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                          <p className="text-xs text-ink truncate" title={line.name}>{line.name}</p>
+                          <p className="text-[10px] text-muted">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
                         </div>
                         <div className="shrink-0 w-20">
                           {line.unit === 'kg' ? (
@@ -929,10 +914,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                               maxDecimals={3}
                               weightMode
                               title="Peso estimado"
-                              className={`w-full bg-zinc-800 rounded px-2 py-1 text-xs text-white text-right ${
+                              className={`w-full bg-panel rounded px-2 py-1 text-xs text-ink text-right ${
                                 missingWeight
                                   ? 'border border-orange-600/80'
-                                  : 'border border-zinc-600'
+                                  : 'border border-line-strong'
                               }`}
                             />
                           ) : (
@@ -941,11 +926,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                               value={line.qtyRaw}
                               onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l) }))}
                               placeholder="0"
-                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                              className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
                             />
                           )}
                         </div>
-                        <span className="text-[10px] text-zinc-500 shrink-0 w-6">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                        <span className="text-[10px] text-muted shrink-0 w-6">{line.unit === 'kg' ? 'kg' : 'u'}</span>
                         {line.unit === 'kg' && (
                           <>
                             <div className="shrink-0 w-12">
@@ -954,16 +939,16 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                                 onChange={v => setForm(f => ({ ...f, budgetCart: f.budgetCart.map((l, i) => i === idx ? { ...l, requestedUnitsRaw: v } : l) }))}
                                 placeholder=""
                                 title="Unidades pedidas (opcional). Vacío = pidió kilos."
-                                className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                                className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
                               />
                             </div>
-                            <span className="text-[10px] text-zinc-500 shrink-0" title="Unidades pedidas">u</span>
+                            <span className="text-[10px] text-muted shrink-0" title="Unidades pedidas">u</span>
                           </>
                         )}
                         <button
                           type="button"
                           onClick={() => setForm(f => ({ ...f, budgetCart: f.budgetCart.filter((_, i) => i !== idx) }))}
-                          className="shrink-0 text-zinc-500 hover:text-red-400 text-sm"
+                          className="shrink-0 text-muted hover:text-danger text-sm"
                           title="Quitar"
                         >
                           ×
@@ -987,10 +972,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                     value={budgetSearch}
                     onChange={e => setBudgetSearch(e.target.value)}
                     placeholder="Buscar producto…"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
                   />
                   {budgetSuggestions.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-panel border border-line-strong rounded-lg shadow-xl max-h-48 overflow-y-auto">
                       {budgetSuggestions.map(p => (
                         <button
                           key={p.id}
@@ -1012,10 +997,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                             setBudgetSearch('')
                             setBudgetSuggestions([])
                           }}
-                          className="w-full text-left px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700/80 flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-hover flex items-center gap-2"
                         >
                           <span className="truncate flex-1" title={p.name}>{p.name}</span>
-                          <span className="text-zinc-500 shrink-0">{formatARS(p.price ?? 0)}/{p.unit === 'kg' ? 'kg' : 'u'}</span>
+                          <span className="text-muted shrink-0">{formatARS(p.price ?? 0)}/{p.unit === 'kg' ? 'kg' : 'u'}</span>
                         </button>
                       ))}
                     </div>
@@ -1023,9 +1008,9 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                 </div>
 
                 {liveEstimate > 0 && (
-                  <div className="flex items-center justify-between pt-1 border-t border-zinc-700/50">
-                    <span className="text-xs text-zinc-400">Total estimado</span>
-                    <span className="text-sm font-semibold text-zinc-100 tabular-nums">{formatARS(liveEstimate)}</span>
+                  <div className="flex items-center justify-between pt-1 border-t border-line">
+                    <span className="text-xs text-muted">Total estimado</span>
+                    <span className="text-sm font-semibold text-ink tabular-nums">{formatARS(liveEstimate)}</span>
                   </div>
                 )}
               </div>
@@ -1037,7 +1022,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                   placeholder="Observaciones del pedido…"
                   rows={2}
                   maxLength={300}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 resize-none"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent resize-none"
                 />
               </Field>
 
@@ -1057,13 +1042,13 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                       return { ...f, pickupDate, timeSlot }
                     })
                   }}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink focus:outline-none focus:border-line-accent"
                 />
               </Field>
 
               {/* Horario de retiro */}
               <div className="space-y-2">
-                <label className="text-xs text-zinc-400">Horario de retiro (opcional)</label>
+                <label className="text-xs text-muted">Horario de retiro (opcional)</label>
                 <div className={`grid gap-2 ${pickupSlotOptions.length === 3 ? 'grid-cols-3' : pickupSlotOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                   {pickupSlotOptions.map(slot => (
                     <button
@@ -1072,8 +1057,8 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                       onClick={() => setForm(f => ({ ...f, timeSlot: f.timeSlot === slot ? '' : slot }))}
                       className={`py-2 rounded-lg text-xs font-medium transition-colors border ${
                         form.timeSlot === slot
-                          ? 'bg-emerald-600 border-emerald-500 text-white'
-                          : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                          ? 'bg-accent border-line-accent text-ink'
+                          : 'bg-panel border-line text-ink hover:bg-hover'
                       }`}
                     >
                       {TIME_SLOT_LABELS[slot]}
@@ -1090,23 +1075,23 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                         setFormError(null)
                         setForm(f => ({ ...f, pickupTime: e.target.value }))
                       }}
-                      className={`w-full bg-zinc-800 border rounded-lg px-3 py-2 text-white focus:outline-none ${
+                      className={`w-full bg-panel border rounded-lg px-3 py-2 text-ink focus:outline-none ${
                         livePickupHoursError
                           ? 'border-red-500 focus:border-red-400'
-                          : 'border-zinc-700 focus:border-emerald-500'
+                          : 'border-line focus:border-line-accent'
                       }`}
                     />
                     {livePickupHoursError && (
-                      <p className="text-sm text-red-400">{livePickupHoursError}</p>
+                      <p className="text-sm text-danger">{livePickupHoursError}</p>
                     )}
                   </>
                 )}
               </div>
 
               {/* Seña multi-método */}
-              <div className="space-y-3 bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/60">
+              <div className="space-y-3 bg-raised rounded-xl p-4 border border-line">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-zinc-300">Seña (opcional)</p>
+                  <p className="text-sm font-medium text-ink">Seña (opcional)</p>
                   {totalDeposit > 0 && (
                     <span className="text-sm font-semibold text-blue-300">{formatARS(totalDeposit)} total</span>
                   )}
@@ -1114,32 +1099,32 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                 <div className="space-y-2">
                   {(['cash', 'debit', 'wallet', 'credit'] as DepositMethod[]).map(m => (
                     <div key={m} className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-400 w-28 shrink-0">{DEPOSIT_METHOD_LABELS[m]}</span>
+                      <span className="text-xs text-muted w-28 shrink-0">{DEPOSIT_METHOD_LABELS[m]}</span>
                       <NumericInput
                         value={getDepositRaw(m)}
                         onChange={v => setDepositForMethod(m, v)}
                         placeholder="0"
-                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                        className="flex-1 bg-panel border border-line rounded-lg px-3 py-1.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
                       />
                     </div>
                   ))}
                 </div>
               </div>
 
-              {formError && <p className="text-red-400 text-sm">{formError}</p>}
+              {formError && <p className="text-danger text-sm">{formError}</p>}
 
               <div className="flex gap-3 pt-1">
                 <button
                   onClick={closeForm}
                   disabled={saving}
-                  className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
+                  className="flex-1 py-3 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={() => void handleSave()}
                   disabled={saving || !formIsValid}
-                  className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors disabled:opacity-40"
+                  className="flex-1 py-3 rounded-xl bg-accent hover:bg-accent font-semibold transition-colors disabled:opacity-40"
                 >
                   {saving ? 'Guardando…' : editingOrder ? 'Guardar cambios' : 'Crear pedido'}
                 </button>
@@ -1153,35 +1138,35 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       {/* Modal de cobro por POS (nuevo flujo) */}
       {chargeModalOrder && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-overlay-fade">
-          <div className="w-full sm:max-w-lg bg-zinc-800 rounded-t-2xl sm:rounded-2xl border border-zinc-700 max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between">
+          <div className="w-full sm:max-w-lg bg-panel rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-bold text-white">Cobrar pedido</h2>
-                <p className="text-xs text-zinc-400 truncate" title={chargeModalOrder.customerName}>
+                <h2 className="text-sm font-bold text-ink">Cobrar pedido</h2>
+                <p className="text-xs text-muted truncate" title={chargeModalOrder.customerName}>
                   {chargeModalOrder.customerName}
                   {chargeModalOrder.depositAmount > 0 && (
                     <> · Seña: <span className="text-blue-300 font-medium">{formatARS(chargeModalOrder.depositAmount)}</span></>
                   )}
                 </p>
               </div>
-              <button onClick={() => setChargeModalOrder(null)} className="text-zinc-400 hover:text-white text-xl shrink-0 ml-2">×</button>
+              <button onClick={() => setChargeModalOrder(null)} className="text-muted hover:text-ink text-xl shrink-0 ml-2">×</button>
             </div>
             <div className="px-5 py-4 space-y-3">
               {chargeCartLines.length > 0 ? (
                 <>
-                  <p className="text-xs text-zinc-400">Ingresá las cantidades reales. Podés quitar productos antes de cobrar.</p>
+                  <p className="text-xs text-muted">Ingresá las cantidades reales. Podés quitar productos antes de cobrar.</p>
                   <div className="space-y-2">
                     {chargeCartLines.map((line, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-zinc-700/50 rounded-lg px-3 py-2">
+                      <div key={idx} className="flex items-center gap-2 bg-hover rounded-lg px-3 py-2">
                         <input
                           type="checkbox"
                           checked={line.checked}
                           onChange={e => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, checked: e.target.checked } : l))}
-                          className="shrink-0 accent-emerald-500"
+                          className="shrink-0 accent-accent"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs text-zinc-200 truncate" title={line.name}>{line.name}</p>
-                          <p className="text-[10px] text-zinc-500">
+                          <p className="text-xs text-ink truncate" title={line.name}>{line.name}</p>
+                          <p className="text-[10px] text-muted">
                             {formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}
                             {line.requestedUnits != null && line.requestedUnits > 0 && (
                               <> · {line.requestedUnits} u</>
@@ -1199,24 +1184,24 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                               placeholder={line.estimatedQty > 0 ? formatKgQty(line.estimatedQty).replace(' kg', '') : ''}
                               maxDecimals={3}
                               weightMode
-                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                              className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
                             />
                           ) : (
                             <NumericInput
                               value={line.qtyRaw}
                               onChange={v => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l))}
                               placeholder={String(Math.round(line.estimatedQty))}
-                              className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-xs text-white text-right"
+                              className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
                             />
                           )}
                         </div>
-                        <span className="text-[10px] text-zinc-500 shrink-0">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                        <span className="text-[10px] text-muted shrink-0">{line.unit === 'kg' ? 'kg' : 'u'}</span>
                       </div>
                     ))}
                   </div>
                 </>
               ) : (
-                <p className="text-xs text-zinc-400">
+                <p className="text-xs text-muted">
                   Este pedido no tiene presupuesto cargado. Podés ir al POS y agregar los productos manualmente.
                   {!onInjectOrderCart && chargeModalOrder.depositAmount > 0 && (
                     <> La seña cubre el total — se marcará como entregado sin nueva venta.</>
@@ -1224,20 +1209,20 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                 </p>
               )}
 
-              {chargeError && <p className="text-xs text-red-400">{chargeError}</p>}
+              {chargeError && <p className="text-xs text-danger">{chargeError}</p>}
 
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setChargeModalOrder(null)}
-                  className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 text-sm"
+                  className="flex-1 py-2 rounded-xl border border-line text-ink text-sm"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmCharge}
-                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold"
+                  className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent text-ink text-sm font-semibold"
                 >
                   {onInjectOrderCart ? 'Confirmar' : 'Marcar entregado'}
                 </button>
@@ -1253,12 +1238,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
           title={`¿${confirmStatus.status === 'ready' ? 'Marcar como listo' : confirmStatus.status === 'delivered' ? 'Marcar como entregado' : 'Revertir a pendiente'}?`}
           message={
             <>
-              Pedido de <strong className="text-white break-all">{confirmStatus.order.customerName}</strong>.
+              Pedido de <strong className="text-ink break-all">{confirmStatus.order.customerName}</strong>.
               {' '}Esta acción quedará registrada con tu usuario.
             </>
           }
           confirmLabel={confirmStatus.status === 'ready' ? 'Sí, marcar listo' : confirmStatus.status === 'delivered' ? 'Sí, marcar entregado' : 'Sí, revertir'}
-          confirmClassName={confirmStatus.status === 'delivered' ? 'bg-emerald-600 hover:bg-emerald-700' : confirmStatus.status === 'ready' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}
+          confirmClassName={confirmStatus.status === 'delivered' ? 'bg-accent hover:bg-accent' : confirmStatus.status === 'ready' ? 'bg-accent hover:bg-accent' : 'bg-amber-600 hover:bg-amber-700'}
           onConfirm={() => void executeStatusChange(confirmStatus.order, confirmStatus.status)}
           onCancel={() => setConfirmStatus(null)}
         />
@@ -1271,7 +1256,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
           message={
             <>
               <p>
-                El pedido de <strong className="text-white break-all">{confirmCancel.customerName}</strong> pasará a estado cancelado.
+                El pedido de <strong className="text-ink break-all">{confirmCancel.customerName}</strong> pasará a estado cancelado.
                 Esta acción quedará registrada con tu usuario.
               </p>
               {confirmCancel.depositAmount > 0 && (
@@ -1280,19 +1265,19 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                     ⚠ Este pedido tenía una seña de <strong>${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong>.
                   </p>
                   {currentShiftId ? (
-                    <label className="flex items-start gap-2 cursor-pointer select-none bg-zinc-800 rounded-lg p-3">
+                    <label className="flex items-start gap-2 cursor-pointer select-none bg-panel rounded-lg p-3">
                       <input
                         type="checkbox"
                         checked={registerRefund}
                         onChange={e => setRegisterRefund(e.target.checked)}
-                        className="mt-0.5 shrink-0 accent-emerald-500"
+                        className="mt-0.5 shrink-0 accent-accent"
                       />
-                      <span className="text-xs text-zinc-300">
-                        Registrar devolución de <strong className="text-white">${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong> como gasto de este turno
+                      <span className="text-xs text-ink">
+                        Registrar devolución de <strong className="text-ink">${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong> como gasto de este turno
                       </span>
                     </label>
                   ) : (
-                    <p className="text-xs text-zinc-400 bg-zinc-800 rounded-lg p-3">
+                    <p className="text-xs text-muted bg-panel rounded-lg p-3">
                       No hay turno activo. Si se devuelve la seña, recordá registrarla manualmente como gasto en el próximo turno (categoría: <em>Devolución de seña</em>).
                     </p>
                   )}
@@ -1301,7 +1286,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
             </>
           }
           confirmLabel="Sí, cancelar pedido"
-          confirmClassName="bg-red-600 hover:bg-red-700"
+          confirmClassName="bg-danger hover:bg-danger"
           onConfirm={() => void executeCancelOrder(confirmCancel, registerRefund)}
           onCancel={() => setConfirmCancel(null)}
         />
@@ -1310,30 +1295,30 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       {/* Modal de confirmación de seña antes de guardar */}
       {showDepositConfirm && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-zinc-800 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 space-y-4">
-            <h2 className="text-base font-semibold text-white">
+          <div className="bg-panel rounded-2xl border border-line w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-ink">
               {editingOrder ? 'Confirmar cambios en el pedido' : 'Confirmar pedido con seña'}
             </h2>
 
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-zinc-400">Cliente</span>
-                <span className="text-white font-medium truncate ml-4">{form.customerName.trim()}</span>
+                <span className="text-muted">Cliente</span>
+                <span className="text-ink font-medium truncate ml-4">{form.customerName.trim()}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-400">Retiro</span>
-                <span className="text-white">{formatYmd(form.pickupDate)}</span>
+                <span className="text-muted">Retiro</span>
+                <span className="text-ink">{formatYmd(form.pickupDate)}</span>
               </div>
-              <div className="border-t border-zinc-700 pt-2 space-y-1">
-                <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Seña</p>
+              <div className="border-t border-line pt-2 space-y-1">
+                <p className="text-xs text-muted font-semibold uppercase tracking-wider">Seña</p>
                 {form.depositPayments.map(p => (
                   <div key={p.method} className="flex justify-between">
-                    <span className="text-zinc-400">{DEPOSIT_METHOD_LABELS[p.method]}</span>
+                    <span className="text-muted">{DEPOSIT_METHOD_LABELS[p.method]}</span>
                     <span className="text-blue-300 font-semibold">{formatARS(p.amount)}</span>
                   </div>
                 ))}
-                <div className="flex justify-between border-t border-zinc-700 pt-1">
-                  <span className="text-zinc-300 font-semibold">Total seña</span>
+                <div className="flex justify-between border-t border-line pt-1">
+                  <span className="text-ink font-semibold">Total seña</span>
                   <span className="text-blue-300 font-bold">{formatARS(depositTotal(form.depositPayments))}</span>
                 </div>
               </div>
@@ -1342,14 +1327,14 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDepositConfirm(false)}
-                className="flex-1 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm"
+                className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors text-sm"
               >
                 Volver
               </button>
               <button
                 onClick={() => void doSave()}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 font-semibold transition-colors text-white text-sm disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent font-semibold transition-colors text-ink text-sm disabled:opacity-40"
               >
                 {saving ? 'Guardando…' : 'Confirmar'}
               </button>
@@ -1365,12 +1350,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
           message={
             <>
               Se eliminará el registro completo del pedido de{' '}
-              <strong className="text-white break-all">{confirmHardDelete.customerName}</strong>.
+              <strong className="text-ink break-all">{confirmHardDelete.customerName}</strong>.
               Esta acción <strong>no se puede deshacer</strong>.
             </>
           }
           confirmLabel="Sí, eliminar para siempre"
-          confirmClassName="bg-red-700 hover:bg-red-800"
+          confirmClassName="bg-danger hover:bg-danger"
           onConfirm={() => void executeHardDelete(confirmHardDelete)}
           onCancel={() => setConfirmHardDelete(null)}
         />
@@ -1392,17 +1377,17 @@ function ProductQtyTable({ lines, showPrice = false }: { lines: BudgetCartLine[]
           return (
             <tr key={i}>
               <td
-                className="border border-zinc-600/80 px-2.5 py-1 text-zinc-200 max-w-[11rem] truncate"
+                className="border border-line px-2.5 py-1 text-ink max-w-[11rem] truncate"
                 title={line.name}
               >
                 {line.name}
               </td>
-              <td className="border border-zinc-600/80 px-2.5 py-1 text-right whitespace-nowrap">
-                <span className="tabular-nums text-zinc-100">{formatOrderQty(line)}</span>
-                {hint && <span className="ml-1.5 text-[11px] text-zinc-500">{hint}</span>}
+              <td className="border border-line px-2.5 py-1 text-right whitespace-nowrap">
+                <span className="tabular-nums text-ink">{formatOrderQty(line)}</span>
+                {hint && <span className="ml-1.5 text-[11px] text-muted">{hint}</span>}
               </td>
               {showPrice && (
-                <td className="border border-zinc-600/80 px-2.5 py-1 text-right text-zinc-500 tabular-nums whitespace-nowrap">
+                <td className="border border-line px-2.5 py-1 text-right text-muted tabular-nums whitespace-nowrap">
                   {formatARS(line.unitPrice)}/{line.unit === 'kg' ? 'kg' : 'u'}
                 </td>
               )}
@@ -1466,18 +1451,18 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
   return (
     <div
       id={`order-${order.id}`}
-      className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-emerald-500 shadow-lg shadow-emerald-900/40' : ''} ${
+      className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-accent shadow-[0_8px_24px_rgba(232,93,76,0.18)]' : ''} ${
         order.status === 'cancelled'
-          ? 'border-zinc-700 bg-zinc-800/40 opacity-60'
+          ? 'border-line bg-raised opacity-60'
           : overdue
-          ? 'border-red-900/50 bg-red-950/20'
+          ? 'border-danger/40 bg-danger/10'
           : today
           ? 'border-amber-900/50 bg-amber-950/20'
           : tomorrow
-          ? 'border-zinc-600 bg-zinc-800'
+          ? 'border-line-strong bg-panel'
           : order.priority
-          ? 'border-zinc-600 bg-zinc-800'
-          : 'border-zinc-700 bg-zinc-800'
+          ? 'border-line-strong bg-panel'
+          : 'border-line bg-panel'
       }`}
     >
       <div
@@ -1487,28 +1472,28 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             {order.priority && (
-              <span className="text-xs text-zinc-500" title="Prioritario">⚡</span>
+              <span className="text-xs text-muted" title="Prioritario">⚡</span>
             )}
-            <span className="text-base font-semibold text-white truncate" title={order.customerName}>
+            <span className="text-base font-semibold text-ink truncate" title={order.customerName}>
               {order.customerName}
             </span>
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_COLORS[order.status]}`}>
               {STATUS_LABELS[order.status]}
             </span>
             {overdue && order.status !== 'cancelled' && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-950/60 text-red-400/80 border border-red-900/40">Vencido</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/30">Vencido</span>
             )}
             {!overdue && today && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">Hoy</span>
             )}
             {!overdue && tomorrow && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-zinc-800/60 text-zinc-400 border border-zinc-700/50">Mañana</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-raised text-muted border border-line">Mañana</span>
             )}
             {dueSoon && (order.status === 'pending' || order.status === 'ready') && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-950/60 text-orange-300 border border-orange-900/40">Retiro próximo</span>
             )}
             {outsideHours && (order.status === 'pending' || order.status === 'ready') && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-950/60 text-red-300 border border-red-900/40" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/30" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
             )}
           </div>
           {productLines ? (
@@ -1516,69 +1501,69 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
               <ProductQtyTable lines={productLines} />
             </div>
           ) : (
-            <p className="text-sm text-zinc-400 mt-1.5 truncate" title={order.items}>
+            <p className="text-sm text-muted mt-1.5 truncate" title={order.items}>
               {order.items}
             </p>
           )}
         </div>
         <div className="shrink-0 text-right w-36">
-          <p className="text-sm text-zinc-300">{formattedDate}</p>
-          {timeSlotLabel() && <p className="text-xs text-zinc-500 mt-0.5">{timeSlotLabel()}</p>}
+          <p className="text-sm text-ink">{formattedDate}</p>
+          {timeSlotLabel() && <p className="text-xs text-muted mt-0.5">{timeSlotLabel()}</p>}
           {estimate > 0 && (
-            <p className="text-sm font-semibold text-zinc-100 tabular-nums mt-2">{formatARS(estimate)}</p>
+            <p className="text-sm font-semibold text-ink tabular-nums mt-2">{formatARS(estimate)}</p>
           )}
           {order.depositAmount > 0 && (
             <p className="text-xs text-blue-300/90 mt-0.5">{formatARS(order.depositAmount)} seña</p>
           )}
         </div>
-        <span className="text-zinc-500 shrink-0 mt-1">{expanded ? '▲' : '▼'}</span>
+        <span className="text-muted shrink-0 mt-1">{expanded ? '▲' : '▼'}</span>
       </div>
 
       {expanded && (
-        <div className="px-5 pb-4 space-y-4 border-t border-zinc-800/60 pt-3">
+        <div className="px-5 pb-4 space-y-4 border-t border-line pt-3">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2 min-w-0">
               {order.phone && (
-                <p className="text-sm text-zinc-400">Tel: <span className="text-zinc-200">{order.phone}</span></p>
+                <p className="text-sm text-muted">Tel: <span className="text-ink">{order.phone}</span></p>
               )}
               {order.notes && (
-                <p className="text-sm text-zinc-400 break-words">
-                  Notas: <span className="text-zinc-200">{order.notes}</span>
+                <p className="text-sm text-muted break-words">
+                  Notas: <span className="text-ink">{order.notes}</span>
                 </p>
               )}
               {order.createdBy && (
-                <p className="text-xs text-zinc-500">
-                  Registrado por <span className="text-zinc-300">{order.createdBy}</span>
+                <p className="text-xs text-muted">
+                  Registrado por <span className="text-ink">{order.createdBy}</span>
                   {order.createdAt ? ` · ${toLocalDateTime(order.createdAt)}` : ''}
                 </p>
               )}
               {order.readyByName && order.readyAt && (
-                <p className="text-xs text-emerald-500">
+                <p className="text-xs text-success">
                   Listo por <span className="font-medium">{order.readyByName}</span>
                   {' · '}{toLocalDateTime(order.readyAt)}
                 </p>
               )}
               {order.status === 'delivered' && (order.updatedBy || order.updatedAt) && (
-                <p className="text-xs text-emerald-400/90">
+                <p className="text-xs text-success">
                   Cobrado por <span className="font-medium">{order.updatedBy ?? '—'}</span>
                   {order.updatedAt ? ` · ${toLocalDateTime(order.updatedAt)}` : ''}
                 </p>
               )}
               {order.status !== 'delivered' && order.updatedBy && (
-                <p className="text-xs text-zinc-600">
+                <p className="text-xs text-subtle">
                   Última modificación: {order.updatedBy}
                 </p>
               )}
             </div>
             <div className="space-y-2 min-w-0">
               {estimate > 0 && (
-                <p className="text-sm text-zinc-300">
-                  Total estimado: <span className="font-semibold text-zinc-100 tabular-nums">{formatARS(estimate)}</span>
+                <p className="text-sm text-ink">
+                  Total estimado: <span className="font-semibold text-ink tabular-nums">{formatARS(estimate)}</span>
                 </p>
               )}
               {depositPayments.length > 0 && (
-                <div className="text-sm text-zinc-400 space-y-0.5">
-                  <p className="font-medium text-zinc-300">Seña: {formatARS(order.depositAmount)}</p>
+                <div className="text-sm text-muted space-y-0.5">
+                  <p className="font-medium text-ink">Seña: {formatARS(order.depositAmount)}</p>
                   {depositPayments.map(p => (
                     <p key={p.method}>{DEPOSIT_METHOD_LABELS[p.method]}: {formatARS(p.amount)}</p>
                   ))}
@@ -1592,62 +1577,31 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
           )}
 
           {(order.status === 'pending' || order.status === 'ready') && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2 pt-1 border-t border-line" onClick={e => e.stopPropagation()}>
               {order.status === 'pending' && (
-                <button
-                  onClick={() => onRequestStatusChange(order, 'ready')}
-                  className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium text-emerald-300 transition-colors"
-                >
-                  ✓ Listo
-                </button>
+                <Button size="sm" variant="secondary" onClick={() => onRequestStatusChange(order, 'ready')}>
+                  Listo
+                </Button>
               )}
-              <button
-                onClick={() => onCharge(order)}
-                className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-sm font-semibold transition-colors"
-              >
+              <Button size="sm" onClick={() => onCharge(order)}>
                 Cobrar
-              </button>
-              {order.status === 'ready' && (
-                <button
-                  onClick={() => onRequestStatusChange(order, 'pending')}
-                  className="px-4 py-2 rounded-lg bg-amber-800/60 hover:bg-amber-700 text-sm font-medium text-amber-200 transition-colors"
-                  title="Revertir a pendiente"
-                >
-                  Deshacer
-                </button>
-              )}
-            </div>
-          )}
-
-          {(order.status === 'pending' || order.status === 'ready') && (
-            <div className="flex gap-2 pt-1 border-t border-zinc-800/40">
-              {onEdit && (
-                <button
-                  onClick={onEdit}
-                  className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm font-medium transition-colors"
-                >
-                  Editar
-                </button>
-              )}
-              {onCancel && (
-                <button
-                  onClick={onCancel}
-                  className="px-4 py-2 rounded-lg bg-red-900/60 hover:bg-red-800 text-sm font-medium text-red-300 transition-colors"
-                >
-                  Cancelar pedido
-                </button>
-              )}
+              </Button>
+              <ActionMenu
+                items={[
+                  ...(order.status === 'ready'
+                    ? [{ id: 'undo', label: 'Deshacer', onSelect: () => onRequestStatusChange(order, 'pending') }]
+                    : []),
+                  ...(onEdit ? [{ id: 'edit', label: 'Editar', onSelect: onEdit }] : []),
+                  ...(onCancel ? [{ id: 'cancel', label: 'Cancelar pedido', danger: true, onSelect: onCancel }] : []),
+                ]}
+              />
             </div>
           )}
           {order.status === 'cancelled' && isAdmin && onHardDelete && (
-            <div className="pt-1 border-t border-zinc-800/40">
-              <button
-                onClick={onHardDelete}
-                className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-red-950 text-sm font-medium text-zinc-500 hover:text-red-400 transition-colors"
-                title="Eliminar permanentemente"
-              >
-                🗑 Eliminar permanentemente
-              </button>
+            <div className="pt-1 border-t border-line" onClick={e => e.stopPropagation()}>
+              <Button size="sm" variant="danger" onClick={onHardDelete} title="Eliminar permanentemente">
+                Eliminar permanentemente
+              </Button>
             </div>
           )}
         </div>
@@ -1659,7 +1613,7 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-xs text-zinc-400">{label}</label>
+      <label className="text-xs text-muted">{label}</label>
       {children}
     </div>
   )

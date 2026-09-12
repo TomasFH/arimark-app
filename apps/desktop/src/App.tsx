@@ -18,6 +18,7 @@ import HistoryScreen from './routes/HistoryScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
+import { Button, Modal } from './components/ui'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 
@@ -402,10 +403,10 @@ export default function App() {
       <ScreenErrorBoundary resetKey={state.screen} onReset={handleRecoverFromScreenError}>
 
       {state.screen === 'loading' && (
-        <div className="flex flex-1 items-center justify-center bg-zinc-950 animate-fade-in">
+        <div className="flex flex-1 items-center justify-center bg-app animate-fade-in">
           <div className="text-center space-y-4">
-            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300" />
-            <p className="text-zinc-500 text-sm">Iniciando…</p>
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
+            <p className="text-muted text-sm">Iniciando…</p>
           </div>
         </div>
       )}
@@ -616,34 +617,28 @@ export default function App() {
 
       </ScreenErrorBoundary>
 
-      {/* Modal de aviso de inactividad — overlay global */}
-      {showInactivityWarning && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-700 w-full max-w-sm p-6 shadow-2xl space-y-4 text-center animate-modal-enter">
-            <div className="text-4xl">⏰</div>
-            <h2 className="text-lg font-bold text-white">¿Seguís trabajando?</h2>
-            <p className="text-sm text-zinc-400">
-              No hubo actividad en la caja por un tiempo. Si no respondés, el turno se cerrará
-              automáticamente para proteger los registros.
-            </p>
-            <div className="text-3xl font-mono font-bold text-zinc-200">{countdownDisplay}</div>
-            <div className="flex flex-col gap-2 pt-1">
-              <button
-                onClick={() => void handleDismissInactivity()}
-                className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 font-semibold text-white transition-colors"
-              >
-                Seguir trabajando
-              </button>
-              <button
-                onClick={handleGoToCloseShift}
-                className="w-full py-3 rounded-xl border border-zinc-700 hover:bg-zinc-800 font-semibold text-zinc-300 transition-colors"
-              >
-                Cerrar turno ahora
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={showInactivityWarning}
+        onClose={() => void handleDismissInactivity()}
+        closeOnOverlay={false}
+        closeOnEscape={false}
+        size="sm"
+        title="¿Seguís trabajando?"
+        footer={
+          <>
+            <Button variant="secondary" className="mr-auto" onClick={handleGoToCloseShift}>
+              Cerrar turno ahora
+            </Button>
+            <Button onClick={() => void handleDismissInactivity()}>Seguir trabajando</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          No hubo actividad en la caja por un tiempo. Si no respondés, el turno se cerrará
+          automáticamente para proteger los registros.
+        </p>
+        <p className="mt-4 text-center text-3xl font-mono font-bold text-ink">{countdownDisplay}</p>
+      </Modal>
     </div>
   )
 }

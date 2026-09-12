@@ -45,12 +45,12 @@ export default class ScreenErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex flex-1 min-h-0 flex-col">
         {this.state.error ? (
-          <div className="flex flex-1 min-h-0 flex-col items-center justify-center bg-zinc-950 px-6 py-10 text-center">
+          <div className="flex flex-1 min-h-0 flex-col items-center justify-center bg-app px-6 py-10 text-center">
             <p className="text-base font-semibold text-white">Esta pantalla no se pudo mostrar.</p>
-            <p className="mt-2 max-w-md text-sm text-zinc-400">
+            <p className="mt-2 max-w-md text-sm text-muted">
               El resto de la app sigue funcionando. Volvé atrás o reintentá.
             </p>
-            <p className="mt-3 max-w-md truncate text-xs text-zinc-600" title={this.state.error.message}>
+            <p className="mt-3 max-w-md truncate text-xs text-subtle" title={this.state.error.message}>
               {this.state.error.message}
             </p>
             <div className="mt-6 flex gap-3">
@@ -58,7 +58,7 @@ export default class ScreenErrorBoundary extends Component<Props, State> {
                 <button
                   type="button"
                   onClick={this.goBack}
-                  className="rounded-xl border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="rounded-xl border border-line px-4 py-2.5 text-sm text-ink hover:bg-hover"
                 >
                   Volver
                 </button>
@@ -66,7 +66,7 @@ export default class ScreenErrorBoundary extends Component<Props, State> {
               <button
                 type="button"
                 onClick={this.retry}
-                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
+                className="rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent"
               >
                 Reintentar
               </button>

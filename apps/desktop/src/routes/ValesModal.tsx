@@ -20,6 +20,10 @@ import {
 import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
+import { Button, Modal } from '../components/ui'
+
+const fieldClass =
+  'w-full rounded-lg border border-line bg-input px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
 
 type Mode = 'products' | 'advance'
 
@@ -302,38 +306,41 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}
-    >
-      <div className="flex flex-col bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-2 min-w-0 border-b border-zinc-700 px-5 py-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-white truncate">Vales / adelantos</h2>
-            <p className="text-[10px] text-zinc-500 mt-0.5 truncate" title={weekLabel}>
-              Semana {weekLabel}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors disabled:opacity-50"
-            aria-label="Cerrar"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
+    <Modal
+      open
+      onClose={onClose}
+      closeOnOverlay={!saving}
+      closeOnEscape={!saving}
+      size="lg"
+      className="!max-w-3xl"
+      header={(
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold tracking-tight text-ink" title="Vales / adelantos">Vales / adelantos</h2>
+          <p className="mt-0.5 truncate text-[10px] text-muted" title={weekLabel}>
+            Semana {weekLabel}
+          </p>
         </div>
-
-        <div className="flex-1 overflow-hidden flex min-h-0">
+      )}
+      footer={(
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onClose} disabled={saving}>Cerrar</Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleRegister()}
+            loading={saving}
+            disabled={!selected || loadingDetail || (mode === 'products' && draftItems.length === 0)}
+          >
+            {saving ? 'Registrando…' : 'Registrar vale'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="-mx-5 -my-4 flex h-[min(70vh,36rem)] min-w-0">
           {/* Lista empleados */}
-          <div className="w-40 shrink-0 border-r border-zinc-800 overflow-y-auto">
-            {loadingList && <p className="text-xs text-zinc-500 p-3">Cargando…</p>}
+          <div className="w-40 shrink-0 border-r border-line overflow-y-auto">
+            {loadingList && <p className="text-xs text-muted p-3">Cargando…</p>}
             {!loadingList && employees.length === 0 && (
-              <p className="text-xs text-zinc-500 p-3">Nadie para vales en este local.</p>
+              <p className="text-xs text-muted p-3">Nadie para vales en este local.</p>
             )}
             {employees.map(emp => {
               const active = emp.id === selectedId
@@ -342,19 +349,19 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                   key={emp.id}
                   type="button"
                   onClick={() => handleSelectEmployee(emp.id)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-zinc-800/80 transition-colors min-w-0 ${
-                    active ? 'bg-zinc-800/60 border-l-2 border-l-zinc-500 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                  className={`w-full text-left px-3 py-2.5 border-b border-line transition-colors min-w-0 ${
+                    active ? 'bg-hover bg-accent-soft text-ink' : 'text-muted hover:bg-hover hover:text-ink'
                   }`}
                 >
                   <span className="block text-xs font-medium truncate" title={emp.name}>{emp.name}</span>
                   {emp.kind === 'cashier' && (
-                    <span className="block text-[10px] text-zinc-600">Cajera</span>
+                    <span className="block text-[10px] text-subtle">Cajera</span>
                   )}
                   {!emp.active && !valeViewerNames.some(n => namesMatch(emp.name, n)) && (
-                    <span className="block text-[10px] text-zinc-600">Ficha inactiva</span>
+                    <span className="block text-[10px] text-subtle">Ficha inactiva</span>
                   )}
                   {visitorIds.has(emp.id) && (
-                    <span className="block text-[10px] text-zinc-600">Visitante</span>
+                    <span className="block text-[10px] text-subtle">Visitante</span>
                   )}
                 </button>
               )
@@ -371,7 +378,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                 <button
                   type="button"
                   onClick={() => setShowVisitors(v => !v)}
-                  className="w-full text-left text-[11px] text-emerald-400 hover:text-emerald-300"
+                  className="w-full text-left text-[11px] text-accent hover:text-ink"
                 >
                   {showVisitors ? 'Ocultar' : 'Agregar visitante'}
                 </button>
@@ -394,7 +401,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                       void loadEmployees(next)
                       setSelectedId(c.id)
                     }}
-                    className="mt-1 w-full truncate rounded-md px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-800"
+                    className="mt-1 w-full truncate rounded-md px-2 py-1 text-left text-[11px] text-ink hover:bg-hover"
                     title={c.name}
                   >
                     {c.name}
@@ -407,33 +414,33 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
           {/* Detalle */}
           <div className="flex-1 min-w-0 overflow-y-auto px-4 py-3 space-y-4">
             {error && (
-              <div className="rounded-lg bg-red-950/40 border border-red-800/60 px-3 py-2">
-                <p className="text-sm text-red-300">{error}</p>
+              <div className="rounded-lg bg-danger/10 border border-danger/30 px-3 py-2">
+                <p className="text-sm text-danger">{error}</p>
               </div>
             )}
             {!selected && !loadingList && (
-              <p className="text-sm text-zinc-500 text-center py-8">Seleccioná un empleado.</p>
+              <p className="text-sm text-muted text-center py-8">Seleccioná un empleado.</p>
             )}
             {selected && (
               <>
                 {/* Resumen semanal */}
                 <div>
-                  <p className="text-sm font-semibold text-white truncate mb-2" title={selected.name}>{selected.name}</p>
+                  <p className="text-sm font-semibold text-ink truncate mb-2" title={selected.name}>{selected.name}</p>
                   {loadingDetail ? (
-                    <p className="text-xs text-zinc-500">Cargando semana…</p>
+                    <p className="text-xs text-muted">Cargando semana…</p>
                   ) : summary ? (
                     <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-lg bg-zinc-950/80 border border-zinc-800 px-2 py-2">
-                        <p className="text-[10px] text-zinc-500">Sueldo</p>
-                        <p className="text-xs font-medium text-zinc-200 tabular-nums">{formatARS(summary.weeklyWage)}</p>
+                      <div className="rounded-lg bg-raised border border-line px-2 py-2">
+                        <p className="text-[10px] text-muted">Sueldo</p>
+                        <p className="text-xs font-medium text-ink tabular-nums">{formatARS(summary.weeklyWage)}</p>
                       </div>
-                      <div className="rounded-lg bg-zinc-950/80 border border-zinc-800 px-2 py-2">
-                        <p className="text-[10px] text-zinc-500">Vales</p>
-                        <p className="text-xs font-medium text-zinc-200 tabular-nums">{formatARS(summary.totalVales)}</p>
+                      <div className="rounded-lg bg-raised border border-line px-2 py-2">
+                        <p className="text-[10px] text-muted">Vales</p>
+                        <p className="text-xs font-medium text-ink tabular-nums">{formatARS(summary.totalVales)}</p>
                       </div>
-                      <div className="rounded-lg bg-zinc-950/80 border border-zinc-800 px-2 py-2">
-                        <p className="text-[10px] text-zinc-500">Neto</p>
-                        <p className="text-xs font-medium text-emerald-300 tabular-nums">{formatARS(summary.netToPay)}</p>
+                      <div className="rounded-lg bg-raised border border-line px-2 py-2">
+                        <p className="text-[10px] text-muted">Neto</p>
+                        <p className="text-xs font-medium text-success tabular-nums">{formatARS(summary.netToPay)}</p>
                       </div>
                     </div>
                   ) : null}
@@ -441,41 +448,41 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
 
                 {/* Vales registrados */}
                 <div>
-                  <p className="text-[11px] font-medium text-zinc-400 mb-1.5">Vales de la semana</p>
+                  <p className="text-[11px] font-medium text-muted mb-1.5">Vales de la semana</p>
                   {loadingDetail ? null : vales.length === 0 ? (
-                    <p className="text-xs text-zinc-600">Ningún vale esta semana.</p>
+                    <p className="text-xs text-subtle">Ningún vale esta semana.</p>
                   ) : (
                     <ul className="space-y-1.5">
                       {vales.map(v => (
-                        <li key={v.id} className="rounded-lg border border-zinc-800 bg-zinc-950/50 px-2.5 py-1.5">
+                        <li key={v.id} className="rounded-lg border border-line bg-raised px-2.5 py-1.5">
                           <div className="flex items-start gap-2 min-w-0">
                             <div className="min-w-0 flex-1">
                               {v.items && v.items.length > 0 ? (
                                 <ul className="space-y-0.5 mb-0.5">
                                   {v.items.map((item, idx) => (
-                                    <li key={idx} className="text-[10px] text-zinc-400 truncate">
+                                    <li key={idx} className="text-[10px] text-muted truncate">
                                       {item.productName} — {item.unit === 'kg' ? `${item.quantity} kg × ${formatARS(item.unitPrice)}/kg` : `${item.quantity} u × ${formatARS(item.unitPrice)}`} = {formatARS(item.subtotal)}
                                     </li>
                                   ))}
                                 </ul>
                               ) : (
-                                <p className="text-xs text-zinc-300 truncate" title={v.description ?? undefined}>
+                                <p className="text-xs text-ink truncate" title={v.description ?? undefined}>
                                   {v.description?.trim() || 'Adelanto en efectivo'}
                                 </p>
                               )}
-                              <p className="text-[10px] text-zinc-600">{toLocalDateTime(v.paidAt)}</p>
+                              <p className="text-[10px] text-subtle">{toLocalDateTime(v.paidAt)}</p>
                               {v.cancelledAt && (
-                                <p className="text-[10px] text-red-400/80">Anulado</p>
+                                <p className="text-[10px] text-danger">Anulado</p>
                               )}
                             </div>
                             <div className="shrink-0 flex flex-col items-end gap-1">
-                              <span className={`text-xs font-medium tabular-nums ${v.cancelledAt ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>{formatARS(v.amount)}</span>
+                              <span className={`text-xs font-medium tabular-nums ${v.cancelledAt ? 'text-muted line-through' : 'text-ink'}`}>{formatARS(v.amount)}</span>
                               {!v.cancelledAt && (
                                 <button
                                   type="button"
                                   onClick={() => void handleCancelVale(v.id)}
                                   disabled={cancellingId === v.id || saving}
-                                  className="text-[10px] text-zinc-500 hover:text-red-400 disabled:opacity-50"
+                                  className="text-[10px] text-muted hover:text-danger disabled:opacity-50"
                                 >
                                   {cancellingId === v.id ? 'Anulando…' : 'Anular'}
                                 </button>
@@ -489,9 +496,9 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                 </div>
 
                 {/* Formulario de registro */}
-                <div className="rounded-xl border border-zinc-700 bg-zinc-950/40 p-3 space-y-3">
+                <div className="rounded-xl border border-line bg-raised p-3 space-y-3">
                   {/* Tabs */}
-                  <div className="flex rounded-lg bg-zinc-800/60 p-0.5 gap-0.5">
+                  <div className="flex rounded-lg bg-hover p-0.5 gap-0.5">
                     {(['products', 'advance'] as Mode[]).map(m => (
                       <button
                         key={m}
@@ -499,7 +506,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                         onClick={() => { setMode(m); resetForm() }}
                         disabled={saving}
                         className={`flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
-                          mode === m ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                          mode === m ? 'bg-hover text-ink shadow-sm' : 'text-muted hover:text-ink'
                         }`}
                       >
                         {m === 'products' ? 'Con productos' : 'Adelanto en efectivo'}
@@ -512,14 +519,14 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                     <div className="space-y-2.5">
                       {/* Selector de producto */}
                       {loadingProducts ? (
-                        <p className="text-xs text-zinc-500">Cargando catálogo…</p>
+                        <p className="text-xs text-muted">Cargando catálogo…</p>
                       ) : products.length === 0 ? (
-                        <p className="text-xs text-zinc-400">Sin productos con precio. Configurá el catálogo desde el panel admin.</p>
+                        <p className="text-xs text-muted">Sin productos con precio. Configurá el catálogo desde el panel admin.</p>
                       ) : (
                         <>
                           <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
                             <div className="relative min-w-0">
-                              <label className="block text-[10px] text-zinc-500 mb-1">Producto (nombre o PLU)</label>
+                              <label className="block text-[10px] text-muted mb-1">Producto (nombre o PLU)</label>
                               <input
                                 type="text"
                                 value={productQuery}
@@ -533,19 +540,19 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                                 disabled={saving}
                                 autoComplete="off"
                                 placeholder="ej. asado o 5"
-                                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                                className="w-full rounded-lg bg-input border border-line px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                               />
                               {showProductSuggestions && productSuggestions.length > 0 && (
-                                <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-56 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-xl">
+                                <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-56 overflow-y-auto rounded-md border border-line bg-input shadow-xl">
                                   {productSuggestions.map(p => (
                                     <li key={p.id}>
                                       <button
                                         type="button"
                                         onMouseDown={() => handleProductChange(p.id)}
-                                        className="w-full px-2 py-1.5 text-left hover:bg-zinc-800 transition-colors min-w-0"
+                                        className="w-full px-2 py-1.5 text-left hover:bg-hover transition-colors min-w-0"
                                       >
-                                        <span className="text-[10px] font-bold text-zinc-500 mr-1">{p.pluNumber}</span>
-                                        <span className="text-[10px] text-zinc-200 truncate" title={p.name}>{p.name}</span>
+                                        <span className="text-[10px] font-bold text-muted mr-1">{p.pluNumber}</span>
+                                        <span className="text-[10px] text-ink truncate" title={p.name}>{p.name}</span>
                                       </button>
                                     </li>
                                   ))}
@@ -553,7 +560,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                               )}
                             </div>
                             <div className="w-24">
-                              <label className="block text-[10px] text-zinc-500 mb-1">
+                              <label className="block text-[10px] text-muted mb-1">
                                 {selectedProduct?.unit === 'kg' ? 'Peso (kg)' : 'Cantidad'}
                               </label>
                               {selectedProduct?.unit === 'kg' ? (
@@ -564,7 +571,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                                   maxDecimals={3}
                                   disabled={saving}
                                   placeholder="0,000"
-                                  className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                                  className="w-full rounded-lg bg-input border border-line px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                                 />
                               ) : (
                                 <NumericInput
@@ -572,12 +579,12 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                                   onChange={setQuantityText}
                                   disabled={saving}
                                   placeholder="0"
-                                  className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                                  className="w-full rounded-lg bg-input border border-line px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                                 />
                               )}
                             </div>
                             <div className="w-28">
-                              <label className="block text-[10px] text-zinc-500 mb-1">
+                              <label className="block text-[10px] text-muted mb-1">
                                 Precio {selectedProduct?.unit === 'kg' ? '$/kg' : '$/u'}
                               </label>
                               <NumericInput
@@ -585,7 +592,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                                 onChange={setPriceText}
                                 disabled={saving}
                                 placeholder="0"
-                                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                                className="w-full rounded-lg bg-input border border-line px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                               />
                             </div>
                           </div>
@@ -593,35 +600,35 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                             type="button"
                             onClick={handleAddItem}
                             disabled={saving || !selectedProductId || !quantityText || !priceText}
-                            className="w-full rounded-lg py-1.5 text-xs font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors disabled:opacity-50"
+                            className="w-full rounded-lg py-1.5 text-xs font-medium bg-hover hover:bg-hover text-ink transition-colors disabled:opacity-50"
                           >
                             + Agregar ítem
                           </button>
-                          {addError && <p className="text-xs text-red-300">{addError}</p>}
+                          {addError && <p className="text-xs text-danger">{addError}</p>}
                         </>
                       )}
 
                       {/* Ítems agregados */}
                       {draftItems.length > 0 && (
-                        <div className="space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
+                        <div className="space-y-1.5 rounded-lg border border-line bg-raised p-2">
                           {draftItems.map(d => {
                             const item = draftItemToValeItem(d)
                             return (
                               <div key={d.id} className="flex items-center gap-2 min-w-0">
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-xs text-zinc-200 truncate" title={d.product.name}>{d.product.name}</p>
-                                  <p className="text-[10px] text-zinc-500">
+                                  <p className="text-xs text-ink truncate" title={d.product.name}>{d.product.name}</p>
+                                  <p className="text-[10px] text-muted">
                                     {d.product.unit === 'kg'
                                       ? `${d.quantityText} kg × $${d.priceText}/kg`
                                       : `${d.quantityText} u × $${d.priceText}`}
-                                    {item && <span className="text-zinc-400"> = {formatARS(item.subtotal)}</span>}
+                                    {item && <span className="text-muted"> = {formatARS(item.subtotal)}</span>}
                                   </p>
                                 </div>
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveItem(d.id)}
                                   disabled={saving}
-                                  className="shrink-0 rounded p-0.5 text-zinc-600 hover:text-red-400 transition-colors"
+                                  className="shrink-0 rounded p-0.5 text-subtle hover:text-danger transition-colors"
                                   aria-label="Quitar ítem"
                                 >
                                   <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -631,9 +638,9 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                               </div>
                             )
                           })}
-                          <div className="border-t border-zinc-800 pt-1.5 flex items-center justify-between">
-                            <p className="text-[10px] text-zinc-500">{draftItems.length} ítem{draftItems.length !== 1 ? 's' : ''}</p>
-                            <p className="text-sm font-semibold text-zinc-200 tabular-nums">Total: {formatARS(draftTotal)}</p>
+                          <div className="border-t border-line pt-1.5 flex items-center justify-between">
+                            <p className="text-[10px] text-muted">{draftItems.length} ítem{draftItems.length !== 1 ? 's' : ''}</p>
+                            <p className="text-sm font-semibold text-ink tabular-nums">Total: {formatARS(draftTotal)}</p>
                           </div>
                         </div>
                       )}
@@ -644,17 +651,17 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                   {mode === 'advance' && (
                     <div className="space-y-2.5">
                       <div>
-                        <label className="block text-[10px] text-zinc-500 mb-1">Monto ($)</label>
+                        <label className="block text-[10px] text-muted mb-1">Monto ($)</label>
                         <NumericInput
                           value={advanceAmountText}
                           onChange={setAdvanceAmountText}
                           disabled={saving}
                           placeholder="0"
-                          className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                          className="w-full rounded-lg bg-input border border-line px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] text-zinc-500 mb-1">Descripción (opcional)</label>
+                        <label className="block text-[10px] text-muted mb-1">Descripción (opcional)</label>
                         <input
                           type="text"
                           value={advanceDescription}
@@ -662,41 +669,21 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                           disabled={saving}
                           onChange={e => setAdvanceDescription(e.target.value)}
                           placeholder="Ej. adelanto familiar…"
-                          className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                          className="w-full rounded-lg bg-input border border-line px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                         />
                       </div>
                     </div>
                   )}
 
-                  {formError && <p className="text-xs text-red-300">{formError}</p>}
-                  {success && <p className="text-xs text-emerald-300">{success}</p>}
+                  {formError && <p className="text-xs text-danger">{formError}</p>}
+                  {success && <p className="text-xs text-success">{success}</p>}
 
-                  <button
-                    type="button"
-                    onClick={() => void handleRegister()}
-                    disabled={saving || loadingDetail || (mode === 'products' && draftItems.length === 0)}
-                    className="w-full rounded-lg py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50"
-                  >
-                    {saving ? 'Registrando…' : 'Registrar vale'}
-                  </button>
-                  <p className="text-[10px] text-zinc-600">Se descuenta de la caja del turno abierto.</p>
+                  <p className="text-[10px] text-subtle">Se descuenta de la caja del turno abierto.</p>
                 </div>
               </>
             )}
           </div>
         </div>
-
-        <div className="flex justify-end border-t border-zinc-700 px-5 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="shrink-0 rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50"
-          >
-            Cerrar
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

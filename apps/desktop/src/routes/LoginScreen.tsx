@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { PASSWORD_RESET_SENT_MESSAGE } from '../lib/passwordCopy'
+import { BrandMark, Button } from '../components/ui'
 
 const isDevMode = import.meta.env['VITE_APP_ENV'] === 'dev'
 
 const DEV_EMAIL = 'cajera1@dev.local'
 const DEV_PASSWORD = 'cajera1234'
+
+const FIELD =
+  'w-full rounded-xl border border-line bg-input px-4 py-3 text-sm text-ink placeholder-subtle focus:border-line-accent focus:outline-none transition-colors'
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<void>
@@ -68,35 +72,31 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-950 p-6 gap-8">
-      {/* Brand */}
+    <div className="flex flex-1 flex-col items-center justify-center bg-app p-6 gap-8">
       <div className="text-center space-y-3">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800 text-4xl shadow-xl">
-          🥩
-        </div>
+        <BrandMark size={64} className="mx-auto shadow-[0_12px_40px_rgba(28,28,30,0.16)]" />
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100">{businessName}</h1>
-          <p className="mt-1 text-sm text-zinc-500">Sistema de gestión</p>
+          <h1 className="text-2xl font-bold text-ink">{businessName}</h1>
+          <p className="mt-1 text-sm text-muted">Sistema de gestión</p>
         </div>
       </div>
 
-      {/* Card */}
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-7 shadow-2xl space-y-5">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-7 shadow-[0_12px_40px_rgba(28,28,30,0.16)] space-y-5">
         <form onSubmit={handleSubmit} className="space-y-4">
           {resetMode ? (
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm text-muted">
               Ingresá el email de la cuenta. Te mandamos un mail para elegir una contraseña nueva.
             </p>
           ) : null}
 
           <div>
-            <label htmlFor="login-email" className="block text-xs font-medium text-zinc-400 mb-1.5">Email</label>
+            <label htmlFor="login-email" className="block text-xs font-medium text-muted mb-1.5">Email</label>
             <input
               id="login-email"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-600 focus:outline-none transition-colors"
+              className={FIELD}
               autoComplete="email"
               disabled={loading || resetSending}
               required={!resetMode}
@@ -105,13 +105,13 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
 
           {!resetMode && (
           <div>
-            <label htmlFor="login-password" className="block text-xs font-medium text-zinc-400 mb-1.5">Contraseña</label>
+            <label htmlFor="login-password" className="block text-xs font-medium text-muted mb-1.5">Contraseña</label>
             <input
               id="login-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-600 focus:outline-none transition-colors"
+              className={FIELD}
               autoComplete="current-password"
               disabled={loading || resetSending}
               required
@@ -124,42 +124,37 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
                 setResetMode(true)
               }}
               disabled={loading || resetSending}
-              className="mt-2 text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
+              className="mt-2 text-xs text-muted hover:text-ink disabled:opacity-40"
             >
               ¿Olvidaste tu contraseña?
             </button>
           </div>
           )}
 
-          {/* Error con shake — key cambia para re-disparar la animación en cada intento */}
           {resetNotice && (
-            <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/30 px-3 py-2.5">
-              <p className="text-sm text-emerald-300">{resetNotice}</p>
+            <div className="rounded-xl border border-line bg-accent-soft px-3 py-2.5">
+              <p className="text-sm text-success">{resetNotice}</p>
             </div>
           )}
 
           {error && (
-            <div key={errorKey} className="animate-shake rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2.5">
-              <p className="text-sm text-red-300">{error}</p>
+            <div key={errorKey} className="animate-shake rounded-xl border border-danger bg-panel px-3 py-2.5">
+              <p className="text-sm text-danger">{error}</p>
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
-            disabled={loading || resetSending || (!resetMode && (!email || !password))}
-            className="mt-1 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center gap-2"
+            fullWidth
+            size="lg"
+            loading={resetMode ? resetSending : loading}
+            disabled={!resetMode && (!email || !password)}
+            className="mt-1"
           >
-            {resetMode ? (
-              resetSending ? 'Enviando mail…' : 'Restablecer contraseña'
-            ) : loading ? (
-              <>
-                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                <span>Ingresando…</span>
-              </>
-            ) : (
-              'Ingresar'
-            )}
-          </button>
+            {resetMode
+              ? (resetSending ? 'Enviando mail…' : 'Restablecer contraseña')
+              : (loading ? 'Ingresando…' : 'Ingresar')}
+          </Button>
           {resetMode && (
             <button
               type="button"
@@ -169,7 +164,7 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
                 setResetNotice('')
               }}
               disabled={resetSending}
-              className="w-full text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
+              className="w-full text-xs text-muted hover:text-ink disabled:opacity-40"
             >
               Volver al ingreso
             </button>
@@ -192,7 +187,7 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
             }
           }}
           disabled={loading}
-          className="w-full max-w-sm rounded-xl border-2 border-dashed border-yellow-600/40 bg-yellow-950/20 px-4 py-3 text-sm font-semibold text-yellow-400 transition-colors hover:border-yellow-500/60 hover:text-yellow-300 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full max-w-sm rounded-xl border-2 border-dashed border-amber-600 bg-hover px-4 py-3 text-sm font-semibold text-ink transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           ⚠ Saltar login — {DEV_EMAIL} (modo pruebas)
         </button>

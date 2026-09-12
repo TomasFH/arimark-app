@@ -70,26 +70,26 @@ function ProductTypeahead({ products, excludeIds, onSelect }: ProductTypeaheadPr
         onChange={e => setQuery(e.target.value)}
         placeholder="Buscar por nombre o PLU..."
         autoFocus
-        className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+        className="w-full rounded-lg border border-line bg-raised px-3 py-2 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
       />
       {matches.length === 0 ? (
-        <p className="text-xs text-zinc-600 px-1 py-2 italic">
+        <p className="text-xs text-subtle px-1 py-2 italic">
           {query ? 'Sin coincidencias.' : 'Sin productos disponibles.'}
         </p>
       ) : (
-        <ul className="max-h-44 overflow-y-auto rounded-lg border border-zinc-700 divide-y divide-zinc-800">
+        <ul className="max-h-44 overflow-y-auto rounded-lg border border-line divide-y divide-line">
           {matches.map(p => (
             <li key={p.id}>
               <button
                 type="button"
                 onClick={() => { onSelect(p); setQuery('') }}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-zinc-800 transition-colors"
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-hover transition-colors"
               >
-                <span className="min-w-0 flex-1 truncate text-sm text-white" title={p.name}>{p.name}</span>
-                <span className="text-xs text-zinc-500 shrink-0 ml-2">
+                <span className="min-w-0 flex-1 truncate text-sm text-ink" title={p.name}>{p.name}</span>
+                <span className="text-xs text-muted shrink-0 ml-2">
                   PLU {p.pluNumber}
                   {p.price != null && (
-                    <span className="ml-2 text-zinc-400">{formatARS(p.price)}</span>
+                    <span className="ml-2 text-muted">{formatARS(p.price)}</span>
                   )}
                 </span>
               </button>
@@ -160,23 +160,23 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+      <p className="text-xs font-medium text-muted uppercase tracking-wide">
         Precios especiales
       </p>
 
       {entries.length === 0 && (
-        <p className="text-xs text-zinc-600 italic">Sin precios especiales agregados.</p>
+        <p className="text-xs text-subtle italic">Sin precios especiales agregados.</p>
       )}
 
       {entries.map(entry => (
-        <div key={entry.productId} className="rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 space-y-1.5">
+        <div key={entry.productId} className="rounded-lg border border-line bg-raised/50 px-3 py-2 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <span className="text-sm font-medium text-white">{entry.productName}</span>
-              <span className="ml-2 text-xs text-zinc-500">PLU {entry.pluNumber}</span>
+              <span className="text-sm font-medium text-ink">{entry.productName}</span>
+              <span className="ml-2 text-xs text-muted">PLU {entry.pluNumber}</span>
               {entry.originalPrice != null && (
-                <span className="ml-2 text-xs text-zinc-500">
-                  Precio lista: <span className="text-zinc-400">{formatARS(entry.originalPrice)}</span>
+                <span className="ml-2 text-xs text-muted">
+                  Precio lista: <span className="text-muted">{formatARS(entry.originalPrice)}</span>
                 </span>
               )}
             </div>
@@ -184,7 +184,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
               <button
                 type="button"
                 onClick={() => handleRemove(entry.productId)}
-                className="shrink-0 text-zinc-600 hover:text-red-400 text-xs transition-colors"
+                className="shrink-0 text-subtle hover:text-red-400 text-xs transition-colors"
               >
                 ✕
               </button>
@@ -192,16 +192,16 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
           </div>
           <div className="flex gap-2">
             <div className="relative w-36 shrink-0">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">$</span>
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-xs">$</span>
               {isAdmin ? (
                 <NumericInput
                   value={entry.specialPriceRaw}
                   onChange={raw => handlePriceChange(entry.productId, raw)}
                   placeholder="Precio especial"
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 pl-6 pr-2 py-1.5 text-sm text-white focus:border-zinc-500 focus:outline-none"
+                  className="w-full rounded-lg border border-line bg-raised pl-6 pr-2 py-1.5 text-sm text-ink focus:border-line-accent focus:outline-none"
                 />
               ) : (
-                <span className="pl-6 py-1.5 text-sm text-zinc-300 font-semibold">
+                <span className="pl-6 py-1.5 text-sm text-ink font-semibold">
                   {formatARS(parseNumericInput(entry.specialPriceRaw) ?? 0)}
                 </span>
               )}
@@ -213,11 +213,11 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
                 onChange={e => handleNotesChange(entry.productId, e.target.value)}
                 placeholder="Nota (opcional)"
                 maxLength={120}
-                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                className="flex-1 rounded-lg border border-line bg-raised px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
               />
             ) : (
               entry.notes && (
-                <span className="flex-1 text-xs text-zinc-400 py-1.5">{entry.notes}</span>
+                <span className="flex-1 text-xs text-muted py-1.5">{entry.notes}</span>
               )
             )}
           </div>
@@ -226,7 +226,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
 
       {isAdmin && (
         showSearch ? (
-          <div className="rounded-lg border border-dashed border-zinc-700/40 p-3 space-y-2">
+          <div className="rounded-lg border border-dashed border-line/40 p-3 space-y-2">
             <ProductTypeahead
               products={products}
               excludeIds={excludedIds}
@@ -235,7 +235,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
             <button
               type="button"
               onClick={() => setShowSearch(false)}
-              className="text-xs text-zinc-500 hover:text-zinc-300"
+              className="text-xs text-muted hover:text-ink"
             >
               Cancelar
             </button>
@@ -244,7 +244,7 @@ function PriceEditor({ products, initial, isAdmin, onChange }: PriceEditorProps)
           <button
             type="button"
             onClick={() => setShowSearch(true)}
-            className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+            className="text-xs text-muted hover:text-ink transition-colors"
           >
             + Agregar producto
           </button>
@@ -276,22 +276,22 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
     : null
 
   return (
-    <div className="rounded-xl border border-zinc-700 bg-zinc-800 overflow-hidden">
+    <div className="rounded-xl border border-line bg-raised overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-zinc-800/50 transition-colors"
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-hover/50 transition-colors"
       >
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate" title={customer.name}>{customer.name}</p>
-          {customer.notes && <p className="text-xs text-zinc-400 mt-0.5 truncate" title={customer.notes}>{customer.notes}</p>}
+          <p className="text-sm font-semibold text-ink truncate" title={customer.name}>{customer.name}</p>
+          {customer.notes && <p className="text-xs text-muted mt-0.5 truncate" title={customer.notes}>{customer.notes}</p>}
           <div className="flex items-center gap-2 flex-wrap mt-0.5">
             {updatedDate && (
-              <span className="text-xs text-zinc-600">Modificado: {updatedDate}</span>
+              <span className="text-xs text-subtle">Modificado: {updatedDate}</span>
             )}
           </div>
           {!expanded && prices.length > 0 && (
-            <p className="text-xs text-zinc-600 mt-0.5">
+            <p className="text-xs text-subtle mt-0.5">
               {prices.length} precio{prices.length > 1 ? 's' : ''} especial{prices.length > 1 ? 'es' : ''} · tocá para ver
             </p>
           )}
@@ -302,18 +302,18 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
               <span
                 role="button"
                 onClick={e => { e.stopPropagation(); onEdit(customer) }}
-                className="text-zinc-500 hover:text-zinc-300 text-xs px-1.5 py-0.5 rounded border border-zinc-700 hover:border-zinc-500 transition-colors"
+                className="text-muted hover:text-ink text-xs px-1.5 py-0.5 rounded border border-line hover:border-line-strong transition-colors"
               >
                 ✏️
               </span>
               {confirmDelete ? (
                 <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                   <button onClick={() => onDelete(customer.id)}
-                    className="rounded-md bg-red-700 px-2 py-0.5 text-xs text-white hover:bg-red-600">
+                    className="rounded-md bg-red-700 px-2 py-0.5 text-xs text-ink hover:bg-red-600">
                     Confirmar
                   </button>
                   <button onClick={() => setConfirmDelete(false)}
-                    className="text-xs text-zinc-500 hover:text-zinc-300 px-1">
+                    className="text-xs text-muted hover:text-ink px-1">
                     ✕
                   </button>
                 </div>
@@ -321,22 +321,22 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
                 <span
                   role="button"
                   onClick={e => { e.stopPropagation(); setConfirmDelete(true) }}
-                  className="text-zinc-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-zinc-700 hover:border-red-700 transition-colors"
+                  className="text-subtle hover:text-red-400 text-xs px-1.5 py-0.5 rounded border border-line hover:border-red-700 transition-colors"
                 >
                   🗑
                 </span>
               )}
             </>
           )}
-          <span className="text-zinc-600 text-xs">{expanded ? '▲' : '▼'}</span>
+          <span className="text-subtle text-xs">{expanded ? '▲' : '▼'}</span>
         </div>
       </button>
 
       {/* Detalle de precios — se muestra solo cuando expanded */}
       {expanded && (
-        <div className="border-t border-zinc-800 px-4 py-2">
+        <div className="border-t border-line px-4 py-2">
           {prices.length === 0 ? (
-            <p className="text-xs text-zinc-600 italic py-1">Sin precios especiales registrados.</p>
+            <p className="text-xs text-subtle italic py-1">Sin precios especiales registrados.</p>
           ) : (
             <div className="space-y-1.5 py-1">
               {prices.map(p => {
@@ -345,16 +345,16 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
                 return (
                   <div key={p.productId} className="flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
-                      <span className="text-white">{p.productName}</span>
-                      <span className="ml-1.5 text-zinc-600">PLU {prod?.pluNumber ?? '?'}</span>
+                      <span className="text-ink">{p.productName}</span>
+                      <span className="ml-1.5 text-subtle">PLU {prod?.pluNumber ?? '?'}</span>
                       {prod?.price != null && (
-                        <span className="ml-1.5 text-zinc-500">lista: {formatARS(prod.price)}</span>
+                        <span className="ml-1.5 text-muted">lista: {formatARS(prod.price)}</span>
                       )}
-                      {p.notes && <span className="ml-1.5 text-zinc-500">— {p.notes}</span>}
+                      {p.notes && <span className="ml-1.5 text-muted">— {p.notes}</span>}
                     </div>
                     <div className="shrink-0 text-right">
-                      <span className="font-semibold text-zinc-300">{formatARS(p.specialPrice)}</span>
-                      <span className="ml-2 text-zinc-600">{modDate}</span>
+                      <span className="font-semibold text-ink">{formatARS(p.specialPrice)}</span>
+                      <span className="ml-2 text-subtle">{modDate}</span>
                     </div>
                   </div>
                 )
@@ -551,20 +551,20 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   }, [])
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-zinc-950 text-white">
+    <div className="flex flex-col flex-1 h-full bg-app text-ink">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-zinc-800 px-6 py-3 shrink-0">
+      <header className="flex items-center gap-3 border-b border-line px-6 py-3 shrink-0">
         {onBack && <BackButton onClick={onBack} />}
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-zinc-100">Clientes especiales</h1>
-          <p className="text-[10px] text-zinc-500">
+          <h1 className="text-sm font-semibold text-ink">Clientes especiales</h1>
+          <p className="text-[10px] text-muted">
             Precios de referencia · {isAdmin ? 'modo admin' : 'solo lectura'}
           </p>
         </div>
         {isAdmin && (
           <button
             onClick={openCreate}
-            className="shrink-0 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-ink hover:bg-accent transition-colors"
           >
             + Nuevo cliente
           </button>
@@ -572,8 +572,8 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
       </header>
 
       {/* Info banner */}
-      <div className="mx-6 mt-4 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5">
-        <p className="text-xs text-zinc-500">
+      <div className="mx-6 mt-4 rounded-lg border border-line bg-raised px-4 py-2.5">
+        <p className="text-xs text-muted">
           Esta sección lista los acuerdos. En caja, la cajera consulta acá y controla que el ticket coincida; los precios de lista del POS no se cambian solos.
         </p>
       </div>
@@ -584,16 +584,16 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
           type="text"
           onChange={handleSearchChange}
           placeholder="Filtrar por nombre..."
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded-lg border border-line bg-raised px-4 py-2.5 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
         />
       </div>
 
       {/* Lista */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-        {loading && <p className="text-center text-zinc-500 py-8">Cargando…</p>}
+        {loading && <p className="text-center text-muted py-8">Cargando…</p>}
         {error && <p className="text-center text-red-400 py-8">{error}</p>}
         {!loading && !error && filtered.length === 0 && (
-          <p className="text-center text-zinc-600 py-8 italic">
+          <p className="text-center text-subtle py-8 italic">
             {customers.length === 0
               ? 'No hay clientes especiales registrados.'
               : 'Ningún cliente coincide con la búsqueda.'}
@@ -617,15 +617,15 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
           className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={e => { if (e.target === e.currentTarget && !formSaving) closeForm() }}
         >
-          <div className="w-full sm:max-w-lg bg-zinc-800 rounded-t-2xl sm:rounded-2xl border border-zinc-700 max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+          <div className="w-full sm:max-w-lg bg-raised rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between">
               <h2 className="text-base font-semibold">
                 {editingCustomer ? 'Editar cliente especial' : 'Nuevo cliente especial'}
               </h2>
               <button
                 onClick={closeForm}
                 disabled={formSaving}
-                className="text-zinc-400 hover:text-white text-xl disabled:opacity-40"
+                className="text-muted hover:text-ink text-xl disabled:opacity-40"
               >
                 ×
               </button>
@@ -633,7 +633,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
 
             <div className="px-5 py-4 space-y-4">
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Nombre *</label>
+                <label className="block text-xs text-muted mb-1">Nombre *</label>
                 <input
                   type="text"
                   value={formName}
@@ -641,18 +641,18 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
                   placeholder="Nombre *"
                   autoFocus
                   maxLength={100}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="w-full rounded-lg border border-line bg-raised px-3 py-2 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Notas generales <span className="text-zinc-600">(opcional)</span></label>
+                <label className="block text-xs text-muted mb-1">Notas generales <span className="text-subtle">(opcional)</span></label>
                 <textarea
                   value={formNotes}
                   onChange={e => setFormNotes(e.target.value)}
                   rows={2}
                   placeholder="Notas generales (opcional)"
                   maxLength={300}
-                  className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  className="w-full resize-none rounded-lg border border-line bg-raised px-3 py-2 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                 />
               </div>
               <PriceEditor
@@ -665,18 +665,18 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               {formError && <p className="text-xs text-red-400">{formError}</p>}
             </div>
 
-            <div className="px-5 py-4 border-t border-zinc-800 flex gap-2">
+            <div className="px-5 py-4 border-t border-line flex gap-2">
               <button
                 onClick={handleSubmitForm}
                 disabled={formSaving}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-ink hover:bg-accent disabled:opacity-50"
               >
                 {formSaving ? 'Guardando…' : editingCustomer ? 'Guardar' : 'Crear'}
               </button>
               <button
                 onClick={closeForm}
                 disabled={formSaving}
-                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:text-white disabled:opacity-40"
+                className="rounded-lg border border-line px-4 py-2 text-sm text-muted hover:text-ink disabled:opacity-40"
               >
                 Cancelar
               </button>

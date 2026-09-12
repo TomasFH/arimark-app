@@ -12,14 +12,14 @@ function fmtWhen(iso: string | null): string {
 
 function BillList({ bills }: { bills: BillLine[] }) {
   if (bills.length === 0) {
-    return <p className="text-xs text-zinc-500">Ningún billete</p>
+    return <p className="text-xs text-muted">Ningún billete</p>
   }
   return (
     <ul className="space-y-0.5">
       {bills.map(line => (
         <li key={line.denomination} className="flex justify-between gap-2 text-xs">
-          <span className="text-zinc-400">{formatBillDenomination(line.denomination)} × {line.quantity}</span>
-          <span className="font-mono text-zinc-200">{formatARS(line.denomination * line.quantity)}</span>
+          <span className="text-muted">{formatBillDenomination(line.denomination)} × {line.quantity}</span>
+          <span className="font-mono text-ink">{formatARS(line.denomination * line.quantity)}</span>
         </li>
       ))}
     </ul>
@@ -30,45 +30,45 @@ export default function CashHandoverAuditCard({ audit }: { audit: CashHandoverAu
   if (!audit.left && !audit.found && !audit.expected) return null
 
   return (
-    <div className="bg-zinc-800 rounded-xl border border-zinc-700 p-4 space-y-3">
-      <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Entrega del cambio</h3>
+    <div className="bg-raised rounded-xl border border-line p-4 space-y-3">
+      <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Entrega del cambio</h3>
 
       {audit.found && (
         <div className="space-y-1">
           <p className="text-sm text-white min-w-0 truncate" title={`Encontró ${audit.found.cashierName}`}>
             Encontró {audit.found.cashierName}
-            <span className="text-zinc-500"> · {fmtWhen(audit.found.at)}</span>
+            <span className="text-muted"> · {fmtWhen(audit.found.at)}</span>
           </p>
           <BillList bills={audit.found.bills} />
-          <p className="text-sm font-semibold text-emerald-300">{formatARS(audit.found.total)}</p>
+          <p className="text-sm font-semibold text-success">{formatARS(audit.found.total)}</p>
         </div>
       )}
 
       {audit.expected && (
-        <div className="space-y-1 border-t border-zinc-700 pt-2">
+        <div className="space-y-1 border-t border-line pt-2">
           <p className="text-sm text-white min-w-0 truncate" title={`Dejó ${audit.expected.cashierName}`}>
             Dejó {audit.expected.cashierName}
-            <span className="text-zinc-500"> · {fmtWhen(audit.expected.at)}</span>
+            <span className="text-muted"> · {fmtWhen(audit.expected.at)}</span>
           </p>
           <BillList bills={audit.expected.bills} />
-          <p className="text-sm font-semibold text-zinc-200">{formatARS(audit.expected.total)}</p>
+          <p className="text-sm font-semibold text-ink">{formatARS(audit.expected.total)}</p>
         </div>
       )}
 
       {audit.left && (
-        <div className="space-y-1 border-t border-zinc-700 pt-2">
+        <div className="space-y-1 border-t border-line pt-2">
           <p className="text-sm text-white min-w-0 truncate" title={`Dejó al cerrar ${audit.left.cashierName}`}>
             Dejó al cerrar {audit.left.cashierName}
-            <span className="text-zinc-500"> · {fmtWhen(audit.left.at)}</span>
+            <span className="text-muted"> · {fmtWhen(audit.left.at)}</span>
           </p>
           <BillList bills={audit.left.bills} />
-          <p className="text-sm font-semibold text-zinc-200">{formatARS(audit.left.total)}</p>
+          <p className="text-sm font-semibold text-ink">{formatARS(audit.left.total)}</p>
         </div>
       )}
 
       {audit.amountDiff != null && (
         <p className={`text-sm font-semibold ${
-          audit.amountDiff === 0 ? 'text-emerald-300' : audit.amountDiff > 0 ? 'text-blue-300' : 'text-red-300'
+          audit.amountDiff === 0 ? 'text-success' : audit.amountDiff > 0 ? 'text-blue-300' : 'text-red-300'
         }`}
         >
           {audit.amountDiff === 0

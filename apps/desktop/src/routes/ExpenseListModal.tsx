@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import type { ExpenseRow, ProviderDebtRow } from '../types/hw-api'
 import { formatARS } from '../lib/datetime'
 import ExpenseModal from './ExpenseModal'
+import { Button, Modal } from '../components/ui'
 
 interface Props {
   onClose: () => void
@@ -84,50 +85,49 @@ export default function ExpenseListModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-xl border border-zinc-700">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-700 shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold">Gastos del turno</h2>
-            <p className="text-xs text-zinc-500">
+    <Modal
+      open
+      onClose={onClose}
+      title="Gastos del turno"
+      size="md"
+      header={
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold text-ink">Gastos del turno</h2>
+            <p className="text-xs text-muted">
               {expenses
                 ? `${expenses.length} gasto${expenses.length !== 1 ? 's' : ''} · tocá uno para ver el detalle`
                 : 'Cargando…'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => void handleRefresh()}
-              disabled={refreshing}
-              title="Actualizar estado de deudas"
-              className="rounded-md border border-zinc-600 bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-600 disabled:opacity-40 transition-colors"
-            >
-              {refreshing ? '…' : '↻'}
-            </button>
-            <button
-              onClick={onClose}
-              className="rounded-md border border-zinc-600 bg-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-600"
-            >
-              Cerrar
-            </button>
-          </div>
+          <Button size="sm" variant="ghost" onClick={() => void handleRefresh()} disabled={refreshing} title="Actualizar estado de deudas">
+            {refreshing ? '…' : '↻'}
+          </Button>
         </div>
-
-        {/* Lista */}
-        <div className="flex-1 overflow-y-auto">
+      }
+      footer={
+        <>
+          {expenses && expenses.length > 0 && (
+            <p className="mr-auto text-sm text-ink">
+              <span className="text-muted">Total </span>
+              <span className="font-bold tabular-nums">{formatARS(total)}</span>
+            </p>
+          )}
+          <Button variant="secondary" onClick={onClose}>Cerrar</Button>
+        </>
+      }
+    >
           {error ? (
-            <p className="text-red-400 text-sm px-6 py-4">{error}</p>
+            <p className="text-danger text-sm px-6 py-4">{error}</p>
           ) : !expenses ? (
-            <p className="text-zinc-500 text-sm animate-pulse px-6 py-4">Cargando…</p>
+            <p className="text-muted text-sm animate-pulse px-6 py-4">Cargando…</p>
           ) : expenses.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-zinc-500 space-y-2">
+            <div className="flex flex-col items-center justify-center py-12 text-muted space-y-2">
               <p className="text-3xl">💸</p>
               <p className="text-sm">No hay gastos registrados en este turno</p>
             </div>
           ) : (
-            <ul className="divide-y divide-zinc-700/80">
+            <ul className="divide-y divide-line">
               {expenses.map(e => {
                 const isExpanded = expandedId === e.id
                 const label = e.provider ?? e.concept ?? '—'
@@ -152,29 +152,29 @@ export default function ExpenseListModal({ onClose }: Props) {
                     <button
                       onClick={() => toggleExpand(e.id)}
                       className={`w-full text-left px-5 py-3 flex items-center gap-3 transition-colors ${
-                        isExpanded ? 'bg-zinc-700' : 'hover:bg-zinc-700/60'
+                        isExpanded ? 'bg-hover' : 'hover:bg-hover'
                       }`}
                     >
                       {/* Chevron */}
-                      <span className={`shrink-0 text-zinc-500 text-xs transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                      <span className={`shrink-0 text-muted text-xs transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
                         ▶
                       </span>
 
                       {/* Hora */}
-                      <span className="shrink-0 text-xs text-zinc-500 w-10">{formatTime(e.createdAt)}</span>
+                      <span className="shrink-0 text-xs text-muted w-10">{formatTime(e.createdAt)}</span>
 
                       {/* Proveedor / concepto */}
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-sm text-white font-medium" title={label}>{label}</p>
+                        <p className="truncate text-sm text-ink font-medium" title={label}>{label}</p>
                         {e.provider && e.concept && (
-                          <p className="truncate text-xs text-zinc-500" title={e.concept}>{e.concept}</p>
+                          <p className="truncate text-xs text-muted" title={e.concept}>{e.concept}</p>
                         )}
                       </div>
 
                       {/* Indicador deuda — verde si ya fue saldada, ámbar si sigue pendiente */}
                       {hasDebtDetail && (
                         debtWasPaid ? (
-                          <span className="shrink-0 text-[10px] text-emerald-400 bg-emerald-950/50 border border-emerald-800/40 rounded px-1.5 py-0.5">
+                          <span className="shrink-0 text-[10px] text-success bg-success/10 border border-success/30 rounded px-1.5 py-0.5">
                             pagada
                           </span>
                         ) : (
@@ -185,12 +185,12 @@ export default function ExpenseListModal({ onClose }: Props) {
                       )}
 
                       {/* Monto */}
-                      <span className="shrink-0 text-sm font-semibold text-zinc-100">{formatARS(e.amount)}</span>
+                      <span className="shrink-0 text-sm font-semibold text-ink">{formatARS(e.amount)}</span>
                     </button>
 
                     {/* Panel de detalle — se expande al hacer clic */}
                     {isExpanded && (
-                      <div className="bg-zinc-700/50 border-t border-zinc-600 px-5 py-4 space-y-3 text-sm">
+                      <div className="bg-hover border-t border-line px-5 py-4 space-y-3 text-sm">
 
                         {/* Proveedor y concepto */}
                         {e.provider && (
@@ -201,29 +201,29 @@ export default function ExpenseListModal({ onClose }: Props) {
                         )}
 
                         {/* Montos */}
-                        <div className="rounded-xl overflow-hidden border border-zinc-600">
+                        <div className="rounded-xl overflow-hidden border border-line">
                           {totalVisit !== null && (
-                            <div className="flex justify-between px-3 py-2 bg-zinc-800/60 border-b border-zinc-600">
-                              <span className="text-zinc-400 text-xs">Total de la visita</span>
-                              <span className="text-white font-semibold">{formatARS(totalVisit)}</span>
+                            <div className="flex justify-between px-3 py-2 bg-hover border-b border-line">
+                              <span className="text-muted text-xs">Total de la visita</span>
+                              <span className="text-ink font-semibold">{formatARS(totalVisit)}</span>
                             </div>
                           )}
-                          <div className={`flex justify-between px-3 py-2 ${totalVisit !== null ? '' : 'bg-zinc-800/60'}`}>
-                            <span className="text-zinc-400 text-xs">
+                          <div className={`flex justify-between px-3 py-2 ${totalVisit !== null ? '' : 'bg-hover'}`}>
+                            <span className="text-muted text-xs">
                               {totalVisit !== null ? 'Pagado en esta visita' : 'Monto pagado'}
                             </span>
-                            <span className="text-white font-semibold">{formatARS(e.amount)}</span>
+                            <span className="text-ink font-semibold">{formatARS(e.amount)}</span>
                           </div>
                           {e.newDebtAmount && (
                             debtWasPaid ? (
                               // La deuda fue generada pero luego saldada
-                              <div className="px-3 py-2 border-t border-emerald-800/30 bg-emerald-950/20 space-y-0.5">
+                              <div className="px-3 py-2 border-t border-success/30 bg-success/10 space-y-0.5">
                                 <div className="flex justify-between">
-                                  <span className="text-emerald-400 text-xs">Deuda generada (ya saldada ✓)</span>
-                                  <span className="text-emerald-300 font-semibold">{formatARS(e.newDebtAmount)}</span>
+                                  <span className="text-success text-xs">Deuda generada (ya saldada ✓)</span>
+                                  <span className="text-success font-semibold">{formatARS(e.newDebtAmount)}</span>
                                 </div>
                                 {paidByLabel && (
-                                  <p className="text-[11px] text-emerald-400/70">Pagada por {paidByLabel}</p>
+                                  <p className="text-[11px] text-success">Pagada por {paidByLabel}</p>
                                 )}
                               </div>
                             ) : (
@@ -234,9 +234,9 @@ export default function ExpenseListModal({ onClose }: Props) {
                             )
                           )}
                           {e.paysOldDebt && (
-                            <div className="flex justify-between px-3 py-2 border-t border-emerald-800/30 bg-emerald-950/20">
-                              <span className="text-emerald-400 text-xs">Deuda anterior pagada</span>
-                              <span className="text-emerald-300 font-semibold">{formatARS(e.paysOldDebt)}</span>
+                            <div className="flex justify-between px-3 py-2 border-t border-success/30 bg-success/10">
+                              <span className="text-success text-xs">Deuda anterior pagada</span>
+                              <span className="text-success font-semibold">{formatARS(e.paysOldDebt)}</span>
                             </div>
                           )}
                         </div>
@@ -247,10 +247,10 @@ export default function ExpenseListModal({ onClose }: Props) {
                         )}
 
                         {/* Botones de acción */}
-                        <div className="flex gap-2 pt-2 border-t border-zinc-600">
+                        <div className="flex gap-2 pt-2 border-t border-line">
                           <button
                             onClick={() => setEditingExpense(e)}
-                            className="flex-1 py-1.5 rounded-lg border border-zinc-600 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 transition-colors"
+                            className="flex-1 py-1.5 rounded-lg border border-line bg-raised hover:bg-hover text-xs text-ink transition-colors"
                           >
                             Editar
                           </button>
@@ -258,14 +258,14 @@ export default function ExpenseListModal({ onClose }: Props) {
                             <div className="flex-1 flex gap-1">
                               <button
                                 onClick={() => setConfirmDeleteId(null)}
-                                className="flex-1 py-1.5 rounded-lg border border-zinc-600 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-400 transition-colors"
+                                className="flex-1 py-1.5 rounded-lg border border-line bg-raised hover:bg-hover text-xs text-muted transition-colors"
                               >
                                 Cancelar
                               </button>
                               <button
                                 onClick={() => void handleDelete(e.id)}
                                 disabled={deleting}
-                                className="flex-1 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-xs text-white font-semibold transition-colors disabled:opacity-40"
+                                className="flex-1 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-xs text-ink font-semibold transition-colors disabled:opacity-40"
                               >
                                 {deleting ? '…' : 'Confirmar'}
                               </button>
@@ -273,7 +273,7 @@ export default function ExpenseListModal({ onClose }: Props) {
                           ) : (
                             <button
                               onClick={() => setConfirmDeleteId(e.id)}
-                              className="flex-1 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/60 border border-red-800/40 text-xs text-red-400 transition-colors"
+                              className="flex-1 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/60 border border-danger/30/40 text-xs text-danger transition-colors"
                             >
                               Eliminar
                             </button>
@@ -281,8 +281,8 @@ export default function ExpenseListModal({ onClose }: Props) {
                         </div>
 
                         {/* Metadatos */}
-                        <div className="flex items-center justify-between text-xs text-zinc-500 pt-1">
-                          <span>Registrado por <span className="text-zinc-400">{e.createdBy}</span></span>
+                        <div className="flex items-center justify-between text-xs text-muted pt-1">
+                          <span>Registrado por <span className="text-muted">{e.createdBy}</span></span>
                           <span>{formatDate(e.createdAt)} {formatTime(e.createdAt)}</span>
                         </div>
                       </div>
@@ -292,25 +292,15 @@ export default function ExpenseListModal({ onClose }: Props) {
               })}
             </ul>
           )}
-        </div>
-
-        {/* Footer total */}
-        {expenses && expenses.length > 0 && (
-          <div className="border-t border-zinc-700 bg-zinc-700/30 px-6 py-3 flex justify-between items-center shrink-0">
-            <p className="text-xs text-zinc-500">Total pagado en el turno</p>
-            <p className="text-base font-bold text-zinc-100">{formatARS(total)}</p>
-          </div>
-        )}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-2 min-w-0">
-      <span className="shrink-0 text-xs text-zinc-500 w-24">{label}</span>
-      <span className="flex-1 min-w-0 text-xs text-white break-words">{value}</span>
+      <span className="shrink-0 text-xs text-muted w-24">{label}</span>
+      <span className="flex-1 min-w-0 text-xs text-ink break-words">{value}</span>
     </div>
   )
 }

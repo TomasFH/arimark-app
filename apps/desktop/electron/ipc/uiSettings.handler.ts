@@ -1,5 +1,5 @@
 /**
- * Handler de preferencias de UI (zoom, etc.).
+ * Handler de preferencias de UI (zoom, esquema de color).
  * Persiste en {userData}/ui-settings.json (no sensible → no safeStorage).
  * También expone funciones para que main.ts pueda aplicar el zoom inicial
  * y hookear los atajos de teclado Ctrl+=/Ctrl+-.
@@ -17,13 +17,17 @@ import { notifyRenderer } from '../licensing/notifyRenderer'
 // Schema
 // ---------------------------------------------------------------------------
 
+export const colorSchemeSchema = z.enum(['light', 'dark'])
+
 export const uiSettingsSchema = z.object({
   zoomFactor: z.number().min(0.6).max(2.0).default(1.0),
+  colorScheme: colorSchemeSchema.default('light'),
 })
 
 export type UiSettings = z.infer<typeof uiSettingsSchema>
+export type ColorScheme = z.infer<typeof colorSchemeSchema>
 
-const DEFAULTS: UiSettings = { zoomFactor: 1.0 }
+const DEFAULTS: UiSettings = { zoomFactor: 1.0, colorScheme: 'light' }
 const STEP = 0.1
 const MIN_ZOOM = 0.6
 const MAX_ZOOM = 2.0
@@ -51,6 +55,10 @@ function writeSettings(settings: UiSettings): void {
   } catch (err) {
     log.error('[ui-settings] No se pudo guardar ui-settings.json', err)
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +124,12 @@ export function registerUiSettingsHandlers(): void {
   })
 
   ipcMain.handle(IPC.SET_UI_SETTINGS, (_event, payload: unknown): IpcResult<UiSettings> => {
-    const parsed = uiSettingsSchema.safeParse(payload)
+    if (!isPlainObject(payload)) {
+      log.error('[ipc:set-ui-settings] Payload inválido', payload)
+      return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
+    }
+    // Merge parcial: un cambio de zoom no debe resetear colorScheme (y viceversa).
+    const parsed = uiSettingsSchema.safeParse({ ...readSettings(), ...payload })
     if (!parsed.success) {
       log.error('[ipc:set-ui-settings] Payload inválido', parsed.error)
       return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }

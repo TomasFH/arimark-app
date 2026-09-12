@@ -6,12 +6,16 @@ import { useEffect, useRef, useState } from 'react'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
 import { INJECT_REASON_LABELS, type InjectReason } from '@carniceria/shared'
+import { Button, Modal } from '../components/ui'
 
 interface Props {
   onCancel: () => void
   /** Tras guardar: refresca el saldo de caja. */
   onSaved: () => void
 }
+
+const fieldClass =
+  'w-full rounded-xl border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
 
 export default function CashInjectModal({ onCancel, onSaved }: Props) {
   const [amountRaw, setAmountRaw] = useState('')
@@ -24,14 +28,6 @@ export default function CashInjectModal({ onCancel, onSaved }: Props) {
   useEffect(() => {
     amountRef.current?.focus()
   }, [])
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !saving) onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [saving, onCancel])
 
   async function handleSubmit() {
     const amount = parseNumericInput(amountRaw)
@@ -57,103 +53,82 @@ export default function CashInjectModal({ onCancel, onSaved }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-      <div className="bg-zinc-800 rounded-2xl w-full max-w-md shadow-xl space-y-4 p-6 border border-zinc-700">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-lg font-semibold min-w-0 truncate" title="Ingreso de efectivo">
-            Ingreso de efectivo
-          </h2>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="shrink-0 text-zinc-400 hover:text-zinc-200 disabled:opacity-40 p-1"
-            aria-label="Cerrar"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <p className="text-sm text-zinc-400">
-          Suma el monto a la caja del turno. La acreditación digital se hace afuera de la app.
-        </p>
-
-        <fieldset className="space-y-2">
-          <legend className="text-sm text-zinc-400">Motivo</legend>
-          <label className="flex items-start gap-2 rounded-lg border border-zinc-700 px-3 py-2 cursor-pointer hover:bg-zinc-800/60">
-            <input
-              type="radio"
-              name="inject-reason"
-              checked={injectReason === 'aporte'}
-              onChange={() => setInjectReason('aporte')}
-              className="mt-1"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm text-white">{INJECT_REASON_LABELS.aporte}</span>
-              <span className="block text-xs text-zinc-500">Plata que mandan los admin.</span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2 rounded-lg border border-zinc-700 px-3 py-2 cursor-pointer hover:bg-zinc-800/60">
-            <input
-              type="radio"
-              name="inject-reason"
-              checked={injectReason === 'wallet_cash'}
-              onChange={() => setInjectReason('wallet_cash')}
-              className="mt-1"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm text-white">{INJECT_REASON_LABELS.wallet_cash}</span>
-              <span className="block text-xs text-zinc-500">El cliente deja efectivo; la acreditación es afuera.</span>
-            </span>
-          </label>
-        </fieldset>
-
-        <div className="space-y-1">
-          <label className="text-sm text-zinc-400">Monto ($)</label>
-          <NumericInput
-            ref={amountRef}
-            value={amountRaw}
-            onChange={v => { setAmountRaw(v); setError(null) }}
-            placeholder="0"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-sm text-zinc-400">Nota (opcional)</label>
-          <input
-            type="text"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            placeholder={injectReason === 'wallet_cash' ? 'Nombre del cliente (opcional)' : 'Quién aportó, motivo…'}
-            maxLength={200}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
-          />
-        </div>
-
-        {error && <p className="text-red-400 text-sm">{error}</p>}
-
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40 text-sm"
-          >
+    <Modal
+      open
+      onClose={onCancel}
+      closeOnOverlay={!saving}
+      closeOnEscape={!saving}
+      title="Ingreso de efectivo"
+      size="sm"
+      footer={(
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onCancel} disabled={saving}>
             Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={saving}
-            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold transition-colors disabled:opacity-40 text-sm"
-          >
+          </Button>
+          <Button variant="primary" onClick={() => void handleSubmit()} loading={saving}>
             {saving ? 'Guardando…' : 'Registrar'}
-          </button>
-        </div>
+          </Button>
+        </>
+      )}
+    >
+      <p className="mb-4 text-sm text-muted">
+        Suma el monto a la caja del turno. La acreditación digital se hace afuera de la app.
+      </p>
+
+      <fieldset className="mb-4 space-y-2">
+        <legend className="text-sm text-muted">Motivo</legend>
+        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line px-3 py-2 hover:bg-hover">
+          <input
+            type="radio"
+            name="inject-reason"
+            checked={injectReason === 'aporte'}
+            onChange={() => setInjectReason('aporte')}
+            className="mt-1 accent-[var(--accent)]"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm text-ink">{INJECT_REASON_LABELS.aporte}</span>
+            <span className="block text-xs text-muted">Plata que mandan los admin.</span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line px-3 py-2 hover:bg-hover">
+          <input
+            type="radio"
+            name="inject-reason"
+            checked={injectReason === 'wallet_cash'}
+            onChange={() => setInjectReason('wallet_cash')}
+            className="mt-1 accent-[var(--accent)]"
+          />
+          <span className="min-w-0">
+            <span className="block text-sm text-ink">{INJECT_REASON_LABELS.wallet_cash}</span>
+            <span className="block text-xs text-muted">El cliente deja efectivo; la acreditación es afuera.</span>
+          </span>
+        </label>
+      </fieldset>
+
+      <div className="mb-4 space-y-1">
+        <label className="text-sm text-muted">Monto ($)</label>
+        <NumericInput
+          ref={amountRef}
+          value={amountRaw}
+          onChange={v => { setAmountRaw(v); setError(null) }}
+          placeholder="0"
+          className={fieldClass}
+        />
       </div>
-    </div>
+
+      <div className="space-y-1">
+        <label className="text-sm text-muted">Nota (opcional)</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder={injectReason === 'wallet_cash' ? 'Nombre del cliente (opcional)' : 'Quién aportó, motivo…'}
+          maxLength={200}
+          className={fieldClass}
+        />
+      </div>
+
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+    </Modal>
   )
 }

@@ -5,10 +5,14 @@
 import { useState } from 'react'
 import { newPasswordIssue, MAX_AUTH_PASSWORD_LENGTH } from '../lib/passwordRules'
 import { PASSWORD_RESET_SENT_MESSAGE } from '../lib/passwordCopy'
+import { Button, Modal } from './ui'
 
 interface Props {
   onClose: () => void
 }
+
+const fieldClass =
+  'w-full rounded-xl border border-line bg-input px-4 py-2.5 text-sm text-ink focus:border-line-accent focus:outline-none'
 
 export default function ChangePasswordModal({ onClose }: Props) {
   const [currentPassword, setCurrentPassword] = useState('')
@@ -70,95 +74,96 @@ export default function ChangePasswordModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold text-zinc-100">Cambiar contraseña</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">Solo para tu cuenta. Nadie más ve ni cambia tu clave.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-lg px-2 py-1 text-sm text-zinc-500 hover:text-zinc-200"
-          >
+    <Modal
+      open
+      onClose={onClose}
+      title="Cambiar contraseña"
+      size="sm"
+      footer={(
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onClose} disabled={loading}>
             Cerrar
-          </button>
-        </div>
-
-        <form onSubmit={(e) => { void handleSubmit(e) }} className="space-y-3">
-          <div>
-            <label htmlFor="change-password-current" className="mb-1 block text-xs font-medium text-zinc-400">Contraseña actual</label>
-            <input
-              id="change-password-current"
-              type="password"
-              autoComplete="current-password"
-              maxLength={MAX_AUTH_PASSWORD_LENGTH}
-              value={currentPassword}
-              onChange={e => setCurrentPassword(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-zinc-100 focus:border-zinc-600 focus:outline-none"
-              disabled={loading}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="change-password-new" className="mb-1 block text-xs font-medium text-zinc-400">Nueva contraseña</label>
-            <input
-              id="change-password-new"
-              type="password"
-              autoComplete="new-password"
-              maxLength={MAX_AUTH_PASSWORD_LENGTH}
-              value={newPassword}
-              onChange={e => setNewPassword(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-zinc-100 focus:border-zinc-600 focus:outline-none"
-              disabled={loading}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="change-password-confirm" className="mb-1 block text-xs font-medium text-zinc-400">Repetir nueva</label>
-            <input
-              id="change-password-confirm"
-              type="password"
-              autoComplete="new-password"
-              maxLength={MAX_AUTH_PASSWORD_LENGTH}
-              value={confirmPassword}
-              onChange={e => setConfirmPassword(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-zinc-100 focus:border-zinc-600 focus:outline-none"
-              disabled={loading}
-              required
-            />
-          </div>
-
-          {error && (
-            <p className="rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-300">{error}</p>
-          )}
-          {notice && (
-            <p className="rounded-xl border border-emerald-900/40 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-300">{notice}</p>
-          )}
-
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
-            disabled={loading || !currentPassword || !newPassword || !confirmPassword}
-            className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+            form="change-password-form"
+            loading={loading}
+            disabled={!currentPassword || !newPassword || !confirmPassword}
           >
             {loading ? 'Guardando…' : 'Guardar'}
-          </button>
-        </form>
+          </Button>
+        </>
+      )}
+    >
+      <p className="mb-4 text-xs text-muted">Solo para tu cuenta. Nadie más ve ni cambia tu clave.</p>
 
-        <button
-          type="button"
-          onClick={() => { void handleSendMail() }}
-          disabled={sendingMail || loading}
-          className="mt-3 w-full text-center text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
-        >
-          {sendingMail
-            ? 'Enviando mail…'
-            : requiresMail
-              ? 'Enviar mail para restablecer'
-              : '¿No recordás la actual? Enviar mail'}
-        </button>
-      </div>
-    </div>
+      <form id="change-password-form" onSubmit={(e) => { void handleSubmit(e) }} className="space-y-3">
+        <div>
+          <label htmlFor="change-password-current" className="mb-1 block text-xs font-medium text-muted">Contraseña actual</label>
+          <input
+            id="change-password-current"
+            type="password"
+            autoComplete="current-password"
+            maxLength={MAX_AUTH_PASSWORD_LENGTH}
+            value={currentPassword}
+            onChange={e => setCurrentPassword(e.target.value)}
+            className={fieldClass}
+            disabled={loading}
+            required
+          />
+        </div>
+        <div>
+          <label htmlFor="change-password-new" className="mb-1 block text-xs font-medium text-muted">Nueva contraseña</label>
+          <input
+            id="change-password-new"
+            type="password"
+            autoComplete="new-password"
+            maxLength={MAX_AUTH_PASSWORD_LENGTH}
+            value={newPassword}
+            onChange={e => setNewPassword(e.target.value)}
+            className={fieldClass}
+            disabled={loading}
+            required
+          />
+        </div>
+        <div>
+          <label htmlFor="change-password-confirm" className="mb-1 block text-xs font-medium text-muted">Repetir nueva</label>
+          <input
+            id="change-password-confirm"
+            type="password"
+            autoComplete="new-password"
+            maxLength={MAX_AUTH_PASSWORD_LENGTH}
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            className={fieldClass}
+            disabled={loading}
+            required
+          />
+        </div>
+
+        {error && (
+          <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+        )}
+        {notice && (
+          <p className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">{notice}</p>
+        )}
+      </form>
+
+      <Button
+        type="button"
+        variant="ghost"
+        fullWidth
+        onClick={() => { void handleSendMail() }}
+        disabled={sendingMail || loading}
+        className="mt-3 text-xs text-muted"
+      >
+        {sendingMail
+          ? 'Enviando mail…'
+          : requiresMail
+            ? 'Enviar mail para restablecer'
+            : '¿No recordás la actual? Enviar mail'}
+      </Button>
+    </Modal>
   )
 }
