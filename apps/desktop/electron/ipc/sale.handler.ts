@@ -5,12 +5,22 @@ import log from 'electron-log'
 import { eq, and, desc, inArray, ne } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { sales, saleItems, salePayments, orders, products } from '../db/schema'
+import { sales, saleItems, salePayments, orders, products, stores, shifts } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedSales } from '../licensing/saleSync'
 import { pushUnsyncedOrders } from '../licensing/orderSync'
 import { notifySaleOccurred } from './inactivityDaemon'
+import { digitalAmountFromDeposit } from '../lib/depositPayments'
+import {
+  normalizeCashDiscountRule,
+  parseCashDiscountSchedule,
+  quoteCashDiscount,
+  remainderIncludesCash,
+  resolveCashDiscountRule,
+  saleTotalFromQuote,
+  weekdayInTimeZone,
+} from '@carniceria/shared'
 import type { IpcResult, SaleResult, ShiftSaleRow } from '../../src/types/hw-api'
 
 // ---------------------------------------------------------------------------
@@ -57,7 +67,8 @@ const createSaleSchema = z
       if (net === 0) return data.payments.length === 0
       if (data.payments.length === 0) return false
       const paymentTotal = Math.round(data.payments.reduce((sum, p) => sum + p.amount, 0))
-      return Math.abs(net - paymentTotal) < 0.5
+      // El descuento solo puede bajar el neto; el handler valida el monto exacto.
+      return paymentTotal > 0 && paymentTotal <= net + 0.5
     },
     { message: 'La suma de pagos no coincide con el total de la venta.' }
   )
@@ -89,10 +100,82 @@ export function registerSaleHandlers(): void {
 
     const { items, payments, customerId, isDebt, manualEntry, notes, orderId, depositCredit } = parsed.data
     const itemTotal = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
-    const total = Math.max(0, Math.round((itemTotal - (depositCredit ?? 0)) * 100) / 100)
+    const depositAmount = Math.round(depositCredit ?? 0)
+    const db = getDb()
+
+    let rule = normalizeCashDiscountRule(0, 0)
+    let depositDigitalAmount = 0
+    try {
+      const storeRow = db
+        .select({
+          cashDiscountMinAmount: stores.cashDiscountMinAmount,
+          cashDiscountPercent: stores.cashDiscountPercent,
+          cashDiscountSchedule: stores.cashDiscountSchedule,
+        })
+        .from(stores)
+        .where(eq(stores.id, session.storeId))
+        .get()
+      const shiftRow = db
+        .select({ shiftType: shifts.shiftType })
+        .from(shifts)
+        .where(eq(shifts.id, session.shiftId))
+        .get()
+      rule = resolveCashDiscountRule({
+        fallback: normalizeCashDiscountRule(
+          storeRow?.cashDiscountMinAmount,
+          storeRow?.cashDiscountPercent,
+        ),
+        schedule: parseCashDiscountSchedule(storeRow?.cashDiscountSchedule),
+        weekday: weekdayInTimeZone(),
+        shiftType: shiftRow?.shiftType ?? 'morning',
+      })
+      if (depositAmount > 0 && orderId) {
+        const orderRow = db
+          .select({
+            depositAmount: orders.depositAmount,
+            depositMethod: orders.depositMethod,
+            depositPayments: orders.depositPayments,
+          })
+          .from(orders)
+          .where(eq(orders.id, orderId))
+          .get()
+        if (orderRow) {
+          depositDigitalAmount = digitalAmountFromDeposit(orderRow)
+        } else {
+          depositDigitalAmount = depositAmount
+        }
+      }
+    } catch (err) {
+      log.error('[ipc:create-sale] No se pudo leer local/seña para descuento', err)
+    }
+
+    const quote = quoteCashDiscount({
+      rule,
+      itemTotal,
+      isDebt: isDebt === true,
+      depositAmount,
+      depositDigitalAmount,
+      remainderIncludesCash: remainderIncludesCash(payments),
+    })
+
+    if (!isDebt) {
+      const paymentTotal = Math.round(payments.reduce((sum, p) => sum + p.amount, 0))
+      if (quote.amountDue === 0) {
+        if (payments.length !== 0) {
+          return { ok: false, error: 'La suma de pagos no coincide con el total de la venta.', code: 'INVALID_PAYLOAD' }
+        }
+      } else if (Math.abs(paymentTotal - quote.amountDue) >= 0.5) {
+        return { ok: false, error: 'La suma de pagos no coincide con el total de la venta.', code: 'INVALID_PAYLOAD' }
+      }
+    }
+
+    const total = isDebt
+      ? itemTotal
+      : saleTotalFromQuote(quote, itemTotal, depositAmount)
+    const discountAmount = quote.eligible ? quote.discountAmount : 0
+    const discountPercent = quote.eligible ? quote.discountPercent : 0
     const saleId = uuidv4()
     const now = new Date().toISOString()
-    const db = getDb()
 
     // La cajera que registra la venta manual queda asentada como responsable.
     const manualApprovedBy: string | null = manualEntry ? session.userId : null
@@ -116,6 +199,8 @@ export function registerSaleHandlers(): void {
             manualApprovedBy,
             manualApprovedAt,
             notes: notes ?? null,
+            discountAmount,
+            discountPercent,
             createdAt: now,
             createdBy: session.userId,
           })

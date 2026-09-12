@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { PASSWORD_RESET_SENT_MESSAGE } from '../lib/passwordCopy'
 
 const isDevMode = import.meta.env['VITE_APP_ENV'] === 'dev'
 
@@ -15,12 +16,19 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  // Contador que cambia con cada error para re-disparar la animación shake
+  const [resetNotice, setResetNotice] = useState('')
+  const [resetSending, setResetSending] = useState(false)
+  const [resetMode, setResetMode] = useState(false)
   const [errorKey, setErrorKey] = useState(0)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (resetMode) {
+      void handleForgotPassword()
+      return
+    }
     setError('')
+    setResetNotice('')
     setLoading(true)
     try {
       await onLogin(email, password)
@@ -29,6 +37,33 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
       setErrorKey(k => k + 1)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleForgotPassword() {
+    setError('')
+    setResetNotice('')
+    const trimmed = email.trim()
+    if (!trimmed) {
+      setError('Ingresá tu email para enviarte el mail.')
+      setErrorKey(k => k + 1)
+      return
+    }
+    setResetSending(true)
+    try {
+      const result = await window.hw.sendPasswordReset({ email: trimmed })
+      if (!result.ok) {
+        setError(result.error)
+        setErrorKey(k => k + 1)
+        return
+      }
+      setResetNotice(
+        isDevMode
+          ? 'Modo pruebas: no se envía mail. En producción se mandaría a este email.'
+          : PASSWORD_RESET_SENT_MESSAGE,
+      )
+    } finally {
+      setResetSending(false)
     }
   }
 
@@ -48,33 +83,61 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
       {/* Card */}
       <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-7 shadow-2xl space-y-5">
         <form onSubmit={handleSubmit} className="space-y-4">
+          {resetMode ? (
+            <p className="text-sm text-zinc-400">
+              Ingresá el email de la cuenta. Te mandamos un mail para elegir una contraseña nueva.
+            </p>
+          ) : null}
+
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Email</label>
+            <label htmlFor="login-email" className="block text-xs font-medium text-zinc-400 mb-1.5">Email</label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-600 focus:outline-none transition-colors"
               autoComplete="email"
-              disabled={loading}
-              required
+              disabled={loading || resetSending}
+              required={!resetMode}
             />
           </div>
 
+          {!resetMode && (
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Contraseña</label>
+            <label htmlFor="login-password" className="block text-xs font-medium text-zinc-400 mb-1.5">Contraseña</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-600 focus:border-zinc-600 focus:outline-none transition-colors"
               autoComplete="current-password"
-              disabled={loading}
+              disabled={loading || resetSending}
               required
             />
+            <button
+              type="button"
+              onClick={() => {
+                setError('')
+                setResetNotice('')
+                setResetMode(true)
+              }}
+              disabled={loading || resetSending}
+              className="mt-2 text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
+            >
+              ¿Olvidaste tu contraseña?
+            </button>
           </div>
+          )}
 
           {/* Error con shake — key cambia para re-disparar la animación en cada intento */}
+          {resetNotice && (
+            <div className="rounded-xl border border-emerald-900/40 bg-emerald-950/30 px-3 py-2.5">
+              <p className="text-sm text-emerald-300">{resetNotice}</p>
+            </div>
+          )}
+
           {error && (
             <div key={errorKey} className="animate-shake rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2.5">
               <p className="text-sm text-red-300">{error}</p>
@@ -83,10 +146,12 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
 
           <button
             type="submit"
-            disabled={loading || !email || !password}
+            disabled={loading || resetSending || (!resetMode && (!email || !password))}
             className="mt-1 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-white transition-all hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center gap-2"
           >
-            {loading ? (
+            {resetMode ? (
+              resetSending ? 'Enviando mail…' : 'Restablecer contraseña'
+            ) : loading ? (
               <>
                 <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 <span>Ingresando…</span>
@@ -95,6 +160,20 @@ export default function LoginScreen({ onLogin, businessName }: Props) {
               'Ingresar'
             )}
           </button>
+          {resetMode && (
+            <button
+              type="button"
+              onClick={() => {
+                setResetMode(false)
+                setError('')
+                setResetNotice('')
+              }}
+              disabled={resetSending}
+              className="w-full text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40"
+            >
+              Volver al ingreso
+            </button>
+          )}
         </form>
       </div>
 

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts } from '../../db/schema'
+import { stores, users, shifts, billDenominations } from '../../db/schema'
 import { isNull, isNotNull, eq } from 'drizzle-orm'
 
 const { mockSetDoc, mockDoc, mockGetDocs, mockGetDoc } = vi.hoisted(() => ({
@@ -27,6 +27,8 @@ vi.mock('firebase/firestore', () => ({
   where: vi.fn((...args: unknown[]) => args),
   getDocs: mockGetDocs,
   getDoc: mockGetDoc,
+  orderBy: vi.fn((...args: unknown[]) => args),
+  limit: vi.fn((...args: unknown[]) => args),
 }))
 
 vi.mock('../firebase', () => ({
@@ -42,9 +44,10 @@ vi.mock('../../db/client', () => ({
   getDb: vi.fn(),
 }))
 
+import { orderBy, limit } from 'firebase/firestore'
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { pushUnsyncedShifts, reconcileStoreShifts } from '../shiftSync'
+import { loadCashHandoverForStore, pushUnsyncedShifts, reconcileStoreShifts } from '../shiftSync'
 
 const TENANT = 'test-tenant'
 
@@ -203,6 +206,46 @@ describe('shiftSync', () => {
           deliveredAmount: 2000,
           deliveredTo: 'Admin',
           notes: 'ok',
+          closingBills: [],
+          openingBills: [],
+          closingBillsCounted: false,
+        }),
+        { merge: true },
+      )
+    })
+
+    it('sube el desglose de billetes en el doc del turno', async () => {
+      const now = new Date().toISOString()
+      db.insert(shifts).values({
+        id: 'shift-bills',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        closedAt: now,
+        openingCash: 1000,
+        closingCash: 5000,
+        source: 'desktop',
+        closingCounted: true,
+        syncedAt: null,
+      }).run()
+      db.insert(billDenominations).values({
+        id: 'bill-1',
+        shiftId: 'shift-bills',
+        kind: 'closing',
+        denomination: 1000,
+        quantity: 5,
+        subtotal: 5000,
+      }).run()
+
+      await pushUnsyncedShifts(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'shift-bills',
+          closingBills: [{ denomination: 1000, quantity: 5 }],
+          closingBillsCounted: true,
         }),
         { merge: true },
       )
@@ -329,6 +372,77 @@ describe('shiftSync', () => {
       vi.mocked(isFirebaseAvailable).mockReturnValue(false)
       await reconcileStoreShifts(TENANT, { storeId: 'store-001' })
       expect(mockGetDocs).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('loadCashHandoverForStore', () => {
+    it('lee el último cierre local si Firebase no está disponible', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      const closedAt = '2026-09-11T16:00:00.000Z'
+      db.insert(shifts).values({
+        id: 'shift-left',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: '2026-09-11T08:00:00.000Z',
+        closedAt,
+        openingCash: 0,
+        source: 'desktop',
+        closingCounted: true,
+        syncedAt: closedAt,
+      }).run()
+      db.insert(billDenominations).values({
+        id: 'bill-left',
+        shiftId: 'shift-left',
+        kind: 'closing',
+        denomination: 1000,
+        quantity: 3,
+        subtotal: 3000,
+      }).run()
+
+      const result = await loadCashHandoverForStore(TENANT, 'store-001')
+      expect(result).toMatchObject({
+        fromShiftId: 'shift-left',
+        fromCashierName: 'Cajera Test',
+        bills: [{ denomination: 1000, quantity: 3 }],
+        counted: true,
+      })
+    })
+
+    it('consulta Firestore con storeId, startedAt desc y limit 8', async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        size: 2,
+        docs: [
+          {
+            id: 'shift-open',
+            data: () => ({
+              id: 'shift-open',
+              userId: 'user-001',
+              closedAt: null,
+            }),
+          },
+          {
+            id: 'shift-remote-closed',
+            data: () => ({
+              id: 'shift-remote-closed',
+              userId: 'user-001',
+              cashierName: 'Ana',
+              closedAt: '2026-09-11T20:00:00.000Z',
+              closingBills: [{ denomination: 2000, quantity: 1 }],
+              closingBillsCounted: true,
+            }),
+          },
+        ],
+      })
+
+      const result = await loadCashHandoverForStore(TENANT, 'store-001')
+      expect(orderBy).toHaveBeenCalledWith('startedAt', 'desc')
+      expect(limit).toHaveBeenCalledWith(8)
+      expect(result).toMatchObject({
+        fromShiftId: 'shift-remote-closed',
+        fromCashierName: 'Ana',
+        bills: [{ denomination: 2000, quantity: 1 }],
+      })
     })
   })
 })

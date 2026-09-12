@@ -9,17 +9,35 @@ import {
   defaultCreateStoreId,
   validateMobileOrderDraft,
   toMobileOrderRecord,
+  toMobileOrderPatch,
+  resolvedBudgetLines,
+  estimatedBudgetTotal,
+  budgetDraftFromLines,
   formatPickupSlotLine,
   type MobileOrderDraft,
+  type BudgetCartDraft,
 } from '../lib/orderMapping'
 import type { StoreHoursSource } from '@carniceria/shared'
+
+function sampleCart(): BudgetCartDraft[] {
+  return [{
+    productId: 'p1',
+    name: 'Asado',
+    unit: 'kg',
+    pluNumber: 10,
+    estimatedQty: 1.5,
+    unitPrice: 18000,
+    qtyRaw: '1,5',
+    requestedUnitsRaw: '',
+  }]
+}
 
 function draft(overrides: Partial<MobileOrderDraft> = {}): MobileOrderDraft {
   return {
     storeId: 'store-1',
     customerName: 'Juan',
     phone: '111',
-    items: '2 kg asado',
+    items: '',
     pickupDate: '2026-08-18',
     timeSlot: '',
     pickupTime: '',
@@ -27,6 +45,7 @@ function draft(overrides: Partial<MobileOrderDraft> = {}): MobileOrderDraft {
     payments: [],
     notes: '',
     createdBy: 'uid-admin',
+    budgetCart: sampleCart(),
     ...overrides,
   }
 }
@@ -118,12 +137,19 @@ describe('defaultCreateStoreId', () => {
 })
 
 describe('validateMobileOrderDraft / toMobileOrderRecord', () => {
-  it('exige nombre, ítems, local y createdBy', () => {
+  it('exige nombre, productos, local y createdBy', () => {
     expect(validateMobileOrderDraft(draft({ customerName: '  ' }))).toMatch(/nombre/i)
-    expect(validateMobileOrderDraft(draft({ items: '' }))).toMatch(/ítems/i)
+    expect(validateMobileOrderDraft(draft({ budgetCart: [], items: '' }))).toMatch(/producto/i)
     expect(validateMobileOrderDraft(draft({ storeId: '' }))).toMatch(/local/i)
     expect(validateMobileOrderDraft(draft({ createdBy: '' }))).toMatch(/usuario autenticado/i)
     expect(validateMobileOrderDraft(draft())).toBe(null)
+  })
+
+  it('pedidos viejos solo-texto siguen editables', () => {
+    const legacy = draft({ budgetCart: [], items: '2 kg asado' })
+    expect(validateMobileOrderDraft(legacy)).toMatch(/producto/i)
+    expect(validateMobileOrderDraft(legacy, undefined, { allowLegacyText: true })).toBe(null)
+    expect(validateMobileOrderDraft(draft({ budgetCart: [], items: '' }), undefined, { allowLegacyText: true })).toMatch(/ítems/i)
   })
 
   it('exige horario si el slot es específico', () => {
@@ -188,5 +214,93 @@ describe('validateMobileOrderDraft / toMobileOrderRecord', () => {
     )
     expect(record.status).toBe('pending')
     expect(record.notes).toBe('sin hueso')
+    expect(record.budgetItems).toEqual([{
+      productId: 'p1',
+      name: 'Asado',
+      unit: 'kg',
+      pluNumber: 10,
+      estimatedQty: 1.5,
+      unitPrice: 18000,
+      requestedUnits: null,
+    }])
+    expect(record.items).toBe('Asado · 1,5 kg')
+  })
+})
+
+describe('carrito de presupuesto', () => {
+  it('resuelve kg, piezas y unidades de catálogo', () => {
+    const kg: BudgetCartDraft = {
+      productId: 'p1', name: 'Asado', unit: 'kg', pluNumber: 10,
+      estimatedQty: 0, unitPrice: 18000, qtyRaw: '1,5', requestedUnitsRaw: '',
+    }
+    const piezas: BudgetCartDraft = {
+      productId: 'p2', name: 'Morcilla', unit: 'kg', pluNumber: 20,
+      estimatedQty: 0, unitPrice: 9000, qtyRaw: '', requestedUnitsRaw: '3',
+    }
+    const unidad: BudgetCartDraft = {
+      productId: 'p3', name: 'Huevos', unit: 'unit', pluNumber: 250,
+      estimatedQty: 0, unitPrice: 6000, qtyRaw: '12', requestedUnitsRaw: '',
+    }
+    const lines = resolvedBudgetLines([kg, piezas, unidad])
+    expect(lines).toEqual([
+      {
+        productId: 'p1', name: 'Asado', unit: 'kg', pluNumber: 10,
+        estimatedQty: 1.5, unitPrice: 18000, requestedUnits: null,
+      },
+      {
+        productId: 'p2', name: 'Morcilla', unit: 'kg', pluNumber: 20,
+        estimatedQty: 0, unitPrice: 9000, requestedUnits: 3,
+      },
+      {
+        productId: 'p3', name: 'Huevos', unit: 'unit', pluNumber: 250,
+        estimatedQty: 12, unitPrice: 6000,
+      },
+    ])
+    expect(estimatedBudgetTotal(lines)).toBe(Math.round(18000 * 1.5) + Math.round(6000 * 12))
+  })
+
+  it('rechaza líneas sin cantidad y arma items con summarize', () => {
+    const emptyLine: BudgetCartDraft = {
+      ...sampleCart()[0]!,
+      qtyRaw: '',
+      requestedUnitsRaw: '',
+    }
+    expect(validateMobileOrderDraft(draft({ budgetCart: [emptyLine] }))).toMatch(/cantidad/i)
+    const record = toMobileOrderRecord(draft({
+      budgetCart: [{
+        productId: 'p2', name: 'Morcilla', unit: 'kg', pluNumber: 20,
+        estimatedQty: 0, unitPrice: 9000, qtyRaw: '1', requestedUnitsRaw: '3',
+      }],
+    }), '2026-08-18T03:00:00.000Z')
+    expect(record.items).toBe('Morcilla · 3 u (~1 kg)')
+    expect(record.budgetItems?.[0]?.requestedUnits).toBe(3)
+  })
+
+  it('el patch de edición no pisa status y conserva texto legado', () => {
+    const patch = toMobileOrderPatch(
+      draft({ budgetCart: [], items: '2 kg asado' }),
+      '2026-08-18T04:00:00.000Z',
+    )
+    expect(patch).not.toHaveProperty('status')
+    expect(patch).not.toHaveProperty('createdBy')
+    expect(patch.items).toBe('2 kg asado')
+    expect(patch.budgetItems).toBe(null)
+    expect(patch.updatedAt).toBe('2026-08-18T04:00:00.000Z')
+  })
+
+  it('budgetDraftFromLines rehidrata qty para editar', () => {
+    const draftLines = budgetDraftFromLines([
+      {
+        productId: 'p1', name: 'Asado', unit: 'kg', pluNumber: 10,
+        estimatedQty: 1.5, unitPrice: 18000,
+      },
+      {
+        productId: 'p2', name: 'Morcilla', unit: 'kg', pluNumber: 20,
+        estimatedQty: 0, unitPrice: 9000, requestedUnits: 3,
+      },
+    ])
+    expect(draftLines[0]?.qtyRaw).toBe('1,5')
+    expect(draftLines[1]?.requestedUnitsRaw).toBe('3')
+    expect(draftLines[1]?.qtyRaw).toBe('')
   })
 })

@@ -10,6 +10,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // barcode-test.html es una herramienta estática independiente del POS.
+        // Sin este denylist el SW intercepta la URL y sirve index.html (la app de caja).
+        navigateFallbackDenylist: [/^\/barcode-test\.html$/],
+        globIgnores: ['**/node_modules/**/*', '**/barcode-test.html'],
       },
       manifest: {
         name: 'POS Móvil',

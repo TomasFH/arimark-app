@@ -36,6 +36,8 @@ import { firebaseApp, auth, LICENSE_KEY } from '../firebase'
 import { db } from './db'
 import { isOnline, onConnectivityChange } from './connectivity'
 import {
+  buildCeboOpsPayload,
+  buildCeboStagingPayload,
   buildCustomerFirestorePayload,
   buildDebtEventFirestorePayload,
   buildExpenseOpsPayload,
@@ -53,7 +55,7 @@ import {
 } from './syncPayloads'
 import { providerNameKey } from './adminLedger'
 import { debtEventServerTimestampFields, touchDebtCheckpointTail } from './debtCheckpointWrite'
-import type { LocalExpense, LocalSale, LocalShift } from '../types/pos'
+import type { LocalCebo, LocalExpense, LocalSale, LocalShift } from '../types/pos'
 
 const firestore = getFirestore(firebaseApp)
 
@@ -78,19 +80,20 @@ export async function triggerSync(): Promise<void> {
 }
 
 async function syncPendingShifts(): Promise<void> {
-  const [statusShifts, pendingSales, pendingExpenses, pendingVales, pendingSalary] = await Promise.all([
+  const [statusShifts, pendingSales, pendingExpenses, pendingVales, pendingSalary, pendingCebo] = await Promise.all([
     db.shifts.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.sales.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.expenses.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.vales.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.salaryPayments.where('syncStatus').anyOf(['pending', 'error']).toArray(),
+    db.ceboEntries.where('syncStatus').anyOf(['pending', 'error']).toArray(),
   ])
 
   const shiftIds = collectShiftIdsToSync(
     statusShifts,
     pendingSales,
     pendingExpenses,
-    [...pendingVales, ...pendingSalary],
+    [...pendingVales, ...pendingSalary, ...pendingCebo],
   )
   const shiftsToUpload: LocalShift[] = []
   const seen = new Set<string>()
@@ -210,6 +213,25 @@ async function uploadShift(shift: LocalShift): Promise<void> {
     }
   }
 
+  const pendingCebo = await db.ceboEntries
+    .where('shiftId')
+    .equals(shift.id)
+    .filter(c => c.syncStatus === 'pending' || c.syncStatus === 'error')
+    .toArray()
+
+  for (const entry of pendingCebo) {
+    try {
+      await uploadCebo(shift.storeId, shift.id, entry)
+      await db.ceboEntries.update(entry.id, {
+        syncStatus: 'synced',
+        syncedAt: new Date().toISOString(),
+      })
+    } catch (err) {
+      console.error('[sync] Error al subir cebo', entry.id, err)
+      await db.ceboEntries.update(entry.id, { syncStatus: 'error' })
+    }
+  }
+
   await db.shifts.update(shift.id, {
     syncStatus: 'synced',
     syncedAt: now,
@@ -323,6 +345,22 @@ async function uploadSalaryPayment(storeId: string, shiftId: string, paymentId: 
   )
   await setDoc(doc(stagingCol, payment.id), payload, { merge: true })
   await setDoc(doc(firestore, 'licenses', LICENSE_KEY, 'salaryPayments', payment.id), payload, { merge: true })
+}
+
+async function uploadCebo(storeId: string, shiftId: string, entry: LocalCebo): Promise<void> {
+  const stagingCol = collection(
+    firestore,
+    'licenses', LICENSE_KEY,
+    'sync', storeId,
+    'shifts', shiftId,
+    'cebo',
+  )
+  await setDoc(doc(stagingCol, entry.id), buildCeboStagingPayload(entry), { merge: true })
+  await setDoc(
+    doc(firestore, 'licenses', LICENSE_KEY, 'ceboEntries', entry.id),
+    buildCeboOpsPayload(entry),
+    { merge: true },
+  )
 }
 
 /** Registra el listener para disparar sync al recuperar la conexión. */

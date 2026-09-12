@@ -50,6 +50,11 @@ vi.mock('../../licensing/storeSync', () => ({
   ensureStoresSynced: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/catalogPublish', () => ({
+  publishCatalog: vi.fn().mockResolvedValue(undefined),
+  scheduleCatalogPublish: vi.fn(),
+}))
+
 vi.mock('../../licensing/employeeSync', () => ({
   pushUnsyncedEmployeeOps: vi.fn().mockResolvedValue(undefined),
   ensureEmployeesSynced: vi.fn().mockResolvedValue(undefined),

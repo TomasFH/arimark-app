@@ -6,7 +6,9 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import BackButton from '../components/BackButton'
+import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
+import { injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
 import StoreFilter from '../components/StoreFilter'
 
@@ -307,13 +309,15 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
         {shift.notes && (
           <p className="text-xs text-zinc-400 pt-1">Notas: <span className="text-zinc-200">{shift.notes}</span></p>
         )}
-        {shift.deliveredAmount != null && shift.deliveredAmount > 0 && (
+          {shift.deliveredAmount != null && shift.deliveredAmount > 0 && (
           <p className="text-xs text-zinc-400">
             Entregó {formatARS(shift.deliveredAmount)}
             {shift.deliveredTo ? ` a ${shift.deliveredTo}` : ''}
           </p>
         )}
       </div>
+
+      {detail.cashHandover && <CashHandoverAuditCard audit={detail.cashHandover} />}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-zinc-800">
@@ -395,18 +399,19 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
           {expenses.length === 0 && <p className="text-zinc-500 text-sm py-4 text-center">Sin gastos en este turno.</p>}
           {expenses.map(exp => {
             const isInject = exp.kind === 'inject'
-            const title = isInject ? 'Ingreso' : (exp.provider ?? exp.concept ?? '')
+            const injectLabel = isInject ? injectHistoryLabel(exp.injectReason, exp.concept) : ''
+            const title = isInject ? injectLabel : (exp.provider ?? exp.concept ?? '')
             return (
             <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   {isInject && (
-                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-emerald-400/90 border border-emerald-800/60 rounded px-1.5 py-0.5">
-                      Ingreso
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-emerald-400/90 border border-emerald-800/60 rounded px-1.5 py-0.5 truncate max-w-[11rem]" title={injectLabel}>
+                      {injectLabel}
                     </span>
                   )}
                   <p className="text-white font-medium truncate min-w-0 flex-1" title={title}>
-                    {isInject ? (exp.notes?.trim() || 'Ingreso') : (exp.provider ?? exp.concept ?? '—')}
+                    {isInject ? (exp.notes?.trim() || injectLabel) : (exp.provider ?? exp.concept ?? '—')}
                   </p>
                 </div>
                 <div className="flex gap-3 text-xs text-zinc-500 min-w-0">

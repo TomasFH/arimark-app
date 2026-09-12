@@ -18,8 +18,9 @@ import {
   LabeledNumericInput,
 } from './shared'
 import { PayrollScreen } from './PayrollScreen'
+import { GrantButcherAccessModal, RevokeButcherAccessModal } from './ButcherAccessModals'
 import {
-  fetchCashierUsers,
+  fetchAppUsers,
   fetchEmployees,
   fetchEmployeeValesForEmployee,
   createEmployee,
@@ -37,6 +38,12 @@ import {
 } from '../../lib/adminFirestore'
 import { parseNumericInput, formatNumericInputValue } from '../../lib/numericInput'
 import { buildStaffRoster, type StaffKind, type StaffMember } from '../../lib/staffRoster'
+import { createTenantAuthUser, grantButcherAccess, revokeButcherAccess } from '../../lib/tenantAuth'
+import {
+  OFFLINE_ACCOUNT_MESSAGE,
+  resolveButcherAccess,
+  validateCashierAlta,
+} from '../../lib/tenantAuthLogic'
 import type { LocalProfile } from '../../types/pos'
 
 interface Props {
@@ -49,6 +56,7 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
   useBackLayer(true, onBack)
   const online = useOnlineStatus()
   const [cashiers, setCashiers] = useState<AdminUser[]>([])
+  const [butcherUsers, setButcherUsers] = useState<AdminUser[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -61,10 +69,12 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const [cashierList, empListRaw] = await Promise.all([
-        fetchCashierUsers(),
+      const [userList, empListRaw] = await Promise.all([
+        fetchAppUsers(),
         fetchEmployees(),
       ])
+      const cashierList = userList.filter(u => u.role === 'cashier')
+      const butcherUsers = userList.filter(u => u.role === 'butcher')
       let empList = empListRaw
       let mutated = false
       for (const cashier of cashierList) {
@@ -93,6 +103,7 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
         }
       }
       setCashiers(cashierList)
+      setButcherUsers(butcherUsers)
       setEmployees(mutated ? await fetchEmployees() : empList)
     } catch {
       setError('No se pudieron cargar los empleados.')
@@ -106,18 +117,34 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
   }, [load])
 
   const roster = useMemo(
-    () => buildStaffRoster(
-      cashiers,
-      employees.map(e => ({
-        id: e.id,
-        name: e.name,
-        weeklyWage: e.weeklyWage,
-        active: !e.archivedAt,
-        kind: e.kind,
-        homeStoreId: e.homeStoreId,
-      })),
-    ),
-    [cashiers, employees],
+    () => {
+      const butcherRefs = butcherUsers.map(u => ({
+        uid: u.uid,
+        email: u.email || null,
+        role: u.role,
+        employeeId: u.employeeId,
+        active: u.active,
+      }))
+      return buildStaffRoster(
+        cashiers,
+        employees.map(e => {
+          const access = e.kind === 'butcher'
+            ? resolveButcherAccess({ id: e.id, firebaseUid: e.firebaseUid }, butcherRefs)
+            : { firebaseUid: null as string | null, email: null as string | null }
+          return {
+            id: e.id,
+            name: e.name,
+            weeklyWage: e.weeklyWage,
+            active: !e.archivedAt,
+            kind: e.kind,
+            homeStoreId: e.homeStoreId,
+            firebaseUid: access.firebaseUid,
+            email: access.email,
+          }
+        }),
+      )
+    },
+    [cashiers, employees, butcherUsers],
   )
 
   const visibleCashiers = roster.cashiers.filter(m => (showArchived ? !m.active : m.active))
@@ -197,7 +224,7 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
             />
             <StaffSection
               title="Carniceros"
-              hint="Registro para sueldo y vales · cobran de la caja el fin de semana"
+              hint="Sueldo y vales · el acceso al celu se da desde la ficha"
               empty={showArchived ? 'No hay carniceros eliminados.' : 'No hay carniceros.'}
               members={visibleButchers}
               stores={stores}
@@ -212,6 +239,7 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
           member={selected}
           createdBy={profile.uid}
           stores={stores}
+          online={online}
           onClose={() => setSelected(null)}
           onChanged={async () => {
             await load()
@@ -224,6 +252,8 @@ export function StaffScreen({ onBack, profile, stores }: Props) {
         <CreateEmployeeModal
           createdBy={profile.uid}
           stores={stores}
+          employees={employees}
+          online={online}
           onClose={() => setShowCreate(false)}
           onCreate={async () => {
             setShowCreate(false)
@@ -289,6 +319,9 @@ function StaffSection({
                   {m.email}
                 </p>
               )}
+              {m.kind === 'butcher' && m.firebaseUid && (
+                <p className="mt-1 text-[10px] text-emerald-500/80">Acceso celular</p>
+              )}
               {!m.active && (
                 <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-600">
                   {m.kind === 'cashier' ? 'Inactiva' : 'Eliminado'}
@@ -307,12 +340,14 @@ function EmployeeDetailModal({
   member,
   createdBy,
   stores,
+  online,
   onClose,
   onChanged,
 }: {
   member: StaffMember
   createdBy: string
   stores: StoreDoc[]
+  online: boolean
   onClose: () => void
   onChanged: () => Promise<void>
 }) {
@@ -324,6 +359,9 @@ function EmployeeDetailModal({
   const [editHome, setEditHome] = useState(member.homeStoreId ?? '')
   const [saving, setSaving] = useState(false)
   const [confirm, setConfirm] = useState<'toggle' | 'archive' | 'restore' | null>(null)
+  const [accessPanel, setAccessPanel] = useState<'grant' | 'revoke' | null>(null)
+  const [grantingAccess, setGrantingAccess] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const loadVales = useCallback(async () => {
     if (!member.employeeId) {
@@ -392,7 +430,7 @@ function EmployeeDetailModal({
       <div className="max-h-[80vh] space-y-4 overflow-y-auto">
         <p className="text-xs text-zinc-500">
           {roleLabel}
-          {member.kind === 'cashier' ? ' · acceso a la app' : ' · sueldo y vales'}
+          {member.kind === 'cashier' ? ' · acceso a la app' : member.firebaseUid ? ' · acceso al celular' : ' · sueldo y vales'}
         </p>
         {member.email && (
           <p className="truncate text-sm text-zinc-400" title={member.email}>{member.email}</p>
@@ -481,6 +519,59 @@ function EmployeeDetailModal({
           </div>
         )}
 
+        {formError && (
+          <p className="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-400/80">
+            {formError}
+          </p>
+        )}
+
+        {member.kind === 'butcher' && member.employeeId && member.active && !member.firebaseUid && (
+          <Btn
+            className="w-full"
+            disabled={grantingAccess}
+            onClick={() => {
+              const employeeId = member.employeeId
+              if (!employeeId) return
+              if (!online) {
+                setFormError(OFFLINE_ACCOUNT_MESSAGE)
+                return
+              }
+              setGrantingAccess(true)
+              setFormError(null)
+              const authorizedStores = stores.filter(s => !s.archivedAt).map(s => s.id)
+              void grantButcherAccess({
+                employeeId,
+                displayName: member.name,
+                kind: member.kind,
+                firebaseUid: member.firebaseUid,
+                homeStoreId: member.homeStoreId,
+                authorizedStores,
+              }).then(async r => {
+                setGrantingAccess(false)
+                if (r.ok) {
+                  await onChanged()
+                  return
+                }
+                if (r.code === 'EMAIL_REQUIRED') {
+                  setAccessPanel('grant')
+                  return
+                }
+                setFormError(r.error)
+              })
+            }}
+          >
+            {grantingAccess ? 'Restableciendo…' : 'Dar acceso al celular'}
+          </Btn>
+        )}
+        {member.kind === 'butcher' && member.employeeId && member.firebaseUid && (
+          <Btn
+            className="w-full"
+            variant="danger"
+            onClick={() => setAccessPanel('revoke')}
+          >
+            Revocar acceso
+          </Btn>
+        )}
         {member.cashierUid && (
           <Btn
             className="w-full"
@@ -528,6 +619,47 @@ function EmployeeDetailModal({
           onConfirm={handleConfirm}
         />
       )}
+      {accessPanel === 'grant' && member.employeeId && (
+        <GrantButcherAccessModal
+          employeeName={member.name}
+          onCancel={() => setAccessPanel(null)}
+          onGrant={async email => {
+            const employeeId = member.employeeId
+            if (!employeeId) return 'Falta la ficha del empleado.'
+            if (!online) return OFFLINE_ACCOUNT_MESSAGE
+            const r = await grantButcherAccess({
+              employeeId,
+              displayName: member.name,
+              kind: member.kind,
+              firebaseUid: member.firebaseUid,
+              homeStoreId: member.homeStoreId,
+              authorizedStores: stores.filter(s => !s.archivedAt).map(s => s.id),
+              email,
+            })
+            if (!r.ok) return r.error
+            setAccessPanel(null)
+            await onChanged()
+            return null
+          }}
+        />
+      )}
+      {accessPanel === 'revoke' && member.employeeId && member.firebaseUid && (
+        <RevokeButcherAccessModal
+          employeeName={member.name}
+          onCancel={() => setAccessPanel(null)}
+          onConfirm={async () => {
+            const employeeId = member.employeeId
+            const uid = member.firebaseUid
+            if (!employeeId || !uid) return 'Falta la cuenta del carnicero.'
+            if (!online) return OFFLINE_ACCOUNT_MESSAGE
+            const r = await revokeButcherAccess({ employeeId, firebaseUid: uid })
+            if (!r.ok) return r.error
+            setAccessPanel(null)
+            await onChanged()
+            return null
+          }}
+        />
+      )}
     </Modal>
   )
 }
@@ -535,36 +667,103 @@ function EmployeeDetailModal({
 function CreateEmployeeModal({
   createdBy,
   stores,
+  employees,
+  online,
   onClose,
   onCreate,
 }: {
   createdBy: string
   stores: StoreDoc[]
+  employees: Employee[]
+  online: boolean
   onClose: () => void
   onCreate: () => Promise<void>
 }) {
   const [kind, setKind] = useState<StaffKind | null>(null)
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
   const [wageInput, setWageInput] = useState('')
   const [homeStoreId, setHomeStoreId] = useState('')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [createdEmail, setCreatedEmail] = useState<string | null>(null)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!kind) return
-    if (!name.trim()) {
+    const trimmed = name.trim()
+    if (!trimmed) {
       setErr('El nombre es obligatorio.')
+      return
+    }
+    const weeklyWage = parseNumericInput(wageInput)
+    if (weeklyWage === null || weeklyWage < 0) {
+      setErr('Ingresá un sueldo semanal válido (0 o más).')
       return
     }
     setSaving(true)
     setErr(null)
+
+    if (kind === 'cashier') {
+      const storeIds = stores.filter(s => !s.archivedAt).map(s => s.id)
+      const validated = validateCashierAlta({
+        name: trimmed,
+        email,
+        authorizedStores: storeIds,
+      })
+      if (!validated.ok) {
+        setSaving(false)
+        setErr(validated.error)
+        return
+      }
+      if (!online) {
+        setSaving(false)
+        setErr(OFFLINE_ACCOUNT_MESSAGE)
+        return
+      }
+      const authResult = await createTenantAuthUser({
+        email: validated.email,
+        displayName: validated.name,
+        role: 'cashier',
+        authorizedStores: storeIds,
+      })
+      if (!authResult.ok) {
+        setSaving(false)
+        setErr(authResult.error)
+        return
+      }
+      try {
+        const existing = employees.find(
+          emp => emp.kind === 'cashier' && emp.name.trim().toLowerCase() === validated.name.toLowerCase(),
+        )
+        if (existing) {
+          await updateEmployee(existing.id, {
+            weeklyWage,
+            homeStoreId: homeStoreId || null,
+          })
+        } else {
+          await createEmployee({
+            name: validated.name,
+            weeklyWage,
+            createdBy,
+            kind: 'cashier',
+            homeStoreId: homeStoreId || null,
+          })
+        }
+      } catch (fichaErr) {
+        console.error('[StaffScreen] Cuenta creada pero no se pudo guardar la ficha de sueldo', fichaErr)
+      }
+      setSaving(false)
+      setCreatedEmail(validated.email)
+      return
+    }
+
     try {
       await createEmployee({
-        name: name.trim(),
-        weeklyWage: parseNumericInput(wageInput) ?? 0,
+        name: trimmed,
+        weeklyWage,
         createdBy,
-        kind,
+        kind: 'butcher',
         homeStoreId: homeStoreId || null,
       })
       await onCreate()
@@ -572,6 +771,21 @@ function CreateEmployeeModal({
       setErr('No se pudo crear el empleado.')
       setSaving(false)
     }
+  }
+
+  if (createdEmail) {
+    return (
+      <Modal title="Cajera creada" onClose={() => void onCreate()}>
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-400">
+            Se envió un email a{' '}
+            <span className="truncate font-medium text-white" title={createdEmail}>{createdEmail}</span>
+            {' '}para que configure su contraseña.
+          </p>
+          <Btn className="w-full" onClick={() => void onCreate()}>Cerrar</Btn>
+        </div>
+      </Modal>
+    )
   }
 
   return (
@@ -585,7 +799,7 @@ function CreateEmployeeModal({
             className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left hover:border-zinc-600"
           >
             <p className="text-sm font-medium">Cajera</p>
-            <p className="mt-0.5 text-xs text-zinc-500">Sueldo y vales · el acceso a la app se crea en Firebase o en la PC</p>
+            <p className="mt-0.5 text-xs text-zinc-500">Acceso a la app · sueldo y vales</p>
           </button>
           <button
             type="button"
@@ -593,17 +807,17 @@ function CreateEmployeeModal({
             className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left hover:border-zinc-600"
           >
             <p className="text-sm font-medium">Carnicero</p>
-            <p className="mt-0.5 text-xs text-zinc-500">Sueldo y vales · sin acceso a la app</p>
+            <p className="mt-0.5 text-xs text-zinc-500">Sueldo y vales. El acceso al celu se da después, desde la ficha.</p>
           </button>
           <Btn variant="ghost" className="w-full" onClick={onClose}>Cancelar</Btn>
         </div>
       ) : (
         <form onSubmit={e => void handleSubmit(e)} className="space-y-3">
-          {kind === 'cashier' && (
-            <p className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-500">
-              El alta de la cuenta (email y contraseña) se hace desde la consola de Firebase o desde la PC. Acá registrás el sueldo.
-            </p>
-          )}
+          <p className="text-xs text-zinc-500">
+            {kind === 'cashier'
+              ? 'Recibirá un email para definir su contraseña. Puede operar en todos los locales activos. Hace falta internet.'
+              : 'Queda registrado para asistencia, sueldo y vales. El acceso al celu se da desde la ficha.'}
+          </p>
           <LabeledInput
             label="Nombre *"
             value={name}
@@ -612,6 +826,16 @@ function CreateEmployeeModal({
             maxLength={100}
             required
           />
+          {kind === 'cashier' && (
+            <LabeledInput
+              label="Email *"
+              value={email}
+              onChange={setEmail}
+              placeholder="cajera@ejemplo.com"
+              inputMode="email"
+              maxLength={120}
+            />
+          )}
           <LabeledNumericInput
             label="Sueldo semanal ($)"
             value={wageInput}
@@ -629,7 +853,7 @@ function CreateEmployeeModal({
               Atrás
             </Btn>
             <Btn type="submit" className="flex-1" loading={saving}>
-              Crear
+              {kind === 'cashier' ? 'Crear y enviar email' : 'Crear'}
             </Btn>
           </div>
         </form>

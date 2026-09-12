@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
+  buildCeboOpsPayload,
+  buildCeboStagingPayload,
   buildCustomerFirestorePayload,
   buildDebtEventFirestorePayload,
   buildExpenseOpsPayload,
@@ -63,6 +65,29 @@ describe('syncPayloads', () => {
     expect(created.closedAt).toBe(shift.closedAt)
     expect(created.closingCash).toBe(12000)
     expect(created.updatedAt).toBe('2026-08-28T16:01:00.000Z')
+    expect(created.openingBills).toEqual([])
+    expect(created.closingBills).toEqual([])
+    expect(created.openingBillsCounted).toBe(false)
+    expect(created.closingBillsCounted).toBe(false)
+
+    const withBills = buildShiftFirestorePayload({
+      ...shift,
+      openingBills: [{ denomination: 1000, quantity: 4 }],
+      closingBills: [{ denomination: 1000, quantity: 5 }],
+      handoverExpectedBills: [{ denomination: 1000, quantity: 5 }],
+      openingBillsCounted: true,
+      closingBillsCounted: true,
+      handoverFromShiftId: 'prev',
+      handoverFromCashierName: 'Lucía',
+      handoverFromClosedAt: '2026-08-28T07:50:00.000Z',
+    }, '2026-08-28T16:01:00.000Z', true)
+    expect(withBills.closingBills).toEqual([{ denomination: 1000, quantity: 5 }])
+    expect(withBills.handoverFromCashierName).toBe('Lucía')
+    expect(buildShiftOpsPayload({
+      ...shift,
+      closingBills: [{ denomination: 1000, quantity: 5 }],
+      closingBillsCounted: true,
+    }, '2026-08-28T16:01:00.000Z').closingBills).toEqual([{ denomination: 1000, quantity: 5 }])
 
     const updated = buildShiftFirestorePayload(
       { ...shift, syncedAt: '2026-08-28T09:00:00.000Z' },
@@ -161,6 +186,46 @@ describe('syncPayloads', () => {
     }
     expect(buildExpenseOpsPayload(inject).concept).toBe('Aporte')
     expect(buildExpenseOpsPayload(inject).kind).toBe('inject')
+  })
+
+  it('injectReason wallet_cash viaja en staging y ops', () => {
+    const inject: LocalExpense = {
+      id: 'inj-2',
+      shiftId: 'shift-1',
+      storeId: 'store-1',
+      kind: 'inject',
+      concept: 'Efectivo por digital',
+      amount: 5000,
+      notes: 'Juan',
+      createdAt: '2026-08-28T11:00:00.000Z',
+      createdBy: 'uid-1',
+      syncStatus: 'pending',
+      syncedAt: null,
+      injectReason: 'wallet_cash',
+    }
+    expect(buildExpenseStagingPayload(inject).injectReason).toBe('wallet_cash')
+    expect(buildExpenseOpsPayload(inject).injectReason).toBe('wallet_cash')
+  })
+
+  it('cebo staging incluye importedAt null y kilos', () => {
+    const row = {
+      id: 'cebo-1',
+      shiftId: 'shift-1',
+      storeId: 'store-1',
+      quantityKg: 2.5,
+      notes: 'bolsa',
+      createdAt: '2026-09-10T10:00:00.000Z',
+      createdBy: 'uid-1',
+      createdByName: 'Ana',
+      updatedAt: null,
+      updatedBy: null,
+      updatedByName: null,
+      syncStatus: 'pending' as const,
+      syncedAt: null,
+    }
+    expect(buildCeboStagingPayload(row).importedAt).toBeNull()
+    expect(buildCeboOpsPayload(row).quantityKg).toBe(2.5)
+    expect(buildCeboOpsPayload(row).deleted).toBe(false)
   })
 
   it('fiado: deuda neta = total − pagos; customer y evento created', () => {

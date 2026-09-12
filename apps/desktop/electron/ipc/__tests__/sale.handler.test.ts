@@ -76,9 +76,17 @@ function makeMockDb() {
       set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ run: mockRun }) }),
     }),
   }
+  const storeRow = { cashDiscountMinAmount: 0, cashDiscountPercent: 0 }
   return {
     db: {
       transaction: vi.fn().mockImplementation((cb: (tx: typeof mockTx) => void) => cb(mockTx)),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            get: vi.fn().mockReturnValue(storeRow),
+          }),
+        }),
+      }),
     } as unknown as ReturnType<typeof getDb>,
     mockRun,
     mockTx,

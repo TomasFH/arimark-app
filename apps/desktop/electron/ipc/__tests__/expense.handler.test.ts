@@ -369,6 +369,7 @@ describe('expense.handler', () => {
       const row = db.select().from(expenses).all()[0]
       expect(row.kind).toBe('inject')
       expect(row.concept).toBe('Aporte')
+      expect(row.injectReason).toBe('aporte')
       expect(row.amount).toBe(2000)
       expect(row.notes).toBe('Cambio inicial')
       expect(row.shiftId).toBe('shift-001')
@@ -429,6 +430,28 @@ describe('expense.handler', () => {
       const handler = getHandler('ipc:register-cash-inject')
       expect((handler(null, { amount: -5 }) as { ok: boolean }).ok).toBe(false)
       expect((handler(null, {}) as { ok: boolean }).ok).toBe(false)
+    })
+
+    it('registra efectivo por digital con injectReason wallet_cash', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, {
+        amount: 3500,
+        notes: 'Cliente Pérez',
+        injectReason: 'wallet_cash',
+      }) as { ok: boolean; data: { id: string } }
+      expect(result.ok).toBe(true)
+      const row = db.select().from(expenses).all().find(e => e.id === result.data.id)
+      expect(row?.kind).toBe('inject')
+      expect(row?.injectReason).toBe('wallet_cash')
+      expect(row?.concept).toBe('Efectivo por digital')
+      expect(row?.notes).toBe('Cliente Pérez')
+    })
+
+    it('rechaza injectReason inválido', () => {
+      const handler = getHandler('ipc:register-cash-inject')
+      const result = handler(null, { amount: 100, injectReason: 'postnet' }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
     })
   })
 

@@ -1,14 +1,14 @@
 /**
- * Wipe total de datos operativos locales + catálogo limpio.
+ * Wipe total de datos operativos locales + catálogo limpio, sin locales.
  *
  * Conserva:
- *   - stores (mismos ids — importantes para authorizedStores / Firestore)
  *   - __drizzle_migrations
  *
- * Borra: productos, precios, ventas, turnos, fiados, pedidos, empleados,
- *        vales, gastos, proveedores, conteos, etc.
+ * Borra: locales, productos, precios, ventas, turnos, fiados, pedidos,
+ *        empleados, vales, gastos, proveedores, conteos, usuarios, etc.
  *
- * Luego carga scripts/catalog-2026-08.json en todos los locales activos.
+ * Luego carga scripts/catalog-2026-08.json en `products` (sin precios:
+ * al crear un local, seedCatalogOntoStore copia la lista).
  *
  * Uso (apps/desktop):
  *   pnpm run db:wipe:prod
@@ -18,11 +18,11 @@ import Database from 'better-sqlite3'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { randomUUID } from 'crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 const CATALOG_PATH = path.join(__dirname, 'catalog-2026-08.json')
+const CATALOG_SEED_USER_ID = 'seed-system-user-production-0000001'
 
 /** Tablas a vaciar (orden irrelevante con foreign_keys=OFF). */
 const WIPE_TABLES = [
@@ -50,9 +50,11 @@ const WIPE_TABLES = [
   'scale_tickets',
   'store_products',
   'product_prices',
+  'catalog_audit_events',
   'products',
   'admin_devices',
   'users',
+  'stores',
 ]
 
 function getDbPath() {
@@ -96,26 +98,6 @@ function main() {
     db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all().map(r => r.name),
   )
 
-  const storeCols = db.prepare(`PRAGMA table_info(stores)`).all()
-  const hasArchived = storeCols.some(c => c.name === 'archived_at')
-  const stores = hasArchived
-    ? db.prepare(`SELECT * FROM stores WHERE archived_at IS NULL`).all()
-    : db.prepare(`SELECT * FROM stores`).all()
-
-  if (stores.length === 0) {
-    console.error('[db:wipe] No hay locales — abortando.')
-    db.close()
-    process.exit(1)
-  }
-
-  console.log(`[db:wipe] Locales a conservar (${stores.length}):`)
-  for (const s of stores) console.log(`  - ${s.id} · ${s.name}`)
-
-  const seedUserId =
-    APP_ENV === 'dev' ? 'dev-cashier-cajera1@dev.local' : 'seed-system-user-production-0000001'
-
-  // SQLite ignora PRAGMA foreign_keys dentro de una transacción: hay que
-  // apagarlas fuera del BEGIN, vaciar, y recién ahí reinsertar.
   db.pragma('foreign_keys = OFF')
   for (const table of WIPE_TABLES) {
     if (!existingTables.has(table)) continue
@@ -127,44 +109,33 @@ function main() {
   const seed = db.transaction(() => {
     db.prepare(`
       INSERT INTO users (id, store_id, name, firebase_uid, role, active, created_at)
-      VALUES (?, ?, ?, ?, 'cashier', 1, ?)
-    `).run(seedUserId, stores[0].id, 'Sistema (catálogo)', seedUserId, now)
+      VALUES (?, NULL, ?, ?, 'cashier', 1, ?)
+    `).run(CATALOG_SEED_USER_ID, 'Sistema (catálogo)', CATALOG_SEED_USER_ID, now)
 
     const insertProduct = db.prepare(`
       INSERT INTO products (id, name, category, unit, plu_number, active, created_at)
       VALUES (?, ?, ?, ?, ?, 1, ?)
     `)
-    const insertPrice = db.prepare(`
-      INSERT INTO product_prices (id, product_id, store_id, price, valid_from, valid_to, created_by)
-      VALUES (?, ?, ?, ?, ?, NULL, ?)
-    `)
-    const insertStoreProduct = db.prepare(`
-      INSERT INTO store_products (store_id, product_id, available)
-      VALUES (?, ?, 1)
-    `)
 
     for (const p of catalog.products) {
       const id = productIdForPlu(p.plu)
       insertProduct.run(id, p.name, p.category, p.unit, p.plu, now)
-      for (const store of stores) {
-        insertPrice.run(randomUUID(), id, store.id, p.price, catalog.pricesValidFrom, seedUserId)
-        insertStoreProduct.run(store.id, id)
-      }
     }
 
     const fallbackId = '00000000-0000-0000-0002-000000000099'
     insertProduct.run(fallbackId, 'Producto sin identificar', 'other', 'kg', null, now)
 
-    console.log(`[db:wipe] Catálogo cargado: ${catalog.products.length} productos (+ fallback)`)
+    console.log(`[db:wipe] Catálogo maestro: ${catalog.products.length} productos (+ fallback). Sin locales.`)
   })
 
   seed()
 
   const check = db.prepare(`SELECT active, COUNT(*) c FROM products GROUP BY active`).all()
+  const storeCount = db.prepare(`SELECT COUNT(*) c FROM stores`).get()
   console.log('[db:wipe] products por active:', check)
-  console.log('[db:wipe] ✓ Listo. Reiniciá la app.')
-  console.log('  Firestore: al loguear cajera / elegir local como admin se republica el catálogo nuevo.')
-  console.log('  (Los docs viejos en Firestore no se borran solos; el publish sobrescribe por store.)')
+  console.log('[db:wipe] stores:', storeCount)
+  console.log('[db:wipe] ✓ Listo. Reiniciá la app (admin). Al crear un local se copian productos y precios de la lista.')
+  console.log('  Firestore: hay que limpiar aparte (scripts/firestoreDay0Wipe.mjs --apply).')
 
   db.close()
 }

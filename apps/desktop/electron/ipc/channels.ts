@@ -20,6 +20,7 @@ export const IPC = {
   GET_ACTIVE_SHIFT: 'ipc:get-active-shift',
   GET_STORE_OPEN_SHIFT: 'ipc:get-store-open-shift',
   GET_USER_OPEN_SHIFT: 'ipc:get-user-open-shift',
+  GET_CASH_HANDOVER: 'ipc:get-cash-handover',
   OPEN_SHIFT: 'ipc:open-shift',
   GET_SHIFT_SUMMARY: 'ipc:get-shift-summary',
   CLOSE_SHIFT: 'ipc:close-shift',
@@ -64,6 +65,15 @@ export const IPC = {
   DELETE_EXPENSE: 'ipc:delete-expense',
   GET_SHIFT_EXPENSES: 'ipc:get-shift-expenses',
   GET_EXPENSE_CATEGORIES: 'ipc:get-expense-categories',
+
+  // Descuento por pago en efectivo
+  GET_CASH_DISCOUNT_RULE: 'ipc:get-cash-discount-rule',
+  SET_CASH_DISCOUNT_RULE: 'ipc:set-cash-discount-rule',
+
+  // Cebo del turno
+  LIST_SHIFT_CEBO: 'ipc:list-shift-cebo',
+  REGISTER_CEBO: 'ipc:register-cebo',
+  UPDATE_CEBO: 'ipc:update-cebo',
 
   // Clientes de fiados (Fase 6 — creados durante el flujo de deuda)
   CREATE_CUSTOMER: 'ipc:create-customer',
@@ -164,6 +174,8 @@ export const IPC = {
   LOGIN_CASHIER: 'ipc:login-cashier',
   LOGIN_ADMIN: 'ipc:login-admin',
   LOGOUT: 'ipc:logout',
+  SEND_PASSWORD_RESET: 'ipc:send-password-reset',
+  CHANGE_PASSWORD: 'ipc:change-password',
 
   /** Re-sincroniza stores/empleados/catálogo desde Firestore sin cerrar sesión. */
   REFRESH_REMOTE_DATA: 'ipc:refresh-remote-data',

@@ -21,12 +21,16 @@ export interface ProviderLedgerEvent {
   amount: number
 }
 
+import { injectHistoryLabel, type InjectReason } from '@carniceria/shared'
+
 export interface ExpenseDisplayInput {
   providerName?: string | null
   description?: string | null
   concept?: string | null
   category?: string | null
   notes?: string | null
+  kind?: 'expense' | 'inject' | string | null
+  injectReason?: InjectReason | string | null
 }
 
 const CHARGE_TYPES = new Set(['created', 'debt', 'reopened'])
@@ -153,6 +157,15 @@ export function asIsoTimestamp(value: unknown): string | null {
  * no en el pie.
  */
 export function expenseTitle(exp: ExpenseDisplayInput): string {
+  if (exp.kind === 'inject') {
+    return injectHistoryLabel(
+      exp.injectReason === 'wallet_cash' || exp.injectReason === 'aporte'
+        ? exp.injectReason
+        : undefined,
+      exp.concept,
+    )
+  }
+
   const provider = exp.providerName?.trim()
   if (provider) return provider
 

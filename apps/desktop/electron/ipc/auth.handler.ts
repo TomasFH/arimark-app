@@ -7,6 +7,7 @@ import { users } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { setActiveSession } from '../activeSession'
 import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession, signInAutoDetect } from '../licensing/session'
+import { sendPasswordReset, changeOwnPassword } from '../licensing/passwordAuth'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
 import { syncCatalogWithFirestore, syncAllStoreCatalogs, startCatalogSyncListener, stopCatalogSyncListener } from '../licensing/catalogSync'
@@ -58,6 +59,15 @@ const loginSchema = z.object({
 const logoutSchema = z.object({
   role: z.enum(['cashier', 'admin']),
   storeId: z.string().optional(),
+})
+
+const sendPasswordResetSchema = z.object({
+  email: z.string().email().optional(),
+})
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
 })
 
 // ---------------------------------------------------------------------------
@@ -435,6 +445,35 @@ export function registerAuthHandlers(): void {
       await logoutAdmin()
     }
 
+    return { ok: true, data: undefined }
+  })
+
+  ipcMain.handle(IPC.SEND_PASSWORD_RESET, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = sendPasswordResetSchema.safeParse(payload ?? {})
+    if (!parsed.success) {
+      log.error('[ipc:send-password-reset] Payload inválido', parsed.error)
+      return { ok: false, error: 'Ingresá un email válido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const result = await sendPasswordReset(parsed.data.email)
+    if (!result.ok) return { ok: false, error: result.error, code: result.code }
+    return { ok: true, data: undefined }
+  })
+
+  ipcMain.handle(IPC.CHANGE_PASSWORD, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = changePasswordSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:change-password] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido', code: 'INVALID_PAYLOAD' }
+    }
+
+    const { currentPassword, newPassword } = parsed.data
+    if (currentPassword === newPassword) {
+      return { ok: false, error: 'La nueva contraseña tiene que ser distinta a la actual.' }
+    }
+
+    const result = await changeOwnPassword(currentPassword, newPassword)
+    if (!result.ok) return { ok: false, error: result.error, code: result.code }
     return { ok: true, data: undefined }
   })
 }

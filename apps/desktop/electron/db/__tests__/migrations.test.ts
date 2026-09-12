@@ -43,6 +43,8 @@ describe('migrations', () => {
       'stock_counts',
       'stock_count_items',
       'catalog_audit_events',
+      'cash_discount_audits',
+      'cebo_entries',
     ]
 
     for (const table of expected) {
@@ -153,6 +155,73 @@ describe('migrations', () => {
       const { sqlite } = await createInMemoryDb()
       const cols = sqlite.prepare('PRAGMA table_info(stores)').all() as { name: string }[]
       expect(cols.map(c => c.name)).toContain('hours_schedule')
+    })
+
+    it('tiene inject_reason en expenses (migración 0039)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(expenses)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('inject_reason')
+    })
+
+    it('tiene descuento efectivo en stores/sales y tabla de auditoría (migración 0040)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const storeCols = sqlite.prepare('PRAGMA table_info(stores)').all() as { name: string }[]
+      const saleCols = sqlite.prepare('PRAGMA table_info(sales)').all() as { name: string }[]
+      const auditCols = sqlite.prepare('PRAGMA table_info(cash_discount_audits)').all() as { name: string }[]
+      expect(storeCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'cash_discount_min_amount',
+        'cash_discount_percent',
+      ]))
+      expect(saleCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'discount_amount',
+        'discount_percent',
+      ]))
+      expect(auditCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'id',
+        'store_id',
+        'actor_user_id',
+        'actor_name',
+        'created_at',
+        'previous_min_amount',
+        'previous_percent',
+        'next_min_amount',
+        'next_percent',
+      ]))
+    })
+
+    it('tiene cebo_entries (migración 0041)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(cebo_entries)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'id',
+        'store_id',
+        'shift_id',
+        'quantity_kg',
+        'notes',
+        'created_by',
+        'created_at',
+        'updated_by',
+        'updated_at',
+        'synced_at',
+      ]))
+    })
+
+    it('tiene handover de caja en shifts y kind en bill_denominations (migración 0042)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const shiftCols = sqlite.prepare('PRAGMA table_info(shifts)').all() as { name: string }[]
+      const billCols = sqlite.prepare('PRAGMA table_info(bill_denominations)').all() as { name: string }[]
+      expect(shiftCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'opening_counted',
+        'closing_counted',
+        'handover_from_shift_id',
+        'handover_from_cashier_name',
+        'handover_from_closed_at',
+      ]))
+      expect(billCols.map(c => c.name)).toContain('kind')
+      const indexes = sqlite.prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_bill_denoms_shift_kind'",
+      ).all() as { name: string }[]
+      expect(indexes.length).toBe(1)
     })
 
   it('tiene el índice idx_debt_events_customer', async () => {

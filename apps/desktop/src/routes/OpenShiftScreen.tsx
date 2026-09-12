@@ -1,9 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import NumericInput from '../components/NumericInput'
+import BillCountGrid from '../components/BillCountGrid'
 import { detectShiftType } from '../lib/detectShiftType'
-import { civilYmd, hoursForDate, storeHoursSourceFromRecord } from '@carniceria/shared'
+import { civilYmd, hoursForDate, storeHoursSourceFromRecord, isEmptyBillCount } from '@carniceria/shared'
 import { parseNumericInput } from '../lib/numericInput'
-import type { ShiftInfo, ShiftType } from '../types/hw-api'
+import {
+  billRowsCountedTotal,
+  billRowsFromLines,
+  billRowsToLines,
+  emptyBillRows,
+  type BillMode,
+  type BillRowState,
+} from '../lib/billCountUi'
+import type { CashHandoverSnapshot, ShiftInfo, ShiftType } from '../types/hw-api'
+
+const BILL_MODE_KEY = 'close-shift-bill-mode'
+const isProdEnv = import.meta.env['VITE_APP_ENV'] === 'production'
 
 interface Props {
   onShiftOpened: (shift: ShiftInfo) => void
@@ -18,6 +31,11 @@ interface Props {
   cancelLabel?: string
 }
 
+function loadBillMode(): BillMode {
+  const stored = localStorage.getItem(BILL_MODE_KEY)
+  return stored === 'total' ? 'total' : 'quantity'
+}
+
 export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, userId, canForceClose = false, cancelLabel = '← Cambiar local' }: Props) {
   const [shiftType, setShiftType] = useState<ShiftType>('morning')
   const [openingCash, setOpeningCash] = useState('')
@@ -26,9 +44,13 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   const [blockingShift, setBlockingShift] = useState<{ shiftId: string; userName: string } | null>(null)
   const [forceClosing, setForceClosing] = useState(false)
   const [checking, setChecking] = useState(true)
-  // Guard síncrono contra spam-click: se setea a true antes del await, sin esperar
-  // al re-render de React, para que ningún click adicional dispare un IPC duplicado.
   const submittingRef = useRef(false)
+
+  const [billMode, setBillMode] = useState<BillMode>(loadBillMode)
+  const [billRows, setBillRows] = useState<BillRowState[]>(emptyBillRows)
+  const [handover, setHandover] = useState<CashHandoverSnapshot | null>(null)
+  const [skipBills, setSkipBills] = useState(false)
+  const [showEmptyConfirm, setShowEmptyConfirm] = useState(false)
 
   async function checkExistingShift(): Promise<boolean> {
     setError('')
@@ -47,7 +69,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     return false
   }
 
-  // Pre-verificación al montar: evitar parpadeo cuando ya hay un turno abierto.
   useEffect(() => {
     if (!storeId || !userId) {
       setChecking(false)
@@ -56,7 +77,15 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     void (async () => {
       setChecking(true)
       const resumed = await checkExistingShift()
-      if (!resumed) setChecking(false)
+      if (!resumed) {
+        const handoverRes = await window.hw.getCashHandover()
+        if (handoverRes.ok && handoverRes.data) {
+          setHandover(handoverRes.data)
+          const rows = billRowsFromLines(handoverRes.data.bills)
+          setBillRows(rows)
+        }
+        setChecking(false)
+      }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, userId])
@@ -83,24 +112,74 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     })
   }, [storeId])
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (submittingRef.current) return
+  function handleBillModeChange(mode: BillMode): void {
+    localStorage.setItem(BILL_MODE_KEY, mode)
+    setBillMode(mode)
+    setBillRows(prev => prev.map(r => ({ ...r, totalError: null })))
+  }
 
+  function updateBillRow(denomination: number, field: 'quantity' | 'total', value: string) {
+    setSkipBills(false)
+    setBillRows(prev => {
+      const next = prev.map(r => {
+        if (r.denomination !== denomination) return r
+        const updated = { ...r, [field]: value }
+        if (field === 'total' && value !== '' && value !== '0') {
+          const parsed = parseNumericInput(value)
+          if (parsed !== null && parsed > 0 && parsed % denomination !== 0) {
+            updated.totalError = `Debe ser múltiplo de $${denomination.toLocaleString('es-AR')}`
+          } else {
+            updated.totalError = null
+          }
+        } else {
+          updated.totalError = null
+        }
+        return updated
+      })
+      return next
+    })
+  }
+
+  function validateTotalMode(): boolean {
+    let valid = true
+    setBillRows(prev =>
+      prev.map(r => {
+        const parsed = parseNumericInput(r.total)
+        if (parsed !== null && parsed > 0 && parsed % r.denomination !== 0) {
+          valid = false
+          return { ...r, totalError: `Debe ser múltiplo de $${r.denomination.toLocaleString('es-AR')}` }
+        }
+        return { ...r, totalError: null }
+      }),
+    )
+    return valid
+  }
+
+  async function submitOpen(confirmEmpty: boolean) {
+    if (submittingRef.current) return
     const cash = parseNumericInput(openingCash)
     if (cash === null || cash < 0) {
       setError('Ingresá un monto de efectivo inicial válido.')
       return
     }
 
-    // Setear el ref síncronamente antes del await para bloquear cualquier
-    // click adicional en el mismo frame, sin depender del re-render de React.
     submittingRef.current = true
     setLoading(true)
     setError('')
 
+    const lines = skipBills ? undefined : billRowsToLines(billRows, billMode)
+
     try {
-      const result = await window.hw.openShift({ shiftType, openingCash: cash })
+      const result = await window.hw.openShift({
+        shiftType,
+        openingCash: cash,
+        openingBillDenominations: lines,
+        confirmEmptyRegister: confirmEmpty || undefined,
+        handoverFromShiftId: handover?.fromShiftId,
+        handoverFromCashierName: handover?.fromCashierName,
+        handoverFromClosedAt: handover?.fromClosedAt,
+        handoverExpectedBills: handover?.bills,
+      })
       if (!result.ok) {
         setError(result.error ?? 'No se pudo abrir el turno.')
         if (result.code === 'SHIFT_ALREADY_OPEN') {
@@ -111,7 +190,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
         }
         return
       }
-      // result.data puede tener resumed=true si el handler retomó un turno ya existente.
       onShiftOpened(result.data)
     } catch {
       setError('Error de comunicación. Reintentar.')
@@ -121,15 +199,39 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     }
   }
 
-  return (
-    <div className="flex flex-1 items-center justify-center bg-zinc-900 px-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-white">Abrir turno</h1>
-          <p className="mt-1 text-sm text-zinc-400">Ingresá el efectivo inicial antes de comenzar</p>
-        </div>
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (billMode === 'total' && !skipBills && !validateTotalMode()) {
+      setError('Hay montos que no son múltiplos de su denominación.')
+      return
+    }
+    const lines = skipBills ? [] : billRowsToLines(billRows, billMode)
+    if (isProdEnv && !skipBills && isEmptyBillCount(lines)) {
+      setShowEmptyConfirm(true)
+      return
+    }
+    await submitOpen(!skipBills && isEmptyBillCount(lines))
+  }
 
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-xl bg-zinc-800 p-6 shadow-lg">
+  const countedTotal = billRowsCountedTotal(billRows, billMode)
+  const expectedTotal = handover ? handover.bills.reduce((s, l) => s + l.denomination * l.quantity, 0) : undefined
+
+  return (
+    <div className="flex flex-1 min-h-0 h-full flex-col bg-zinc-900 text-white overflow-hidden">
+      <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-zinc-800">
+        <h1 className="text-2xl font-bold">Abrir turno</h1>
+        <p className="text-sm text-zinc-400 truncate" title={handover
+          ? `Precargado con lo que dejó ${handover.fromCashierName}. Corregí si no coincide — no se pisa el cierre anterior.`
+          : 'Contá el efectivo que hay en la registradora'}
+        >
+          {handover
+            ? `Precargado con lo que dejó ${handover.fromCashierName}. Corregí si no coincide — no se pisa el cierre anterior.`
+            : 'Contá el efectivo que hay en la registradora'}
+        </p>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
+        <form onSubmit={handleSubmit} className="max-w-md mx-auto p-6 space-y-4">
           <div className="space-y-2">
             <label className="block text-sm font-medium text-zinc-300">Turno</label>
             <div className="grid grid-cols-2 gap-3">
@@ -139,7 +241,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                 className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
                   shiftType === 'morning'
                     ? 'border-emerald-500 bg-emerald-700/40 text-emerald-100'
-                    : 'border-transparent bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+                    : 'border-transparent bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
                 }`}
               >
                 🌅 Mañana
@@ -150,7 +252,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                 className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
                   shiftType === 'evening'
                     ? 'border-emerald-500 bg-emerald-700/40 text-emerald-100'
-                    : 'border-transparent bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+                    : 'border-transparent bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
                 }`}
               >
                 🌙 Tarde
@@ -158,7 +260,33 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
             </div>
           </div>
 
-          {/* Efectivo inicial */}
+          <BillCountGrid
+            rows={billRows}
+            mode={billMode}
+            onModeChange={handleBillModeChange}
+            onUpdate={updateBillRow}
+            countedTotal={countedTotal}
+            expectedTotal={expectedTotal}
+            showExpectedDiff={Boolean(handover)}
+            title="Lo que encontré en la registradora"
+            subtitle={handover
+              ? `Dejó ${handover.fromCashierName} al cerrar`
+              : 'No hay un cierre anterior con desglose. Contá lo que hay.'}
+          />
+
+          {!isProdEnv && (
+            <button
+              type="button"
+              onClick={() => {
+                setSkipBills(true)
+                setShowEmptyConfirm(false)
+              }}
+              className="w-full text-xs text-zinc-500 underline hover:text-zinc-300"
+            >
+              Omitir conteo (modo pruebas)
+            </button>
+          )}
+
           <div className="space-y-2">
             <label className="block text-sm font-medium text-zinc-300">
               Efectivo inicial en caja
@@ -171,10 +299,13 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                 value={openingCash}
                 onChange={setOpeningCash}
                 placeholder="0"
-                className="w-full rounded-lg bg-zinc-700 pl-8 pr-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+                className="w-full rounded-lg bg-zinc-800 pl-8 pr-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500"
                 required
               />
             </div>
+            <p className="text-[11px] text-zinc-500">
+              Lo que arranca el turno: vuelto que te dejaron, lo que te entregaron, o lo que sacaste de la caja fuerte. No es el conteo de la registradora de arriba.
+            </p>
           </div>
 
           {error && (
@@ -241,6 +372,37 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
           )}
         </form>
       </div>
+
+      {showEmptyConfirm && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-overlay-fade">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-800 p-6 space-y-4 animate-modal-enter">
+            <h2 className="text-base font-semibold text-white">¿Caja vacía?</h2>
+            <p className="text-sm text-zinc-400">
+              ¿Confirmás que no queda ningún billete en caja?
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowEmptyConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors text-sm"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEmptyConfirm(false)
+                  void submitOpen(true)
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold transition-colors text-white text-sm"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }

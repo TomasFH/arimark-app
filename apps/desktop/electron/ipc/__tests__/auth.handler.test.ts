@@ -20,6 +20,11 @@ vi.mock('../../licensing/session', () => ({
   signInAutoDetect: vi.fn(),
 }))
 
+vi.mock('../../licensing/passwordAuth', () => ({
+  sendPasswordReset: vi.fn(),
+  changeOwnPassword: vi.fn(),
+}))
+
 vi.mock('../../licensing/installation', () => ({
   activateInstallation: vi.fn(),
   signInAnon: vi.fn(),
@@ -100,6 +105,7 @@ vi.mock('../../activeSession', () => ({
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { signInWithRole, loginAdmin } from '../../licensing/session'
+import { sendPasswordReset, changeOwnPassword } from '../../licensing/passwordAuth'
 import { setActiveSession } from '../../activeSession'
 import { syncAllStoreCatalogs } from '../../licensing/catalogSync'
 import { registerAuthHandlers } from '../auth.handler'
@@ -270,6 +276,75 @@ describe('auth.handler', () => {
       const result = await handler({}, { role: 'cashier', storeId: 'store-1' })
       expect(result).toMatchObject({ ok: true })
       expect(setActiveSession).toHaveBeenCalledWith(null)
+    })
+  })
+
+  describe('SEND_PASSWORD_RESET', () => {
+    it('rechaza email inválido', async () => {
+      const handler = getHandler('ipc:send-password-reset')
+      const result = await handler({}, { email: 'no-es-email' })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
+
+    it('acepta payload vacío (sesión actual) y llama sendPasswordReset', async () => {
+      vi.mocked(sendPasswordReset).mockResolvedValue({ ok: true })
+      const handler = getHandler('ipc:send-password-reset')
+      const result = await handler({}, {})
+      expect(result).toMatchObject({ ok: true })
+      expect(sendPasswordReset).toHaveBeenCalledWith(undefined)
+    })
+
+    it('con email válido llama sendPasswordReset', async () => {
+      vi.mocked(sendPasswordReset).mockResolvedValue({ ok: true })
+      const handler = getHandler('ipc:send-password-reset')
+      const result = await handler({}, { email: 'cajera@negocio.com' })
+      expect(result).toMatchObject({ ok: true })
+      expect(sendPasswordReset).toHaveBeenCalledWith('cajera@negocio.com')
+    })
+
+    it('propaga error de negocio', async () => {
+      vi.mocked(sendPasswordReset).mockResolvedValue({
+        ok: false,
+        error: 'Sin conexión. Intentá de nuevo cuando haya internet.',
+        code: 'NETWORK',
+      })
+      const handler = getHandler('ipc:send-password-reset')
+      const result = await handler({}, { email: 'cajera@negocio.com' })
+      expect(result).toMatchObject({ ok: false, code: 'NETWORK' })
+    })
+  })
+
+  describe('CHANGE_PASSWORD', () => {
+    it('rechaza payload malformado', async () => {
+      const handler = getHandler('ipc:change-password')
+      const result = await handler({}, { currentPassword: 'x' })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
+
+    it('rechaza nueva clave igual a la actual', async () => {
+      const handler = getHandler('ipc:change-password')
+      const result = await handler({}, { currentPassword: 'misma12', newPassword: 'misma12' })
+      expect(result).toMatchObject({ ok: false })
+      expect(changeOwnPassword).not.toHaveBeenCalled()
+    })
+
+    it('llama changeOwnPassword con payload válido', async () => {
+      vi.mocked(changeOwnPassword).mockResolvedValue({ ok: true })
+      const handler = getHandler('ipc:change-password')
+      const result = await handler({}, { currentPassword: 'vieja123', newPassword: 'nueva456' })
+      expect(result).toMatchObject({ ok: true })
+      expect(changeOwnPassword).toHaveBeenCalledWith('vieja123', 'nueva456')
+    })
+
+    it('propaga REQUIRES_REAUTH', async () => {
+      vi.mocked(changeOwnPassword).mockResolvedValue({
+        ok: false,
+        error: 'Por seguridad hay que confirmar la contraseña actual o restablecerla por mail.',
+        code: 'REQUIRES_REAUTH',
+      })
+      const handler = getHandler('ipc:change-password')
+      const result = await handler({}, { currentPassword: 'vieja123', newPassword: 'nueva456' })
+      expect(result).toMatchObject({ ok: false, code: 'REQUIRES_REAUTH' })
     })
   })
 })

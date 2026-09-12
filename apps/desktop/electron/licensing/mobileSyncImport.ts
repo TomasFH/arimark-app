@@ -24,8 +24,16 @@ import {
   employees,
   employeeVales,
   salaryPayments,
+  ceboEntries,
 } from '../db/schema'
 import { providerNameKey } from '../ipc/providerUtils'
+import {
+  coerceInjectReason,
+  injectConceptForReason,
+  parseBillLines,
+  type BillLine,
+} from '@carniceria/shared'
+import { insertBillLinesIfNone } from '../db/billCountStore'
 
 export interface MobileShiftImport {
   id: string
@@ -37,6 +45,14 @@ export interface MobileShiftImport {
   closedAt: string | null
   openingCash: number
   closingCash: number | null
+  openingBills?: BillLine[]
+  closingBills?: BillLine[]
+  handoverExpectedBills?: BillLine[]
+  openingBillsCounted?: boolean
+  closingBillsCounted?: boolean
+  handoverFromShiftId?: string | null
+  handoverFromCashierName?: string | null
+  handoverFromClosedAt?: string | null
 }
 
 export interface MobileSaleItemImport {
@@ -59,6 +75,8 @@ export interface MobileSaleImport {
   id: string
   shiftId: string
   total: number
+  discountAmount?: number
+  discountPercent?: number
   items: MobileSaleItemImport[]
   payments: MobileSalePaymentImport[]
   notes: string | null
@@ -77,6 +95,7 @@ export interface MobileExpenseImport {
   shiftId: string
   storeId?: string
   kind?: 'expense' | 'inject' | string | null
+  injectReason?: 'aporte' | 'wallet_cash' | string | null
   concept: string | null
   amount: number
   notes: string | null
@@ -130,6 +149,17 @@ export interface MobileSalaryImport {
   paidAt: string
 }
 
+export interface MobileCeboImport {
+  id: string
+  shiftId: string
+  quantityKg: number
+  notes: string | null
+  createdAt: string
+  createdBy: string
+  updatedBy?: string | null
+  updatedAt?: string | null
+}
+
 export interface MobileShiftImportResult {
   insertedShift: boolean
   salesInserted: number
@@ -137,6 +167,7 @@ export interface MobileShiftImportResult {
   expensesInserted: number
   valesInserted: number
   salaryInserted: number
+  ceboInserted: number
   /** Solo true cuando el turno ya cerró: la PC puede marcar importedAt. */
   shouldMarkImported: boolean
 }
@@ -290,6 +321,8 @@ function insertSaleRow(
     status,
     manualEntry: sale.manualEntry,
     notes: sale.notes,
+    discountAmount: Math.max(0, Math.round(sale.discountAmount ?? 0)),
+    discountPercent: Math.max(0, Math.round(sale.discountPercent ?? 0)),
     createdAt: sale.createdAt,
     createdBy: sale.createdBy,
   }).run()
@@ -474,6 +507,7 @@ export function applyMobileShiftImport(
   expensesData: MobileExpenseImport[],
   valesData: MobileValeImport[] = [],
   salaryData: MobileSalaryImport[] = [],
+  ceboData: MobileCeboImport[] = [],
 ): MobileShiftImportResult {
   ensureUserCache(db, shiftData.userId, shiftData.displayName, storeId)
   for (const sale of salesData) {
@@ -496,6 +530,14 @@ export function applyMobileShiftImport(
       ensureUserCache(db, payment.recordedBy, shiftData.displayName, storeId)
     }
   }
+  for (const cebo of ceboData) {
+    if (cebo.createdBy && cebo.createdBy !== shiftData.userId) {
+      ensureUserCache(db, cebo.createdBy, shiftData.displayName, storeId)
+    }
+    if (cebo.updatedBy && cebo.updatedBy !== shiftData.userId) {
+      ensureUserCache(db, cebo.updatedBy, shiftData.displayName, storeId)
+    }
+  }
 
   let insertedShift = false
   let salesInserted = 0
@@ -503,6 +545,7 @@ export function applyMobileShiftImport(
   let expensesInserted = 0
   let valesInserted = 0
   let salaryInserted = 0
+  let ceboInserted = 0
 
   db.transaction(tx => {
     const existing = tx.select().from(shifts).where(eq(shifts.id, shiftData.id)).get()
@@ -517,17 +560,38 @@ export function applyMobileShiftImport(
         openingCash: shiftData.openingCash,
         closingCash: shiftData.closingCash,
         source: 'mobile',
+        openingCounted: shiftData.openingBillsCounted === true,
+        closingCounted: shiftData.closingBillsCounted === true,
+        handoverFromShiftId: shiftData.handoverFromShiftId ?? null,
+        handoverFromCashierName: shiftData.handoverFromCashierName ?? null,
+        handoverFromClosedAt: shiftData.handoverFromClosedAt ?? null,
       }).run()
       insertedShift = true
     } else {
       const closedAt = shiftData.closedAt ?? existing.closedAt
       const closingCash = shiftData.closingCash ?? existing.closingCash
-      if (closedAt !== existing.closedAt || closingCash !== existing.closingCash) {
+      const closingCounted = existing.closingCounted || shiftData.closingBillsCounted === true
+      const openingCounted = existing.openingCounted || shiftData.openingBillsCounted === true
+      if (
+        closedAt !== existing.closedAt
+        || closingCash !== existing.closingCash
+        || closingCounted !== existing.closingCounted
+        || openingCounted !== existing.openingCounted
+      ) {
         tx.update(shifts)
-          .set({ closedAt, closingCash })
+          .set({ closedAt, closingCash, closingCounted, openingCounted })
           .where(eq(shifts.id, shiftData.id))
           .run()
       }
+    }
+
+    const t = tx as unknown as AppDb
+    if (!existing?.openingCounted) {
+      insertBillLinesIfNone(t, shiftData.id, 'opening', parseBillLines(shiftData.openingBills))
+      insertBillLinesIfNone(t, shiftData.id, 'expected', parseBillLines(shiftData.handoverExpectedBills))
+    }
+    if (!existing?.closingCounted) {
+      insertBillLinesIfNone(t, shiftData.id, 'closing', parseBillLines(shiftData.closingBills))
     }
 
     for (const sale of salesData) {
@@ -553,12 +617,17 @@ export function applyMobileShiftImport(
       if (providerId && providerName) {
         upsertProvider(tx as unknown as AppDb, providerId, providerName, expense.createdAt, expense.createdBy)
       }
+      const kind = coerceExpenseKind(expense.kind)
+      const injectReason = kind === 'inject' ? coerceInjectReason(expense.injectReason) : null
       tx.insert(expenses).values({
         id: expense.id,
         storeId,
         shiftId: shiftData.id,
-        kind: coerceExpenseKind(expense.kind),
-        concept: expense.concept,
+        kind,
+        concept: kind === 'inject'
+          ? (expense.concept?.trim() || injectConceptForReason(injectReason ?? 'aporte'))
+          : expense.concept,
+        injectReason,
         providerId,
         amount: expense.amount,
         notes: expense.notes,
@@ -576,6 +645,25 @@ export function applyMobileShiftImport(
     for (const payment of salaryData) {
       if (insertSalaryRow(tx as unknown as AppDb, shiftData.id, payment)) salaryInserted += 1
     }
+    for (const cebo of ceboData) {
+      const existingCebo = tx.select().from(ceboEntries).where(eq(ceboEntries.id, cebo.id)).get()
+      if (existingCebo) continue
+      const kg = Number(cebo.quantityKg)
+      if (!Number.isFinite(kg) || kg <= 0) continue
+      tx.insert(ceboEntries).values({
+        id: cebo.id,
+        storeId,
+        shiftId: shiftData.id,
+        quantityKg: kg,
+        notes: cebo.notes,
+        createdBy: cebo.createdBy,
+        createdAt: cebo.createdAt,
+        updatedBy: cebo.updatedBy ?? null,
+        updatedAt: cebo.updatedAt ?? null,
+        syncedAt: null,
+      }).run()
+      ceboInserted += 1
+    }
   })
 
   return {
@@ -585,6 +673,7 @@ export function applyMobileShiftImport(
     expensesInserted,
     valesInserted,
     salaryInserted,
+    ceboInserted,
     shouldMarkImported: shouldMarkMobileShiftImported(shiftData.closedAt),
   }
 }

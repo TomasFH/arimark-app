@@ -17,6 +17,7 @@ export default defineConfig({
         'electron/**/__mocks__/**',
         // Entry points y scripts CLI — no son reglas de negocio
         'electron/main.ts',
+        'electron/bootEnv.ts',
         'electron/preload.ts',
         'electron/envMode.ts',
         'electron/db/migrate-cli.ts',

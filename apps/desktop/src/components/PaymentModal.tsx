@@ -1,4 +1,8 @@
 import { useState, useEffect } from 'react'
+import {
+  quoteCashDiscount,
+  type CashDiscountRule,
+} from '@carniceria/shared'
 import NumericInput from './NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
@@ -15,7 +19,11 @@ interface PaymentRow {
 }
 
 interface Props {
-  total: number
+  /** Total de ítems (sin restar seña ni descuento). */
+  itemTotal: number
+  depositAmount?: number
+  depositDigitalAmount?: number
+  cashDiscountRule?: CashDiscountRule | null
   onConfirm: (payments: SalePaymentPayload[], notes?: string) => void
   /** Llamado cuando la cajera elige cobro diferido (fiado). */
   onFiado?: () => void
@@ -40,7 +48,15 @@ const METHOD_ICONS: Record<PaymentMethod, string> = {
   credit: '🏦',
 }
 
-export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Props) {
+export default function PaymentModal({
+  itemTotal,
+  depositAmount = 0,
+  depositDigitalAmount = 0,
+  cashDiscountRule,
+  onConfirm,
+  onFiado,
+  onClose,
+}: Props) {
   const [mode, setMode] = useState<ModalMode>('single')
   const [clientCash, setClientCash] = useState('')
   const [notes, setNotes] = useState('')
@@ -52,6 +68,31 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
     { id: crypto.randomUUID(), method: 'debit', amount: '' },
     { id: crypto.randomUUID(), method: 'cash', amount: '' },
   ])
+
+  const rule: CashDiscountRule = cashDiscountRule ?? { minAmount: 0, percent: 0 }
+  const splitHasCash = rows.some(r => r.method === 'cash' && (parseNumericInput(r.amount) ?? 0) > 0)
+  const remainderCash =
+    mode === 'cash-detail' || (mode === 'split' && splitHasCash)
+  const quote = quoteCashDiscount({
+    rule,
+    itemTotal,
+    depositAmount,
+    depositDigitalAmount,
+    remainderIncludesCash: remainderCash,
+  })
+  const cashPreview = quoteCashDiscount({
+    rule,
+    itemTotal,
+    depositAmount,
+    depositDigitalAmount,
+    remainderIncludesCash: true,
+  })
+  const chargeTotal = quote.amountDue
+  const discountLine = quote.eligible
+    ? `Desc. efectivo ${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
+    : cashPreview.eligible
+      ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(cashPreview.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(cashPreview.amountDue)}`
+      : null
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -90,32 +131,32 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
   // ── MODO EFECTIVO: calcular vuelto ────────────────────────────────────────
 
   const clientCashAmount = parseNumericInput(clientCash) ?? 0
-  const cashChange = clientCashAmount > 0.005 ? clientCashAmount - total : 0
-  const cashInsufficient = clientCashAmount > 0.005 && clientCashAmount < total - 0.005
+  const cashChange = clientCashAmount > 0.005 ? clientCashAmount - chargeTotal : 0
+  const cashInsufficient = clientCashAmount > 0.005 && clientCashAmount < chargeTotal - 0.005
 
   function handleCashConfirm() {
-    confirmWithNotes([{ paymentMethod: 'cash', amount: total }])
+    confirmWithNotes([{ paymentMethod: 'cash', amount: chargeTotal }])
   }
 
   // ── MODO CONFIRMACIÓN DIGITAL (débito / billetera) ─────────────────────────
 
   function handleDigitalConfirm() {
     if (!pendingMethod) return
-    confirmWithNotes([{ paymentMethod: pendingMethod, amount: total }])
+    confirmWithNotes([{ paymentMethod: pendingMethod, amount: chargeTotal }])
   }
 
   // ── MODO CRÉDITO (cuotas) ─────────────────────────────────────────────────
 
   const installments = parseNumericInput(installmentsRaw) ?? 0
   const installmentsValid = installments >= 1
-  const perInstallment = installmentsValid ? Math.ceil(total / installments) : 0
+  const perInstallment = installmentsValid ? Math.ceil(chargeTotal / installments) : 0
 
   function handleCreditPreset(n: number) {
     setInstallmentsRaw(String(n))
   }
 
   function handleCreditConfirm() {
-    confirmWithNotes([{ paymentMethod: 'credit', amount: total, installments }])
+    confirmWithNotes([{ paymentMethod: 'credit', amount: chargeTotal, installments }])
   }
 
   // ── MODO DIVIDIDO ──────────────────────────────────────────────────────────
@@ -126,12 +167,12 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
   const cashAlreadyUsed = cashRowCount > 0
 
   const rowSum = rows.reduce((s, r) => s + (parseNumericInput(r.amount) ?? 0), 0)
-  const totalCovered = Math.abs(rowSum - total) < 1
+  const totalCovered = Math.abs(rowSum - chargeTotal) < 1
 
   const rowSumExcludingFocused = rows
     .filter(r => r.id !== focusedRowId)
     .reduce((s, r) => s + (parseNumericInput(r.amount) ?? 0), 0)
-  const remaining = totalCovered ? 0 : total - rowSumExcludingFocused
+  const remaining = totalCovered ? 0 : chargeTotal - rowSumExcludingFocused
 
   const splitValid = totalCovered
 
@@ -152,7 +193,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
     const others = rows
       .filter(r => r.id !== id)
       .reduce((s, r) => s + (parseNumericInput(r.amount) ?? 0), 0)
-    return Math.max(0, Math.round(total - others))
+    return Math.max(0, Math.round(chargeTotal - others))
   }
 
   function fillRowRemainder(id: string) {
@@ -217,7 +258,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
           )}
           <div className="flex-1">
             <h2 className="text-sm font-semibold text-zinc-300">{headerTitle}</h2>
-            <p className="text-2xl font-bold font-mono text-zinc-100">{formatARS(total)}</p>
+            <p className="text-2xl font-bold font-mono text-zinc-100">{formatARS(chargeTotal)}</p>
           </div>
           <button
             onClick={onClose}
@@ -226,6 +267,12 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
             ✕
           </button>
         </div>
+
+        {discountLine && (
+          <div className="border-b border-zinc-800 px-6 py-2">
+            <p className="text-xs text-emerald-300 truncate" title={discountLine}>{discountLine}</p>
+          </div>
+        )}
 
         {/* Notas opcionales — visibles en todos los modos de cobro */}
         <div className="border-b border-zinc-800 px-6 py-3">
@@ -313,10 +360,10 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                   </label>
                   <button
                     type="button"
-                    onClick={() => setClientCash(formatIntegerWithDots(String(Math.round(total))))}
+                    onClick={() => setClientCash(formatIntegerWithDots(String(Math.round(chargeTotal))))}
                     className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded px-2 py-0.5 hover:bg-zinc-800 transition-colors"
                   >
-                    Paga justo · {formatARS(total)}
+                    Paga justo · {formatARS(chargeTotal)}
                   </button>
                 </div>
                 <div className="relative">
@@ -347,7 +394,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
 
               {cashInsufficient && (
                 <p className="text-xs text-red-400">
-                  El cliente debe pagar al menos {formatARS(total)}.
+                  El cliente debe pagar al menos {formatARS(chargeTotal)}.
                 </p>
               )}
 
@@ -356,7 +403,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                 disabled={cashInsufficient || clientCash === ''}
                 className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40"
               >
-                Confirmar cobro · {formatARS(total)}
+                Confirmar cobro · {formatARS(chargeTotal)}
               </button>
             </div>
           )}
@@ -367,18 +414,18 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
               <div className="rounded-xl border border-zinc-700 bg-zinc-800 p-5 text-center space-y-2">
                 <p className="text-4xl">{METHOD_ICONS[pendingMethod]}</p>
                 <p className="text-base font-semibold text-white">{METHOD_LABELS[pendingMethod]}</p>
-                <p className="text-3xl font-bold font-mono text-zinc-100">{formatARS(total)}</p>
+                <p className="text-3xl font-bold font-mono text-zinc-100">{formatARS(chargeTotal)}</p>
               </div>
 
               <p className="text-xs text-zinc-500 text-center">
-                Confirmá que el cliente pagó {formatARS(total)} con {METHOD_LABELS[pendingMethod]}.
+                Confirmá que el cliente pagó {formatARS(chargeTotal)} con {METHOD_LABELS[pendingMethod]}.
               </p>
 
               <button
                 onClick={handleDigitalConfirm}
                 className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500"
               >
-                Confirmar cobro · {formatARS(total)}
+                Confirmar cobro · {formatARS(chargeTotal)}
               </button>
 
               <button
@@ -429,7 +476,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                 <div className="rounded-xl border border-zinc-700 bg-zinc-800/30 p-4 space-y-1">
                   <div className="flex justify-between text-sm">
                     <span className="text-zinc-400">Total</span>
-                    <span className="font-semibold text-white">{formatARS(total)}</span>
+                    <span className="font-semibold text-white">{formatARS(chargeTotal)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-zinc-400">{installments} cuotas de</span>
@@ -451,7 +498,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
               >
                 {installmentsValid && installments > 1
                   ? `Confirmar · ${installments} cuotas de ${formatARS(perInstallment)}`
-                  : `Confirmar cobro · ${formatARS(total)}`}
+                  : `Confirmar cobro · ${formatARS(chargeTotal)}`}
               </button>
 
               <button
@@ -599,7 +646,7 @@ export default function PaymentModal({ total, onConfirm, onFiado, onClose }: Pro
                 disabled={!splitValid}
                 className="w-full rounded-xl bg-emerald-600 py-3.5 font-bold text-white text-sm transition-colors hover:bg-emerald-500 disabled:opacity-40"
               >
-                Confirmar cobro · {formatARS(total)}
+                Confirmar cobro · {formatARS(chargeTotal)}
               </button>
             </div>
           )}

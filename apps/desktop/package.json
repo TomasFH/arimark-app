@@ -1,6 +1,6 @@
 {
   "name": "@carniceria/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "App de gestión para carnicerías — offline-first, Electron + React",
   "main": "dist-electron/electron/main.js",
@@ -24,6 +24,7 @@
     "catalog:replace:prod": "cross-env APP_ENV=production ELECTRON_RUN_AS_NODE=1 electron scripts/replaceCatalog.mjs",
     "db:wipe:dev": "cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron scripts/wipeOperationalDb.mjs",
     "db:wipe:prod": "cross-env APP_ENV=production ELECTRON_RUN_AS_NODE=1 electron scripts/wipeOperationalDb.mjs",
+    "firestore:day0-wipe": "node scripts/firestoreDay0Wipe.mjs",
     "catalog:fix-packs:dev": "cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron scripts/fixPackOffers.mjs",
     "catalog:fix-packs:prod": "cross-env APP_ENV=production ELECTRON_RUN_AS_NODE=1 electron scripts/fixPackOffers.mjs",
     "catalog:free-plu:dev": "cross-env APP_ENV=dev ELECTRON_RUN_AS_NODE=1 electron scripts/freeInactivePlus.mjs",

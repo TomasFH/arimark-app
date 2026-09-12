@@ -8,6 +8,7 @@ import { getDb } from '../db/client'
 import { expenses, providerDebtEvents, providers, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
+import { coerceInjectReason, injectConceptForReason } from '@carniceria/shared'
 import { providerIdFromName, providerNameKey } from './providerUtils'
 import { pushUnsyncedProviders, pushUnsyncedDebtEvents, markDebtEventsDeletedInFirestore } from '../licensing/providerSync'
 import { pushUnsyncedExpenses, markExpensesDeletedInFirestore } from '../licensing/expenseSync'
@@ -93,6 +94,7 @@ const updateExpenseSchema = expenseBaseSchema.extend({ id: z.string().uuid() })
 const registerCashInjectSchema = z.object({
   amount: z.number().positive(),
   notes: z.string().max(200).optional(),
+  injectReason: z.enum(['aporte', 'wallet_cash']).optional(),
 })
 
 const getProviderDebtSchema = z.object({
@@ -249,6 +251,7 @@ export function registerExpenseHandlers(): void {
     if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
 
     const { amount, notes } = parsed.data
+    const injectReason = coerceInjectReason(parsed.data.injectReason)
     const id = uuidv4()
     const now = new Date().toISOString()
 
@@ -259,7 +262,8 @@ export function registerExpenseHandlers(): void {
         storeId: session.storeId,
         shiftId: session.shiftId,
         kind: 'inject',
-        concept: 'Aporte',
+        concept: injectConceptForReason(injectReason),
+        injectReason,
         amount,
         notes: notes ?? null,
         createdAt: now,
@@ -272,7 +276,7 @@ export function registerExpenseHandlers(): void {
         log.warn('[ipc:register-cash-inject] pushUnsyncedExpenses falló', err)
       )
 
-      log.info('[ipc:register-cash-inject] Aporte registrado', { id, amount })
+      log.info('[ipc:register-cash-inject] Ingreso registrado', { id, amount, injectReason })
       return { ok: true, data: { id } }
     } catch (err) {
       log.error('[ipc:register-cash-inject] Error inesperado', err)

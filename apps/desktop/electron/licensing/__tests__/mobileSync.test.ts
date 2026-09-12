@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { shifts, sales, salePayments, users, stores, expenses, customers, debtEvents, providers, providerDebtEvents, employees, employeeVales, salaryPayments } from '../../db/schema'
+import { shifts, sales, salePayments, users, stores, expenses, customers, debtEvents, providers, providerDebtEvents, employees, employeeVales, salaryPayments, billDenominations } from '../../db/schema'
 import { eq, isNull, and } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { applyMobileShiftImport, shouldMarkMobileShiftImported, coerceSaleStatus, coerceExpenseKind, netDebtFromSale } from '../mobileSyncImport'
@@ -827,6 +827,54 @@ describe('applyMobileShiftImport — proveedor, vales y liquidación', () => {
     expect(result.salaryInserted).toBe(1)
     expect(db.select().from(salaryPayments).all()).toHaveLength(1)
     expect(result.shouldMarkImported).toBe(true)
+  })
+})
+
+describe('applyMobileShiftImport — desglose de billetes', () => {
+  function asAppDb(db: Awaited<ReturnType<typeof createInMemoryDb>>['db']) {
+    return db as unknown as ReturnType<typeof getDb>
+  }
+
+  it('importa opening/closing/expected y no pisa el cierre al reimportar', async () => {
+    const { db } = await createInMemoryDb()
+    await seedStore(db)
+    const userId = uuidv4()
+    const shiftId = uuidv4()
+    const now = '2026-09-11T16:00:00.000Z'
+    const shift = {
+      id: shiftId,
+      storeId: 'local1',
+      userId,
+      displayName: 'Ana',
+      shiftType: 'morning' as const,
+      startedAt: '2026-09-11T08:00:00.000Z',
+      closedAt: now,
+      openingCash: 4000,
+      closingCash: 5000,
+      openingBills: [{ denomination: 1000, quantity: 4 }],
+      closingBills: [{ denomination: 1000, quantity: 5 }],
+      handoverExpectedBills: [{ denomination: 1000, quantity: 5 }],
+      openingBillsCounted: true,
+      closingBillsCounted: true,
+      handoverFromShiftId: 'prev-shift',
+      handoverFromCashierName: 'Lucía',
+      handoverFromClosedAt: '2026-09-11T07:50:00.000Z',
+    }
+
+    applyMobileShiftImport(asAppDb(db), 'local1', shift, [], [])
+    applyMobileShiftImport(asAppDb(db), 'local1', {
+      ...shift,
+      closingBills: [{ denomination: 1000, quantity: 9 }],
+      openingBills: [{ denomination: 1000, quantity: 1 }],
+    }, [], [])
+
+    const rows = db.select().from(billDenominations).where(eq(billDenominations.shiftId, shiftId)).all()
+    expect(rows.filter(r => r.kind === 'closing')[0]?.quantity).toBe(5)
+    expect(rows.filter(r => r.kind === 'opening')[0]?.quantity).toBe(4)
+    expect(rows.filter(r => r.kind === 'expected')[0]?.quantity).toBe(5)
+    const saved = db.select().from(shifts).where(eq(shifts.id, shiftId)).get()
+    expect(saved?.handoverFromCashierName).toBe('Lucía')
+    expect(saved?.closingCounted).toBe(true)
   })
 })
 

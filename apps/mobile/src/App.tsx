@@ -17,7 +17,7 @@ import { OpenShiftScreen } from './components/OpenShiftScreen'
 import { PosScreen } from './components/PosScreen'
 import { AdminDashboard } from './components/AdminDashboard'
 import { ButcherApp } from './components/butcher/ButcherApp'
-import { signIn, signOut, restoreSession, revalidateProfileAccess, subscribeUserAccess, ACCESS_REVOKED_MESSAGE } from './lib/auth'
+import { signIn, signOut, restoreSession, revalidateProfileAccess, subscribeUserAccess, ACCESS_REVOKED_MESSAGE, sendPasswordReset, PASSWORD_RESET_SENT_MESSAGE } from './lib/auth'
 import { syncCatalog, getCatalog, startCatalogLiveListener, stopCatalogLiveListener } from './lib/catalog'
 import { db } from './lib/db'
 import { triggerSync, registerOnlineListener } from './lib/sync'
@@ -221,9 +221,23 @@ export default function App() {
     triggerSync().catch(() => { /* silencioso */ })
   }
 
-  async function handleOpenShift(shiftType: ShiftType, openingCash: number) {
+  async function handleOpenShift(
+    shiftType: ShiftType,
+    openingCash: number,
+    extras?: {
+      openingBills?: LocalShift['openingBills']
+      confirmEmptyRegister?: boolean
+      handover?: {
+        fromShiftId: string
+        fromCashierName: string
+        fromClosedAt: string
+        bills: NonNullable<LocalShift['openingBills']>
+      } | null
+    },
+  ) {
     if (!session) return
 
+    const counted = extras?.openingBills !== undefined || extras?.confirmEmptyRegister === true
     const shift: LocalShift = {
       id: uuidv4(),
       storeId: session.storeId,
@@ -236,6 +250,12 @@ export default function App() {
       closingCash: null,
       syncStatus: 'pending',
       syncedAt: null,
+      openingBills: counted ? (extras?.openingBills ?? []) : undefined,
+      openingBillsCounted: counted,
+      handoverFromShiftId: counted ? (extras?.handover?.fromShiftId ?? null) : null,
+      handoverFromCashierName: counted ? (extras?.handover?.fromCashierName ?? null) : null,
+      handoverFromClosedAt: counted ? (extras?.handover?.fromClosedAt ?? null) : null,
+      handoverExpectedBills: counted ? (extras?.handover?.bills ?? []) : undefined,
     }
 
     await db.shifts.add(shift)
@@ -377,6 +397,7 @@ export default function App() {
         <OpenShiftScreen
           displayName={session.profile.displayName}
           storeName={storeName}
+          storeId={session.storeId}
           onOpen={handleOpenShift}
           onLogout={isAdmin ? returnToAdminHub : handleLogout}
           logoutLabel={isAdmin ? 'Hub admin' : 'Salir'}
@@ -485,12 +506,43 @@ function LoginFormFields({ error, online, onSubmit }: LoginFormFieldsProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resetSending, setResetSending] = useState(false)
+  const [resetNotice, setResetNotice] = useState<string | null>(null)
+  const [resetError, setResetError] = useState<string | null>(null)
+  const [resetMode, setResetMode] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (resetMode) {
+      void handleForgotPassword()
+      return
+    }
+    setResetNotice(null)
+    setResetError(null)
     setLoading(true)
     await onSubmit(email.trim(), password)
     setLoading(false)
+  }
+
+  async function handleForgotPassword() {
+    setResetNotice(null)
+    setResetError(null)
+    const trimmed = email.trim()
+    if (!trimmed) {
+      setResetError('Ingresá tu email para enviarte el mail.')
+      return
+    }
+    setResetSending(true)
+    try {
+      const result = await sendPasswordReset(trimmed)
+      if (!result.ok) {
+        setResetError(result.error)
+        return
+      }
+      setResetNotice(PASSWORD_RESET_SENT_MESSAGE)
+    } finally {
+      setResetSending(false)
+    }
   }
 
   return (
@@ -501,21 +553,29 @@ function LoginFormFields({ error, online, onSubmit }: LoginFormFieldsProps) {
           usar la app sin conexión.
         </div>
       )}
+      {resetMode && (
+        <p className="text-sm text-gray-400">
+          Ingresá el email de la cuenta. Te mandamos un mail para elegir una contraseña nueva.
+        </p>
+      )}
       <div>
-        <label className="block text-sm text-gray-300 mb-1">Email</label>
+        <label htmlFor="mob-login-email" className="block text-sm text-gray-300 mb-1">Email</label>
         <input
+          id="mob-login-email"
           type="email"
           autoComplete="email"
           value={email}
           onChange={e => setEmail(e.target.value)}
           className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-red-500"
           placeholder="cajera@local.com"
-          required
+          required={!resetMode}
         />
       </div>
+      {!resetMode && (
       <div>
-        <label className="block text-sm text-gray-300 mb-1">Contraseña</label>
+        <label htmlFor="mob-login-password" className="block text-sm text-gray-300 mb-1">Contraseña</label>
         <input
+          id="mob-login-password"
           type="password"
           autoComplete="current-password"
           value={password}
@@ -524,21 +584,56 @@ function LoginFormFields({ error, online, onSubmit }: LoginFormFieldsProps) {
           placeholder="••••••••"
           required
         />
+        <button
+          type="button"
+          onClick={() => {
+            setResetError(null)
+            setResetNotice(null)
+            setResetMode(true)
+          }}
+          disabled={loading || resetSending}
+          className="mt-2 text-sm text-zinc-500"
+        >
+          ¿Olvidaste tu contraseña?
+        </button>
       </div>
+      )}
 
-      {error && (
+      {resetNotice && (
+        <div className="bg-emerald-900/40 border border-emerald-700 text-emerald-200 rounded-lg px-4 py-3 text-sm">
+          {resetNotice}
+        </div>
+      )}
+
+      {(error || resetError) && (
         <div className="bg-red-900/50 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
-          {error}
+          {resetError ?? error}
         </div>
       )}
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || resetSending}
         className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white font-semibold rounded-lg px-4 py-3 transition-colors"
       >
-        {loading ? 'Iniciando sesión...' : 'Ingresar'}
+        {resetMode
+          ? (resetSending ? 'Enviando mail…' : 'Restablecer contraseña')
+          : (loading ? 'Iniciando sesión...' : 'Ingresar')}
       </button>
+      {resetMode && (
+        <button
+          type="button"
+          onClick={() => {
+            setResetMode(false)
+            setResetError(null)
+            setResetNotice(null)
+          }}
+          disabled={resetSending}
+          className="w-full text-sm text-zinc-500"
+        >
+          Volver al ingreso
+        </button>
+      )}
     </form>
   )
 }

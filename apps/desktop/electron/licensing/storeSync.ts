@@ -23,11 +23,14 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import log from 'electron-log'
-import { isNull, eq } from 'drizzle-orm'
+import { isNull, eq, desc } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { stores } from '../db/schema'
+import { cashDiscountAudits, stores } from '../db/schema'
+import { ensureCatalogSeedUser, seedCatalogOntoStore } from '../db/seedStoreCatalog'
+import { publishCatalog } from './catalogPublish'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
-import { parseHoursSchedule, serializeHoursSchedule } from '@carniceria/shared'
+import { normalizeCashDiscountRule, parseCashDiscountSchedule, parseHoursSchedule, serializeCashDiscountSchedule, serializeHoursSchedule } from '@carniceria/shared'
+import { v4 as uuidv4 } from 'uuid'
 
 const listeners: Unsubscribe[] = []
 
@@ -42,17 +45,101 @@ interface RemoteStoreDoc {
   afternoonStart?: string | null
   afternoonEnd?: string | null
   hoursSchedule?: unknown
+  cashDiscountMinAmount?: number | null
+  cashDiscountPercent?: number | null
+  cashDiscountSchedule?: unknown
+  cashDiscountAudits?: unknown
 }
 
 function hoursScheduleForSqlite(raw: unknown): string | null {
   return serializeHoursSchedule(parseHoursSchedule(raw) ?? [])
 }
 
-function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
+const CASH_DISCOUNT_AUDIT_PUSH_LIMIT = 20
+
+interface RemoteCashDiscountAudit {
+  id: string
+  createdAt: string
+  actorUserId: string
+  actorName: string
+  previousMinAmount: number
+  previousPercent: number
+  nextMinAmount: number
+  nextPercent: number
+}
+
+function parseRemoteAudits(raw: unknown): RemoteCashDiscountAudit[] {
+  if (!Array.isArray(raw)) return []
+  const out: RemoteCashDiscountAudit[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    if (typeof rec.id !== 'string' || typeof rec.createdAt !== 'string') continue
+    out.push({
+      id: rec.id,
+      createdAt: rec.createdAt,
+      actorUserId: typeof rec.actorUserId === 'string' ? rec.actorUserId : '',
+      actorName: typeof rec.actorName === 'string' ? rec.actorName : '',
+      previousMinAmount: Number(rec.previousMinAmount) || 0,
+      previousPercent: Number(rec.previousPercent) || 0,
+      nextMinAmount: Number(rec.nextMinAmount) || 0,
+      nextPercent: Number(rec.nextPercent) || 0,
+    })
+  }
+  return out.slice(0, CASH_DISCOUNT_AUDIT_PUSH_LIMIT)
+}
+
+function mergeRemoteAudits(storeId: string, remote: RemoteCashDiscountAudit[]): void {
+  if (remote.length === 0) return
+  const db = getDb()
+  for (const row of remote) {
+    const existing = db.select({ id: cashDiscountAudits.id })
+      .from(cashDiscountAudits)
+      .where(eq(cashDiscountAudits.id, row.id))
+      .get()
+    if (existing) continue
+    db.insert(cashDiscountAudits).values({
+      id: row.id || uuidv4(),
+      storeId,
+      actorUserId: row.actorUserId || 'remote',
+      actorName: row.actorName || 'remoto',
+      createdAt: row.createdAt,
+      previousMinAmount: row.previousMinAmount,
+      previousPercent: row.previousPercent,
+      nextMinAmount: row.nextMinAmount,
+      nextPercent: row.nextPercent,
+    }).run()
+  }
+}
+
+function auditsForPush(storeId: string): RemoteCashDiscountAudit[] {
+  const db = getDb()
+  return db
+    .select()
+    .from(cashDiscountAudits)
+    .where(eq(cashDiscountAudits.storeId, storeId))
+    .orderBy(desc(cashDiscountAudits.createdAt))
+    .limit(CASH_DISCOUNT_AUDIT_PUSH_LIMIT)
+    .all()
+    .map(r => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      actorUserId: r.actorUserId,
+      actorName: r.actorName,
+      previousMinAmount: r.previousMinAmount,
+      previousPercent: r.previousPercent,
+      nextMinAmount: r.nextMinAmount,
+      nextPercent: r.nextPercent,
+    }))
+}
+
+function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string, tenantId: string): void {
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
   const hoursSchedule = hoursScheduleForSqlite(data.hoursSchedule)
+  const discount = normalizeCashDiscountRule(data.cashDiscountMinAmount, data.cashDiscountPercent)
+  const cashDiscountSchedule = serializeCashDiscountSchedule(parseCashDiscountSchedule(data.cashDiscountSchedule))
 
   const existing = db
     .select({ syncedAt: stores.syncedAt })
@@ -61,6 +148,7 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
     .get()
   // Outbox local pendiente: no pisar con un snapshot viejo (ej. archivar y luego pull).
   if (existing && existing.syncedAt === null) return
+  const isNew = !existing
 
   db.insert(stores).values({
     id,
@@ -73,6 +161,9 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
     afternoonStart: data.afternoonStart ?? null,
     afternoonEnd: data.afternoonEnd ?? null,
     hoursSchedule,
+    cashDiscountMinAmount: discount.minAmount,
+    cashDiscountPercent: discount.percent,
+    cashDiscountSchedule,
     syncedAt: now,
   })
     .onConflictDoUpdate({
@@ -86,10 +177,25 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string): void {
         afternoonStart: data.afternoonStart ?? null,
         afternoonEnd: data.afternoonEnd ?? null,
         hoursSchedule,
+        cashDiscountMinAmount: discount.minAmount,
+        cashDiscountPercent: discount.percent,
+        cashDiscountSchedule,
         syncedAt: now,
       },
     })
     .run()
+
+  mergeRemoteAudits(id, parseRemoteAudits(data.cashDiscountAudits))
+
+  if (isNew) {
+    const seedUserId = ensureCatalogSeedUser(now)
+    const seeded = seedCatalogOntoStore({ storeId: id, createdByUserId: seedUserId, now })
+    if (seeded > 0) {
+      publishCatalog(tenantId, id, { archive: false }).catch(err =>
+        log.warn('[storeSync] publishCatalog al alta remota falló (no bloqueante)', { id, err }),
+      )
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +231,10 @@ export async function pushUnsyncedStores(tenantId: string): Promise<void> {
         afternoonStart: s.afternoonStart ?? null,
         afternoonEnd: s.afternoonEnd ?? null,
         hoursSchedule: parseHoursSchedule(s.hoursSchedule) ?? null,
+        cashDiscountMinAmount: s.cashDiscountMinAmount ?? 0,
+        cashDiscountPercent: s.cashDiscountPercent ?? 0,
+        cashDiscountSchedule: parseCashDiscountSchedule(s.cashDiscountSchedule),
+        cashDiscountAudits: auditsForPush(s.id),
       }, { merge: true })
 
       db.update(stores)
@@ -163,7 +273,7 @@ export async function pullStoresFromFirestore(tenantId: string): Promise<void> {
           log.warn('[storeSync] Documento store incompleto, omitido', { id: d.id })
           continue
         }
-        upsertStoreFromRemote(data, d.id)
+        upsertStoreFromRemote(data, d.id, tenantId)
       } catch (err) {
         log.error('[storeSync] Error al upsertear store en pull', { id: d.id, err })
       }
@@ -217,7 +327,7 @@ export function startStoreSyncListener(tenantId: string): void {
         try {
           const data = change.doc.data() as RemoteStoreDoc
           if (!data.name || !data.createdAt) continue
-          upsertStoreFromRemote(data, change.doc.id)
+          upsertStoreFromRemote(data, change.doc.id, tenantId)
         } catch (err) {
           log.error('[storeSync] Error al upsertear store desde snapshot', {
             id: change.doc.id,

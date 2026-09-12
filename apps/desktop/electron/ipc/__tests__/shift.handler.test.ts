@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -28,14 +28,16 @@ vi.mock('../../businessConfig', () => ({
   getBusinessConfig: vi.fn().mockReturnValue({ inactivityThresholdHours: 2, tenant_id: 'test-tenant' }),
 }))
 
-const { mockPushUnsyncedShifts, mockReconcileStoreShifts } = vi.hoisted(() => ({
+const { mockPushUnsyncedShifts, mockReconcileStoreShifts, mockLoadCashHandoverForStore } = vi.hoisted(() => ({
   mockPushUnsyncedShifts: vi.fn().mockResolvedValue(undefined),
   mockReconcileStoreShifts: vi.fn().mockResolvedValue(undefined),
+  mockLoadCashHandoverForStore: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('../../licensing/shiftSync', () => ({
   pushUnsyncedShifts: mockPushUnsyncedShifts,
   reconcileStoreShifts: mockReconcileStoreShifts,
+  loadCashHandoverForStore: mockLoadCashHandoverForStore,
 }))
 
 import { ipcMain } from 'electron'
@@ -44,7 +46,8 @@ import { getActiveSession, updateActiveShift } from '../../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
 import { registerShiftHandlers } from '../shift.handler'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, expenses, sales, salePayments } from '../../db/schema'
+import { stores, users, shifts, expenses, sales, salePayments, billDenominations } from '../../db/schema'
+import { eq } from 'drizzle-orm'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown | Promise<unknown>
 
@@ -61,6 +64,23 @@ function shiftQueryChain(allRows: unknown[], getRow: unknown = undefined) {
     }),
     limit: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue(allRows) }),
     get: vi.fn().mockReturnValue(getRow),
+  }
+}
+
+/** Mock de DB para OPEN_SHIFT: el handler inserta el turno dentro de `transaction`. */
+function mockOpenShiftInsertDb(mockRun: ReturnType<typeof vi.fn>) {
+  const tx = {
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({ run: mockRun }),
+    }),
+  }
+  return {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue(shiftQueryChain([])),
+      }),
+    }),
+    transaction: vi.fn().mockImplementation((cb: (t: typeof tx) => void) => cb(tx)),
   }
 }
 
@@ -203,16 +223,7 @@ describe('shift.handler', () => {
       // tienen closedAt != null, la DB no los devuelve y la apertura debe funcionar.
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const mockRun = vi.fn()
-      vi.mocked(getDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue(shiftQueryChain([])),
-          }),
-        }),
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({ run: mockRun }),
-        }),
-      } as unknown as ReturnType<typeof getDb>)
+      vi.mocked(getDb).mockReturnValue(mockOpenShiftInsertDb(mockRun) as unknown as ReturnType<typeof getDb>)
 
       const result = await getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 500 }) as { ok: boolean }
       expect(result.ok).toBe(true)
@@ -221,16 +232,7 @@ describe('shift.handler', () => {
     it('crea un turno, actualiza la sesión activa e inicia el daemon', async () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const mockRun = vi.fn()
-      vi.mocked(getDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue(shiftQueryChain([])),
-          }),
-        }),
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({ run: mockRun }),
-        }),
-      } as unknown as ReturnType<typeof getDb>)
+      vi.mocked(getDb).mockReturnValue(mockOpenShiftInsertDb(mockRun) as unknown as ReturnType<typeof getDb>)
 
       const result = await getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 500 }) as { ok: boolean; data: { openingCash: number } }
       expect(result.ok).toBe(true)
@@ -246,16 +248,7 @@ describe('shift.handler', () => {
       // El turno anterior existe pero tiene closedAt → la query filtra por isNull(closedAt)
       // → no hay turno abierto → se permite abrir uno nuevo.
       const mockRun = vi.fn()
-      vi.mocked(getDb).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue(shiftQueryChain([])),
-          }),
-        }),
-        insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockReturnValue({ run: mockRun }),
-        }),
-      } as unknown as ReturnType<typeof getDb>)
+      vi.mocked(getDb).mockReturnValue(mockOpenShiftInsertDb(mockRun) as unknown as ReturnType<typeof getDb>)
 
       const result = await getHandler('ipc:open-shift')({}, { shiftType: 'evening', openingCash: 0 }) as { ok: boolean }
       expect(result.ok).toBe(true)
@@ -696,6 +689,167 @@ describe('shift.handler', () => {
       expect(result).toMatchObject({ ok: true })
       expect(mockTx).toHaveBeenCalledOnce()
       expect(stopDaemon).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('CASH_HANDOVER', () => {
+    const prevEnv = process.env['APP_ENV']
+
+    afterEach(() => {
+      if (prevEnv === undefined) delete process.env['APP_ENV']
+      else process.env['APP_ENV'] = prevEnv
+    })
+
+    async function seedShiftDb() {
+      const instance = await createInMemoryDb()
+      const db = instance.db
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-001',
+        name: 'Cajera Test',
+        storeId: 'store-001',
+        role: 'cashier',
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-001',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 1000,
+        source: 'desktop',
+      }).run()
+      return db
+    }
+
+    it('persiste el desglose de cierre y no lo pisa al abrir el siguiente', async () => {
+      const db = await seedShiftDb()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const closed = getHandler('ipc:close-shift')({}, {
+        closingCash: 5000,
+        billDenominations: [{ denomination: 1000, quantity: 5 }],
+      }) as { ok: boolean }
+      expect(closed.ok).toBe(true)
+
+      const closingRows = db.select().from(billDenominations).all()
+      expect(closingRows).toHaveLength(1)
+      expect(closingRows[0]?.kind).toBe('closing')
+      expect(closingRows[0]?.quantity).toBe(5)
+      expect(closingRows[0]?.shiftId).toBe('shift-001')
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const opened = await getHandler('ipc:open-shift')({}, {
+        shiftType: 'evening',
+        openingCash: 4000,
+        openingBillDenominations: [{ denomination: 1000, quantity: 4 }],
+        handoverFromShiftId: 'shift-001',
+        handoverFromCashierName: 'Cajera Test',
+        handoverExpectedBills: [{ denomination: 1000, quantity: 5 }],
+      }) as { ok: boolean; data: { id: string } }
+      expect(opened.ok).toBe(true)
+
+      const stillClosing = db.select().from(billDenominations).all()
+        .filter(r => r.shiftId === 'shift-001')
+      expect(stillClosing).toHaveLength(1)
+      expect(stillClosing[0]?.quantity).toBe(5)
+      expect(stillClosing[0]?.kind).toBe('closing')
+
+      const newRows = db.select().from(billDenominations).all()
+        .filter(r => r.shiftId === opened.data.id)
+      expect(newRows.filter(r => r.kind === 'opening')[0]?.quantity).toBe(4)
+      expect(newRows.filter(r => r.kind === 'expected')[0]?.quantity).toBe(5)
+
+      mockLoadCashHandoverForStore.mockRejectedValueOnce(new Error('offline'))
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const handover = await getHandler('ipc:get-cash-handover')({}) as {
+        ok: boolean
+        data: { fromShiftId: string; bills: Array<{ quantity: number }> } | null
+      }
+      expect(handover.ok).toBe(true)
+      expect(handover.data?.fromShiftId).toBe('shift-001')
+      expect(handover.data?.bills).toEqual([{ denomination: 1000, quantity: 5 }])
+    })
+
+    it('en producción rechaza cierre de arqueo sin conteo', async () => {
+      process.env['APP_ENV'] = 'production'
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue({
+        transaction: vi.fn(),
+      } as unknown as ReturnType<typeof getDb>)
+      const result = getHandler('ipc:close-shift')({}, { closingCash: 1200 }) as { ok: boolean; code?: string }
+      expect(result).toMatchObject({ ok: false, code: 'BILLS_REQUIRED' })
+    })
+
+    it('en producción rechaza apertura sin conteo', async () => {
+      process.env['APP_ENV'] = 'production'
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      vi.mocked(getDb).mockReturnValue(mockOpenShiftInsertDb(vi.fn()) as unknown as ReturnType<typeof getDb>)
+      const result = await getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 0 }) as { ok: boolean; code?: string }
+      expect(result).toMatchObject({ ok: false, code: 'BILLS_REQUIRED' })
+    })
+
+    it('en producción pide confirmación si todas las cantidades son 0', async () => {
+      process.env['APP_ENV'] = 'production'
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const result = getHandler('ipc:close-shift')({}, {
+        billDenominations: [{ denomination: 1000, quantity: 0 }],
+      }) as { ok: boolean; code?: string }
+      expect(result).toMatchObject({ ok: false, code: 'EMPTY_BILLS_CONFIRM_REQUIRED' })
+    })
+
+    it('en producción cierra con todas en 0 si hay confirmación', async () => {
+      process.env['APP_ENV'] = 'production'
+      const db = await seedShiftDb()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+      const result = getHandler('ipc:close-shift')({}, {
+        billDenominations: [{ denomination: 1000, quantity: 0 }],
+        confirmEmptyRegister: true,
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(row?.closingCounted).toBe(true)
+    })
+
+    it('en producción el auto-cierre por inactividad no exige conteo', async () => {
+      process.env['APP_ENV'] = 'production'
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      const mockTx = vi.fn(fn => fn({
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ run: vi.fn() }),
+          }),
+        }),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ run: vi.fn() }) }),
+      }))
+      vi.mocked(getDb).mockReturnValue({
+        transaction: mockTx,
+      } as unknown as ReturnType<typeof getDb>)
+      const result = getHandler('ipc:close-shift')({}, {}) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      expect(mockTx).toHaveBeenCalledOnce()
+    })
+
+    it('GET_CASH_HANDOVER retorna el último cierre del local', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      mockLoadCashHandoverForStore.mockResolvedValueOnce({
+        fromShiftId: 'shift-prev',
+        fromUserId: 'user-001',
+        fromCashierName: 'Cajera Test',
+        fromClosedAt: '2026-09-11T16:00:00.000Z',
+        bills: [{ denomination: 1000, quantity: 2 }],
+        counted: true,
+      })
+      const result = await getHandler('ipc:get-cash-handover')({}) as {
+        ok: boolean
+        data: { fromShiftId: string } | null
+      }
+      expect(result).toMatchObject({ ok: true, data: { fromShiftId: 'shift-prev' } })
     })
   })
 

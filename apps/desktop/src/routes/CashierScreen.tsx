@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
 import CashInjectModal from './CashInjectModal'
+import CashDiscountModal from './CashDiscountModal'
+import CeboModal from './CeboModal'
 import ExpenseListModal from './ExpenseListModal'
 import SettleProviderDebtModal from './SettleProviderDebtModal'
 import AttendanceModal from './AttendanceModal'
@@ -13,10 +15,11 @@ import SalaryPaymentModal from './SalaryPaymentModal'
 import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import DebtModal from '../components/DebtModal'
+import ChangePasswordModal from '../components/ChangePasswordModal'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, SpecialCustomerRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
-import { parseKretzBarcode, centsToARS } from '@carniceria/shared'
+import { parseKretzBarcode, centsToARS, normalizeCashDiscountRule, parseCashDiscountSchedule, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock } from '@carniceria/shared'
 import { applySpecialUnitPrice, buildItemFromBarcode } from '../lib/barcodeItem'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 
@@ -102,6 +105,12 @@ const IconCashInject = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v9m0 0-3.75-3.75M12 13.5l3.75-3.75M3.75 19.5h16.5" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 16.5h13.5v2.25a.75.75 0 0 1-.75.75H6a.75.75 0 0 1-.75-.75V16.5Z" />
+  </svg>
+)
+
+const IconCebo = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M8.25 6.75h7.5M6 10.5h12M7.5 14.25h9M9 18h6" />
   </svg>
 )
 
@@ -203,10 +212,24 @@ export default function CashierScreen({
   const [showProductsModal, setShowProductsModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showCashInjectModal, setShowCashInjectModal] = useState(false)
+  const [showCeboModal, setShowCeboModal] = useState(false)
+  const [showCashDiscountModal, setShowCashDiscountModal] = useState(false)
+  const [cashDiscountFallback, setCashDiscountFallback] = useState({ minAmount: 0, percent: 0 })
+  const [cashDiscountSchedule, setCashDiscountSchedule] = useState<CashDiscountBlock[]>([])
+  const cashDiscountRule = useMemo(
+    () => resolveCashDiscountRule({
+      fallback: cashDiscountFallback,
+      schedule: cashDiscountSchedule,
+      weekday: weekdayInTimeZone(),
+      shiftType: shift.shiftType,
+    }),
+    [cashDiscountFallback, cashDiscountSchedule, shift.shiftType],
+  )
   const [showSettleDebtModal, setShowSettleDebtModal] = useState(false)
   const [showExpenseListModal, setShowExpenseListModal] = useState(false)
   const [showSalesModal, setShowSalesModal] = useState(false)
   const [showDebtModal, setShowDebtModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [debtLoading, setDebtLoading] = useState(false)
   const [debtError, setDebtError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -256,7 +279,14 @@ export default function CashierScreen({
     void window.hw.getStores().then(res => {
       if (!res.ok) return
       const store = res.data.find(s => s.id === storeId)
-      if (store) setStoreName(store.name)
+      if (store) {
+        setStoreName(store.name)
+        setCashDiscountFallback(normalizeCashDiscountRule(
+          store.cashDiscountMinAmount ?? 0,
+          store.cashDiscountPercent ?? 0,
+        ))
+        setCashDiscountSchedule(parseCashDiscountSchedule(store.cashDiscountSchedule))
+      }
     })
   }, [session.storeId, shift.storeId])
 
@@ -377,6 +407,7 @@ export default function CashierScreen({
   }, [specialPriceByProductId])
 
   const anyModalOpen = showPaymentModal || showProductsModal
+    || showCashInjectModal || showCeboModal || showCashDiscountModal
 
   const handleGlobalScan = useCallback((digits: string) => {
     const parsed = parseKretzBarcode(digits)
@@ -570,6 +601,7 @@ export default function CashierScreen({
         <SidebarBtn icon={<IconBanknote />} label="Vales" onClick={() => setShowValesModal(true)} />
         <SidebarBtn icon={<IconReceipt />} label="Gastos" onClick={() => setShowExpenseModal(true)} />
         <SidebarBtn icon={<IconCashInject />} label="Ingreso" onClick={() => setShowCashInjectModal(true)} />
+        <SidebarBtn icon={<IconCebo />} label="Cebo" onClick={() => setShowCeboModal(true)} />
         <SidebarBtn icon={<IconSettle />} label="Saldar" onClick={() => setShowSettleDebtModal(true)} />
         <SidebarBtn icon={<IconClock />} label="Turno" onClick={() => setShowSalesModal(true)} />
 
@@ -932,6 +964,7 @@ export default function CashierScreen({
               )}
               <MenuAction emoji="⚖️" label="Conteo de stock" onClick={() => { setShowStockCountModal(true); closeMenu() }} />
               <MenuAction emoji="💰" label="Liquidación / pago de sueldo" onClick={() => { setShowSalaryModal(true); closeMenu() }} />
+              <MenuAction emoji="💲" label="Descuento efectivo" onClick={() => { setShowCashDiscountModal(true); closeMenu() }} />
               <MenuAction emoji="📋" label="Ver gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
               <MenuAction emoji="↺" label={refreshing ? 'Actualizando…' : 'Actualizar datos'} onClick={() => { void handleRefreshRemote(); closeMenu() }} muted={refreshing} />
               {SHOW_ATTENDANCE_UI && (
@@ -944,6 +977,7 @@ export default function CashierScreen({
                 <MenuAction emoji="←" label="Volver al hub admin" onClick={() => { onReturnToHub(); closeMenu() }} />
               )}
               <MenuAction emoji="⏹" label="Cerrar caja" onClick={() => { onCloseShift(); closeMenu() }} danger />
+              <MenuAction emoji="🔑" label="Cambiar contraseña" onClick={() => { setShowChangePassword(true); closeMenu() }} />
               <MenuAction emoji="→" label="Cerrar sesión" onClick={() => { onLogout(); closeMenu() }} />
             </div>
           </div>
@@ -954,7 +988,16 @@ export default function CashierScreen({
 
       {showPaymentModal && cart.length > 0 && (
         <PaymentModal
-          total={cartNetTotal}
+          itemTotal={cartTotal}
+          depositAmount={activeOrder?.depositAmount ?? 0}
+          depositDigitalAmount={
+            activeOrder
+              ? activeOrder.depositPayments
+                .filter(p => p.method !== 'cash')
+                .reduce((sum, p) => sum + p.amount, 0)
+              : 0
+          }
+          cashDiscountRule={cashDiscountRule}
           onConfirm={handleConfirmSale}
           onFiado={activeOrder ? undefined : handleOpenFiado}
           onClose={() => setShowPaymentModal(false)}
@@ -1025,6 +1068,24 @@ export default function CashierScreen({
         />
       )}
 
+      {showCeboModal && (
+        <CeboModal onClose={() => setShowCeboModal(false)} />
+      )}
+
+      {showCashDiscountModal && (
+        <CashDiscountModal
+          onClose={() => {
+            setShowCashDiscountModal(false)
+            void window.hw.getCashDiscountRule().then(r => {
+              if (r.ok) {
+                setCashDiscountFallback({ minAmount: r.data.minAmount, percent: r.data.percent })
+                setCashDiscountSchedule(r.data.schedule)
+              }
+            })
+          }}
+        />
+      )}
+
       {showSettleDebtModal && (
         <SettleProviderDebtModal
           onClose={() => setShowSettleDebtModal(false)}
@@ -1038,6 +1099,10 @@ export default function CashierScreen({
 
       {showSalesModal && (
         <ShiftSalesModal onClose={() => setShowSalesModal(false)} onCancelled={refreshBalance} />
+      )}
+
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
       )}
 
     </div>

@@ -27,9 +27,11 @@ import {
   type DepositPayment,
 } from './orderMapping'
 import {
+  parseBudgetItems,
   effectiveListSlot,
   hoursForDate,
   isPickupDueSoon,
+  type BudgetCartLine,
   type StoreHoursSource,
   type ListTimeSlot,
 } from '@carniceria/shared'
@@ -65,18 +67,10 @@ export interface ButcherOrder {
   deliveredAt: string | null
   deliveredByName: string | null
   /** Líneas de presupuesto (Track B). Null si el pedido es texto libre. */
-  budgetItems: BudgetLine[] | null
+  budgetItems: BudgetCartLine[] | null
 }
 
-export interface BudgetLine {
-  productId: string
-  name: string
-  unit: 'kg' | 'unit'
-  pluNumber?: number | null
-  estimatedQty: number
-  unitPrice: number
-  requestedUnits?: number | null
-}
+export type BudgetLine = BudgetCartLine
 
 export function deliveredPickupFrom(todayYmd: string): string {
   return addDaysYmd(todayYmd, -DELIVERED_LOOKBACK_DAYS)
@@ -109,17 +103,6 @@ export function formatPickupDayChip(ymd: string, todayYmd: string): string | nul
   if (diff === 1) return 'Retiro: mañana'
   if (diff === -1) return 'Retiro: ayer'
   return `Retiro: ${formatYmd(ymd)}`
-}
-
-function parseBudgetItems(raw: unknown): BudgetLine[] | null {
-  if (!raw) return null
-  try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) as unknown : raw
-    if (Array.isArray(parsed)) return parsed as BudgetLine[]
-  } catch {
-    // silently ignore malformed budgetItems
-  }
-  return null
 }
 
 function parseOrder(

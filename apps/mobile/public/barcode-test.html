@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generador EAN-13 KRETZ — prueba</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: sans-serif; font-size: 14px; padding: 16px; max-width: 660px; margin: 0 auto; }
+
+    .warning-header {
+      background: #ffe000;
+      color: #000;
+      padding: 10px 14px;
+      font-weight: bold;
+      font-size: 15px;
+      margin-bottom: 20px;
+      border: 2px solid #cc9900;
+      border-radius: 3px;
+    }
+
+    label { display: block; margin-top: 14px; margin-bottom: 4px; font-weight: bold; }
+
+    select, input[type="text"] {
+      width: 100%;
+      padding: 7px 9px;
+      font-size: 14px;
+      border: 1px solid #bbb;
+      border-radius: 3px;
+    }
+
+    #priceRef { margin-top: 8px; color: #444; font-style: italic; }
+
+    .btn-row { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+    button {
+      padding: 10px 18px;
+      font-size: 14px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #btnGenerar { background: #0066cc; color: #fff; border: none; }
+    #btnGenerar:hover { background: #0055aa; }
+
+    #btnImprimir {
+      background: #f0f0f0;
+      color: #333;
+      border: 1px solid #999;
+      display: none;
+    }
+
+    #errorMsg { color: #c00; font-weight: bold; margin-top: 10px; min-height: 20px; }
+
+    #result {
+      margin-top: 24px;
+      border-top: 2px solid #ddd;
+      padding-top: 16px;
+      display: none;
+    }
+
+    #barcodeContainer { text-align: center; margin: 8px 0; overflow-x: auto; }
+    #barcodeContainer svg { max-width: 100%; height: auto; }
+
+    #barcodeDigits {
+      font-family: monospace;
+      font-size: 22px;
+      text-align: center;
+      margin: 10px 0;
+      letter-spacing: 3px;
+    }
+
+    #barcodeInfo {
+      font-family: monospace;
+      font-size: 13px;
+      background: #f4f4f4;
+      border: 1px solid #ddd;
+      padding: 10px 14px;
+      line-height: 1.8;
+      border-radius: 3px;
+    }
+
+    @media print {
+      body > * { display: none !important; }
+
+      #result {
+        display: block !important;
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+
+      #barcodeContainer {
+        display: block !important;
+        text-align: center !important;
+        overflow: visible !important;
+      }
+
+      /* Scale SVG to fill the printed page */
+      #barcodeContainer svg {
+        width: 90vw !important;
+        max-width: 600px !important;
+        height: auto !important;
+      }
+
+      #barcodeDigits {
+        display: block !important;
+        font-family: monospace !important;
+        font-size: 24px !important;
+        text-align: center !important;
+        letter-spacing: 3px !important;
+        margin: 10px 0 !important;
+      }
+
+      #barcodeInfo { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="warning-header">⚠️ HERRAMIENTA DE PRUEBA — NO ES PARTE DEL POS</div>
+
+<label for="productSelect">Producto:</label>
+<select id="productSelect" onchange="onProductChange()">
+  <option value="">— Seleccioná un producto —</option>
+</select>
+
+<div id="amountRow">
+  <label id="amountLabel" for="amountInput">Peso (kg):</label>
+  <input type="text" id="amountInput" inputmode="decimal" placeholder="ej: 0,835" autocomplete="off">
+</div>
+
+<div id="priceRef"></div>
+<div id="errorMsg"></div>
+
+<div class="btn-row">
+  <button id="btnGenerar" onclick="generate()">Generar código</button>
+  <button id="btnImprimir" onclick="window.print()">🖨 Imprimir</button>
+</div>
+
+<div id="result">
+  <div id="barcodeContainer"></div>
+  <div id="barcodeDigits"></div>
+  <div id="barcodeInfo"></div>
+</div>
+
+<script>
+'use strict';
+
+// ─── Catálogo embebido (snapshot ago 2026, 103 productos) ──────────────────────
+const CATALOG = [
+  // Vacuno (31)
+  {plu:1,  name:"Asado",                    section:"Vacuno",        unit:"kg",   price:20000},
+  {plu:2,  name:"Tapa de asado",            section:"Vacuno",        unit:"kg",   price:20000},
+  {plu:3,  name:"Asado americano",          section:"Vacuno",        unit:"kg",   price:23000},
+  {plu:4,  name:"Vacío",                    section:"Vacuno",        unit:"kg",   price:23000},
+  {plu:5,  name:"Matambre",                 section:"Vacuno",        unit:"kg",   price:21000},
+  {plu:6,  name:"Falda parrillera",         section:"Vacuno",        unit:"kg",   price:17000},
+  {plu:7,  name:"Paleta",                   section:"Vacuno",        unit:"kg",   price:17400},
+  {plu:8,  name:"Roast beef",               section:"Vacuno",        unit:"kg",   price:16900},
+  {plu:9,  name:"Palomita",                 section:"Vacuno",        unit:"kg",   price:17300},
+  {plu:10, name:"Tortuguita",               section:"Vacuno",        unit:"kg",   price:17300},
+  {plu:11, name:"Bifes anchos",             section:"Vacuno",        unit:"kg",   price:19999},
+  {plu:12, name:"Bifes angostos",           section:"Vacuno",        unit:"kg",   price:21999},
+  {plu:13, name:"Bifes c/lomo",             section:"Vacuno",        unit:"kg",   price:24500},
+  {plu:14, name:"Bife de chorizo",          section:"Vacuno",        unit:"kg",   price:24500},
+  {plu:15, name:"Ojo de bife",              section:"Vacuno",        unit:"kg",   price:24500},
+  {plu:16, name:"Lomo",                     section:"Vacuno",        unit:"kg",   price:26900},
+  {plu:17, name:"Bola de lomo",             section:"Vacuno",        unit:"kg",   price:20000},
+  {plu:18, name:"Cuadrada",                 section:"Vacuno",        unit:"kg",   price:20000},
+  {plu:19, name:"Nalga",                    section:"Vacuno",        unit:"kg",   price:24000},
+  {plu:20, name:"Tapa de nalga",            section:"Vacuno",        unit:"kg",   price:20500},
+  {plu:21, name:"Peceto",                   section:"Vacuno",        unit:"kg",   price:25000},
+  {plu:22, name:"Cuadril",                  section:"Vacuno",        unit:"kg",   price:20999},
+  {plu:23, name:"Colita de cuadril",        section:"Vacuno",        unit:"kg",   price:23500},
+  {plu:24, name:"Riñonada",                 section:"Vacuno",        unit:"kg",   price:23000},
+  {plu:25, name:"Pastrón",                  section:"Vacuno",        unit:"kg",   price:19900},
+  {plu:26, name:"Osobuco",                  section:"Vacuno",        unit:"kg",   price:12500},
+  {plu:27, name:"Espinazo",                 section:"Vacuno",        unit:"kg",   price:9500},
+  {plu:28, name:"Carnaza común",            section:"Vacuno",        unit:"kg",   price:14000},
+  {plu:29, name:"Picada común",             section:"Vacuno",        unit:"kg",   price:14000},
+  {plu:31, name:"Milanesa de carne",        section:"Vacuno",        unit:"kg",   price:14500},
+  {plu:32, name:"Hamburguesas carne",       section:"Vacuno",        unit:"kg",   price:14000},
+  // Pollo (8)
+  {plu:100,name:"Pollo",                    section:"Pollo",         unit:"kg",   price:3900},
+  {plu:101,name:"Pollo de campo",           section:"Pollo",         unit:"kg",   price:4300},
+  {plu:102,name:"Supremas",                 section:"Pollo",         unit:"kg",   price:13500},
+  {plu:103,name:"Pata y muslo",             section:"Pollo",         unit:"kg",   price:4500},
+  {plu:104,name:"Milanesa de pollo",        section:"Pollo",         unit:"kg",   price:8900},
+  {plu:105,name:"Alitas",                   section:"Pollo",         unit:"kg",   price:1890},
+  {plu:106,name:"Menudos",                  section:"Pollo",         unit:"kg",   price:500},
+  {plu:107,name:"Hamburguesas pollo",       section:"Pollo",         unit:"kg",   price:14000},
+  // Cerdo (9)
+  {plu:150,name:"Pechito",                  section:"Cerdo",         unit:"kg",   price:8000},
+  {plu:151,name:"Costillitas",              section:"Cerdo",         unit:"kg",   price:8000},
+  {plu:152,name:"Milanesa de cerdo",        section:"Cerdo",         unit:"kg",   price:8900},
+  {plu:153,name:"Paleta de cerdo",          section:"Cerdo",         unit:"kg",   price:9999},
+  {plu:154,name:"Bondiola",                 section:"Cerdo",         unit:"kg",   price:9800},
+  {plu:155,name:"Matambrito",               section:"Cerdo",         unit:"kg",   price:11000},
+  {plu:156,name:"Solomillos",               section:"Cerdo",         unit:"kg",   price:12000},
+  {plu:157,name:"Patas",                    section:"Cerdo",         unit:"kg",   price:1960},
+  {plu:158,name:"Jamón",                    section:"Cerdo",         unit:"kg",   price:7000},
+  // Embutidos (8)
+  {plu:200,name:"Chorizo de cerdo",         section:"Embutidos",     unit:"kg",   price:8000},
+  {plu:201,name:"Chorizo de carne",         section:"Embutidos",     unit:"kg",   price:9500},
+  {plu:202,name:"Chorizo parrillero",       section:"Embutidos",     unit:"kg",   price:9500},
+  {plu:203,name:"Chorizo colorado",         section:"Embutidos",     unit:"kg",   price:19000},
+  {plu:204,name:"Morcilla",                 section:"Embutidos",     unit:"kg",   price:6000},
+  {plu:205,name:"Salchichas parrilleras",   section:"Embutidos",     unit:"kg",   price:13000},
+  {plu:206,name:"Salchichas viena",         section:"Embutidos",     unit:"kg",   price:11000},
+  {plu:207,name:"Panceta salada",           section:"Embutidos",     unit:"kg",   price:30000},
+  // Otros (11)
+  {plu:250,name:"Hígado",                   section:"Otros",         unit:"kg",   price:4600},
+  {plu:251,name:"Mondongo",                 section:"Otros",         unit:"kg",   price:8200},
+  {plu:252,name:"Lengua",                   section:"Otros",         unit:"kg",   price:11000},
+  {plu:253,name:"Riñón",                    section:"Otros",         unit:"kg",   price:5400},
+  {plu:254,name:"Chinchulín",               section:"Otros",         unit:"kg",   price:5400},
+  {plu:255,name:"Mollejas",                 section:"Otros",         unit:"kg",   price:25000},
+  {plu:256,name:"Rabo",                     section:"Otros",         unit:"kg",   price:8800},
+  {plu:257,name:"Filet de merluza",         section:"Otros",         unit:"kg",   price:12000},
+  {plu:258,name:"Huevos media docena",      section:"Otros",         unit:"unit", price:2000},
+  {plu:259,name:"Huevos x12",               section:"Otros",         unit:"unit", price:4000},
+  {plu:260,name:"Maple x30",                section:"Otros",         unit:"unit", price:5500},
+  // Ofertas pack (25)
+  {plu:301,name:"Asado x2kg",               section:"Ofertas pack",  unit:"kg",   price:15000},
+  {plu:302,name:"Tapa de asado x2kg",       section:"Ofertas pack",  unit:"kg",   price:18500},
+  {plu:303,name:"Vacío x2kg",               section:"Ofertas pack",  unit:"kg",   price:21000},
+  {plu:304,name:"Bifes anchos x2kg",        section:"Ofertas pack",  unit:"kg",   price:19000},
+  {plu:305,name:"Bifes angostos x2kg",      section:"Ofertas pack",  unit:"kg",   price:20000},
+  {plu:306,name:"Roast beef x2kg",          section:"Ofertas pack",  unit:"kg",   price:15500},
+  {plu:307,name:"Paleta x2kg",              section:"Ofertas pack",  unit:"kg",   price:16000},
+  {plu:308,name:"Bife de chorizo x2kg",     section:"Ofertas pack",  unit:"kg",   price:21500},
+  {plu:309,name:"Milanesa de carne x2kg",   section:"Ofertas pack",  unit:"kg",   price:12000},
+  {plu:310,name:"Milanesa de cerdo x2kg",   section:"Ofertas pack",  unit:"kg",   price:7000},
+  {plu:311,name:"Milanesa de pollo x2kg",   section:"Ofertas pack",  unit:"kg",   price:8500},
+  {plu:312,name:"Falda parrillera x2kg",    section:"Ofertas pack",  unit:"kg",   price:10000},
+  {plu:313,name:"Falda puchero x2kg",       section:"Ofertas pack",  unit:"kg",   price:10000},
+  {plu:314,name:"Picada x3kg",              section:"Ofertas pack",  unit:"kg",   price:10000},
+  {plu:315,name:"Espinazo x3kg",            section:"Ofertas pack",  unit:"kg",   price:4667},
+  {plu:320,name:"Pechito x2kg",             section:"Ofertas pack",  unit:"kg",   price:7500},
+  {plu:321,name:"Costillita x2kg",          section:"Ofertas pack",  unit:"kg",   price:7500},
+  {plu:330,name:"Supremas x2kg",            section:"Ofertas pack",  unit:"kg",   price:12000},
+  {plu:331,name:"Supremas x5kg",            section:"Ofertas pack",  unit:"kg",   price:11000},
+  {plu:332,name:"Pata y muslo x3kg",        section:"Ofertas pack",  unit:"kg",   price:3333},
+  {plu:333,name:"Pata y muslo x5kg",        section:"Ofertas pack",  unit:"kg",   price:3300},
+  {plu:335,name:"Alitas x3kg",              section:"Ofertas pack",  unit:"kg",   price:1667},
+  {plu:336,name:"Menudo x5kg",              section:"Ofertas pack",  unit:"kg",   price:200},
+  {plu:340,name:"Filet de merluza x2kg",    section:"Ofertas pack",  unit:"kg",   price:10000},
+  {plu:341,name:"Bondiola c/3 u. $/kg",     section:"Ofertas pack",  unit:"kg",   price:7500},
+  // Ofertas pieza (11)
+  {plu:401,name:"Vacío pieza entera",       section:"Ofertas pieza", unit:"kg",   price:20000},
+  {plu:402,name:"Paleta pieza entera",      section:"Ofertas pieza", unit:"kg",   price:15800},
+  {plu:403,name:"Roast beef pieza entera",  section:"Ofertas pieza", unit:"kg",   price:14000},
+  {plu:404,name:"Peceto entero",            section:"Ofertas pieza", unit:"kg",   price:23700},
+  {plu:405,name:"Cuadril entero",           section:"Ofertas pieza", unit:"kg",   price:20000},
+  {plu:406,name:"Bola/cuadrada pieza",      section:"Ofertas pieza", unit:"kg",   price:18000},
+  {plu:407,name:"2 matambres enteros",      section:"Ofertas pieza", unit:"kg",   price:17000},
+  {plu:408,name:"3 matambres enteros",      section:"Ofertas pieza", unit:"kg",   price:15000},
+  {plu:409,name:"2 tapas de nalga",         section:"Ofertas pieza", unit:"kg",   price:18500},
+  {plu:410,name:"Pechito pieza entera",     section:"Ofertas pieza", unit:"kg",   price:7000},
+  {plu:411,name:"Costillita pieza entera",  section:"Ofertas pieza", unit:"kg",   price:7000},
+];
+
+// ─── Poblar el select con optgroup por sección ────────────────────────────────
+(function populateSelect() {
+  const sel = document.getElementById('productSelect');
+  const sectionOrder = [];
+  const bySection = {};
+  for (const p of CATALOG) {
+    if (!bySection[p.section]) {
+      bySection[p.section] = [];
+      sectionOrder.push(p.section);
+    }
+    bySection[p.section].push(p);
+  }
+  for (const sec of sectionOrder) {
+    const grp = document.createElement('optgroup');
+    grp.label = sec;
+    for (const p of bySection[sec]) {
+      const opt = document.createElement('option');
+      opt.value = String(p.plu);
+      opt.textContent = p.plu + ' — ' + p.name;
+      grp.appendChild(opt);
+    }
+    sel.appendChild(grp);
+  }
+})();
+
+// ─── Estado ──────────────────────────────────────────────────────────────────
+let selectedProduct = null;
+
+function onProductChange() {
+  const plu = parseInt(document.getElementById('productSelect').value, 10);
+  const priceRef = document.getElementById('priceRef');
+  const amountLabel = document.getElementById('amountLabel');
+  const amountInput = document.getElementById('amountInput');
+  const errorMsg = document.getElementById('errorMsg');
+
+  errorMsg.textContent = '';
+  document.getElementById('result').style.display = 'none';
+  document.getElementById('btnImprimir').style.display = 'none';
+
+  if (!plu) {
+    selectedProduct = null;
+    priceRef.textContent = '';
+    return;
+  }
+
+  selectedProduct = CATALOG.find(function(x) { return x.plu === plu; });
+
+  if (selectedProduct.unit === 'kg') {
+    amountLabel.textContent = 'Peso (kg):';
+    amountInput.setAttribute('inputmode', 'decimal');
+    amountInput.placeholder = 'ej: 0,835';
+  } else {
+    amountLabel.textContent = 'Cantidad (unidades):';
+    amountInput.setAttribute('inputmode', 'numeric');
+    amountInput.placeholder = 'ej: 1';
+  }
+
+  priceRef.textContent =
+    'Precio de lista: $' +
+    selectedProduct.price.toLocaleString('es-AR') +
+    (selectedProduct.unit === 'kg' ? ' / kg' : ' / unidad');
+}
+
+// ─── EAN-13 encoder ───────────────────────────────────────────────────────────
+
+function computeCheck(twelve) {
+  var sum = 0;
+  for (var i = 0; i < 12; i++) {
+    sum += i % 2 === 0 ? +twelve[i] : +twelve[i] * 3;
+  }
+  return (10 - (sum % 10)) % 10;
+}
+
+function buildEAN13(plu, totalCents) {
+  var pluStr   = String(plu).padStart(3, '0');
+  var centsStr = String(totalCents).padStart(7, '0');
+  var twelve   = '20' + pluStr + centsStr;
+  var check    = computeCheck(twelve);
+  return twelve + check;
+}
+
+// ─── SVG EAN-13 renderer ──────────────────────────────────────────────────────
+
+var L_ENC = [
+  '0001101','0011001','0010011','0111101','0100011',
+  '0110001','0101111','0111011','0110111','0001011'
+];
+var G_ENC = [
+  '0100111','0110011','0011011','0100001','0011101',
+  '0111001','0000101','0010001','0001001','0010111'
+];
+var R_ENC = [
+  '1110010','1100110','1101100','1000010','1011100',
+  '1001110','1010000','1000100','1001000','1110100'
+];
+// Row i = parity pattern for first digit value i (L=L-encoding, G=G-encoding)
+var PARITY_TABLE = [
+  'LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG',
+  'LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'
+];
+
+// Indices (0-based) within the 95-bit data string where a guard bar has a '1' bit
+var GUARD_ONES = {0:1, 2:1, 46:1, 48:1, 92:1, 94:1};
+
+function renderBarcodeSVG(digits13) {
+  var d = digits13.split('').map(Number);
+
+  var mw      = 4;    // module width (px) — ≥3px for USB scanner readability
+  var qz      = 11;   // quiet zone modules per side
+  var barH    = 90;   // data bar height (px)
+  var guardH  = 100;  // guard bar height (px) — extends 10px below data bars
+  var topPad  = 5;
+  var textH   = 20;
+  var svgH    = topPad + guardH + textH + 5;
+  var totalMods = 2 * qz + 95; // 117 modules
+  var svgW    = totalMods * mw; // 468 px
+
+  // Build 95-bit data string:
+  //   start_guard(101) + left_group(6×7 L/G) + center_guard(01010) + right_group(6×7 R) + end_guard(101)
+  var parity = PARITY_TABLE[d[0]];
+  var bits = '101';
+  for (var i = 0; i < 6; i++) {
+    bits += (parity[i] === 'L' ? L_ENC : G_ENC)[d[i + 1]];
+  }
+  bits += '01010';
+  for (var j = 0; j < 6; j++) {
+    bits += R_ENC[d[j + 7]];
+  }
+  bits += '101';
+  // bits.length === 95
+
+  // Build SVG content
+  var parts = [];
+
+  // White background
+  parts.push('<rect x="0" y="0" width="' + svgW + '" height="' + svgH + '" fill="white"/>');
+
+  // Bars
+  for (var k = 0; k < 95; k++) {
+    if (bits[k] === '1') {
+      var x = (qz + k) * mw;
+      var h = GUARD_ONES[k] ? guardH : barH;
+      parts.push('<rect x="' + x + '" y="' + topPad + '" width="' + mw + '" height="' + h + '" fill="black"/>');
+    }
+  }
+
+  // Text elements
+  var textY = topPad + guardH + 14;
+
+  // First digit: right-aligned just before the start guard
+  var firstDigitX = (qz - 1) * mw;
+  parts.push(
+    '<text x="' + firstDigitX + '" y="' + textY + '"' +
+    ' text-anchor="end" font-family="monospace" font-size="11" fill="black">' +
+    d[0] + '</text>'
+  );
+
+  // Left group (d[1]..d[6]): centered under modules qz+3 to qz+44
+  // center module = qz+3 + 21 = qz+24
+  var leftCX = (qz + 24) * mw;
+  parts.push(
+    '<text x="' + leftCX + '" y="' + textY + '"' +
+    ' text-anchor="middle" font-family="monospace" font-size="11" fill="black">' +
+    digits13.substring(1, 7) + '</text>'
+  );
+
+  // Right group (d[7]..d[12]): centered under modules qz+50 to qz+91
+  // center module = qz+50 + 21 = qz+71
+  var rightCX = (qz + 71) * mw;
+  parts.push(
+    '<text x="' + rightCX + '" y="' + textY + '"' +
+    ' text-anchor="middle" font-family="monospace" font-size="11" fill="black">' +
+    digits13.substring(7, 13) + '</text>'
+  );
+
+  return (
+    '<svg xmlns="http://www.w3.org/2000/svg"' +
+    ' viewBox="0 0 ' + svgW + ' ' + svgH + '"' +
+    ' width="' + svgW + '" height="' + svgH + '"' +
+    ' role="img" aria-label="Código de barras EAN-13: ' + digits13 + '">' +
+    parts.join('') +
+    '</svg>'
+  );
+}
+
+// ─── Verificación interna del encoder (corre silenciosamente al cargar) ───────
+(function selfTest() {
+  var cases = [
+    {plu:1,  cents:600000,  expected:'2000106000001'},
+    {plu:2,  cents:1000000, expected:'2000210000003'},
+    {plu:5,  cents:1753500, expected:'2000517535000'},
+  ];
+  for (var i = 0; i < cases.length; i++) {
+    var c = cases[i];
+    var got = buildEAN13(c.plu, c.cents);
+    if (got !== c.expected) {
+      console.error('KRETZ encoder self-test FAILED: PLU ' + c.plu +
+        ' → esperado ' + c.expected + ', obtenido ' + got);
+    }
+  }
+})();
+
+// ─── Generar ──────────────────────────────────────────────────────────────────
+function generate() {
+  var errorMsg   = document.getElementById('errorMsg');
+  var result     = document.getElementById('result');
+  var btnImpimir = document.getElementById('btnImprimir');
+
+  errorMsg.textContent = '';
+  result.style.display = 'none';
+  btnImpimir.style.display = 'none';
+
+  if (!selectedProduct) {
+    errorMsg.textContent = 'Seleccioná un producto.';
+    return;
+  }
+
+  var raw    = document.getElementById('amountInput').value.trim().replace(',', '.');
+  var amount = parseFloat(raw);
+
+  if (!raw || isNaN(amount) || amount <= 0) {
+    errorMsg.textContent = selectedProduct.unit === 'kg'
+      ? 'Ingresá un peso válido (ej: 0,835).'
+      : 'Ingresá una cantidad válida (ej: 1).';
+    return;
+  }
+
+  var totalCents;
+  if (selectedProduct.unit === 'kg') {
+    // gramos × precio / 10 = centavos, sin perder precisión por float
+    var grams = Math.round(amount * 1000);
+    totalCents = Math.round(grams * selectedProduct.price / 10);
+  } else {
+    var qty = Math.round(amount);
+    totalCents = qty * selectedProduct.price * 100;
+  }
+
+  if (totalCents > 9999999) {
+    errorMsg.textContent =
+      'El total supera el tope del formato ($99.999,99). Reducí el peso/cantidad.';
+    return;
+  }
+
+  if (totalCents <= 0) {
+    errorMsg.textContent = 'El total debe ser mayor a cero.';
+    return;
+  }
+
+  var barcode = buildEAN13(selectedProduct.plu, totalCents);
+  var svg     = renderBarcodeSVG(barcode);
+
+  document.getElementById('barcodeContainer').innerHTML = svg;
+  document.getElementById('barcodeDigits').textContent = barcode;
+
+  // Reconstrucción que hará la app al escanear
+  var recoStr;
+  if (selectedProduct.unit === 'kg') {
+    var pesoRec = (totalCents / 100 / selectedProduct.price).toFixed(3).replace('.', ',');
+    recoStr = pesoRec + ' kg';
+  } else {
+    var cantRec = Math.round((totalCents / 100) / selectedProduct.price);
+    recoStr = cantRec + (cantRec === 1 ? ' unidad' : ' unidades');
+  }
+
+  var totalARS = (totalCents / 100).toLocaleString('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+
+  document.getElementById('barcodeInfo').innerHTML =
+    'PLU: ' + selectedProduct.plu +
+    ' | Total: $' + totalARS +
+    '<br>La app reconstruirá: ' + recoStr;
+
+  result.style.display = 'block';
+  btnImpimir.style.display = 'inline-block';
+}
+
+// Enter en el campo de cantidad también dispara la generación
+document.getElementById('amountInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') generate();
+});
+</script>
+</body>
+</html>

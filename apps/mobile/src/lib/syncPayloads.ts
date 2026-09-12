@@ -4,6 +4,7 @@
  */
 import { CASH_INJECT_CONCEPT } from '../types/pos'
 import type {
+  LocalCebo,
   LocalExpense,
   LocalProviderDebtEvent,
   LocalSalaryPayment,
@@ -45,6 +46,14 @@ export interface ShiftFirestorePayload {
   source: 'mobile'
   updatedAt: string
   importedAt?: null
+  openingBills: LocalShift['openingBills']
+  closingBills: LocalShift['closingBills']
+  handoverExpectedBills: LocalShift['handoverExpectedBills']
+  openingBillsCounted: boolean
+  closingBillsCounted: boolean
+  handoverFromShiftId: string | null
+  handoverFromCashierName: string | null
+  handoverFromClosedAt: string | null
 }
 
 export function buildShiftFirestorePayload(
@@ -64,6 +73,14 @@ export function buildShiftFirestorePayload(
     closingCash: shift.closingCash,
     source: 'mobile',
     updatedAt,
+    openingBills: shift.openingBills ?? [],
+    closingBills: shift.closingBills ?? [],
+    handoverExpectedBills: shift.handoverExpectedBills ?? [],
+    openingBillsCounted: shift.openingBillsCounted === true,
+    closingBillsCounted: shift.closingBillsCounted === true,
+    handoverFromShiftId: shift.handoverFromShiftId ?? null,
+    handoverFromCashierName: shift.handoverFromCashierName ?? null,
+    handoverFromClosedAt: shift.handoverFromClosedAt ?? null,
   }
   if (isCreate) {
     return { ...base, importedAt: null }
@@ -85,6 +102,14 @@ export interface ShiftOpsPayload {
   closingCash: number | null
   source: 'mobile'
   updatedAt: string
+  openingBills: LocalShift['openingBills']
+  closingBills: LocalShift['closingBills']
+  handoverExpectedBills: LocalShift['handoverExpectedBills']
+  openingBillsCounted: boolean
+  closingBillsCounted: boolean
+  handoverFromShiftId: string | null
+  handoverFromCashierName: string | null
+  handoverFromClosedAt: string | null
 }
 
 export function buildShiftOpsPayload(shift: LocalShift, updatedAt: string): ShiftOpsPayload {
@@ -101,6 +126,14 @@ export function buildShiftOpsPayload(shift: LocalShift, updatedAt: string): Shif
     closingCash: shift.closingCash,
     source: 'mobile',
     updatedAt,
+    openingBills: shift.openingBills ?? [],
+    closingBills: shift.closingBills ?? [],
+    handoverExpectedBills: shift.handoverExpectedBills ?? [],
+    openingBillsCounted: shift.openingBillsCounted === true,
+    closingBillsCounted: shift.closingBillsCounted === true,
+    handoverFromShiftId: shift.handoverFromShiftId ?? null,
+    handoverFromCashierName: shift.handoverFromCashierName ?? null,
+    handoverFromClosedAt: shift.handoverFromClosedAt ?? null,
   }
 }
 
@@ -120,6 +153,8 @@ export interface SaleFirestorePayload {
   customerName: string | null
   customerPhone: string | null
   importedAt: null
+  discountAmount: number
+  discountPercent: number
 }
 
 export function buildSaleFirestorePayload(sale: LocalSale): SaleFirestorePayload {
@@ -139,6 +174,8 @@ export function buildSaleFirestorePayload(sale: LocalSale): SaleFirestorePayload
     customerName: sale.customerName ?? null,
     customerPhone: sale.customerPhone ?? null,
     importedAt: null,
+    discountAmount: sale.discountAmount ?? 0,
+    discountPercent: sale.discountPercent ?? 0,
   }
 }
 
@@ -157,6 +194,8 @@ export interface SaleOpsPayload {
   status: 'confirmed' | 'cancelled'
   isDebt: boolean
   customerId: string | null
+  discountAmount: number
+  discountPercent: number
 }
 
 export function buildSaleOpsPayload(sale: LocalSale): SaleOpsPayload {
@@ -175,6 +214,8 @@ export function buildSaleOpsPayload(sale: LocalSale): SaleOpsPayload {
     status: staging.status,
     isDebt: staging.isDebt,
     customerId: staging.customerId,
+    discountAmount: staging.discountAmount,
+    discountPercent: staging.discountPercent,
   }
 }
 
@@ -193,6 +234,7 @@ export interface ExpenseStagingPayload {
   providerName: string | null
   newDebtAmount: number
   paysOldDebt: number
+  injectReason: LocalExpense['injectReason'] | null
 }
 
 export function buildExpenseStagingPayload(expense: LocalExpense): ExpenseStagingPayload {
@@ -211,6 +253,7 @@ export function buildExpenseStagingPayload(expense: LocalExpense): ExpenseStagin
     providerName: expense.providerName ?? null,
     newDebtAmount: expense.newDebtAmount ?? 0,
     paysOldDebt: expense.paysOldDebt ?? 0,
+    injectReason: expense.kind === 'inject' ? (expense.injectReason ?? 'aporte') : null,
   }
 }
 
@@ -228,6 +271,7 @@ export interface ExpenseOpsPayload {
   deleted: false
   providerId: string | null
   providerName: string | null
+  injectReason: LocalExpense['injectReason'] | null
 }
 
 export function buildExpenseOpsPayload(expense: LocalExpense): ExpenseOpsPayload {
@@ -247,6 +291,7 @@ export function buildExpenseOpsPayload(expense: LocalExpense): ExpenseOpsPayload
     deleted: false,
     providerId: expense.providerId ?? null,
     providerName: expense.providerName ?? null,
+    injectReason: expense.kind === 'inject' ? (expense.injectReason ?? 'aporte') : null,
   }
 }
 
@@ -456,6 +501,71 @@ export function buildDebtEventFirestorePayload(sale: LocalSale): DebtEventFirest
     amount: netDebtAmount(sale.total, sale.payments),
     createdAt: sale.createdAt,
     createdBy: sale.createdBy,
+    deleted: false,
+  }
+}
+
+export interface CeboStagingPayload {
+  id: string
+  shiftId: string
+  storeId: string
+  quantityKg: number
+  notes: string | null
+  createdAt: string
+  createdBy: string
+  createdByName: string
+  updatedAt: string | null
+  updatedBy: string | null
+  updatedByName: string | null
+  importedAt: null
+}
+
+export function buildCeboStagingPayload(row: LocalCebo): CeboStagingPayload {
+  return {
+    id: row.id,
+    shiftId: row.shiftId,
+    storeId: row.storeId,
+    quantityKg: row.quantityKg,
+    notes: row.notes,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy,
+    createdByName: row.createdByName,
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
+    updatedByName: row.updatedByName,
+    importedAt: null,
+  }
+}
+
+export interface CeboOpsPayload {
+  id: string
+  storeId: string
+  shiftId: string
+  quantityKg: number
+  notes: string | null
+  createdAt: string
+  createdBy: string
+  createdByName: string
+  updatedAt: string | null
+  updatedBy: string | null
+  updatedByName: string | null
+  deleted: false
+}
+
+export function buildCeboOpsPayload(row: LocalCebo): CeboOpsPayload {
+  const staging = buildCeboStagingPayload(row)
+  return {
+    id: staging.id,
+    storeId: staging.storeId,
+    shiftId: staging.shiftId,
+    quantityKg: staging.quantityKg,
+    notes: staging.notes,
+    createdAt: staging.createdAt,
+    createdBy: staging.createdBy,
+    createdByName: staging.createdByName,
+    updatedAt: staging.updatedAt,
+    updatedBy: staging.updatedBy,
+    updatedByName: staging.updatedByName,
     deleted: false,
   }
 }

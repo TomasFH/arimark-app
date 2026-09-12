@@ -20,6 +20,7 @@ import {
   digitalAmountFromDeposit,
   depositPaymentsToJson,
 } from '../lib/depositPayments'
+import { buildCashHandoverAudit, parseBillLines } from '@carniceria/shared'
 import type {
   HistoryShiftRow,
   HistoryShiftDetail,
@@ -46,6 +47,14 @@ interface FsShift {
   deliveredTo: string | null
   notes: string | null
   source?: string
+  openingBills?: unknown
+  closingBills?: unknown
+  handoverExpectedBills?: unknown
+  openingBillsCounted?: boolean
+  closingBillsCounted?: boolean
+  handoverFromShiftId?: string | null
+  handoverFromCashierName?: string | null
+  handoverFromClosedAt?: string | null
 }
 
 interface FsSaleItem {
@@ -84,6 +93,7 @@ interface FsExpense {
   createdBy: string
   deleted?: boolean
   kind?: 'expense' | 'inject'
+  injectReason?: 'aporte' | 'wallet_cash' | string | null
 }
 
 interface FsOrder {
@@ -395,6 +405,9 @@ export async function fetchHistoryShiftDetailFromFirestore(
         notes: e.notes ?? null,
         createdBy: e.createdBy,
         kind: e.kind === 'inject' ? 'inject' : 'expense',
+        injectReason: e.kind === 'inject'
+          ? (e.injectReason === 'wallet_cash' ? 'wallet_cash' : 'aporte')
+          : undefined,
       })
     }
     historyExpenses.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -547,6 +560,21 @@ export async function fetchHistoryShiftDetailFromFirestore(
         notes: shift.notes,
         source: shift.source === 'mobile' ? 'mobile' : 'desktop',
       },
+      cashHandover: buildCashHandoverAudit({
+        cashierName: shift.cashierName ?? shift.userId,
+        startedAt: shift.startedAt,
+        closedAt: shift.closedAt ?? null,
+        openingBills: parseBillLines(shift.openingBills),
+        closingBills: parseBillLines(shift.closingBills),
+        openingCounted: shift.openingBillsCounted === true,
+        closingCounted: shift.closingBillsCounted === true,
+        handover: {
+          fromShiftId: shift.handoverFromShiftId,
+          fromCashierName: shift.handoverFromCashierName,
+          fromClosedAt: shift.handoverFromClosedAt,
+          expectedBills: parseBillLines(shift.handoverExpectedBills),
+        },
+      }),
       sales: historySales,
       expenses: historyExpenses,
       debts: historyDebts,

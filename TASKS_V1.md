@@ -309,7 +309,7 @@ Archivos clave a leer antes de empezar cualquier tarea:
 - **Tickets balanza / barcode “emergencia”:** el bloqueo de AGENTS.md (decodificar ticket KRETZ) **no es prioritario**. En operación real, si el lector no trae datos, ya existe **carga manual** (producto + kg/precio). Eso cubre el caso del local.
 - **App móvil ≠ port completo del desktop:** el POS es de **emergencia** (sin conteo, cierre con arqueo, saldar dedicado ni deuda cross-local). Sí tiene cobro, vuelto, fiado, gasto **con proveedor**, ingreso, vales, liquidación de la semana y historial de cierres con etiqueta Móvil. Recorte: `PLAN.md` **FEAT-MOB-EMERGENCY-01**. Unificar caja en vivo = DT-06.
 - **Locales de cajera (`authorizedStores`):** editable en hub → Gestión de cajeras (crear + botón Locales). En móvil, el selector de local usa esa lista; con 1 solo local salta directo a abrir turno.
-- **Catálogo ago 2026:** fuente `apps/desktop/scripts/catalog-2026-08.json`; PDF `LISTA_PRECIOS.pdf`. Wipe total (pruebas): `pnpm --filter desktop db:wipe:prod` (conserva locales, borra ventas/fiados/etc. y deja solo catálogo nuevo).
+- **Catálogo ago 2026:** fuente `apps/desktop/scripts/catalog-2026-08.json`; PDF `LISTA_PRECIOS.pdf`. Wipe SQLite Día 0: `pnpm --filter @carniceria/desktop db:wipe:prod` (borra locales y operación; deja el catálogo maestro). Firestore: `pnpm --filter @carniceria/desktop firestore:day0-wipe -- --apply` (conserva admins + installations).
 
 ---
 
@@ -409,7 +409,9 @@ Para maximizar valor entregable en orden:
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
 7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
-8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`; falta backfill `--apply` + deploy índices/reglas). **Pendiente v1.0 (no codear hasta que se pida):** `FEAT-CASH-HANDOVER-01` (cambio/billetes entre turnos, PC + celu). **`FEAT-AUTH-PASSWORD-01`** (cambio de contraseña por el usuario + plantilla de mail en español). **Después, cuando el desarrollador lo pida:** DT-02 (login offline PC), DT-03 (retomar turno propio). Fase 8 Stock sigue bloqueada. **BLOQUE I checklist cerrada 2026-09-02.**
+8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`; falta backfill `--apply` + deploy índices/reglas). **BLOQUE I checklist cerrada 2026-09-02.**
+9. **Pendiente v1.0 a implementar ahora (documentado 2026-09-10, bloques N–R):** `FEAT-MOB-ORDER-CART-01` → `FEAT-MOB-STAFF-AUTH-01` → `FEAT-CASH-INJECT-02` → `FEAT-CASH-DISCOUNT-01` → `FEAT-CEBO-01`. No mezclar con handover ni cambio de contraseña.
+10. **Pendiente v1.0 (no codear hasta que se pida):** **`FEAT-AUTH-PASSWORD-01`** (cambio de contraseña por el usuario + plantilla de mail en español). **Hecho 2026-09-11:** `FEAT-CASH-HANDOVER-01` (BLOQUE L). **Después, cuando el desarrollador lo pida:** DT-02 (login offline PC), DT-03 (retomar turno propio). Fase 8 Stock sigue bloqueada.
 
 ---
 
@@ -440,11 +442,11 @@ Shell móvil carnicero:
 
 ---
 
-## BLOQUE L — Entrega del cambio (billetes) entre turnos ⏳ PENDIENTE v1.0
+## BLOQUE L — Entrega del cambio (billetes) entre turnos ✅ HECHA (2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CASH-HANDOVER-01**. Acordado 2026-09-07. **No codear hasta que el desarrollador lo pida.**
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-CASH-HANDOVER-01**. Acordado 2026-09-07. Pedido e implementado 2026-09-11.
 
-El cierre ya cuenta billetes y suma; la apertura no muestra ese “cambio”. La hoja del día cubre el relevo. Hay que: precargar la grilla al abrir, permitir corregir **sin tocar** el cierre anterior, guardar las dos versiones para auditoría, conteo obligatorio en producción (cero solo con modal), y el mismo flujo en **PC y celu** (el desglose tiene que ir a Firestore; hoy es solo SQLite).
+El cierre cuenta billetes que **quedan en la registradora**; la apertura del siguiente turno del **mismo local** precarga esa grilla (`openingCash` = total, editable). Corregir no pisa el cierre anterior: el turno que abre guarda `opening` + snapshot `expected`. Producción: conteo obligatorio; todas en 0 pide modal. Dev puede omitir. PC y celu. El desglose viaja en el **doc del turno** en Firestore (`openingBills` / `closingBills` / `handoverExpectedBills`). Migración `0042_cash_handover`.
 
 ---
 
@@ -453,6 +455,46 @@ El cierre ya cuenta billetes y suma; la apertura no muestra ese “cambio”. La
 > **Estado:** No implementada. Producto: `PLAN.md` **FEAT-AUTH-PASSWORD-01**. Acordado 2026-09-07. **No codear hasta que el desarrollador lo pida.**
 
 Cada usuario cambia o restablece su clave (login “olvidé contraseña” y cambio ya logueado). El admin no lo hace por ellos. Plantilla del mail de Firebase en español; el remitente Spark sigue siendo el de Firebase.
+
+---
+
+## BLOQUE N — Pedido con productos de la lista en el celu ⏳ PENDIENTE v1.0 — a implementar ahora
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-MOB-ORDER-CART-01**. Acordado 2026-09-10. **A implementar ahora** (primero de esta oleada). No mezclar con `FEAT-CASH-HANDOVER-01` ni `FEAT-AUTH-PASSWORD-01`.
+
+Admin móvil hoy: textarea de descripción. Hay que igualar el carrito de PC (`budgetItems` + `items = summarizeBudgetItems`). Typeahead sobre el catálogo del **local del pedido**. Lecturas Spark: el catálogo es **1 doc** `catalog/{storeId}` (array `products`); cache IndexedDB primero, si falta **un** `getDoc`, typeahead 100 % en memoria. No `getDocs` de la colección `catalog` ni `fetchMergedCatalogFromFirestore`. En PC, subir/bajar `budgetItems` en `orderSync` (hoy no va). Pedidos viejos solo-texto siguen editables. Es el **admin** del celu, no el POS de emergencia. Tras tocar `apps/mobile`: `pnpm mobile:deploy` (el APK no se actualiza con eso).
+
+---
+
+## BLOQUE O — Email y cuenta al dar de alta en el celu ⏳ PENDIENTE v1.0 — a implementar ahora
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-MOB-STAFF-AUTH-01**. Acordado 2026-09-10. **A implementar ahora** (después del bloque N). No mezclar con handover ni cambio de contraseña.
+
+Hoy el celu solo crea ficha de sueldo. El alta de **cajera** tiene que pedir **email** obligatorio y crear la cuenta Auth (mismo patrón de app secundaria que PC: `createUserWithEmailAndPassword` + `users/{uid}` + mail de clave, sin pisar la sesión del admin). Carnicero: ficha ya + “Dar acceso al celular” / revocar, como en PC. Hace falta internet en el alta. Spark: 1 doc de usuario extra.
+
+---
+
+## BLOQUE P — Efectivo por acreditación digital ⏳ PENDIENTE v1.0 — a implementar ahora
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CASH-INJECT-02**. Acordado 2026-09-10. **A implementar ahora** (después de N y O). Extiende `FEAT-CASH-INJECT-01`. No mezclar con handover ni cambio de contraseña.
+
+Mismo `kind: 'inject'` (sigue sumando a `cashInHand`) con motivo distinguible: **Aporte** vs **Efectivo por digital**. Preferible columna `inject_reason` (filas viejas: `aporte`) para no romper el historial con `concept='Aporte'`. Un solo modal “Ingreso” con dos opciones; nota opcional. Sync del motivo en `expenseSync` y en el import móvil. La app no habla con Postnet/MP; no se registra salida digital.
+
+---
+
+## BLOQUE Q — Descuento si se paga en efectivo ⏳ PENDIENTE v1.0 — a implementar ahora
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CASH-DISCOUNT-01**. Acordado 2026-09-10. **A implementar ahora** (después de P). PC + POS celu. No mezclar con handover ni cambio de contraseña.
+
+Regla **por local**: mínimo + % (0 = apagado). El % va sobre el **total de ítems**, no sobre el saldo. Ejemplo: ítems $100.000, seña $20.000 en efectivo, 10 % → total $90.000, a cobrar $70.000. Seña, si hay, tiene que ser **100 % efectivo**; seña digital/mixta → sin descuento. El saldo se cobra con efectivo; un **faltante digital** (lo arma la cajera, sin tope automático) no anula el descuento. Fiado o cobro 100 % digital/crédito: sin descuento. Auditoría de cambios de regla en SQLite (últimas N en el modal). Persistencia en `sales`: `discountAmount`, `discountPercent`. `NumericInput` para pesos y % entero 0–100.
+
+---
+
+## BLOQUE R — Registro de cebo ⏳ PENDIENTE v1.0 — a implementar ahora
+
+> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CEBO-01**. Acordado 2026-09-10. **A implementar ahora** (último de esta oleada). No mezclar con handover ni cambio de contraseña.
+
+Modal desde el POS (PC y POS de emergencia del celu), no una pantalla nueva. Datos: kg + nota opcional. **Cajera o admin; no carnicero.** Consulta/edición: quien lo cargó o un admin. Auditoría visible (quién cargó / quién editó y cuándo). Tabla `cebo_entries` + outbox Firestore; consultas por turno/fecha (no `getDocs` de toda la colección). No mueve caja ni stock. Kg con el patrón decimal del carrito de pedidos (`NumericInput` es solo enteros).
 
 ---
 

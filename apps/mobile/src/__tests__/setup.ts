@@ -20,12 +20,28 @@ vi.mock('@capacitor/network', () => ({
   },
 }))
 
+vi.mock('firebase/app', () => ({
+  initializeApp: vi.fn((_opts?: unknown, name?: string) => ({
+    name: name ?? '[DEFAULT]',
+    options: {},
+  })),
+  getApps: vi.fn(() => [{ name: '[DEFAULT]', options: {} }]),
+}))
+
 vi.mock('firebase/auth', () => ({
   getAuth: vi.fn(() => ({ currentUser: null })),
   initializeAuth: vi.fn(() => ({ currentUser: null })),
   indexedDBLocalPersistence: {},
   browserLocalPersistence: {},
+  inMemoryPersistence: {},
   signInWithEmailAndPassword: vi.fn(),
+  createUserWithEmailAndPassword: vi.fn(),
+  sendPasswordResetEmail: vi.fn(),
+  updatePassword: vi.fn(),
+  reauthenticateWithCredential: vi.fn(),
+  EmailAuthProvider: {
+    credential: vi.fn((email: string, password: string) => ({ email, password })),
+  },
   signOut: vi.fn(),
   onAuthStateChanged: vi.fn(() => () => {}),
 }))
@@ -39,6 +55,8 @@ vi.mock('firebase/firestore', () => ({
   collection: vi.fn(),
   query: vi.fn(),
   where: vi.fn(),
+  orderBy: vi.fn(),
+  limit: vi.fn(),
   getDocs: vi.fn(),
   onSnapshot: vi.fn(),
   updateDoc: vi.fn(),

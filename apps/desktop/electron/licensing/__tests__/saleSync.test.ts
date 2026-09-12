@@ -144,6 +144,8 @@ describe('saleSync', () => {
               amount: 3000,
             }),
           ],
+          discountAmount: 0,
+          discountPercent: 0,
         }),
         { merge: true },
       )
@@ -152,6 +154,37 @@ describe('saleSync', () => {
       expect(remaining).toHaveLength(0)
       const synced = db.select().from(sales).where(isNotNull(sales.syncedAt)).all()
       expect(synced).toHaveLength(2)
+    })
+
+    it('incluye discountAmount y discountPercent en el documento', async () => {
+      const now = new Date().toISOString()
+      db.insert(sales).values({
+        id: 'sale-disc',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        total: 90000,
+        isDebt: false,
+        status: 'confirmed',
+        manualEntry: false,
+        discountAmount: 10000,
+        discountPercent: 10,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: null,
+      }).run()
+
+      await pushUnsyncedSales(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'sale-disc',
+          total: 90000,
+          discountAmount: 10000,
+          discountPercent: 10,
+        }),
+        { merge: true },
+      )
     })
 
     it('no pushea ventas que no están confirmed', async () => {

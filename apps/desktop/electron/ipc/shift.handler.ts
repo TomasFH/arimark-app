@@ -3,24 +3,32 @@ import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { eq, and, isNull, desc, count, sum, sql } from 'drizzle-orm'
+import { compactBillLines, isEmptyBillCount, parseBillLines } from '@carniceria/shared'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { shifts, sales, salePayments, expenses, billDenominations, debtEvents, orders, users } from '../db/schema'
+import { shifts, sales, salePayments, expenses, debtEvents, orders, users } from '../db/schema'
+import { insertBillLines, readLastClosedHandover } from '../db/billCountStore'
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
-import { pushUnsyncedShifts, reconcileStoreShifts } from '../licensing/shiftSync'
-import type { IpcResult, ShiftInfo, ShiftSummary } from '../../src/types/hw-api'
+import { loadCashHandoverForStore, pushUnsyncedShifts, reconcileStoreShifts } from '../licensing/shiftSync'
+import type { CashHandoverSnapshot, IpcResult, ShiftInfo, ShiftSummary } from '../../src/types/hw-api'
 import { addDepositToTotals, emptyDepositTotals } from '../lib/depositPayments'
+
+const billLineSchema = z.object({
+  denomination: z.number().int().positive(),
+  quantity: z.number().int().min(0),
+})
 
 const openShiftSchema = z.object({
   shiftType: z.enum(['morning', 'evening']),
   openingCash: z.number().min(0),
-})
-
-const billDenominationSchema = z.object({
-  denomination: z.number().positive(),
-  quantity: z.number().int().min(0),
+  openingBillDenominations: z.array(billLineSchema).optional(),
+  confirmEmptyRegister: z.boolean().optional(),
+  handoverFromShiftId: z.string().min(1).optional(),
+  handoverFromCashierName: z.string().max(120).optional(),
+  handoverFromClosedAt: z.string().optional(),
+  handoverExpectedBills: z.array(billLineSchema).optional(),
 })
 
 const closeShiftSchema = z.object({
@@ -29,12 +37,35 @@ const closeShiftSchema = z.object({
   deliveredAmount: z.number().min(0).optional(),
   deliveredTo: z.string().optional(),
   notes: z.string().optional(),
-  billDenominations: z.array(billDenominationSchema).optional(),
+  billDenominations: z.array(billLineSchema).optional(),
+  confirmEmptyRegister: z.boolean().optional(),
 })
 
 const forceCloseOpenShiftSchema = z.object({
   shiftId: z.string().min(1),
 })
+
+function isProdEnv(): boolean {
+  return (process.env['APP_ENV'] ?? 'dev') === 'production'
+}
+
+function rejectMissingBillCount(
+  denoms: Array<{ denomination: number; quantity: number }> | undefined,
+  confirmEmpty: boolean | undefined,
+): IpcResult<never> | null {
+  if (!isProdEnv()) return null
+  if (denoms === undefined) {
+    return { ok: false, error: 'El conteo de billetes es obligatorio.', code: 'BILLS_REQUIRED' }
+  }
+  if (isEmptyBillCount(denoms) && confirmEmpty !== true) {
+    return {
+      ok: false,
+      error: 'Confirmá que no queda ningún billete en caja.',
+      code: 'EMPTY_BILLS_CONFIRM_REQUIRED',
+    }
+  }
+  return null
+}
 
 /** Reconcilia turnos con Firestore. Nunca bloquea el flujo local si falla. */
 async function syncShiftsSafe(filter: { storeId?: string; userId?: string }): Promise<void> {
@@ -166,19 +197,46 @@ export function registerShiftHandlers(): void {
         }
       }
 
-      const { shiftType, openingCash } = parsed.data
+      const {
+        shiftType,
+        openingCash,
+        openingBillDenominations,
+        confirmEmptyRegister,
+        handoverFromShiftId,
+        handoverFromCashierName,
+        handoverFromClosedAt,
+        handoverExpectedBills,
+      } = parsed.data
+
+      const countError = rejectMissingBillCount(openingBillDenominations, confirmEmptyRegister)
+      if (countError) return countError
+
+      const openingBills = parseBillLines(openingBillDenominations ?? [])
+      const expectedBills = parseBillLines(handoverExpectedBills ?? [])
+      const openingCounted = openingBillDenominations !== undefined || confirmEmptyRegister === true
       const id = uuidv4()
       const now = new Date().toISOString()
 
-      db.insert(shifts).values({
-        id,
-        storeId: session.storeId,
-        userId: session.userId,
-        shiftType,
-        startedAt: now,
-        openingCash,
-        source: 'desktop',
-      }).run()
+      db.transaction(tx => {
+        const t = tx as unknown as ReturnType<typeof getDb>
+        t.insert(shifts).values({
+          id,
+          storeId: session.storeId,
+          userId: session.userId,
+          shiftType,
+          startedAt: now,
+          openingCash,
+          source: 'desktop',
+          openingCounted,
+          handoverFromShiftId: openingCounted ? (handoverFromShiftId ?? null) : null,
+          handoverFromCashierName: openingCounted ? (handoverFromCashierName ?? null) : null,
+          handoverFromClosedAt: openingCounted ? (handoverFromClosedAt ?? null) : null,
+        }).run()
+        if (openingCounted) {
+          insertBillLines(t, id, 'opening', openingBills)
+          insertBillLines(t, id, 'expected', expectedBills)
+        }
+      })
 
       updateActiveShift(id)
       log.info('[ipc:open-shift] Turno abierto', { id, shiftType, openingCash })
@@ -386,10 +444,27 @@ export function registerShiftHandlers(): void {
     try {
       const db = getDb()
       const now = new Date().toISOString()
-      const { closingCash, safeAmount, deliveredAmount, deliveredTo, notes, billDenominations: denoms } = parsed.data
+      const { closingCash, safeAmount, deliveredAmount, deliveredTo, notes, billDenominations: denoms, confirmEmptyRegister } = parsed.data
+
+      const isArqueoClose = denoms !== undefined
+        || confirmEmptyRegister === true
+        || closingCash !== undefined
+        || deliveredAmount !== undefined
+        || safeAmount !== undefined
+        || Boolean(deliveredTo)
+        || Boolean(notes)
+
+      if (isArqueoClose) {
+        const countError = rejectMissingBillCount(denoms, confirmEmptyRegister)
+        if (countError) return countError
+      }
+
+      const closingBills = parseBillLines(denoms ?? [])
+      const closingCounted = denoms !== undefined || confirmEmptyRegister === true
 
       db.transaction(tx => {
-        tx.update(shifts)
+        const t = tx as unknown as ReturnType<typeof getDb>
+        t.update(shifts)
           .set({
             closedAt: now,
             closingCash: closingCash ?? null,
@@ -397,25 +472,15 @@ export function registerShiftHandlers(): void {
             deliveredAmount: deliveredAmount ?? null,
             deliveredTo: deliveredTo ?? null,
             notes: notes ?? null,
+            closingCounted,
             // Marcar para re-push: el turno pudo haberse sincronizado al abrir.
             syncedAt: null,
           })
           .where(eq(shifts.id, session.shiftId!))
           .run()
 
-        if (denoms && denoms.length > 0) {
-          for (const d of denoms) {
-            if (d.quantity <= 0) continue
-            tx.insert(billDenominations)
-              .values({
-                id: uuidv4(),
-                shiftId: session.shiftId!,
-                denomination: d.denomination,
-                quantity: d.quantity,
-                subtotal: d.denomination * d.quantity,
-              })
-              .run()
-          }
+        if (closingCounted) {
+          insertBillLines(t, session.shiftId!, 'closing', compactBillLines(closingBills))
         }
       })
 
@@ -483,6 +548,31 @@ export function registerShiftHandlers(): void {
       const message = err instanceof Error ? err.message : String(err)
       log.error('[ipc:get-store-open-shift] Error inesperado', message)
       return { ok: false, error: 'Error al consultar el turno del local.' }
+    }
+  })
+
+  ipcMain.handle(IPC.GET_CASH_HANDOVER, async (_event): Promise<IpcResult<CashHandoverSnapshot | null>> => {
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    }
+
+    await syncShiftsSafe({ storeId: session.storeId })
+
+    try {
+      const config = getBusinessConfig()
+      const data = await loadCashHandoverForStore(config.tenant_id, session.storeId)
+      return { ok: true, data }
+    } catch (err) {
+      log.warn('[ipc:get-cash-handover] Firestore no disponible; se usa SQLite', err)
+      try {
+        const data = readLastClosedHandover(getDb(), session.storeId)
+        return { ok: true, data }
+      } catch (localErr) {
+        const message = localErr instanceof Error ? localErr.message : String(localErr)
+        log.error('[ipc:get-cash-handover] Error inesperado', message)
+        return { ok: false, error: 'Error al consultar el cambio en caja.' }
+      }
     }
   })
 

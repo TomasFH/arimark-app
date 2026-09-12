@@ -3,6 +3,8 @@
  * Usados tanto en la capa de persistencia (db.ts) como en los componentes de UI.
  */
 
+import type { BillLine, InjectReason } from '@carniceria/shared'
+
 export type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 export type ShiftType = 'morning' | 'evening'
 export type SyncStatus = 'pending' | 'synced' | 'error'
@@ -50,6 +52,14 @@ export interface LocalShift {
   closingCash: number | null
   syncStatus: SyncStatus
   syncedAt: string | null
+  openingBills?: BillLine[]
+  closingBills?: BillLine[]
+  handoverExpectedBills?: BillLine[]
+  openingBillsCounted?: boolean
+  closingBillsCounted?: boolean
+  handoverFromShiftId?: string | null
+  handoverFromCashierName?: string | null
+  handoverFromClosedAt?: string | null
 }
 
 export interface SaleItemDraft {
@@ -91,6 +101,8 @@ export interface LocalSale {
   customerId?: string | null
   customerName?: string | null
   customerPhone?: string | null
+  discountAmount?: number
+  discountPercent?: number
 }
 
 export interface LocalExpense {
@@ -109,6 +121,7 @@ export interface LocalExpense {
   providerName?: string | null
   newDebtAmount?: number | null
   paysOldDebt?: number | null
+  injectReason?: InjectReason | null
 }
 
 export interface CachedProvider {
@@ -189,6 +202,22 @@ export interface LocalProviderDebtEvent {
   amount: number
   createdAt: string
   createdBy: string
+  syncStatus: SyncStatus
+  syncedAt: string | null
+}
+
+export interface LocalCebo {
+  id: string
+  shiftId: string
+  storeId: string
+  quantityKg: number
+  notes: string | null
+  createdAt: string
+  createdBy: string
+  createdByName: string
+  updatedAt: string | null
+  updatedBy: string | null
+  updatedByName: string | null
   syncStatus: SyncStatus
   syncedAt: string | null
 }

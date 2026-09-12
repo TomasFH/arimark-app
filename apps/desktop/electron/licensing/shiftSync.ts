@@ -18,11 +18,22 @@
  * No-op completo cuando isFirebaseAvailable() === false (entorno dev).
  */
 
-import { getFirestore, doc, setDoc, collection, getDocs, getDoc, query, where } from 'firebase/firestore'
+import { getFirestore, doc, setDoc, collection, getDocs, getDoc, query, where, orderBy, limit } from 'firebase/firestore'
 import log from 'electron-log'
 import { eq, isNull } from 'drizzle-orm'
+import {
+  compactBillLines,
+  parseBillLines,
+  type BillLine,
+} from '@carniceria/shared'
 import { getDb } from '../db/client'
 import { shifts, users, stores } from '../db/schema'
+import {
+  insertBillLinesIfNone,
+  readBillLines,
+  readLastClosedHandover,
+  type CashHandoverSnapshot,
+} from '../db/billCountStore'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 
 interface RemoteShiftDoc {
@@ -40,11 +51,64 @@ interface RemoteShiftDoc {
   deliveredTo?: string | null
   notes?: string | null
   source?: 'desktop' | 'mobile'
+  openingBills?: unknown
+  closingBills?: unknown
+  handoverExpectedBills?: unknown
+  openingBillsCounted?: boolean
+  closingBillsCounted?: boolean
+  handoverFromShiftId?: string | null
+  handoverFromCashierName?: string | null
+  handoverFromClosedAt?: string | null
 }
 
 export interface ReconcileShiftsFilter {
   storeId?: string
   userId?: string
+}
+
+function shiftBillFirestoreFields(shiftId: string, row: {
+  openingCounted: boolean
+  closingCounted: boolean
+  handoverFromShiftId: string | null
+  handoverFromCashierName: string | null
+  handoverFromClosedAt: string | null
+}): {
+  openingBills: BillLine[]
+  closingBills: BillLine[]
+  handoverExpectedBills: BillLine[]
+  openingBillsCounted: boolean
+  closingBillsCounted: boolean
+  handoverFromShiftId: string | null
+  handoverFromCashierName: string | null
+  handoverFromClosedAt: string | null
+} {
+  const db = getDb()
+  return {
+    openingBills: readBillLines(db, shiftId, 'opening'),
+    closingBills: readBillLines(db, shiftId, 'closing'),
+    handoverExpectedBills: readBillLines(db, shiftId, 'expected'),
+    openingBillsCounted: Boolean(row.openingCounted),
+    closingBillsCounted: Boolean(row.closingCounted),
+    handoverFromShiftId: row.handoverFromShiftId ?? null,
+    handoverFromCashierName: row.handoverFromCashierName ?? null,
+    handoverFromClosedAt: row.handoverFromClosedAt ?? null,
+  }
+}
+
+function applyRemoteShiftBills(
+  shiftId: string,
+  data: RemoteShiftDoc,
+  alreadyOpeningCounted: boolean,
+  alreadyClosingCounted: boolean,
+): void {
+  const db = getDb()
+  if (!alreadyOpeningCounted) {
+    insertBillLinesIfNone(db, shiftId, 'opening', parseBillLines(data.openingBills))
+    insertBillLinesIfNone(db, shiftId, 'expected', parseBillLines(data.handoverExpectedBills))
+  }
+  if (!alreadyClosingCounted) {
+    insertBillLinesIfNone(db, shiftId, 'closing', parseBillLines(data.closingBills))
+  }
 }
 
 /**
@@ -85,6 +149,7 @@ export async function pushUnsyncedShifts(tenantId: string): Promise<void> {
         deliveredTo: s.deliveredTo ?? null,
         notes: s.notes ?? null,
         source: s.source,
+        ...shiftBillFirestoreFields(s.id, s),
       }, { merge: true })
 
       db.update(shifts)
@@ -187,7 +252,13 @@ export async function reconcileStoreShifts(
           notes: data.notes ?? null,
           source,
           syncedAt: now,
+          openingCounted: data.openingBillsCounted === true,
+          closingCounted: data.closingBillsCounted === true,
+          handoverFromShiftId: data.handoverFromShiftId ?? null,
+          handoverFromCashierName: data.handoverFromCashierName ?? null,
+          handoverFromClosedAt: data.handoverFromClosedAt ?? null,
         }).run()
+        applyRemoteShiftBills(id, data, false, false)
         applied++
         continue
       }
@@ -200,8 +271,10 @@ export async function reconcileStoreShifts(
           deliveredAmount: data.deliveredAmount ?? local.deliveredAmount,
           deliveredTo: data.deliveredTo ?? local.deliveredTo,
           notes: data.notes ?? local.notes,
+          closingCounted: local.closingCounted || data.closingBillsCounted === true,
           syncedAt: now,
         }).where(eq(shifts.id, id)).run()
+        applyRemoteShiftBills(id, data, Boolean(local.openingCounted), Boolean(local.closingCounted))
         applied++
         continue
       }
@@ -232,8 +305,10 @@ export async function reconcileStoreShifts(
         deliveredAmount: data.deliveredAmount ?? local.deliveredAmount,
         deliveredTo: data.deliveredTo ?? local.deliveredTo,
         notes: data.notes ?? local.notes,
+        closingCounted: local.closingCounted || data.closingBillsCounted === true,
         syncedAt: now,
       }).where(eq(shifts.id, local.id)).run()
+      applyRemoteShiftBills(local.id, data, Boolean(local.openingCounted), Boolean(local.closingCounted))
       applied++
     }
 
@@ -243,4 +318,75 @@ export async function reconcileStoreShifts(
   }
 
   await pushUnsyncedShifts(tenantId)
+}
+
+function handoverFromRemoteDoc(id: string, data: RemoteShiftDoc): CashHandoverSnapshot | null {
+  if (!data.closedAt || !data.userId) return null
+  const bills = parseBillLines(data.closingBills)
+  return {
+    fromShiftId: data.id || id,
+    fromUserId: data.userId,
+    fromCashierName: data.cashierName?.trim() || data.userId,
+    fromClosedAt: data.closedAt,
+    bills: compactBillLines(bills),
+    counted: data.closingBillsCounted === true || bills.length > 0,
+  }
+}
+
+async function fetchRemoteLastClosedHandover(
+  tenantId: string,
+  storeId: string,
+): Promise<CashHandoverSnapshot | null> {
+  if (!isFirebaseAvailable()) return null
+
+  const app = getFirebaseApp()
+  const firestore = getFirestore(app)
+  const col = collection(firestore, 'licenses', tenantId, 'shifts')
+  const snap = await getDocs(query(
+    col,
+    where('storeId', '==', storeId),
+    orderBy('startedAt', 'desc'),
+    limit(8),
+  ))
+
+  for (const d of snap.docs) {
+    const data = d.data() as RemoteShiftDoc
+    const handover = handoverFromRemoteDoc(d.id, data)
+    if (handover) return handover
+  }
+  return null
+}
+
+/**
+ * Último cierre del local para precargar la grilla de apertura.
+ * Prefiere el más reciente entre SQLite y Firestore (query acotada).
+ */
+export async function loadCashHandoverForStore(
+  tenantId: string,
+  storeId: string,
+): Promise<CashHandoverSnapshot | null> {
+  const db = getDb()
+  const local = readLastClosedHandover(db, storeId)
+
+  try {
+    const remote = await fetchRemoteLastClosedHandover(tenantId, storeId)
+    if (!remote) return local
+    if (!local || remote.fromClosedAt > local.fromClosedAt) {
+      const existing = db.select().from(shifts).where(eq(shifts.id, remote.fromShiftId)).get()
+      if (existing && !existing.closingCounted) {
+        applyRemoteShiftBills(existing.id, {
+          closingBills: remote.bills,
+          closingBillsCounted: remote.counted,
+        }, Boolean(existing.openingCounted), Boolean(existing.closingCounted))
+        if (remote.counted) {
+          db.update(shifts).set({ closingCounted: true }).where(eq(shifts.id, existing.id)).run()
+        }
+      }
+      return remote
+    }
+  } catch (err) {
+    log.warn('[shiftSync] No se pudo leer el último cierre remoto', err)
+  }
+
+  return local
 }

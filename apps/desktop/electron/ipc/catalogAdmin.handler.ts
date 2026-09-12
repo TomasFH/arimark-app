@@ -34,7 +34,7 @@ import { pullCatalogFromFirestore } from '../licensing/catalogSync'
 import { notifyRenderer } from '../licensing/notifyRenderer'
 import { getBusinessConfig } from '../businessConfig'
 import type { IpcResult, AdminProductRow, StoreRow, PriceHistoryRow, CatalogRevisionRow, CatalogAuditRow, CatalogAuditAction } from '../../src/types/hw-api'
-import { parseHoursSchedule } from '@carniceria/shared'
+import { parseCashDiscountSchedule, parseHoursSchedule } from '@carniceria/shared'
 
 // ---------------------------------------------------------------------------
 // Schemas de validación Zod
@@ -437,6 +437,9 @@ export function registerCatalogAdminHandlers(): void {
         afternoonStart: stores.afternoonStart,
         afternoonEnd: stores.afternoonEnd,
         hoursSchedule: stores.hoursSchedule,
+        cashDiscountMinAmount: stores.cashDiscountMinAmount,
+        cashDiscountPercent: stores.cashDiscountPercent,
+        cashDiscountSchedule: stores.cashDiscountSchedule,
       }
       const rows = includeArchived
         ? db.select(storeSelect)
@@ -458,6 +461,9 @@ export function registerCatalogAdminHandlers(): void {
         afternoonStart: row.afternoonStart,
         afternoonEnd: row.afternoonEnd,
         hoursSchedule: parseHoursSchedule(row.hoursSchedule),
+        cashDiscountMinAmount: row.cashDiscountMinAmount ?? 0,
+        cashDiscountPercent: row.cashDiscountPercent ?? 0,
+        cashDiscountSchedule: parseCashDiscountSchedule(row.cashDiscountSchedule),
       }))
       return { ok: true, data }
     } catch (err) {

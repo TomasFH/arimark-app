@@ -10,6 +10,7 @@
  *  - expenses: gastos e ingresos de efectivo del turno (v3)
  *  - providers / employees: caché para gasto, vales y liquidación (v4)
  *  - vales / salaryPayments / providerDebtEvents: pendientes de sync (v4)
+ *  - ceboEntries: kilos de cebo del turno (v5; injectReason en expenses es campo extra)
  *
  * El acceso offline ya no depende de un PIN: la sesión de Firebase Auth queda
  * persistida en IndexedDB (ver firebase.ts), por lo que la versión 2 del schema
@@ -22,6 +23,7 @@ import type {
   LocalShift,
   LocalSale,
   LocalExpense,
+  LocalCebo,
   CachedProvider,
   CachedEmployee,
   LocalVale,
@@ -47,6 +49,7 @@ class MobileDb extends Dexie {
   vales!: EntityTable<LocalVale, 'id'>
   salaryPayments!: EntityTable<LocalSalaryPayment, 'id'>
   providerDebtEvents!: EntityTable<LocalProviderDebtEvent, 'id'>
+  ceboEntries!: EntityTable<LocalCebo, 'id'>
 
   constructor() {
     super('carniceria-mobile-v1')
@@ -76,6 +79,11 @@ class MobileDb extends Dexie {
       vales: 'id, employeeId, shiftId, storeId, syncStatus, paidAt',
       salaryPayments: 'id, employeeId, weekStart, shiftId, syncStatus',
       providerDebtEvents: 'id, providerId, storeId, expenseId, syncStatus',
+    })
+
+    // v5: cebo del turno (kg + nota). injectReason en expenses no requiere índice.
+    this.version(5).stores({
+      ceboEntries: 'id, shiftId, storeId, syncStatus, createdAt',
     })
   }
 }

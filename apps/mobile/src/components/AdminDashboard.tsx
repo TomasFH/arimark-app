@@ -16,6 +16,7 @@ import { StaffScreen } from './admin/StaffScreen'
 import { StoresScreen } from './admin/StoresScreen'
 import { HistoryScreen } from './admin/HistoryScreen'
 import type { LocalProfile } from '../types/pos'
+import { ChangePasswordModal } from './ChangePasswordModal'
 
 interface Props {
   profile: LocalProfile
@@ -38,6 +39,7 @@ export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props)
   const [screen, setScreen] = useState<AdminScreen>({ kind: 'hub' })
   const [stores, setStores] = useState<StoreDoc[]>([])
   const [loadingStores, setLoadingStores] = useState(true)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   const loadStores = useCallback(async () => {
     setLoadingStores(true)
@@ -115,6 +117,13 @@ export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props)
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 transition-colors disabled:opacity-40"
         >
           ↻
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowChangePassword(true)}
+          className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+        >
+          Contraseña
         </button>
         <button
           type="button"
@@ -215,6 +224,9 @@ export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props)
           </div>
         </HubSection>
       </main>
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
     </div>
   )
 }

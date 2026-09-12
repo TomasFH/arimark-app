@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react'
 import type { SessionInfo, InitStatus, UiSettings } from '../types/hw-api'
 import AttendanceModal from './AttendanceModal'
 import StockCountModal from './StockCountModal'
+import ChangePasswordModal from '../components/ChangePasswordModal'
 
 /** Asistencia pausada: reactivar con `true`. No borrar AttendanceModal. */
 const SHOW_ATTENDANCE_UI = false
@@ -158,6 +159,7 @@ export default function AdminHubScreen({
   const [refreshing, setRefreshing] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<'stock' | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [uiSettings, setUiSettings] = useState<UiSettings>({ zoomFactor: 1.0 })
   const settingsBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -300,6 +302,20 @@ export default function AdminHubScreen({
                     </button>
                   )}
                 </div>
+
+                <div className="border-t border-zinc-800 pt-3">
+                  <p className="text-xs font-medium text-zinc-300 mb-2">Cuenta</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettings(false)
+                      setShowChangePassword(true)
+                    }}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-left text-xs text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800"
+                  >
+                    Cambiar contraseña
+                  </button>
+                </div>
               </div>
             </div>
           </>
@@ -386,6 +402,9 @@ export default function AdminHubScreen({
       )}
       {showStockCount && (
         <StockCountModal onClose={() => setShowStockCount(false)} />
+      )}
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
       )}
     </div>
   )

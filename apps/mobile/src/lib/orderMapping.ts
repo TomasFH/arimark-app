@@ -10,8 +10,15 @@ import {
   pickupSlotRegistrationError,
   pickupTimeRegistrationError,
   hoursForDate,
+  parseBudgetItems,
+  summarizeBudgetItems,
+  type BudgetCartLine,
   type StoreHoursSource,
 } from '@carniceria/shared'
+import { parseDecimalInput, parseNumericInput } from './numericInput'
+
+export type { BudgetCartLine }
+export { parseBudgetItems }
 
 export type DepositMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 export type OrderTimeSlot = 'morning' | 'afternoon' | 'specific'
@@ -132,6 +139,71 @@ export function defaultCreateStoreId(listFilterStoreId: string): string {
   return listFilterStoreId
 }
 
+/** Línea editable del carrito (qty como texto de input). */
+export interface BudgetCartDraft extends BudgetCartLine {
+  qtyRaw: string
+  requestedUnitsRaw: string
+}
+
+export function kgLineMissingWeight(line: BudgetCartDraft): boolean {
+  if (line.unit !== 'kg') return false
+  const kg = parseDecimalInput(line.qtyRaw)
+  const units = parseNumericInput(line.requestedUnitsRaw)
+  return units !== null && units > 0 && (kg === null || kg <= 0)
+}
+
+/** Líneas con cantidad válida (kg, unidades de catálogo, o piezas). */
+export function resolvedBudgetLines(cart: BudgetCartDraft[]): BudgetCartLine[] {
+  return cart.flatMap((line): BudgetCartLine[] => {
+    if (line.unit === 'unit') {
+      const qty = parseNumericInput(line.qtyRaw)
+      if (qty === null || qty <= 0) return []
+      return [{
+        productId: line.productId,
+        name: line.name,
+        unit: line.unit,
+        pluNumber: line.pluNumber,
+        estimatedQty: qty,
+        unitPrice: line.unitPrice,
+      }]
+    }
+
+    const kg = parseDecimalInput(line.qtyRaw)
+    const units = parseNumericInput(line.requestedUnitsRaw)
+    const hasKg = kg !== null && kg > 0
+    const hasUnits = units !== null && units > 0
+    if (!hasKg && !hasUnits) return []
+    return [{
+      productId: line.productId,
+      name: line.name,
+      unit: line.unit,
+      pluNumber: line.pluNumber,
+      estimatedQty: hasKg ? kg : 0,
+      unitPrice: line.unitPrice,
+      requestedUnits: hasUnits ? units : null,
+    }]
+  })
+}
+
+export function estimatedBudgetTotal(lines: BudgetCartLine[]): number {
+  return lines.reduce((sum, line) => {
+    if (line.estimatedQty <= 0) return sum
+    return sum + Math.round(line.unitPrice * line.estimatedQty)
+  }, 0)
+}
+
+export function budgetDraftFromLines(lines: BudgetCartLine[]): BudgetCartDraft[] {
+  return lines.map(line => ({
+    ...line,
+    qtyRaw: line.unit === 'kg'
+      ? (line.estimatedQty > 0 ? String(line.estimatedQty).replace('.', ',') : '')
+      : (line.estimatedQty > 0 ? String(Math.round(line.estimatedQty)) : ''),
+    requestedUnitsRaw: line.requestedUnits && line.requestedUnits > 0
+      ? String(line.requestedUnits)
+      : '',
+  }))
+}
+
 export interface MobileOrderDraft {
   storeId: string
   customerName: string
@@ -144,14 +216,28 @@ export interface MobileOrderDraft {
   payments: DepositPayment[]
   notes: string
   createdBy: string
+  budgetCart: BudgetCartDraft[]
+}
+
+export interface ValidateMobileOrderOptions {
+  /** Pedidos viejos sin carrito: se puede seguir editando el texto de `items`. */
+  allowLegacyText?: boolean
 }
 
 export function validateMobileOrderDraft(
   draft: MobileOrderDraft,
   hours?: StoreHoursSource | null,
+  options?: ValidateMobileOrderOptions,
 ): string | null {
   if (!draft.customerName.trim()) return 'El nombre del cliente es obligatorio.'
-  if (!draft.items.trim()) return 'Los ítems del pedido son obligatorios.'
+  const lines = resolvedBudgetLines(draft.budgetCart)
+  if (draft.budgetCart.length > 0) {
+    if (lines.length === 0) return 'Agregá al menos un producto con cantidad.'
+  } else if (options?.allowLegacyText) {
+    if (!draft.items.trim()) return 'Los ítems del pedido son obligatorios.'
+  } else {
+    return 'Agregá al menos un producto con cantidad.'
+  }
   if (!draft.storeId) return 'Seleccioná un local.'
   if (!draft.createdBy.trim()) return 'No hay usuario autenticado para crear el pedido.'
   if (depositTotal(draft.payments) > 0 && draft.payments.length === 0) {
@@ -189,17 +275,23 @@ export function toMobileOrderRecord(
   depositAmount: number
   depositPayments: string | null
   notes: string | null
+  budgetItems: BudgetCartLine[] | null
   deleted: false
   createdAt: string
   createdBy: string
   updatedAt: string
 } {
   const payments = draft.payments.filter(p => p.amount > 0)
+  const lines = resolvedBudgetLines(draft.budgetCart)
+  const budgetItems = lines.length > 0 ? lines : null
+  const items = budgetItems
+    ? summarizeBudgetItems(budgetItems)
+    : draft.items.trim()
   return {
     storeId: draft.storeId,
     customerName: draft.customerName.trim(),
     phone: draft.phone.trim() || null,
-    items: draft.items.trim(),
+    items,
     pickupDate: draft.pickupDate,
     timeSlot: draft.timeSlot || null,
     pickupTime: draft.timeSlot === 'specific' ? draft.pickupTime || null : null,
@@ -208,9 +300,45 @@ export function toMobileOrderRecord(
     depositAmount: depositTotal(payments),
     depositPayments: serializeDepositPayments(payments),
     notes: draft.notes.trim() || null,
+    budgetItems,
     deleted: false,
     createdAt: now,
     createdBy: draft.createdBy.trim(),
+    updatedAt: now,
+  }
+}
+
+/** Campos de edición: no pisa status ni autor. */
+export function toMobileOrderPatch(
+  draft: MobileOrderDraft,
+  now: string,
+): {
+  customerName: string
+  phone: string | null
+  items: string
+  pickupDate: string
+  timeSlot: OrderTimeSlot | null
+  pickupTime: string | null
+  priority: boolean
+  depositAmount: number
+  depositPayments: string | null
+  notes: string | null
+  budgetItems: BudgetCartLine[] | null
+  updatedAt: string
+} {
+  const record = toMobileOrderRecord(draft, now)
+  return {
+    customerName: record.customerName,
+    phone: record.phone,
+    items: record.items,
+    pickupDate: record.pickupDate,
+    timeSlot: record.timeSlot,
+    pickupTime: record.pickupTime,
+    priority: record.priority,
+    depositAmount: record.depositAmount,
+    depositPayments: record.depositPayments,
+    notes: record.notes,
+    budgetItems: record.budgetItems,
     updatedAt: now,
   }
 }

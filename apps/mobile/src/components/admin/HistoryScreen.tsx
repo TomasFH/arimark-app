@@ -28,6 +28,7 @@ import {
   type StoreDoc,
 } from '../../lib/adminFirestore'
 import { expenseNote, expenseTitle } from '../../lib/adminLedger'
+import { buildCashHandoverAudit, formatBillDenomination } from '@carniceria/shared'
 import { formatDepositPaymentsLine } from '../../lib/orderMapping'
 import { todayLocalYmd, addDaysYmd } from '../../lib/week'
 import type { PaymentMethod } from '../../types/pos'
@@ -261,7 +262,9 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
     void load()
   }, [load])
 
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
+  const totalExpenses = expenses
+    .filter(e => e.kind !== 'inject')
+    .reduce((s, e) => s + e.amount, 0)
   const netBalance = totals.total - totalExpenses
 
   return (
@@ -325,6 +328,65 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                 </div>
               </dl>
             </section>
+
+            {(() => {
+              const audit = buildCashHandoverAudit({
+                cashierName: shift.cashierName,
+                startedAt: shift.startedAt,
+                closedAt: shift.closedAt,
+                openingBills: shift.openingBills,
+                closingBills: shift.closingBills,
+                openingCounted: shift.openingBillsCounted,
+                closingCounted: shift.closingBillsCounted,
+                handover: {
+                  fromShiftId: shift.handoverFromShiftId,
+                  fromCashierName: shift.handoverFromCashierName,
+                  fromClosedAt: shift.handoverFromClosedAt,
+                  expectedBills: shift.handoverExpectedBills,
+                },
+              })
+              if (!audit.left && !audit.found && !audit.expected) return null
+              return (
+                <section className="rounded-xl border border-zinc-700 bg-zinc-800 p-4 space-y-3">
+                  <h2 className="text-sm font-semibold text-zinc-100">Entrega del cambio</h2>
+                  {audit.found && (
+                    <p className="text-sm text-zinc-200">
+                      Encontró {audit.found.cashierName} · {formatMoney(audit.found.total)}
+                    </p>
+                  )}
+                  {audit.expected && (
+                    <p className="text-sm text-zinc-300">
+                      Dejó {audit.expected.cashierName} · {formatMoney(audit.expected.total)}
+                    </p>
+                  )}
+                  {audit.left && (
+                    <p className="text-sm text-zinc-300">
+                      Dejó al cerrar · {formatMoney(audit.left.total)}
+                    </p>
+                  )}
+                  {audit.found && audit.found.bills.length > 0 && (
+                    <ul className="space-y-0.5 text-xs text-zinc-400">
+                      {audit.found.bills.map(line => (
+                        <li key={line.denomination} className="flex justify-between gap-2">
+                          <span>{formatBillDenomination(line.denomination)} × {line.quantity}</span>
+                          <span className="font-mono">{formatMoney(line.denomination * line.quantity)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {audit.amountDiff != null && (
+                    <p className={`text-sm font-semibold ${
+                      audit.amountDiff === 0 ? 'text-emerald-300' : 'text-amber-300'
+                    }`}
+                    >
+                      {audit.amountDiff === 0
+                        ? 'Coincide con lo dejado'
+                        : `Diferencia: ${formatMoney(audit.amountDiff)}`}
+                    </p>
+                  )}
+                </section>
+              )
+            })()}
 
             {/* Tab selector */}
             <div className="flex gap-1 overflow-x-auto">
@@ -400,6 +462,7 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                     {expenses.map(exp => {
                       const title = expenseTitle(exp)
                       const note = expenseNote(exp)
+                      const isInject = exp.kind === 'inject'
                       return (
                         <li
                           key={exp.id}
@@ -412,8 +475,8 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                             >
                               {title}
                             </span>
-                            <span className="shrink-0 font-mono font-semibold text-red-400/80">
-                              -{formatMoney(exp.amount)}
+                            <span className={`shrink-0 font-mono font-semibold ${isInject ? 'text-emerald-400' : 'text-red-400/80'}`}>
+                              {isInject ? formatMoney(exp.amount) : `-${formatMoney(exp.amount)}`}
                             </span>
                           </div>
                           <p className="mt-0.5 truncate text-xs text-zinc-500" title={note ?? undefined}>

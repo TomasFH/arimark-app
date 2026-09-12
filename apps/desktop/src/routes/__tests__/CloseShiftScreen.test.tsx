@@ -63,6 +63,10 @@ describe('CloseShiftScreen — resumen post-cierre', () => {
     expect(screen.getByRole('button', { name: 'Finalizar sesión' })).toBeInTheDocument()
     expect(onConfirmed).not.toHaveBeenCalled()
     expect(window.hw.closeShift).toHaveBeenCalledOnce()
+    expect(window.hw.closeShift).toHaveBeenCalledWith(expect.objectContaining({
+      billDenominations: [],
+      confirmEmptyRegister: true,
+    }))
 
     await user.click(screen.getByRole('button', { name: 'Finalizar sesión' }))
     expect(onConfirmed).toHaveBeenCalledOnce()

@@ -74,6 +74,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "pickupDate", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "ceboEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

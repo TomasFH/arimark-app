@@ -2,10 +2,12 @@
  * Modal de pago para el POS móvil.
  * Campos vacíos; cada medio tiene un botón para cubrir el resto (como en PC).
  */
+import { quoteCashDiscount, type CashDiscountRule } from '@carniceria/shared'
 import { useState } from 'react'
 import { useBackLayer } from '../lib/backStack'
 import { useKeyboardInset } from '../lib/keyboardInset'
 import { settleSalePayments } from '../lib/paymentSplit'
+import { parseNumericInput } from '../lib/numericInput'
 import {
   EMPTY_PAYMENT_AMOUNTS,
   PaymentMethodFields,
@@ -13,10 +15,10 @@ import {
 import type { PaymentMethod, SalePaymentDraft } from '../types/pos'
 
 interface Props {
-  total: number
+  itemTotal: number
+  cashDiscountRule?: CashDiscountRule | null
   onConfirm: (payments: SalePaymentDraft[], notes: string) => void
   onCancel: () => void
-  /** Abre el flujo de fiado (cierra este modal desde el padre). */
   onFiado?: () => void
 }
 
@@ -24,13 +26,31 @@ function formatARS(n: number): string {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n)
 }
 
-export function PaymentModal({ total, onConfirm, onCancel, onFiado }: Props) {
+export function PaymentModal({ itemTotal, cashDiscountRule, onConfirm, onCancel, onFiado }: Props) {
   useBackLayer(true, onCancel)
   const keyboardInset = useKeyboardInset()
   const [amounts, setAmounts] = useState<Record<PaymentMethod, string>>(EMPTY_PAYMENT_AMOUNTS)
   const [notes, setNotes] = useState('')
 
-  const settled = settleSalePayments(total, amounts)
+  const rule: CashDiscountRule = cashDiscountRule ?? { minAmount: 0, percent: 0 }
+  const remainderCash = (parseNumericInput(amounts.cash) ?? 0) > 0
+  const quote = quoteCashDiscount({
+    rule,
+    itemTotal,
+    remainderIncludesCash: remainderCash,
+  })
+  const cashPreview = quoteCashDiscount({
+    rule,
+    itemTotal,
+    remainderIncludesCash: true,
+  })
+  const chargeTotal = quote.amountDue
+  const settled = settleSalePayments(chargeTotal, amounts)
+  const discountLine = quote.eligible
+    ? `Desc. efectivo ${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}; a cobrar ${formatARS(quote.amountDue)}`
+    : cashPreview.eligible
+      ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% → ${formatARS(cashPreview.amountDue)}`
+      : null
 
   function handleConfirm() {
     if (!settled.canConfirm) return
@@ -50,10 +70,14 @@ export function PaymentModal({ total, onConfirm, onCancel, onFiado }: Props) {
 
         <div className="flex items-center justify-between rounded-xl bg-gray-800 px-4 py-3">
           <span className="text-sm text-gray-300">Total</span>
-          <span className="text-xl font-bold text-white">{formatARS(total)}</span>
+          <span className="text-xl font-bold text-white">{formatARS(chargeTotal)}</span>
         </div>
 
-        <PaymentMethodFields total={total} amounts={amounts} onChange={setAmounts} />
+        {discountLine && (
+          <p className="truncate text-xs text-emerald-300" title={discountLine}>{discountLine}</p>
+        )}
+
+        <PaymentMethodFields total={chargeTotal} amounts={amounts} onChange={setAmounts} />
 
         <div>
           <label className="mb-1 block text-xs text-gray-400">Nota (opcional)</label>
@@ -74,7 +98,7 @@ export function PaymentModal({ total, onConfirm, onCancel, onFiado }: Props) {
               <span className="text-xl font-bold text-green-400">{formatARS(settled.change)}</span>
             </div>
             <p className="mt-1 text-xs text-green-500/80">
-              Se registra el cobro de {formatARS(total)}; el resto se devuelve.
+              Se registra el cobro de {formatARS(chargeTotal)}; el resto se devuelve.
             </p>
           </div>
         )}

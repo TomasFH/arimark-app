@@ -910,7 +910,7 @@ No implementar otra idea de “consulta en caja” hasta que el desarrollador lo
 
 ### FEAT-ORDER-CART-01: Pedido con presupuesto + cobro en POS (hecho 2026-09-02; Pedidos PC testeado 2026-09-04)
 
-El Cobrar inyecta el carrito en el POS. `budgetItems` es el presupuesto; las cantidades reales se tipear al cobrar. Checklist de lista PC: `CHECKLIST_TESTEO_PEDIDOS_LISTA.md`. **Alcance v1: solo PC.** Celu después.
+El Cobrar inyecta el carrito en el POS. `budgetItems` es el presupuesto; las cantidades reales se tipear al cobrar. Checklist de lista PC: `CHECKLIST_TESTEO_PEDIDOS_LISTA.md`. **Alcance v1 PC:** hecho. Celu admin: **FEAT-MOB-ORDER-CART-01** (pendiente, a implementar ahora).
 
 #### Al crear el pedido
 
@@ -969,6 +969,8 @@ Caso raro: llega un proveedor, la cajera no tiene efectivo suficiente, los admin
 
 Parte del pack de emergencia del celu: `FEAT-MOB-EMERGENCY-01`.
 
+Extensión: **FEAT-CASH-INJECT-02** (efectivo por acreditación digital, mismo `kind: 'inject'`, motivo distinto).
+
 ### FEAT-MOB-EMERGENCY-01: Qué es “suficiente” en el POS del celular (hecho 2026-08-28)
 
 El celu **no** es un segundo POS completo. Es el respaldo cuando la PC no está (corte de luz, PC rota). Si clonáramos todo, la PC dejaría de ser la caja del día y aparecerían dos fuentes de verdad + DT-06 (turno compartido en vivo).
@@ -1006,13 +1008,13 @@ Implementado en POS móvil: gastos con proveedor (lista + deuda de este local), 
 - "Mi semana": sueldo + vales + neto semana en curso. Sin historial de semanas anteriores.
 - `butcherOrders.ts` / `butcherPayroll.ts`: queries filtradas por `employeeId`/`storeId` (no baja colecciones enteras).
 
-**Fuera de alcance:** UI carnicero en PC, historial de sueldos carnicero, asignar pedido a carnicero, carrito de pedidos en celu, stock.
+**Fuera de alcance:** UI carnicero en PC, historial de sueldos carnicero, asignar pedido a carnicero, stock. Carrito de pedidos en celu: **FEAT-MOB-ORDER-CART-01**.
 
 **Reglas Firestore:** los permisos `request.auth != null` existentes cubren al carnicero. Restricción fina (update solo `pending→ready`) se aplica en el código de la app; no requiere `get()` por request.
 
 ---
 
-### FEAT-CASH-HANDOVER-01: Entrega del cambio (billetes) entre turnos — **pendiente, antes de v1.0** (acordado 2026-09-07)
+### FEAT-CASH-HANDOVER-01: Entrega del cambio (billetes) entre turnos — **hecho 2026-09-11** (acordado 2026-09-07)
 
 Hoy el cierre de PC ya deja anotar cuántos billetes de cada valor quedan en la registradora (`bill_denominations`) y calcula el total. Ese desglose **no se muestra** al abrir el turno siguiente: la apertura solo pide un monto suelto (`openingCash`). En el local eso sigue en la hoja del día. El celu ni cuenta billetes al cerrar ni al abrir.
 
@@ -1052,7 +1054,7 @@ DT-06 (un turno vivo en PC+celu a la vez) **no** es este FEAT. Acá el relevo es
 - No cambiar el flujo de “monto entregado / caja fuerte” del arqueo; el cambio es solo lo que queda en la registradora.
 - No es stock (Fase 8).
 
-**Cuándo implementar:** cuando el desarrollador lo pida; queda **antes de v1.0**. No codear hasta entonces.
+**Implementado 2026-09-11:** migración `0042_cash_handover` (`kind` en `bill_denominations`: closing/opening/expected; flags y metadatos de handover en `shifts`). Apertura PC/celu precarga el último cierre del local; `openingCash` = total de la grilla (editable). Producción: conteo obligatorio + modal si todas en 0. Dev: “Omitir conteo”. `shiftSync` / payloads móviles suben `openingBills` / `closingBills` / `handoverExpectedBills` en el doc del turno. Historial admin: dejó vs encontró.
 
 ---
 
@@ -1067,3 +1069,134 @@ Hoy no hay forma de que cajera, admin o carnicero **cambien su contraseña**. El
 - El mail: asunto y cuerpo en español, con el nombre del negocio desde `business.json` (no hardcodear marca en código). El HTML/textos de plantilla de Auth **no viven en el repo**: se editan en Firebase Console → Authentication → Templates (Password reset). El remitente en Spark sigue siendo el de Firebase (`noreply@…firebaseapp.com`); SMTP propio / dominio = Blaze, fuera de este FEAT salvo que se pida.
 
 **Cuándo implementar:** cuando el desarrollador lo pida; queda **antes de v1.0**. No codear hasta entonces.
+
+---
+
+Los cinco FEAT siguientes son huecos operativos acordados **2026-09-10**. **A implementar ahora** (no “no codear”). Orden de código: `FEAT-MOB-ORDER-CART-01` → `FEAT-MOB-STAFF-AUTH-01` → `FEAT-CASH-INJECT-02` → `FEAT-CASH-DISCOUNT-01` → `FEAT-CEBO-01`. No mezclar con `FEAT-CASH-HANDOVER-01` ni `FEAT-AUTH-PASSWORD-01`.
+
+### FEAT-CEBO-01: Registro de cebo — **pendiente, a implementar ahora** (acordado 2026-09-10)
+
+En el local hay que anotar el cebo (kilos + nota). Hoy no hay pantalla ni tabla. No es stock (Fase 8) ni mueve caja.
+
+**Producto:** modal desde el POS (junto a Gastos / Ingreso), no una pantalla nueva. **Cajera o admin; no carnicero.** Consulta/edición: quien lo cargó o un admin. Auditoría mínima visible (quién cargó / quién editó y cuándo).
+
+#### Datos
+
+SQLite + outbox Firestore. Tabla `cebo_entries`: `id`, `storeId`, `shiftId`, `quantityKg`, `notes`, `createdBy`, `createdAt`, `updatedBy`, `updatedAt`. Consultas por turno/fecha. Colección que crece: **no** `getDocs` de toda la colección (DT-07/08).
+
+#### UI PC
+
+`CashierScreen.tsx`: botón “Cebo” → modal lista del turno + alta (kg + nota) + editar. Pieza chica de auditoría: `Cargó {nombre} · hh:mm` / `Editó {nombre} · hh:mm`. Admin en caja ve y edita todo el turno; cajera solo los propios (salvo que sea admin).
+
+#### UI celu
+
+El mismo modal en el POS de emergencia (`PosScreen.tsx`), sync al doc Firestore; la PC importa como gastos/ventas móviles.
+
+#### Reglas
+
+kg > 0. `NumericInput` no sirve para decimales de kg — reutilizar el patrón de cantidad en kg del carrito de pedidos. `maxLength` en notas alineado al zod.
+
+#### Fuera de este FEAT
+
+No es stock (Fase 8). No suma ni resta caja.
+
+**Cuándo implementar:** ahora, último de esta oleada (bloque R en `TASKS_V1.md`). No mezclar con handover de billetes ni cambio de contraseña.
+
+### FEAT-CASH-INJECT-02: Efectivo por acreditación digital — **pendiente, a implementar ahora** (acordado 2026-09-10)
+
+Hoy un solo inject: `kind: 'inject'` y `concept` fijo `'Aporte'` (`expense.handler.ts`, `CashInjectModal` en PC y celu). Eso **ya suma** a `cashInHand`.
+
+En el local a veces el cliente deja efectivo y la carnicería acredita en Postnet/billetera **fuera de la app**. Eso también es plata que entra a caja, distinguible del “Ingreso” actual (aporte de admin).
+
+**Producto:** el mismo `kind: 'inject'` (así no se toca la fórmula de `shift.handler.ts`) con un **motivo** distinguible:
+
+- `Aporte` — plata que mandan los admin (lo de hoy, `FEAT-CASH-INJECT-01`)
+- `Efectivo por digital` — cliente deja efectivo y se acredita en billetera/Postnet afuera
+
+Campo nuevo `injectReason` (enum) o `concept` distinto; preferible columna `inject_reason` para no romper el historial que ya tiene `concept='Aporte'`. Default de filas viejas: `aporte`.
+
+**UI:** un solo modal “Ingreso” con dos opciones claras (no dos botones en el sidebar). Nota opcional (ej. nombre del cliente). Historial: etiqueta distinta, ambos en verde como ingreso.
+
+**Sync:** incluir el motivo en `expenseSync.ts` y en el import móvil.
+
+#### Fuera de este FEAT
+
+La app no habla con Mercado Pago ni Postnet; no se registra salida digital (no está en la caja).
+
+**Cuándo implementar:** ahora, bloque P en `TASKS_V1.md` (después de pedidos celu y staff Auth). No mezclar con handover de billetes ni cambio de contraseña.
+
+### FEAT-CASH-DISCOUNT-01: Descuento si se paga en efectivo — **pendiente, a implementar ahora** (acordado 2026-09-10)
+
+**Producto:** regla por **local** en `stores` (y el doc Firestore de stores, que ya se sincroniza): `cashDiscountMinAmount`, `cashDiscountPercent` (0 = apagado). Auditoría en SQLite `cash_discount_audits` (quién, cuándo, mínimo y % anterior/nuevo) y las últimas N en el modal; no una colección infinita en Firestore. Cajera y admin cambian la regla; el historial de quién la cambió se ve en el modal de configuración.
+
+#### Cuentas (ejemplo acordado)
+
+Ítems $100.000, seña $20.000 en efectivo, 10 %. El % se aplica sobre el **total de ítems** (no sobre el saldo): descuento sobre los **100.000** → $90.000; el cliente paga **$70.000**. Si esa seña hubiera sido digital, no hay descuento (pagaría $80.000).
+
+Fórmula si aplica:
+
+```
+discount = round(itemTotal * percent / 100)
+sale.total = itemTotal - discount
+aCobrarAhora = sale.total - señaEfectivo
+```
+
+Los pagos del cobro cubren `aCobrarAhora` (hoy el refine de `sale.handler.ts` es ítems − seña, **sin** descuento: hay que cambiarlo).
+
+#### Cuándo aplica (regla activa e `itemTotal >= mínimo`)
+
+- La seña, si existe, tiene que ser **100 % efectivo** (`digitalAmountFromDeposit === 0` en `depositPayments.ts`). Seña digital o mixta → sin descuento.
+- El saldo se cobra **con efectivo**. Puede haber un renglón digital/débito por el **faltante** (cliente que no llega en billetes). **No** hay umbral automático de “qué tan chico”: lo decide la cajera. Si el saldo se cobra **solo** digital/crédito, no hay descuento.
+- Fiado: sin este descuento.
+
+#### UI cobro
+
+`PaymentModal.tsx`: al ir por efectivo (o split que incluye efectivo) mostrar “Desc. efectivo {n}% sobre $100.000 → $90.000; seña $20.000; a cobrar $70.000”. Armar mixto no saca el descuento.
+
+Persistir en `sales`: `discountAmount`, `discountPercent`. Ítems siguen a precio de lista. `cashInHand` usa los pagos en efectivo (el descuento baja lo que entra).
+
+**Config:** modal “Descuento efectivo” en el menú del POS (cajera y admin en caja). Campos con `NumericInput` (pesos y entero 0–100).
+
+**Celu POS:** misma fórmula y misma elegibilidad.
+
+#### Fuera de este FEAT
+
+Descuento en fiado. Tope automático del faltante digital. Handover de billetes. Login offline PC. Stock.
+
+**Cuándo implementar:** ahora, bloque Q en `TASKS_V1.md` (PC + celu POS). No mezclar con handover de billetes ni cambio de contraseña.
+
+### FEAT-MOB-STAFF-AUTH-01: Email y cuenta al dar de alta en el celu — **pendiente, a implementar ahora** (acordado 2026-09-10)
+
+Hoy el celu solo crea ficha de sueldo y avisa que el email es por PC/Firebase (`StaffScreen.tsx` móvil). En PC, cajera = email + Auth (`StaffScreen.tsx` desktop + `tenantAuth.ts`); carnicero = “Dar acceso” después.
+
+**Producto:** el alta de **cajera** en celu pide email obligatorio y replica el patrón de app secundaria (`createUserWithEmailAndPassword` + `users/{uid}` + mail de clave), sin pisar la sesión del admin. El alta de **carnicero** iguala PC: ficha ya; botón “Dar acceso al celular” con email (y revocar). Las reglas ya permiten a un admin escribir `licenses/{key}/users/{uid}` (`firestore.rules`).
+
+**Límite:** hace falta internet en el alta de cuenta (igual que PC). Spark: 1 doc de usuario extra, no es colección diaria.
+
+**Cuándo implementar:** ahora, bloque O en `TASKS_V1.md` (después del carrito de pedidos en celu). No mezclar con handover de billetes ni cambio de contraseña.
+
+### FEAT-MOB-ORDER-CART-01: Pedido con productos de la lista en el celu — **pendiente, a implementar ahora** (acordado 2026-09-10)
+
+Hoy admin móvil: textarea “Descripción del pedido” (`OrdersScreen.tsx` móvil, `orderMapping.ts`). PC: typeahead + `budgetItems` (`OrdersScreen.tsx` desktop). El carrito en celu quedó fuera de `FEAT-BUTCHER-01` / alcance PC de `FEAT-ORDER-CART-01`.
+
+**Producto:**
+
+- Typeahead igual al de PC / vales (`ShiftValesModal.tsx`), sobre el catálogo del **local del pedido**.
+- **Lecturas (DT-07/08, Spark):** el catálogo es **1 documento** `licenses/{key}/catalog/{storeId}` (array `products` adentro), no un doc por producto. El picker **no** llama `getDocs` de la colección `catalog` ni `fetchMergedCatalogFromFirestore` (eso baja un doc por local y es para otras pantallas admin). Flujo:
+  1. `getCatalog(storeId)` desde IndexedDB (`catalog.ts`) — 0 lecturas.
+  2. Si ese local no está en cache: **un** `getDoc` de `catalog/{storeId}`, `persistCatalogSnapshot`, y listo.
+  3. Cada tecla del typeahead: `searchProductsByQuery` / `catalogTypeaheadMatches` **en memoria**. Cero red.
+  4. Si el admin ya tiene listener de ese local (POS), no re-descargar.
+- `createOrder` / `updateOrder` escriben `budgetItems` y `items = summarizeBudgetItems(...)` (`orderQty.ts`). Pedidos viejos solo-texto siguen editables.
+- **Obligatorio en PC:** agregar `budgetItems` al `setDoc` / pull de `orderSync.ts` para que el carnicero vea líneas tipadas.
+
+Esto es el **admin** del celu, no el POS de emergencia (los pedidos no entran al pack `FEAT-MOB-EMERGENCY-01`).
+
+Tras tocar `apps/mobile`: deploy de Hosting (`pnpm mobile:deploy`). El APK no se actualiza con eso.
+
+#### Fuera de este FEAT
+
+Edición de catálogo en celu. Bajar la colección `catalog` entera para armar un pedido.
+
+**Cuándo implementar:** ahora; es el **primero** de esta oleada de código (bloque N en `TASKS_V1.md`). Desbloquea al carnicero y el alta del pedido desde el teléfono. No mezclar con handover de billetes ni cambio de contraseña.
+

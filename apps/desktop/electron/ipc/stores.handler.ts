@@ -23,6 +23,8 @@ import { ensureOrdersSynced, pushUnsyncedOrders } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
 import { ensureSpecialCustomersSynced, pushUnsyncedSpecialCustomerOps } from '../licensing/specialCustomerSync'
 import { getBusinessConfig } from '../businessConfig'
+import { ensureCatalogSeedUser, seedCatalogOntoStore } from '../db/seedStoreCatalog'
+import { publishCatalog } from '../licensing/catalogPublish'
 import type { IpcResult, StoreRow, SessionInfo } from '../../src/types/hw-api'
 import {
   ALL_WEEKDAYS,
@@ -31,6 +33,7 @@ import {
   serializeHoursSchedule,
   validateShiftHours,
   validateWeekSchedule,
+  parseCashDiscountSchedule,
   type StoreHoursBlock,
 } from '@carniceria/shared'
 
@@ -159,6 +162,9 @@ function toStoreRow(row: {
   afternoonStart: string | null
   afternoonEnd: string | null
   hoursSchedule: string | null
+  cashDiscountMinAmount?: number | null
+  cashDiscountPercent?: number | null
+  cashDiscountSchedule?: string | null
 }): StoreRow {
   return {
     id: row.id,
@@ -170,6 +176,9 @@ function toStoreRow(row: {
     afternoonStart: row.afternoonStart ?? null,
     afternoonEnd: row.afternoonEnd ?? null,
     hoursSchedule: parseHoursSchedule(row.hoursSchedule),
+    cashDiscountMinAmount: row.cashDiscountMinAmount ?? 0,
+    cashDiscountPercent: row.cashDiscountPercent ?? 0,
+    cashDiscountSchedule: parseCashDiscountSchedule(row.cashDiscountSchedule),
   }
 }
 
@@ -382,10 +391,19 @@ export function registerStoresHandlers(): void {
         hoursSchedule: hours.data.hoursSchedule,
       }).run()
 
+      const seedUserId = ensureCatalogSeedUser()
+      const seeded = seedCatalogOntoStore({ storeId: id, createdByUserId: seedUserId })
+      log.info('[ipc:create-store] Catálogo maestro copiado al local', { id, seeded })
+
       const config = getBusinessConfig()
       pushUnsyncedStores(config.tenant_id).catch(err =>
         log.warn('[ipc:create-store] pushUnsyncedStores falló (no bloqueante)', err)
       )
+      if (seeded > 0) {
+        publishCatalog(config.tenant_id, id, { archive: false }).catch(err =>
+          log.warn('[ipc:create-store] publishCatalog falló (no bloqueante)', err)
+        )
+      }
 
       log.info('[ipc:create-store] Local creado', { id, name })
       return {
@@ -470,6 +488,9 @@ export function registerStoresHandlers(): void {
           name: updatedName,
           address: updatedAddress ?? null,
           archivedAt: existing.archivedAt ?? null,
+          cashDiscountMinAmount: existing.cashDiscountMinAmount,
+          cashDiscountPercent: existing.cashDiscountPercent,
+          cashDiscountSchedule: existing.cashDiscountSchedule,
           ...hours.data,
         }),
       }

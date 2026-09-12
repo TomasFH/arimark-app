@@ -16,10 +16,11 @@ module.exports = {
     '!dist-electron/**/__mocks__/**',
     '!dist-electron/**/__tests__/**',
   ],
-  // business.json del cliente — debe existir en config/ antes de compilar.
-  // En runtime la app lo lee desde resources/business.json (ver businessConfig.ts).
+  // Fuera del asar: business.json, catálogo maestro y env de Firebase (proceso main).
   extraResources: [
     { from: 'config/business.json', to: 'business.json' },
+    { from: 'scripts/catalog-2026-08.json', to: 'catalog-2026-08.json' },
+    { from: '.env.production', to: '.env.production' },
   ],
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],

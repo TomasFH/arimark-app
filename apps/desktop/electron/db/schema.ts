@@ -23,6 +23,12 @@ export const stores = sqliteTable('stores', {
    * Si es null, los campos de mañana/tarde valen los 7 días (locales viejos).
    */
   hoursSchedule: text('hours_schedule'),
+  /** Mínimo del total de ítems (pesos) para descuento por efectivo. 0 = sin mínimo. */
+  cashDiscountMinAmount: integer('cash_discount_min_amount').notNull().default(0),
+  /** Porcentaje entero 0–100. 0 = descuento apagado. */
+  cashDiscountPercent: integer('cash_discount_percent').notNull().default(0),
+  /** JSON de CashDiscountBlock[]: min+% por grupos de días y turno. Null = solo la regla general. */
+  cashDiscountSchedule: text('cash_discount_schedule'),
   /** null = pendiente de push a Firestore; ISO string = ya sincronizado. */
   syncedAt: text('synced_at'),
 })
@@ -264,6 +270,14 @@ export const shifts = sqliteTable(
      * 'mobile'  → importado desde la PWA móvil (no afecta la lógica de turno activo).
      */
     source: text('source', { enum: ['desktop', 'mobile'] }).notNull().default('desktop'),
+    /** true si al abrir se contó el desglose (incluye todas en 0 con confirmación). */
+    openingCounted: integer('opening_counted', { mode: 'boolean' }).notNull().default(false),
+    /** true si al cerrar se contó el desglose (incluye todas en 0 con confirmación). */
+    closingCounted: integer('closing_counted', { mode: 'boolean' }).notNull().default(false),
+    /** Turno previo del local cuyo cierre se usó de precarga. Null si no había. */
+    handoverFromShiftId: text('handover_from_shift_id'),
+    handoverFromCashierName: text('handover_from_cashier_name'),
+    handoverFromClosedAt: text('handover_from_closed_at'),
   },
   table => [index('idx_shifts_store').on(table.storeId, table.startedAt)]
 )
@@ -289,6 +303,10 @@ export const sales = sqliteTable(
     manualApprovedBy: text('manual_approved_by').references(() => users.id),
     manualApprovedAt: text('manual_approved_at'),
     notes: text('notes'),
+    /** Descuento por pago en efectivo (pesos). 0 si no aplicó. */
+    discountAmount: integer('discount_amount').notNull().default(0),
+    /** % aplicado al persistir. 0 si no aplicó. */
+    discountPercent: integer('discount_percent').notNull().default(0),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -437,6 +455,12 @@ export const expenses = sqliteTable(
      * Filas anteriores a la migración 0033 quedan como `expense` por el DEFAULT.
      */
     kind: text('kind', { enum: ['expense', 'inject'] }).notNull().default('expense'),
+    /**
+     * Motivo del ingreso (solo kind=inject).
+     * `aporte` = plata de admin; `wallet_cash` = efectivo por acreditación digital afuera.
+     * Filas anteriores a 0039: aporte.
+     */
+    injectReason: text('inject_reason', { enum: ['aporte', 'wallet_cash'] }).default('aporte'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -450,17 +474,28 @@ export const expenses = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Billetes al cierre
+// Billetes del relevo (cierre / apertura / snapshot de lo esperado)
 // ---------------------------------------------------------------------------
-export const billDenominations = sqliteTable('bill_denominations', {
-  id: text('id').primaryKey(),
-  shiftId: text('shift_id')
-    .notNull()
-    .references(() => shifts.id),
-  denomination: integer('denomination').notNull(),
-  quantity: integer('quantity').notNull(),
-  subtotal: real('subtotal').notNull(),
-})
+export const billDenominations = sqliteTable(
+  'bill_denominations',
+  {
+    id: text('id').primaryKey(),
+    shiftId: text('shift_id')
+      .notNull()
+      .references(() => shifts.id),
+    denomination: integer('denomination').notNull(),
+    quantity: integer('quantity').notNull(),
+    subtotal: real('subtotal').notNull(),
+    /**
+     * `closing` = lo que dejó este turno.
+     * `opening` = lo que encontró al abrir.
+     * `expected` = snapshot inmutable de lo que dejó el anterior (auditoría).
+     * Filas anteriores a 0042: closing.
+     */
+    kind: text('kind', { enum: ['closing', 'opening', 'expected'] }).notNull().default('closing'),
+  },
+  table => [index('idx_bill_denoms_shift_kind').on(table.shiftId, table.kind)],
+)
 
 // ---------------------------------------------------------------------------
 // Ingreso de mercadería (stock)
@@ -734,4 +769,56 @@ export const stockCountItems = sqliteTable(
     notes: text('notes'),
   },
   table => [index('idx_stock_count_items_count').on(table.stockCountId)],
+)
+
+// ---------------------------------------------------------------------------
+// Auditoría de la regla de descuento por efectivo (por local).
+// No se replica como colección infinita en Firestore: el doc de stores
+// lleva las últimas N entradas embebidas.
+// ---------------------------------------------------------------------------
+export const cashDiscountAudits = sqliteTable(
+  'cash_discount_audits',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    actorUserId: text('actor_user_id').notNull(),
+    actorName: text('actor_name').notNull(),
+    createdAt: text('created_at').notNull(),
+    previousMinAmount: integer('previous_min_amount').notNull(),
+    previousPercent: integer('previous_percent').notNull(),
+    nextMinAmount: integer('next_min_amount').notNull(),
+    nextPercent: integer('next_percent').notNull(),
+  },
+  table => [index('idx_cash_discount_audits_store').on(table.storeId, table.createdAt)],
+)
+
+// ---------------------------------------------------------------------------
+// Cebo del turno (kg + nota). No mueve caja ni stock.
+// ---------------------------------------------------------------------------
+export const ceboEntries = sqliteTable(
+  'cebo_entries',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    shiftId: text('shift_id')
+      .notNull()
+      .references(() => shifts.id),
+    quantityKg: real('quantity_kg').notNull(),
+    notes: text('notes'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedBy: text('updated_by').references(() => users.id),
+    updatedAt: text('updated_at'),
+    syncedAt: text('synced_at'),
+  },
+  table => [
+    index('idx_cebo_shift').on(table.shiftId, table.createdAt),
+    index('idx_cebo_store_created').on(table.storeId, table.createdAt),
+  ],
 )

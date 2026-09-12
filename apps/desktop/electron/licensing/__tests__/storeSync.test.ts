@@ -32,6 +32,10 @@ vi.mock('../firebase', () => ({
   isFirebaseAvailable: vi.fn(() => true),
 }))
 
+vi.mock('../catalogPublish', () => ({
+  publishCatalog: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('electron-log', () => ({
   default: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }))
@@ -88,6 +92,28 @@ describe('storeSync', () => {
 
       const synced = db.select().from(stores).where(isNotNull(stores.syncedAt)).all()
       expect(synced).toHaveLength(2)
+    })
+
+    it('incluye regla de descuento efectivo en el push', async () => {
+      db.insert(stores).values({
+        id: 'store-disc',
+        name: 'Local D',
+        createdAt: new Date().toISOString(),
+        cashDiscountMinAmount: 50000,
+        cashDiscountPercent: 10,
+      }).run()
+
+      await pushUnsyncedStores(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'store-disc',
+          cashDiscountMinAmount: 50000,
+          cashDiscountPercent: 10,
+        }),
+        { merge: true },
+      )
     })
 
     it('no pushea si Firebase no está disponible', async () => {

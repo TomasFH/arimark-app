@@ -109,6 +109,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /licenses/{licenseKey}/sync/{storeId}/shifts/{shiftId}/cebo/{entryId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
     match /licenses/{licenseKey}/sync/{storeId}/shifts/{shiftId}/vales/{valeId} {
       allow read, create, update: if request.auth != null;
       allow delete: if false;
@@ -175,6 +180,11 @@ service cloud.firestore {
     // Soft-delete vía update (deleted:true); hard delete prohibido.
     // -----------------------------------------------------------------------
     match /licenses/{licenseKey}/expenses/{expenseId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /licenses/{licenseKey}/ceboEntries/{entryId} {
       allow read, create, update: if request.auth != null;
       allow delete: if false;
     }

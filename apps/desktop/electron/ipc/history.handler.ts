@@ -9,6 +9,7 @@ import {
   debtEvents, orders, users, products, providers, customers,
   employeeVales, employees,
 } from '../db/schema'
+import { readBillLines } from '../db/billCountStore'
 import { getActiveSession } from '../activeSession'
 import { isFirebaseAvailable } from '../licensing/firebase'
 import {
@@ -28,6 +29,7 @@ import type {
   ValeItem,
 } from '../../src/types/hw-api'
 import { cashAmountFromDeposit, digitalAmountFromDeposit } from '../lib/depositPayments'
+import { buildCashHandoverAudit } from '@carniceria/shared'
 
 const getHistoryShiftsSchema = z.object({
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -392,6 +394,7 @@ export function registerHistoryHandlers(): void {
           notes: expenses.notes,
           createdBy: expenses.createdBy,
           kind: expenses.kind,
+          injectReason: expenses.injectReason,
         })
         .from(expenses)
         .where(eq(expenses.shiftId, shiftId))
@@ -421,6 +424,9 @@ export function registerHistoryHandlers(): void {
         notes: r.notes,
         createdBy: expUserMap.get(r.createdBy) ?? r.createdBy,
         kind: r.kind === 'inject' ? 'inject' as const : 'expense' as const,
+        injectReason: r.kind === 'inject'
+          ? (r.injectReason === 'wallet_cash' ? 'wallet_cash' as const : 'aporte' as const)
+          : undefined,
       }))
 
       // ---- Fiados del turno (eventos con shiftId + fiados creados desde ventas del turno) ----
@@ -600,6 +606,21 @@ export function registerHistoryHandlers(): void {
           notes: shift.notes,
           source: shift.source === 'mobile' ? 'mobile' : 'desktop',
         },
+        cashHandover: buildCashHandoverAudit({
+          cashierName,
+          startedAt: shift.startedAt,
+          closedAt: shift.closedAt ?? null,
+          openingBills: readBillLines(db, shift.id, 'opening'),
+          closingBills: readBillLines(db, shift.id, 'closing'),
+          openingCounted: Boolean(shift.openingCounted),
+          closingCounted: Boolean(shift.closingCounted),
+          handover: {
+            fromShiftId: shift.handoverFromShiftId,
+            fromCashierName: shift.handoverFromCashierName,
+            fromClosedAt: shift.handoverFromClosedAt,
+            expectedBills: readBillLines(db, shift.id, 'expected'),
+          },
+        }),
         sales: historySales,
         expenses: historyExpenses,
         debts: historyDebts,

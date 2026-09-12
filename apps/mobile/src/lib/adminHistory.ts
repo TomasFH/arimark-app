@@ -12,6 +12,7 @@
 import { getFirestore, collection, getDocs, getDoc, doc, query, where, orderBy } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import type { PaymentMethod, ShiftType } from '../types/pos'
+import { parseBillLines, type BillLine } from '@carniceria/shared'
 import {
   parseDepositPayments,
   type DepositMethod,
@@ -38,6 +39,14 @@ export interface AdminShift {
   openingCash: number
   closingCash: number | null
   source: 'desktop' | 'mobile'
+  openingBills: BillLine[]
+  closingBills: BillLine[]
+  handoverExpectedBills: BillLine[]
+  openingBillsCounted: boolean
+  closingBillsCounted: boolean
+  handoverFromShiftId: string | null
+  handoverFromCashierName: string | null
+  handoverFromClosedAt: string | null
 }
 
 export interface AdminSalePayment {
@@ -184,6 +193,14 @@ export async function fetchAdminShifts(
       openingCash?: number
       closingCash?: number | null
       source?: string
+      openingBills?: unknown
+      closingBills?: unknown
+      handoverExpectedBills?: unknown
+      openingBillsCounted?: boolean
+      closingBillsCounted?: boolean
+      handoverFromShiftId?: string | null
+      handoverFromCashierName?: string | null
+      handoverFromClosedAt?: string | null
     }
     if (!data.storeId) continue
     const userId = data.userId ?? ''
@@ -198,6 +215,14 @@ export async function fetchAdminShifts(
       openingCash: data.openingCash ?? 0,
       closingCash: data.closingCash ?? null,
       source: data.source === 'mobile' ? 'mobile' : 'desktop',
+      openingBills: parseBillLines(data.openingBills),
+      closingBills: parseBillLines(data.closingBills),
+      handoverExpectedBills: parseBillLines(data.handoverExpectedBills),
+      openingBillsCounted: data.openingBillsCounted === true,
+      closingBillsCounted: data.closingBillsCounted === true,
+      handoverFromShiftId: data.handoverFromShiftId ?? null,
+      handoverFromCashierName: data.handoverFromCashierName ?? null,
+      handoverFromClosedAt: data.handoverFromClosedAt ?? null,
     })
   }
   shifts.sort((a, b) => b.startedAt.localeCompare(a.startedAt))

@@ -14,6 +14,8 @@ export interface StaffEmployeeInput {
   active: boolean
   kind?: string
   homeStoreId?: string | null
+  firebaseUid?: string | null
+  email?: string | null
 }
 
 export interface StaffMember {
@@ -27,6 +29,8 @@ export interface StaffMember {
   cashierUid: string | null
   employeeId: string | null
   homeStoreId: string | null
+  /** Cuenta Firebase del carnicero para el celu. Cajeras usan cashierUid. */
+  firebaseUid: string | null
 }
 
 function nameKey(name: string): string {
@@ -65,6 +69,7 @@ export function buildStaffRoster(
       cashierUid: c.uid,
       employeeId: match?.id ?? null,
       homeStoreId: match?.homeStoreId ?? null,
+      firebaseUid: null,
     })
   }
 
@@ -80,6 +85,7 @@ export function buildStaffRoster(
       cashierUid: null,
       employeeId: e.id,
       homeStoreId: e.homeStoreId ?? null,
+      firebaseUid: null,
     })
   }
 
@@ -89,10 +95,11 @@ export function buildStaffRoster(
     weeklyWage: e.weeklyWage,
     kind: 'butcher' as const,
     active: e.active,
-    email: null,
+    email: e.email ?? null,
     cashierUid: null,
     employeeId: e.id,
     homeStoreId: e.homeStoreId ?? null,
+    firebaseUid: e.firebaseUid ?? null,
   }))
 
   const byName = (a: StaffMember, b: StaffMember) => a.name.localeCompare(b.name, 'es')

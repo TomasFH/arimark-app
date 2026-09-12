@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useOnlineStatus } from '../../lib/connectivity'
 import { useBackLayer } from '../../lib/backStack'
 import {
@@ -16,9 +16,12 @@ import {
   filterDigits,
   parseDigits,
 } from './shared'
+import NumericInput from '../NumericInput'
+import DecimalInput from '../DecimalInput'
 import {
   fetchOrders,
   createOrder,
+  updateOrder,
   updateOrderStatus,
   softDeleteOrder,
   formatMoney,
@@ -35,16 +38,27 @@ import {
   parseDepositPayments,
   formatPickupSlotLine,
   toMobileOrderRecord,
+  toMobileOrderPatch,
   validateMobileOrderDraft,
+  resolvedBudgetLines,
+  estimatedBudgetTotal,
+  kgLineMissingWeight,
+  budgetDraftFromLines,
+  parseTimeSlot,
+  type BudgetCartDraft,
   type DepositMethod,
   type DepositPayment,
   type OrderTimeSlot,
 } from '../../lib/orderMapping'
+import { catalogTypeaheadMatches, loadCatalogForStorePicker } from '../../lib/catalog'
+import type { CatalogProduct } from '../../types/pos'
 import {
   pickupHoursLiveErrorOnDate,
   pickupSlotAvailability,
   PICKUP_SPECIFIC_HINT,
   storeHoursSourceFromRecord,
+  formatOrderQty,
+  formatOrderQtyHint,
 } from '@carniceria/shared'
 import { todayLocalYmd } from '../../lib/week'
 
@@ -92,6 +106,7 @@ export function OrdersScreen({ onBack, stores, createdBy }: Props) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Order | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Order | null>(null)
 
   const load = useCallback(async (sid: string) => {
@@ -271,19 +286,32 @@ export function OrdersScreen({ onBack, stores, createdBy }: Props) {
           onClose={() => setSelected(null)}
           onStatusChange={handleStatusChange}
           onDelete={handleDelete}
+          onEdit={order => {
+            setSelected(null)
+            setEditingOrder(order)
+          }}
         />
       )}
 
       {/* Create order modal */}
-      {showCreate && (
-        <CreateOrderModal
+      {(showCreate || editingOrder) && (
+        <OrderFormModal
           stores={activeStores}
-          defaultStoreId={defaultCreateStoreId(storeId)}
+          defaultStoreId={editingOrder?.storeId ?? defaultCreateStoreId(storeId)}
           createdBy={createdBy}
-          onClose={() => setShowCreate(false)}
+          editingOrder={editingOrder}
+          onClose={() => {
+            setShowCreate(false)
+            setEditingOrder(null)
+          }}
           onCreate={async order => {
             await createOrder(order)
             setShowCreate(false)
+            void load(storeId)
+          }}
+          onUpdate={async (id, patch) => {
+            await updateOrder(id, patch)
+            setEditingOrder(null)
             void load(storeId)
           }}
         />
@@ -316,6 +344,7 @@ interface OrderActionsModalProps {
   onClose: () => void
   onStatusChange: (order: Order, status: OrderStatus) => Promise<void>
   onDelete: (order: Order) => Promise<void>
+  onEdit: (order: Order) => void
 }
 
 function OrderActionsModal({
@@ -323,6 +352,7 @@ function OrderActionsModal({
   onClose,
   onStatusChange,
   onDelete,
+  onEdit,
 }: OrderActionsModalProps) {
   const [busy, setBusy] = useState(false)
 
@@ -331,6 +361,9 @@ function OrderActionsModal({
     await fn().catch(() => {})
     setBusy(false)
   }
+
+  const productLines = order.budgetItems && order.budgetItems.length > 0 ? order.budgetItems : null
+  const estimate = estimatedBudgetTotal(order.budgetItems ?? [])
 
   return (
     <Modal title={order.customerName} onClose={onClose}>
@@ -342,10 +375,27 @@ function OrderActionsModal({
               {STATUS_LABEL[order.status]}
             </span>
           </p>
-          {order.items && (
+          {productLines ? (
+            <ul className="mt-2 space-y-1">
+              {productLines.map((line, idx) => (
+                <li key={`${line.productId}-${idx}`} className="flex items-center gap-2 min-w-0">
+                  <span className="min-w-0 flex-1 truncate text-zinc-300" title={line.name}>
+                    {line.name}
+                  </span>
+                  <span className="shrink-0 text-xs text-zinc-500">
+                    {formatOrderQty(line)}
+                    {formatOrderQtyHint(line) ? ` ${formatOrderQtyHint(line)}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : order.items ? (
             <p className="mt-1 text-zinc-300" title={order.items}>
               {order.items}
             </p>
+          ) : null}
+          {estimate > 0 && (
+            <p className="mt-1 font-mono text-zinc-300">Estimado: {formatMoney(estimate)}</p>
           )}
           <p className="mt-1 text-zinc-500">Retiro: {formatDate(order.pickupDate)}</p>
           {timeSlotLabel(order.timeSlot, order.pickupTime) && (
@@ -364,6 +414,17 @@ function OrderActionsModal({
           )}
           {order.notes && <p className="mt-1 text-zinc-400 italic">{order.notes}</p>}
         </div>
+
+        {order.status === 'pending' && (
+          <Btn
+            className="w-full"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => onEdit(order)}
+          >
+            Editar pedido
+          </Btn>
+        )}
 
         {TRANSITIONS[order.status].length > 0 && (
           <div className="space-y-2">
@@ -398,45 +459,69 @@ function OrderActionsModal({
 }
 
 // ---------------------------------------------------------------------------
-// Create order modal
+// Formulario de alta / edición
 // ---------------------------------------------------------------------------
 
 function timeSlotLabel(slot: string | null, pickupTime: string | null): string | null {
   return formatPickupSlotLine(slot, pickupTime)
 }
 
-interface CreateOrderModalProps {
+function emptyDepositFields(): Record<DepositMethod, string> {
+  return { cash: '', debit: '', wallet: '', credit: '' }
+}
+
+function depositFieldsFromOrder(order: Order | null): Record<DepositMethod, string> {
+  const next = emptyDepositFields()
+  if (!order) return next
+  for (const p of parseDepositPayments(order.depositPayments) ?? []) {
+    next[p.method] = String(p.amount)
+  }
+  return next
+}
+
+interface OrderFormModalProps {
   stores: StoreDoc[]
   defaultStoreId: string
   createdBy: string
+  editingOrder: Order | null
   onClose: () => void
   onCreate: (order: Omit<Order, 'id'>) => Promise<void>
+  onUpdate: (id: string, patch: ReturnType<typeof toMobileOrderPatch>) => Promise<void>
 }
 
-function CreateOrderModal({
+function OrderFormModal({
   stores,
   defaultStoreId,
   createdBy,
+  editingOrder,
   onClose,
   onCreate,
-}: CreateOrderModalProps) {
+  onUpdate,
+}: OrderFormModalProps) {
+  const allowLegacyText = Boolean(
+    editingOrder && !(editingOrder.budgetItems && editingOrder.budgetItems.length > 0),
+  )
   const [storeId, setStoreId] = useState(defaultStoreId)
-  const [customerName, setCustomerName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [items, setItems] = useState('')
-  const [pickupDate, setPickupDate] = useState(todayLocalYmd())
-  const [timeSlot, setTimeSlot] = useState<OrderTimeSlot | ''>('')
-  const [pickupTime, setPickupTime] = useState('')
-  const [priority, setPriority] = useState(false)
-  const [depositByMethod, setDepositByMethod] = useState<Record<DepositMethod, string>>({
-    cash: '',
-    debit: '',
-    wallet: '',
-    credit: '',
-  })
-  const [notes, setNotes] = useState('')
+  const [customerName, setCustomerName] = useState(editingOrder?.customerName ?? '')
+  const [phone, setPhone] = useState(editingOrder?.phone ?? '')
+  const [items, setItems] = useState(editingOrder?.items ?? '')
+  const [budgetCart, setBudgetCart] = useState<BudgetCartDraft[]>(
+    () => budgetDraftFromLines(editingOrder?.budgetItems ?? []),
+  )
+  const [pickupDate, setPickupDate] = useState(editingOrder?.pickupDate ?? todayLocalYmd())
+  const [timeSlot, setTimeSlot] = useState<OrderTimeSlot | ''>(
+    parseTimeSlot(editingOrder?.timeSlot) ?? '',
+  )
+  const [pickupTime, setPickupTime] = useState(editingOrder?.pickupTime ?? '')
+  const [priority, setPriority] = useState(editingOrder?.priority ?? false)
+  const [depositByMethod, setDepositByMethod] = useState<Record<DepositMethod, string>>(
+    () => depositFieldsFromOrder(editingOrder),
+  )
+  const [notes, setNotes] = useState(editingOrder?.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
 
   useEffect(() => {
     if (stores.length === 1 && stores[0] && !storeId) {
@@ -455,6 +540,30 @@ function CreateOrderModal({
     }
   }, [stores, storeId, pickupDate, timeSlot])
 
+  useEffect(() => {
+    if (!storeId) {
+      setCatalog([])
+      setCatalogLoading(false)
+      return
+    }
+    let cancelled = false
+    setCatalogLoading(true)
+    void loadCatalogForStorePicker(storeId)
+      .then(products => {
+        if (cancelled) return
+        setCatalog(products)
+        setCatalogLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setCatalog([])
+        setCatalogLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [storeId])
+
   const payments: DepositPayment[] = (['cash', 'debit', 'wallet', 'credit'] as const)
     .map(method => ({ method, amount: parseDigits(depositByMethod[method]) }))
     .filter(p => p.amount > 0)
@@ -469,8 +578,8 @@ function CreateOrderModal({
     return true
   })
 
-  async function persistDraft() {
-    const draft = {
+  function buildDraft() {
+    return {
       storeId,
       customerName,
       phone,
@@ -482,33 +591,30 @@ function CreateOrderModal({
       payments,
       notes,
       createdBy,
+      budgetCart,
     }
+  }
+
+  async function persistDraft() {
+    const draft = buildDraft()
     setSaving(true)
     setErr(null)
     try {
-      await onCreate(toMobileOrderRecord(draft, new Date().toISOString()))
+      const now = new Date().toISOString()
+      if (editingOrder) {
+        await onUpdate(editingOrder.id, toMobileOrderPatch(draft, now))
+      } else {
+        await onCreate(toMobileOrderRecord(draft, now))
+      }
     } catch {
-      setErr('No se pudo crear el pedido.')
+      setErr(editingOrder ? 'No se pudo guardar el pedido.' : 'No se pudo crear el pedido.')
       setSaving(false)
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const draft = {
-      storeId,
-      customerName,
-      phone,
-      items,
-      pickupDate,
-      timeSlot,
-      pickupTime,
-      priority,
-      payments,
-      notes,
-      createdBy,
-    }
-    const validationError = validateMobileOrderDraft(draft, hours)
+    const validationError = validateMobileOrderDraft(buildDraft(), hours, { allowLegacyText })
     if (validationError) {
       setErr(validationError)
       return
@@ -516,11 +622,12 @@ function CreateOrderModal({
     await persistDraft()
   }
 
+  const canChangeStore = !editingOrder && stores.length > 1
+
   return (
-    <>
-    <Modal title="Nuevo pedido" onClose={onClose}>
+    <Modal title={editingOrder ? 'Editar pedido' : 'Nuevo pedido'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3">
-        {stores.length > 1 && (
+        {canChangeStore && (
           <label className="block">
             <span className="mb-1 block text-sm text-zinc-400">Local *</span>
             <select
@@ -528,6 +635,7 @@ function CreateOrderModal({
               onChange={e => {
                 const next = e.target.value
                 setStoreId(next)
+                setBudgetCart([])
                 const source = storeHoursSourceFromRecord(stores.find(s => s.id === next) ?? null)
                 const available = pickupSlotAvailability(source, pickupDate)
                 setTimeSlot(current => {
@@ -547,9 +655,12 @@ function CreateOrderModal({
             </select>
           </label>
         )}
-        {stores.length === 1 && stores[0] && (
+        {!canChangeStore && (
           <p className="text-sm text-zinc-400">
-            Local: <span className="text-zinc-200">{stores[0].name}</span>
+            Local:{' '}
+            <span className="text-zinc-200">
+              {stores.find(s => s.id === storeId)?.name ?? '—'}
+            </span>
           </p>
         )}
 
@@ -579,13 +690,16 @@ function CreateOrderModal({
           inputMode="tel"
           maxLength={30}
         />
-        <LabeledTextarea
-          label="Descripción del pedido *"
-          value={items}
-          onChange={setItems}
-          placeholder="Ej: 2 kg de asado, 1 pollo entero…"
-          maxLength={500}
+
+        <BudgetCartEditor
+          catalog={catalog}
+          catalogLoading={catalogLoading}
+          cart={budgetCart}
+          onChange={setBudgetCart}
+          legacyItems={allowLegacyText ? items : ''}
+          onLegacyItemsChange={allowLegacyText ? setItems : undefined}
         />
+
         <label className="block">
           <span className="mb-1 block text-sm text-zinc-400">Fecha de retiro *</span>
           <input
@@ -690,11 +804,181 @@ function CreateOrderModal({
             Cancelar
           </Btn>
           <Btn type="submit" className="flex-1" loading={saving} disabled={!!livePickupHoursError}>
-            Crear pedido
+            {editingOrder ? 'Guardar cambios' : 'Crear pedido'}
           </Btn>
         </div>
       </form>
     </Modal>
-    </>
+  )
+}
+
+interface BudgetCartEditorProps {
+  catalog: CatalogProduct[]
+  catalogLoading: boolean
+  cart: BudgetCartDraft[]
+  onChange: (cart: BudgetCartDraft[]) => void
+  legacyItems: string
+  onLegacyItemsChange?: (value: string) => void
+}
+
+function BudgetCartEditor({
+  catalog,
+  catalogLoading,
+  cart,
+  onChange,
+  legacyItems,
+  onLegacyItemsChange,
+}: BudgetCartEditorProps) {
+  const [query, setQuery] = useState('')
+  const suggestions = useMemo(() => {
+    const q = query.trim()
+    if (!q) return []
+    return catalogTypeaheadMatches(catalog, q).slice(0, 8)
+  }, [catalog, query])
+
+  const liveLines = resolvedBudgetLines(cart)
+  const estimate = estimatedBudgetTotal(liveLines)
+  const showLegacyText = Boolean(onLegacyItemsChange) && cart.length === 0
+
+  return (
+    <div className="space-y-3 rounded-xl border border-zinc-700/60 bg-zinc-800/50 p-3">
+      <p className="text-sm font-medium text-zinc-300">Productos *</p>
+      {showLegacyText && (
+        <LabeledTextarea
+          label="Descripción del pedido *"
+          value={legacyItems}
+          onChange={onLegacyItemsChange!}
+          placeholder="Ej: 2 kg de asado, 1 pollo entero…"
+          maxLength={500}
+        />
+      )}
+      {!showLegacyText && onLegacyItemsChange && legacyItems && (
+        <p className="text-[11px] text-zinc-500 break-words" title={legacyItems}>
+          Texto anterior: {legacyItems}
+        </p>
+      )}
+
+      {cart.length > 0 && (
+        <div className="space-y-1.5">
+          {cart.map((line, idx) => {
+            const missingWeight = kgLineMissingWeight(line)
+            return (
+              <div key={`${line.productId}-${idx}`} className="space-y-1">
+                <div className="flex items-center gap-2 min-w-0 rounded-lg bg-zinc-700/40 px-3 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs text-zinc-200" title={line.name}>{line.name}</p>
+                    <p className="text-[10px] text-zinc-500">
+                      {formatMoney(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}
+                    </p>
+                  </div>
+                  <div className="w-20 shrink-0">
+                    {line.unit === 'kg' ? (
+                      <DecimalInput
+                        value={line.qtyRaw}
+                        onChange={v => onChange(cart.map((l, i) => (i === idx ? { ...l, qtyRaw: v } : l)))}
+                        placeholder="kg"
+                        maxDecimals={3}
+                        weightMode
+                        title="Peso estimado"
+                        className={`w-full rounded bg-zinc-800 px-2 py-1 text-right text-xs text-white ${
+                          missingWeight ? 'border border-orange-600/80' : 'border border-zinc-600'
+                        }`}
+                      />
+                    ) : (
+                      <NumericInput
+                        value={line.qtyRaw}
+                        onChange={v => onChange(cart.map((l, i) => (i === idx ? { ...l, qtyRaw: v } : l)))}
+                        placeholder="0"
+                        className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-right text-xs text-white"
+                      />
+                    )}
+                  </div>
+                  <span className="w-6 shrink-0 text-[10px] text-zinc-500">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                  {line.unit === 'kg' && (
+                    <>
+                      <div className="w-12 shrink-0">
+                        <NumericInput
+                          value={line.requestedUnitsRaw}
+                          onChange={v => onChange(cart.map((l, i) => (i === idx ? { ...l, requestedUnitsRaw: v } : l)))}
+                          placeholder=""
+                          title="Unidades pedidas (opcional). Vacío = pidió kilos."
+                          className="w-full rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-right text-xs text-white"
+                        />
+                      </div>
+                      <span className="shrink-0 text-[10px] text-zinc-500" title="Unidades pedidas">u</span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onChange(cart.filter((_, i) => i !== idx))}
+                    className="shrink-0 text-sm text-zinc-500 hover:text-red-400"
+                    title="Quitar"
+                  >
+                    ×
+                  </button>
+                </div>
+                {missingWeight && (
+                  <p className="px-1 text-[11px] text-orange-500/85">
+                    Sin kilos no hay precio estimado. Preguntá cuánto pueden pesar y cargalo en kg.
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder={catalogLoading ? 'Cargando catálogo…' : 'Buscar producto…'}
+          disabled={catalog.length === 0}
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none"
+        />
+        {suggestions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border border-zinc-600 bg-zinc-800 shadow-xl">
+            {suggestions.map(p => (
+              <button
+                key={p.productId}
+                type="button"
+                onClick={() => {
+                  onChange([
+                    ...cart,
+                    {
+                      productId: p.productId,
+                      name: p.name,
+                      unit: p.unit,
+                      pluNumber: p.pluNumber,
+                      estimatedQty: 1,
+                      unitPrice: p.price,
+                      qtyRaw: '',
+                      requestedUnitsRaw: '',
+                    },
+                  ])
+                  setQuery('')
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-700/80"
+              >
+                <span className="min-w-0 flex-1 truncate" title={p.name}>{p.name}</span>
+                <span className="shrink-0 text-zinc-500">
+                  {formatMoney(p.price)}/{p.unit === 'kg' ? 'kg' : 'u'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!catalogLoading && catalog.length === 0 && (
+        <p className="text-xs text-zinc-500">Sin productos en el catálogo de este local.</p>
+      )}
+      {estimate > 0 && (
+        <div className="flex items-center justify-between gap-2 border-t border-zinc-700/50 pt-1">
+          <span className="text-xs text-zinc-400">Total estimado</span>
+          <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-100">{formatMoney(estimate)}</span>
+        </div>
+      )}
+    </div>
   )
 }

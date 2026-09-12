@@ -126,6 +126,35 @@ describe('expenseSync', () => {
       expect(synced).toHaveLength(2)
     })
 
+    it('pushea injectReason wallet_cash en aportes', async () => {
+      const now = new Date().toISOString()
+      db.insert(expenses).values({
+        id: 'exp-inject',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        concept: 'Efectivo por digital',
+        amount: 3500,
+        kind: 'inject',
+        injectReason: 'wallet_cash',
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: null,
+      }).run()
+
+      await pushUnsyncedExpenses(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'exp-inject',
+          kind: 'inject',
+          injectReason: 'wallet_cash',
+          concept: 'Efectivo por digital',
+        }),
+        { merge: true },
+      )
+    })
+
     it('no pushea si Firebase no está disponible', async () => {
       vi.mocked(isFirebaseAvailable).mockReturnValue(false)
       db.insert(expenses).values({

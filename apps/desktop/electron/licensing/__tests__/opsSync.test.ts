@@ -133,6 +133,42 @@ describe('ops sync (orders / debts / special customers)', () => {
     expect(db.select().from(orders).where(isNull(orders.syncedAt)).all()).toHaveLength(0)
   })
 
+  it('pushea budgetItems como array parseado', async () => {
+    const now = new Date().toISOString()
+    const lines = [{
+      productId: 'p1',
+      name: 'Asado',
+      unit: 'kg' as const,
+      pluNumber: 10,
+      estimatedQty: 1.5,
+      unitPrice: 18000,
+    }]
+    db.insert(orders).values({
+      id: 'ord-cart',
+      storeId: 'store-001',
+      customerName: 'Juan',
+      items: 'Asado · 1,5 kg',
+      pickupDate: '2026-08-10',
+      status: 'pending',
+      depositAmount: 0,
+      budgetItems: JSON.stringify(lines),
+      createdAt: now,
+      createdBy: 'user-001',
+      syncedAt: null,
+    }).run()
+
+    await pushUnsyncedOrders(TENANT)
+
+    expect(mockSetDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: 'ord-cart',
+        budgetItems: lines,
+      }),
+      { merge: true },
+    )
+  })
+
   it('pushea customers y debt events', async () => {
     const now = new Date().toISOString()
     db.insert(customers).values({
@@ -348,6 +384,40 @@ describe('ops sync (orders / debts / special customers)', () => {
 
     const rows = db.select().from(orders).all()
     expect(rows.some(r => r.id === 'ord-remote')).toBe(true)
+  })
+
+  it('pull de orders guarda budgetItems en SQLite', async () => {
+    const lines = [{
+      productId: 'p1',
+      name: 'Asado',
+      unit: 'kg',
+      pluNumber: 10,
+      estimatedQty: 1.5,
+      unitPrice: 18000,
+    }]
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'ord-budget',
+        data: () => ({
+          id: 'ord-budget',
+          storeId: 'store-001',
+          customerName: 'Pedro',
+          items: 'Asado · 1,5 kg',
+          pickupDate: '2026-08-12',
+          status: 'pending',
+          depositAmount: 0,
+          createdAt: new Date().toISOString(),
+          createdBy: 'user-001',
+          budgetItems: lines,
+        }),
+      }],
+    })
+
+    await pullOrdersFromFirestore(TENANT)
+
+    const row = db.select().from(orders).all().find(r => r.id === 'ord-budget')
+    expect(row?.budgetItems).toBe(JSON.stringify(lines))
   })
 
   it('pull de order sin createdBy no rompe NOT NULL: usa stub remoto', async () => {

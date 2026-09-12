@@ -3,9 +3,9 @@
  * Permite escanear códigos (cámara), entrada manual, y confirmar venta.
  * Persiste ventas en IndexedDB para sync posterior.
  */
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { parseKretzBarcode } from '@carniceria/shared'
+import { parseKretzBarcode, injectConceptForReason, quoteCashDiscount, remainderIncludesCash, saleTotalFromQuote, isEmptyBillCount, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock, type CashDiscountRule, type InjectReason } from '@carniceria/shared'
 import { startBarcodeScanning } from '../lib/barcodeScanner'
 import { findByPlu } from '../lib/catalog'
 import { db } from '../lib/db'
@@ -14,13 +14,24 @@ import { PaymentModal } from './PaymentModal'
 import { ManualEntry } from './ManualEntry'
 import { ShiftExpenseModal, type ShiftExpensePayload } from './ShiftExpenseModal'
 import { CashInjectModal } from './CashInjectModal'
+import { CashDiscountModal } from './CashDiscountModal'
+import { CeboModal } from './CeboModal'
+import {
+  BillCountGrid,
+  billRowsCountedTotal,
+  billRowsToLines,
+  emptyBillRows,
+  type BillMode,
+  type BillRowState,
+} from './BillCountGrid'
 import { ShiftSalesList } from './ShiftSalesList'
 import { DebtSaleModal } from './DebtSaleModal'
 import { ShiftValesModal } from './ShiftValesModal'
 import { ShiftPayrollModal } from './ShiftPayrollModal'
 import { useBackLayer } from '../lib/backStack'
+import { parseNumericInput } from '../lib/numericInput'
 import { expectedCashInHand, shiftRevenue } from '../lib/shiftCash'
-import { CASH_INJECT_CONCEPT } from '../types/pos'
+import { fetchStoreCashDiscount } from '../lib/cashDiscountStore'
 import { debtEventId } from '../lib/expenseVisit'
 import { refreshPosCaches, upsertCachedProvider } from '../lib/posCaches'
 import { addDaysYmd, weekStartMondayLocalYmd } from '../lib/week'
@@ -71,8 +82,25 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
   const [showPayment, setShowPayment] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [showCloseRecap, setShowCloseRecap] = useState(false)
+  const [showEmptyCloseConfirm, setShowEmptyCloseConfirm] = useState(false)
+  const [closeBillMode, setCloseBillMode] = useState<BillMode>('quantity')
+  const [closeBillRows, setCloseBillRows] = useState<BillRowState[]>(emptyBillRows)
+  const [skipCloseBills, setSkipCloseBills] = useState(false)
   const [showExpense, setShowExpense] = useState(false)
   const [showInject, setShowInject] = useState(false)
+  const [showCebo, setShowCebo] = useState(false)
+  const [showCashDiscount, setShowCashDiscount] = useState(false)
+  const [cashDiscountFallback, setCashDiscountFallback] = useState<CashDiscountRule>({ minAmount: 0, percent: 0 })
+  const [cashDiscountSchedule, setCashDiscountSchedule] = useState<CashDiscountBlock[]>([])
+  const cashDiscountRule = useMemo(
+    () => resolveCashDiscountRule({
+      fallback: cashDiscountFallback,
+      schedule: cashDiscountSchedule,
+      weekday: weekdayInTimeZone(),
+      shiftType: shift.shiftType,
+    }),
+    [cashDiscountFallback, cashDiscountSchedule, shift.shiftType],
+  )
   const [showSalesList, setShowSalesList] = useState(false)
   const [showDebt, setShowDebt] = useState(false)
   const [showVales, setShowVales] = useState(false)
@@ -121,6 +149,12 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
     void refreshPosCaches(weekStart, addDaysYmd(weekStart, 6)).catch(err => {
       console.error('[pos] No se pudo refrescar caché de proveedores/empleados', err)
     })
+    void fetchStoreCashDiscount(shift.storeId)
+      .then(data => {
+        setCashDiscountFallback(data.rule)
+        setCashDiscountSchedule(data.schedule)
+      })
+      .catch(() => { /* offline: regla 0 */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shift.id])
 
@@ -255,13 +289,23 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
     setShowDebt(false)
     setSaveError(null)
 
+    const quote = quoteCashDiscount({
+      rule: cashDiscountRule,
+      itemTotal: total,
+      isDebt: opts.isDebt,
+      remainderIncludesCash: remainderIncludesCash(opts.payments),
+    })
+    const saleTotal = opts.isDebt
+      ? total
+      : saleTotalFromQuote(quote, total, 0)
+
     const saleId = uuidv4()
     try {
       await db.sales.put({
         id: saleId,
         shiftId: shift.id,
         storeId: shift.storeId,
-        total,
+        total: saleTotal,
         items,
         payments: opts.payments,
         notes: opts.notes || null,
@@ -275,6 +319,8 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
         customerId: opts.customerId,
         customerName: opts.customerName,
         customerPhone: opts.customerPhone,
+        discountAmount: quote.eligible ? quote.discountAmount : 0,
+        discountPercent: quote.eligible ? quote.discountPercent : 0,
       })
       setItems([])
       setSaveError(null)
@@ -409,7 +455,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
     }
   }
 
-  async function saveInject(payload: { amount: number; notes: string | null }) {
+  async function saveInject(payload: { amount: number; notes: string | null; injectReason: InjectReason }) {
     setShowInject(false)
     setSaveError(null)
     try {
@@ -418,7 +464,8 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
         shiftId: shift.id,
         storeId: shift.storeId,
         kind: 'inject',
-        concept: CASH_INJECT_CONCEPT,
+        concept: injectConceptForReason(payload.injectReason),
+        injectReason: payload.injectReason,
         amount: payload.amount,
         notes: payload.notes,
         createdAt: new Date().toISOString(),
@@ -449,11 +496,36 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
     })
   }
 
-  async function closeShift() {
+  function updateCloseBillRow(denomination: number, field: 'quantity' | 'total', value: string) {
+    setSkipCloseBills(false)
+    setCloseBillRows(prev => prev.map(r => {
+      if (r.denomination !== denomination) return r
+      const updated = { ...r, [field]: value }
+      if (field === 'total' && value !== '' && value !== '0') {
+        const parsed = parseNumericInput(value)
+        if (parsed !== null && parsed > 0 && parsed % denomination !== 0) {
+          updated.totalError = `Debe ser múltiplo de $${denomination.toLocaleString('es-AR')}`
+        } else {
+          updated.totalError = null
+        }
+      } else {
+        updated.totalError = null
+      }
+      return updated
+    }))
+  }
+
+  async function closeShift(confirmEmpty = false) {
     try {
+      const lines = skipCloseBills ? undefined : billRowsToLines(closeBillRows, closeBillMode)
+      const counted = lines !== undefined || confirmEmpty
       await db.shifts.update(shift.id, {
         closedAt: new Date().toISOString(),
-        closingCash: cashInHand,
+        closingCash: counted
+          ? billRowsCountedTotal(closeBillRows, closeBillMode)
+          : cashInHand,
+        closingBills: counted ? (lines ?? []) : undefined,
+        closingBillsCounted: counted,
         syncStatus: 'pending',
       })
       triggerSync().catch((err: unknown) => {
@@ -490,7 +562,12 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           </span>
           <button
             type="button"
-            onClick={() => setShowCloseConfirm(true)}
+            onClick={() => {
+              setCloseBillRows(emptyBillRows())
+              setSkipCloseBills(false)
+              setShowEmptyCloseConfirm(false)
+              setShowCloseConfirm(true)
+            }}
             className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-red-700 hover:text-red-400"
           >
             Cerrar turno
@@ -596,7 +673,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           <span className="text-white font-bold text-xl">{formatARS(total)}</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           <button
             type="button"
             onClick={() => setShowExpense(true)}
@@ -613,6 +690,13 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           </button>
           <button
             type="button"
+            onClick={() => setShowCebo(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            Cebo
+          </button>
+          <button
+            type="button"
             onClick={() => setShowSalesList(true)}
             className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
           >
@@ -620,7 +704,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => setShowVales(true)}
@@ -634,6 +718,13 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
             className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
           >
             Liquidación
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCashDiscount(true)}
+            className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+          >
+            Desc. $
           </button>
         </div>
 
@@ -676,7 +767,8 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
 
       {showPayment && (
         <PaymentModal
-          total={total}
+          itemTotal={total}
+          cashDiscountRule={cashDiscountRule}
           onConfirm={confirmSale}
           onCancel={() => setShowPayment(false)}
           onFiado={() => {
@@ -706,6 +798,28 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
         <CashInjectModal
           onConfirm={payload => { void saveInject(payload) }}
           onClose={() => setShowInject(false)}
+        />
+      )}
+
+      {showCebo && (
+        <CeboModal
+          shift={shift}
+          viewerRole={viewerRole}
+          viewerName={viewerName}
+          onClose={() => setShowCebo(false)}
+        />
+      )}
+
+      {showCashDiscount && (
+        <CashDiscountModal
+          storeId={shift.storeId}
+          actorUserId={shift.userId}
+          actorName={viewerName || shift.displayName}
+          onSaved={saved => {
+            setCashDiscountFallback(saved.rule)
+            setCashDiscountSchedule(saved.schedule)
+          }}
+          onClose={() => setShowCashDiscount(false)}
         />
       )}
 
@@ -776,34 +890,41 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
         </div>
       )}
       {showCloseConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
-          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-gray-900 p-5">
-            <h2 className="text-lg font-bold text-white">¿Cerrar el turno ahora?</h2>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-4 sm:items-center">
+          <div className="max-h-[min(92vh,100dvh)] w-full max-w-sm space-y-4 overflow-y-auto rounded-2xl bg-gray-900 p-5">
+            <h2 className="text-lg font-bold text-white">Cerrar turno</h2>
             <p className="text-sm text-gray-400">
-              Esta acción finaliza el turno y no puede deshacerse. Verificá los datos antes de confirmar.
+              Contá los billetes que quedan en la registradora.
             </p>
             <div className="space-y-2 rounded-xl bg-gray-800/80 p-4 text-sm">
               <div className="flex justify-between gap-2">
                 <span className="text-gray-400">Total vendido</span>
                 <span className="font-semibold text-white">{formatARS(soldTotal)}</span>
               </div>
-              {expenseTotal > 0 && (
-                <div className="flex justify-between gap-2">
-                  <span className="text-gray-400">Gastos</span>
-                  <span className="font-semibold text-orange-300">−{formatARS(expenseTotal)}</span>
-                </div>
-              )}
-              {injectTotal > 0 && (
-                <div className="flex justify-between gap-2">
-                  <span className="text-gray-400">Ingresos</span>
-                  <span className="font-semibold text-emerald-300">+{formatARS(injectTotal)}</span>
-                </div>
-              )}
               <div className="flex justify-between gap-2">
                 <span className="text-gray-400">Efectivo esperado</span>
                 <span className="font-semibold text-emerald-400">{formatARS(cashInHand)}</span>
               </div>
             </div>
+            <BillCountGrid
+              rows={closeBillRows}
+              mode={closeBillMode}
+              onModeChange={setCloseBillMode}
+              onUpdate={updateCloseBillRow}
+              countedTotal={billRowsCountedTotal(closeBillRows, closeBillMode)}
+              expectedTotal={cashInHand}
+              showExpectedDiff
+              title="Queda en registradora"
+            />
+            {import.meta.env.DEV && (
+              <button
+                type="button"
+                onClick={() => setSkipCloseBills(true)}
+                className="w-full text-xs text-gray-500 underline"
+              >
+                Omitir conteo (modo pruebas)
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -814,10 +935,44 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
               </button>
               <button
                 type="button"
-                onClick={() => void closeShift()}
+                onClick={() => {
+                  const lines = skipCloseBills ? [] : billRowsToLines(closeBillRows, closeBillMode)
+                  if (!import.meta.env.DEV && !skipCloseBills && isEmptyBillCount(lines)) {
+                    setShowEmptyCloseConfirm(true)
+                    return
+                  }
+                  void closeShift(!skipCloseBills && isEmptyBillCount(lines))
+                }}
                 className="rounded-xl bg-red-600 py-3 font-bold text-white transition-colors hover:bg-red-700"
               >
                 Cerrar turno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showEmptyCloseConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-6">
+          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-gray-900 p-5">
+            <h2 className="text-lg font-bold text-white">¿Caja vacía?</h2>
+            <p className="text-sm text-gray-400">¿Confirmás que no queda ningún billete en caja?</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowEmptyCloseConfirm(false)}
+                className="rounded-xl bg-gray-800 py-3 font-semibold text-white"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEmptyCloseConfirm(false)
+                  void closeShift(true)
+                }}
+                className="rounded-xl bg-red-600 py-3 font-bold text-white"
+              >
+                Confirmar
               </button>
             </div>
           </div>

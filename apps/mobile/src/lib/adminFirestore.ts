@@ -17,10 +17,12 @@ import {
 } from 'firebase/firestore'
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import {
+  parseBudgetItems,
   parseDepositPayments,
   parseOrderPriority,
   parseTimeSlot,
   serializeDepositPayments,
+  type BudgetCartLine,
 } from './orderMapping'
 import {
   asIsoTimestamp,
@@ -91,6 +93,7 @@ export interface Order {
   depositAmount: number
   depositPayments: string | null
   notes: string | null
+  budgetItems: BudgetCartLine[] | null
   deleted: boolean
   createdAt: string
   createdBy: string
@@ -174,6 +177,8 @@ export interface Employee {
   kind: 'butcher' | 'cashier'
   /** Local habitual. null = aparece en ambos. Distinto de storeId legado. */
   homeStoreId: string | null
+  /** Cuenta Firebase del carnicero (null si nunca se dio acceso o se revocó). */
+  firebaseUid: string | null
 }
 
 export interface EmployeeVale {
@@ -190,9 +195,10 @@ export interface AdminUser {
   uid: string
   displayName: string
   email: string
-  role: 'cashier' | 'admin'
+  role: 'cashier' | 'admin' | 'butcher'
   authorizedStores: string[]
   active: boolean
+  employeeId: string | null
 }
 
 export interface StoreDoc {
@@ -206,6 +212,9 @@ export interface StoreDoc {
   afternoonStart?: string | null
   afternoonEnd?: string | null
   hoursSchedule?: StoreHoursBlock[] | null
+  cashDiscountMinAmount?: number
+  cashDiscountPercent?: number
+  cashDiscountAudits?: unknown
 }
 
 export interface Expense {
@@ -222,6 +231,8 @@ export interface Expense {
   paymentMethod: string
   createdAt: string
   deleted: boolean
+  kind?: 'expense' | 'inject'
+  injectReason?: 'aporte' | 'wallet_cash' | null
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +274,7 @@ export async function fetchOrders(storeId?: string): Promise<Order[]> {
       depositAmount: data.depositAmount ?? 0,
       depositPayments: serializeDepositPayments(parseDepositPayments(data.depositPayments) ?? []),
       notes: data.notes ?? null,
+      budgetItems: parseBudgetItems(data.budgetItems),
       deleted: false,
       createdAt: data.createdAt ?? '',
       createdBy: data.createdBy ?? '',
@@ -276,6 +288,16 @@ export async function fetchOrders(storeId?: string): Promise<Order[]> {
 export async function createOrder(data: Omit<Order, 'id'>): Promise<void> {
   const id = crypto.randomUUID()
   await setDoc(docRef('orders', id), { ...data, id })
+}
+
+export async function updateOrder(
+  id: string,
+  data: Partial<Omit<Order, 'id' | 'createdAt' | 'createdBy' | 'deleted' | 'status' | 'storeId'>>,
+): Promise<void> {
+  await updateDoc(docRef('orders', id), {
+    ...data,
+    updatedAt: new Date().toISOString(),
+  })
 }
 
 export async function updateOrderStatus(id: string, status: OrderStatus): Promise<void> {
@@ -711,6 +733,9 @@ export async function fetchEmployees(): Promise<Employee[]> {
       homeStoreId: typeof data.homeStoreId === 'string' && data.homeStoreId.trim()
         ? data.homeStoreId.trim()
         : null,
+      firebaseUid: typeof data.firebaseUid === 'string' && data.firebaseUid.trim()
+        ? data.firebaseUid.trim()
+        : null,
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
@@ -770,7 +795,7 @@ export async function createEmployee(
 
 export async function updateEmployee(
   id: string,
-  data: Partial<{ name: string; weeklyWage: number; homeStoreId: string | null }>,
+  data: Partial<{ name: string; weeklyWage: number; homeStoreId: string | null; firebaseUid: string | null }>,
 ): Promise<void> {
   const payload: Record<string, string | number | null> = {}
   if (data.name !== undefined) payload.name = data.name
@@ -780,6 +805,9 @@ export async function updateEmployee(
   }
   if (data.homeStoreId !== undefined) {
     payload.homeStoreId = data.homeStoreId && data.homeStoreId.trim() ? data.homeStoreId.trim() : null
+  }
+  if (data.firebaseUid !== undefined) {
+    payload.firebaseUid = data.firebaseUid && data.firebaseUid.trim() ? data.firebaseUid.trim() : null
   }
   await updateDoc(docRef('employees', id), payload)
 }
@@ -799,24 +827,40 @@ export async function unarchiveEmployee(id: string): Promise<void> {
 // Users (Cajeras)
 // ---------------------------------------------------------------------------
 
-export async function fetchCashierUsers(): Promise<AdminUser[]> {
+function mapAppUserDoc(
+  id: string,
+  data: Record<string, unknown>,
+): AdminUser | null {
+  if (data['deleted'] === true) return null
+  const role = data['role']
+  if (role !== 'cashier' && role !== 'admin' && role !== 'butcher') return null
+  return {
+    uid: typeof data['uid'] === 'string' ? data['uid'] : id,
+    displayName: typeof data['displayName'] === 'string' ? data['displayName'] : '',
+    email: typeof data['email'] === 'string' ? data['email'] : '',
+    role,
+    authorizedStores: Array.isArray(data['authorizedStores'])
+      ? data['authorizedStores'].filter((s): s is string => typeof s === 'string')
+      : [],
+    active: data['active'] !== false,
+    employeeId: typeof data['employeeId'] === 'string' ? data['employeeId'] : null,
+  }
+}
+
+/** Colección chica y estable (`users`): un `getDocs` y se filtra en memoria. */
+export async function fetchAppUsers(): Promise<AdminUser[]> {
   const snap = await getDocs(col('users'))
   const list: AdminUser[] = []
   for (const d of snap.docs) {
-    const data = d.data() as Partial<AdminUser>
-    if (data.role !== 'cashier') continue
-    if ((data as { deleted?: boolean }).deleted === true) continue
-    list.push({
-      uid: data.uid ?? d.id,
-      displayName: data.displayName ?? '',
-      email: data.email ?? '',
-      role: 'cashier',
-      authorizedStores: data.authorizedStores ?? [],
-      active: data.active !== false,
-    })
+    const mapped = mapAppUserDoc(d.id, d.data() as Record<string, unknown>)
+    if (mapped) list.push(mapped)
   }
   list.sort((a, b) => a.displayName.localeCompare(b.displayName, 'es'))
   return list
+}
+
+export async function fetchCashierUsers(): Promise<AdminUser[]> {
+  return (await fetchAppUsers()).filter(u => u.role === 'cashier')
 }
 
 export async function updateUserActive(uid: string, active: boolean): Promise<void> {
@@ -858,6 +902,13 @@ export async function fetchAllStores(): Promise<StoreDoc[]> {
       afternoonStart: parseHhmm(data.afternoonStart),
       afternoonEnd: parseHhmm(data.afternoonEnd),
       hoursSchedule: parseHoursSchedule((data as { hoursSchedule?: unknown }).hoursSchedule),
+      cashDiscountMinAmount: typeof (data as { cashDiscountMinAmount?: unknown }).cashDiscountMinAmount === 'number'
+        ? (data as { cashDiscountMinAmount: number }).cashDiscountMinAmount
+        : 0,
+      cashDiscountPercent: typeof (data as { cashDiscountPercent?: unknown }).cashDiscountPercent === 'number'
+        ? (data as { cashDiscountPercent: number }).cashDiscountPercent
+        : 0,
+      cashDiscountAudits: (data as { cashDiscountAudits?: unknown }).cashDiscountAudits,
     })
   }
   list.sort((a, b) => a.name.localeCompare(b.name, 'es'))
@@ -925,10 +976,13 @@ export async function fetchExpensesForShift(shiftId: string): Promise<Expense[]>
       concept?: string | null
       notes?: string | null
       deleted?: boolean
+      kind?: string | null
+      injectReason?: string | null
     }
     if (data.deleted === true) continue
     if (data.shiftId !== shiftId) continue
     const concept = data.concept ?? data.description ?? null
+    const kind = data.kind === 'inject' ? 'inject' as const : 'expense' as const
     list.push({
       id: data.id ?? d.id,
       storeId: data.storeId ?? '',
@@ -943,6 +997,10 @@ export async function fetchExpensesForShift(shiftId: string): Promise<Expense[]>
       paymentMethod: data.paymentMethod ?? 'cash',
       createdAt: data.createdAt ?? '',
       deleted: false,
+      kind,
+      injectReason: kind === 'inject'
+        ? (data.injectReason === 'wallet_cash' ? 'wallet_cash' : 'aporte')
+        : null,
     })
   }
   list.sort((a, b) => a.createdAt.localeCompare(b.createdAt))

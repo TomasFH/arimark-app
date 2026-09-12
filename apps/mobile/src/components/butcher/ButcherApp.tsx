@@ -60,6 +60,7 @@ import {
 import { useBackLayer } from '../../lib/backStack'
 import type { LocalProfile } from '../../types/pos'
 import { formatOrderQty, formatOrderQtyHint, clockMinutes, isPickupOutsideHoursOnDate } from '@carniceria/shared'
+import { ChangePasswordModal } from '../ChangePasswordModal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -170,6 +171,7 @@ export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
   const [vales, setVales] = useState<PayrollVale[]>([])
   const [payment, setPayment] = useState<PayrollPayment | null>(null)
   const [payrollError, setPayrollError] = useState<string | null>(null)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   const today = todayLocalYmd()
   const weekStart = weekStartMondayLocalYmd(today)
@@ -484,13 +486,22 @@ export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
             {storeName} ▾
           </button>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300 ml-3 px-2 py-1"
-        >
-          Salir
-        </button>
+        <div className="flex shrink-0 items-center gap-1 ml-3">
+          <button
+            type="button"
+            onClick={() => setShowChangePassword(true)}
+            className="text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1"
+          >
+            Contraseña
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1"
+          >
+            Salir
+          </button>
+        </div>
       </header>
 
       {/* Tabs */}
@@ -563,6 +574,9 @@ export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
           onUndo={() => { void handleUndoReady() }}
           onDismiss={dismissReadyToast}
         />
+      )}
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
       )}
     </div>
   )

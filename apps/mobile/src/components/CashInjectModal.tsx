@@ -1,6 +1,7 @@
 /**
  * Modal de ingreso de efectivo a caja (emergencia).
  */
+import { INJECT_REASON_LABELS, type InjectReason } from '@carniceria/shared'
 import { useState } from 'react'
 import { useBackLayer } from '../lib/backStack'
 import { useKeyboardInset } from '../lib/keyboardInset'
@@ -8,7 +9,7 @@ import NumericInput from './NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
 
 interface Props {
-  onConfirm: (payload: { amount: number; notes: string | null }) => void
+  onConfirm: (payload: { amount: number; notes: string | null; injectReason: InjectReason }) => void
   onClose: () => void
 }
 
@@ -17,6 +18,7 @@ export function CashInjectModal({ onConfirm, onClose }: Props) {
   const keyboardInset = useKeyboardInset()
   const [amountRaw, setAmountRaw] = useState('')
   const [notes, setNotes] = useState('')
+  const [injectReason, setInjectReason] = useState<InjectReason>('aporte')
   const [error, setError] = useState<string | null>(null)
 
   function handleConfirm() {
@@ -28,6 +30,7 @@ export function CashInjectModal({ onConfirm, onClose }: Props) {
     onConfirm({
       amount,
       notes: notes.trim() ? notes.trim().slice(0, 200) : null,
+      injectReason,
     })
   }
 
@@ -47,8 +50,38 @@ export function CashInjectModal({ onConfirm, onClose }: Props) {
         </div>
 
         <p className="text-sm text-gray-400">
-          Suma el monto a la caja del turno.
+          Suma el monto a la caja del turno. La acreditación digital se hace afuera de la app.
         </p>
+
+        <fieldset className="space-y-2">
+          <legend className="text-xs text-gray-400">Motivo</legend>
+          <label className="flex items-start gap-2 rounded-lg border border-gray-700 px-3 py-2">
+            <input
+              type="radio"
+              name="inject-reason"
+              checked={injectReason === 'aporte'}
+              onChange={() => setInjectReason('aporte')}
+              className="mt-1"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm text-white">{INJECT_REASON_LABELS.aporte}</span>
+              <span className="block text-xs text-gray-500">Plata que mandan los admin.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 rounded-lg border border-gray-700 px-3 py-2">
+            <input
+              type="radio"
+              name="inject-reason"
+              checked={injectReason === 'wallet_cash'}
+              onChange={() => setInjectReason('wallet_cash')}
+              className="mt-1"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm text-white">{INJECT_REASON_LABELS.wallet_cash}</span>
+              <span className="block text-xs text-gray-500">El cliente deja efectivo; la acreditación es afuera.</span>
+            </span>
+          </label>
+        </fieldset>
 
         <div>
           <label className="mb-1 block text-xs text-gray-400">Monto</label>
@@ -68,7 +101,7 @@ export function CashInjectModal({ onConfirm, onClose }: Props) {
             onChange={e => setNotes(e.target.value.slice(0, 200))}
             maxLength={200}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-gray-500"
-            placeholder="Observaciones…"
+            placeholder={injectReason === 'wallet_cash' ? 'Nombre del cliente (opcional)' : 'Observaciones…'}
           />
         </div>
 

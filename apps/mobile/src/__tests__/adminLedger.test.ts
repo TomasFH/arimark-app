@@ -119,6 +119,11 @@ describe('expenseTitle', () => {
       category: 'vale',
     })).toBe('Vale')
   })
+
+  it('distingue aporte y efectivo por digital', () => {
+    expect(expenseTitle({ kind: 'inject', injectReason: 'aporte', concept: 'Aporte' })).toBe('Aporte')
+    expect(expenseTitle({ kind: 'inject', injectReason: 'wallet_cash', concept: 'Efectivo por digital' })).toBe('Efectivo por digital')
+  })
 })
 
 describe('expenseNote', () => {

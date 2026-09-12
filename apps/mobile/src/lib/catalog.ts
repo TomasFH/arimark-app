@@ -204,3 +204,22 @@ export function stopCatalogLiveListener(): void {
   }
   catalogLiveUnsub = null
 }
+
+export function isCatalogLiveFor(storeId: string): boolean {
+  return catalogLiveStoreId === storeId
+}
+
+/**
+ * Catálogo del local para el picker de pedidos admin.
+ * IndexedDB primero (0 lecturas). Si el local no está en cache y no hay
+ * listener POS de ese doc, un solo `getDoc` de `catalog/{storeId}`.
+ * No usa `getDocs` ni `fetchMergedCatalogFromFirestore`.
+ */
+export async function loadCatalogForStorePicker(storeId: string): Promise<CatalogProduct[]> {
+  if (!storeId) return []
+  const record = await db.catalog.get(storeId)
+  if (record) return record.products
+  if (catalogLiveStoreId === storeId) return []
+  await syncCatalog(storeId)
+  return getCatalog(storeId)
+}

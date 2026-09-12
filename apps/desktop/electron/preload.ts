@@ -31,6 +31,10 @@ const hw: HwApi = {
 
   logout: payload => ipcRenderer.invoke(IPC.LOGOUT, payload),
 
+  sendPasswordReset: payload => ipcRenderer.invoke(IPC.SEND_PASSWORD_RESET, payload),
+
+  changePassword: payload => ipcRenderer.invoke(IPC.CHANGE_PASSWORD, payload),
+
   refreshRemoteData: () => ipcRenderer.invoke(IPC.REFRESH_REMOTE_DATA),
 
   getActiveShift: () => ipcRenderer.invoke(IPC.GET_ACTIVE_SHIFT),
@@ -38,6 +42,8 @@ const hw: HwApi = {
   getStoreOpenShift: () => ipcRenderer.invoke(IPC.GET_STORE_OPEN_SHIFT),
 
   getUserOpenShift: () => ipcRenderer.invoke(IPC.GET_USER_OPEN_SHIFT),
+
+  getCashHandover: () => ipcRenderer.invoke(IPC.GET_CASH_HANDOVER),
 
   openShift: payload => ipcRenderer.invoke(IPC.OPEN_SHIFT, payload),
 
@@ -133,6 +139,13 @@ const hw: HwApi = {
   getShiftExpenses: () => ipcRenderer.invoke(IPC.GET_SHIFT_EXPENSES),
 
   getExpenseCategories: () => ipcRenderer.invoke(IPC.GET_EXPENSE_CATEGORIES),
+
+  getCashDiscountRule: () => ipcRenderer.invoke(IPC.GET_CASH_DISCOUNT_RULE),
+  setCashDiscountRule: payload => ipcRenderer.invoke(IPC.SET_CASH_DISCOUNT_RULE, payload),
+
+  listShiftCebo: payload => ipcRenderer.invoke(IPC.LIST_SHIFT_CEBO, payload),
+  registerCebo: payload => ipcRenderer.invoke(IPC.REGISTER_CEBO, payload),
+  updateCebo: payload => ipcRenderer.invoke(IPC.UPDATE_CEBO, payload),
 
   getProviderDebt: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_DEBT, payload),
 

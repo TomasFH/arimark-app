@@ -4,7 +4,9 @@
  * Todo pasa por este contrato.
  */
 
-import type { StoreHoursBlock } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, StoreHoursBlock } from '@carniceria/shared'
+
+export type { BillLine, CashDiscountBlock, CashHandoverAudit }
 
 export type AppEnv = 'dev' | 'production'
 
@@ -78,6 +80,16 @@ export interface AdminLoginPayload {
   password: string
 }
 
+export interface SendPasswordResetPayload {
+  /** Si se omite, se usa el email de la sesión Firebase actual. */
+  email?: string
+}
+
+export interface ChangePasswordPayload {
+  currentPassword: string
+  newPassword: string
+}
+
 export interface SessionInfo {
   role: 'cashier' | 'admin'
   userId: string
@@ -103,9 +115,26 @@ export interface ShiftInfo {
   resumed?: boolean
 }
 
+export interface CashHandoverSnapshot {
+  fromShiftId: string
+  fromUserId: string
+  fromCashierName: string
+  fromClosedAt: string
+  bills: BillLine[]
+  counted: boolean
+}
+
 export interface OpenShiftPayload {
   shiftType: ShiftType
   openingCash: number
+  /** Desglose que encontró al abrir. Omitir solo en APP_ENV=dev (skip). */
+  openingBillDenominations?: BillLine[]
+  /** Obligatorio en producción si todas las cantidades son 0. */
+  confirmEmptyRegister?: boolean
+  handoverFromShiftId?: string
+  handoverFromCashierName?: string
+  handoverFromClosedAt?: string
+  handoverExpectedBills?: BillLine[]
 }
 
 // ---------------------------------------------------------------------------
@@ -163,8 +192,10 @@ export interface CloseShiftPayload {
   deliveredAmount?: number
   deliveredTo?: string
   notes?: string
-  /** Conteo de billetes al cerrar (denominación → cantidad) */
-  billDenominations?: Array<{ denomination: number; quantity: number }>
+  /** Conteo de billetes al cerrar (denominación → cantidad). Array vacío = contó cero. */
+  billDenominations?: BillLine[]
+  /** Obligatorio en producción si todas las cantidades son 0. */
+  confirmEmptyRegister?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +328,12 @@ export interface StoreRow {
   afternoonEnd?: string | null
   /** Horarios por grupos de días. Null = los 4 campos valen los 7 días. */
   hoursSchedule?: StoreHoursBlock[] | null
+  /** Mínimo del total de ítems para descuento efectivo. 0 = sin mínimo. */
+  cashDiscountMinAmount?: number
+  /** 0 = apagado; 1–100 = %. */
+  cashDiscountPercent?: number
+  /** Excepciones por días y turno. Vacío = solo la regla general. */
+  cashDiscountSchedule?: CashDiscountBlock[]
 }
 
 export interface CreateProductPayload {
@@ -1165,6 +1202,7 @@ export interface HistoryExpenseRow {
   notes: string | null
   createdBy: string
   kind?: 'expense' | 'inject'
+  injectReason?: 'aporte' | 'wallet_cash'
 }
 
 export interface HistoryDebtRow {
@@ -1213,6 +1251,7 @@ export interface HistoryShiftDetail {
     notes: string | null
     source?: 'desktop' | 'mobile'
   }
+  cashHandover?: CashHandoverAudit | null
   sales: HistorySaleRow[]
   expenses: HistoryExpenseRow[]
   debts: HistoryDebtRow[]
@@ -1338,6 +1377,15 @@ export interface HwApi {
   logout: (payload: { role: 'cashier' | 'admin'; storeId?: string }) => Promise<IpcResult>
 
   /**
+   * Mail de restablecer contraseña (`sendPasswordResetEmail`).
+   * En login se pasa `email`. Ya logueado se puede omitir (usa la sesión).
+   */
+  sendPasswordReset: (payload: SendPasswordResetPayload) => Promise<IpcResult>
+
+  /** Cambia la clave de la cuenta en sesión (actual + nueva). */
+  changePassword: (payload: ChangePasswordPayload) => Promise<IpcResult>
+
+  /**
    * Re-sincroniza locales, empleados y catálogo desde Firestore sin cerrar sesión.
    * Usado por el botón ↺ de la UI.
    */
@@ -1359,6 +1407,12 @@ export interface HwApi {
    * directamente, salteando el store picker y la pantalla de apertura de turno.
    */
   getUserOpenShift: () => Promise<IpcResult<{ shiftId: string; storeId: string; shiftType: string; openingCash: number } | null>>
+
+  /**
+   * Último cierre del local (desglose que quedó en la registradora) para precargar la apertura.
+   * Combina SQLite local y, si hay red, el doc de turno en Firestore.
+   */
+  getCashHandover: () => Promise<IpcResult<CashHandoverSnapshot | null>>
 
   /** Abre un nuevo turno para la cajera autenticada */
   openShift: (payload: OpenShiftPayload) => Promise<IpcResult<ShiftInfo>>
@@ -1502,8 +1556,12 @@ export interface HwApi {
   /** Registra un gasto durante el turno activo */
   registerExpense: (payload: RegisterExpensePayload) => Promise<IpcResult<{ id: string }>>
 
-  /** Registra un aporte de efectivo a caja durante el turno activo */
-  registerCashInject: (payload: { amount: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
+  /** Registra un ingreso de efectivo a caja durante el turno activo */
+  registerCashInject: (payload: {
+    amount: number
+    notes?: string
+    injectReason?: 'aporte' | 'wallet_cash'
+  }) => Promise<IpcResult<{ id: string }>>
 
   /** Actualiza un gasto del turno activo (solo mientras el turno está abierto) */
   updateExpense: (payload: UpdateExpensePayload) => Promise<IpcResult<{ id: string }>>
@@ -1526,6 +1584,53 @@ export interface HwApi {
    * Incluye sugerencias predefinidas si aún no hay historial.
    */
   getExpenseCategories: () => Promise<IpcResult<string[]>>
+
+  getCashDiscountRule: () => Promise<IpcResult<{
+    minAmount: number
+    percent: number
+    schedule: CashDiscountBlock[]
+    audits: Array<{
+      id: string
+      createdAt: string
+      actorName: string
+      previousMinAmount: number
+      previousPercent: number
+      nextMinAmount: number
+      nextPercent: number
+    }>
+  }>>
+  setCashDiscountRule: (payload: {
+    minAmount: number
+    percent: number
+    schedule: CashDiscountBlock[]
+  }) => Promise<IpcResult<{
+    minAmount: number
+    percent: number
+    schedule: CashDiscountBlock[]
+    audits: Array<{
+      id: string
+      createdAt: string
+      actorName: string
+      previousMinAmount: number
+      previousPercent: number
+      nextMinAmount: number
+      nextPercent: number
+    }>
+  }>>
+
+  listShiftCebo: (payload?: { weekOffset?: number }) => Promise<IpcResult<Array<{
+    id: string
+    quantityKg: number
+    notes: string | null
+    createdById: string
+    createdByName: string
+    createdAt: string
+    updatedByName: string | null
+    updatedAt: string | null
+    canEdit: boolean
+  }>>>
+  registerCebo: (payload: { quantityKg: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
+  updateCebo: (payload: { id: string; quantityKg: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
 
   // ---- Proveedores (Fase S1) ----
   /** Lista proveedores activos desde la cache local. */

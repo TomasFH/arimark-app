@@ -16,6 +16,7 @@ describe('db - capa offline', () => {
     await db.vales.clear()
     await db.salaryPayments.clear()
     await db.providerDebtEvents.clear()
+    await db.ceboEntries.clear()
   })
 
   it('persiste y recupera un turno', async () => {
@@ -233,6 +234,27 @@ describe('db - capa offline', () => {
       .filter(e => e.syncStatus === 'pending' || e.syncStatus === 'error')
       .toArray()
     expect(pendingOrError).toHaveLength(2)
+  })
+
+  it('persiste cebo del turno y filtra por shiftId', async () => {
+    await db.ceboEntries.add({
+      id: 'cebo-1',
+      shiftId: 'shift-a',
+      storeId: 'local1',
+      quantityKg: 1.25,
+      notes: 'bolsa',
+      createdAt: '2026-09-10T10:00:00.000Z',
+      createdBy: 'uid-1',
+      createdByName: 'Ana',
+      updatedAt: null,
+      updatedBy: null,
+      updatedByName: null,
+      syncStatus: 'pending',
+      syncedAt: null,
+    })
+    const ofA = await db.ceboEntries.where('shiftId').equals('shift-a').toArray()
+    expect(ofA).toHaveLength(1)
+    expect(ofA[0]?.quantityKg).toBe(1.25)
   })
 
   it('una venta vieja sin status se puede leer (compatibilidad)', async () => {

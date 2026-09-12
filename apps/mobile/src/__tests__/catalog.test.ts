@@ -2,10 +2,10 @@
  * Tests de la lógica de búsqueda del catálogo.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { findByPlu, searchCatalog, mergeCatalogProducts, catalogTypeaheadMatches, productsFromCatalogSnapshot, persistCatalogSnapshot, startCatalogLiveListener, stopCatalogLiveListener, getCatalog } from '../lib/catalog'
+import { findByPlu, searchCatalog, mergeCatalogProducts, catalogTypeaheadMatches, productsFromCatalogSnapshot, persistCatalogSnapshot, startCatalogLiveListener, stopCatalogLiveListener, getCatalog, loadCatalogForStorePicker } from '../lib/catalog'
 import type { CatalogProduct } from '../types/pos'
 import { db } from '../lib/db'
-import { onSnapshot } from 'firebase/firestore'
+import { getDoc, getDocs, onSnapshot } from 'firebase/firestore'
 
 const catalog: CatalogProduct[] = [
   { productId: 'p1', pluNumber: 5, name: 'Vacío', category: 'beef_cut', unit: 'kg', price: 21000 },
@@ -208,3 +208,49 @@ describe('catalog - snapshot en vivo', () => {
     expect(unsub).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('loadCatalogForStorePicker', () => {
+  beforeEach(async () => {
+    stopCatalogLiveListener()
+    await db.catalog.clear()
+    vi.mocked(getDoc).mockReset()
+    vi.mocked(getDocs).mockReset()
+  })
+
+  afterEach(() => {
+    stopCatalogLiveListener()
+  })
+
+  it('usa IndexedDB y no llama Firestore si hay cache', async () => {
+    await persistCatalogSnapshot('store-1', {
+      products: catalog,
+      updatedAt: '2026-08-20T00:00:00.000Z',
+    })
+    const products = await loadCatalogForStorePicker('store-1')
+    expect(products).toHaveLength(3)
+    expect(getDoc).not.toHaveBeenCalled()
+    expect(getDocs).not.toHaveBeenCalled()
+  })
+
+  it('si no hay cache hace un getDoc del local y no getDocs de la colección', async () => {
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => ({ products: catalog, updatedAt: '2026-08-20T00:00:00.000Z' }),
+    } as never)
+    const products = await loadCatalogForStorePicker('store-1')
+    expect(getDoc).toHaveBeenCalledTimes(1)
+    expect(getDocs).not.toHaveBeenCalled()
+    expect(products).toHaveLength(3)
+    expect(await getCatalog('store-1')).toHaveLength(3)
+  })
+
+  it('si ya hay listener POS de ese local no re-descarga', async () => {
+    vi.mocked(onSnapshot).mockReturnValue(vi.fn())
+    startCatalogLiveListener('store-1', () => {})
+    const products = await loadCatalogForStorePicker('store-1')
+    expect(products).toEqual([])
+    expect(getDoc).not.toHaveBeenCalled()
+    expect(getDocs).not.toHaveBeenCalled()
+  })
+})
+

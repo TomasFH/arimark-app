@@ -15,6 +15,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import log from 'electron-log'
+import { budgetItemsForFirestore, budgetItemsForSqlite } from '@carniceria/shared'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { orders, shifts, users } from '../db/schema'
@@ -48,6 +49,7 @@ interface RemoteOrderDoc {
   readyBy?: string | null
   readyByName?: string | null
   deleted?: boolean
+  budgetItems?: unknown
 }
 
 /** Autor sintético para docs remotos sin createdBy (no romper el pull). */
@@ -124,6 +126,7 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
       readyAt,
       readyBy,
       readyByName,
+      budgetItems: budgetItemsForSqlite(data.budgetItems),
       syncedAt: now,
     })
     .onConflictDoUpdate({
@@ -148,6 +151,7 @@ function upsertOrderFromRemote(data: RemoteOrderDoc, docId: string): void {
         readyAt,
         readyBy,
         readyByName,
+        budgetItems: budgetItemsForSqlite(data.budgetItems),
         syncedAt: now,
       },
     })
@@ -195,6 +199,7 @@ export async function pushUnsyncedOrders(tenantId: string): Promise<void> {
         deliveredByName: row.status === 'delivered' && row.updatedBy
           ? (db.select({ name: users.name }).from(users).where(eq(users.id, row.updatedBy)).get()?.name?.trim() || null)
           : null,
+        budgetItems: budgetItemsForFirestore(row.budgetItems),
         deleted: false,
       }, { merge: true })
 
