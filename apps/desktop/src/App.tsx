@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { DevBanner } from './components/SandboxBanner'
+import { OfflineSessionBanner } from './components/OfflineSessionBanner'
 import LoginScreen from './routes/LoginScreen'
 import StorePickerScreen from './routes/StorePickerScreen'
 import ActivationScreen from './routes/ActivationScreen'
@@ -38,7 +39,7 @@ type AppState =
   | { screen: 'license-error'; reason: InitStatus['licenseReason'] & string; message: string }
   | { screen: 'activation'; licenseKey: string }
   | { screen: 'login'; initStatus: InitStatus }
-  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier'; preferredStoreId?: string | null }
+  | { screen: 'store-picker'; partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName' | 'offlineSession'>; stores: StoreRow[]; initStatus: InitStatus; intent?: 'cashier'; preferredStoreId?: string | null }
   | { screen: 'shift-required'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'cashier'; session: SessionInfo; shift: ShiftInfo; initStatus: InitStatus }
   | { screen: 'close-shift'; session: SessionInfo; initStatus: InitStatus }
@@ -77,9 +78,35 @@ export default function App() {
       'cashier',
     ])
     if ((refreshScreens.has(prev) || refreshScreens.has(state.screen)) && window.hw?.refreshRemoteData) {
+      const sess = 'session' in state ? state.session : state.screen === 'store-picker' ? state.partialSession : null
+      if (sess?.offlineSession) return
       void window.hw.refreshRemoteData()
     }
   }, [state.screen])
+
+  useEffect(() => {
+    if (!window.hw?.onOfflineSessionUpgraded || !window.hw.onOfflineSessionRevoked) return
+    const unsubUp = window.hw.onOfflineSessionUpgraded(() => {
+      setState(s => {
+        if ('session' in s) return { ...s, session: { ...s.session, offlineSession: false } }
+        if (s.screen === 'store-picker') {
+          return { ...s, partialSession: { ...s.partialSession, offlineSession: false } }
+        }
+        return s
+      })
+    })
+    const unsubRev = window.hw.onOfflineSessionRevoked(() => {
+      setState(s => {
+        const initStatus = 'initStatus' in s ? s.initStatus : null
+        if (initStatus) return { screen: 'login', initStatus }
+        return s
+      })
+    })
+    return () => {
+      unsubUp()
+      unsubRev()
+    }
+  }, [])
 
   // Cuando la cajera navega a Fiados o Clientes especiales desde la caja,
   // CashierScreen permanece montado (oculto) para que el carrito no se pierda.
@@ -241,6 +268,7 @@ export default function App() {
     const session: SessionInfo = {
       ...r.data,
       displayName: r.data.displayName?.trim() || partialSession.displayName?.trim() || undefined,
+      offlineSession: r.data.offlineSession ?? partialSession.offlineSession,
     }
     // Si el admin llega sin intención de ir a la caja, vuelve al hub
     if (session.role === 'admin' && intent !== 'cashier') {
@@ -399,6 +427,10 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <DevBanner />
+      {(('session' in state && state.session.offlineSession) ||
+        (state.screen === 'store-picker' && state.partialSession.offlineSession)) && (
+        <OfflineSessionBanner />
+      )}
 
       <ScreenErrorBoundary resetKey={state.screen} onReset={handleRecoverFromScreenError}>
 

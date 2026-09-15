@@ -31,7 +31,7 @@ vi.mock('../../licensing/installation', () => ({
 }))
 
 vi.mock('../../businessConfig', () => ({
-  getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'TEST-LIC-001' }),
+  getBusinessConfig: vi.fn().mockReturnValue({ tenant_id: 'TEST-LIC-001', default_store_id: 'store-1' }),
 }))
 
 vi.mock('../../licensing/employeeSync', () => ({
@@ -98,16 +98,29 @@ vi.mock('../../secureStorage', () => ({
   SECRET_KEYS: { ADMIN_SESSION_TOKEN: 'admin-session' },
 }))
 
+vi.mock('../../offlineAuth', () => ({
+  cacheCredentials: vi.fn(),
+}))
+
+vi.mock('../../offlineSessionWatch', () => ({
+  startOfflineSessionWatch: vi.fn(),
+  stopOfflineSessionWatch: vi.fn(),
+}))
+
 vi.mock('../../activeSession', () => ({
   setActiveSession: vi.fn(),
+  getActiveSession: vi.fn(() => null),
 }))
 
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
-import { signInWithRole, loginAdmin } from '../../licensing/session'
+import { signInWithRole, loginAdmin, signInAutoDetect } from '../../licensing/session'
 import { sendPasswordReset, changeOwnPassword } from '../../licensing/passwordAuth'
-import { setActiveSession } from '../../activeSession'
-import { syncAllStoreCatalogs } from '../../licensing/catalogSync'
+import { setActiveSession, getActiveSession } from '../../activeSession'
+import { syncAllStoreCatalogs, startCatalogSyncListener } from '../../licensing/catalogSync'
+import { ensureStoresSynced } from '../../licensing/storeSync'
+import { startOfflineSessionWatch, stopOfflineSessionWatch } from '../../offlineSessionWatch'
+import { cacheCredentials } from '../../offlineAuth'
 import { registerAuthHandlers } from '../auth.handler'
 
 type HandlerFn = (_event: unknown, payload: unknown) => Promise<unknown>
@@ -163,6 +176,73 @@ describe('auth.handler', () => {
     })
   })
 
+  describe('LOGIN', () => {
+    it('rechaza payload malformado', async () => {
+      const handler = getHandler('ipc:login')
+      const result = await handler({}, { email: 'no-es-email', password: 'pw' })
+      expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    })
+
+    it('login online de cajera sincroniza Firestore y no marca offlineSession', async () => {
+      mockDbWithUser({ id: 'uid-1', storeId: 'store-1', name: 'Cajera Uno', active: true })
+      vi.mocked(signInAutoDetect).mockResolvedValue({
+        ok: true,
+        profile: {
+          uid: 'uid-1',
+          email: 'cajera1@negocio.com',
+          role: 'cashier',
+          authorizedStores: ['store-1'],
+          displayName: 'Cajera Uno',
+          active: true,
+        },
+      })
+
+      const handler = getHandler('ipc:login')
+      const result = await handler({}, { email: 'cajera1@negocio.com', password: 'correct' }) as {
+        ok: boolean
+        data: { role: string; offlineSession?: boolean }
+      }
+
+      expect(result.ok).toBe(true)
+      expect(result.data.role).toBe('cashier')
+      expect(result.data.offlineSession).toBe(false)
+      expect(ensureStoresSynced).toHaveBeenCalledWith('TEST-LIC-001')
+      expect(startCatalogSyncListener).toHaveBeenCalled()
+      expect(startOfflineSessionWatch).not.toHaveBeenCalled()
+    })
+
+    it('login offline de cajera no espera Firestore y arranca el watch', async () => {
+      mockDbWithUser({ id: 'uid-1', storeId: 'store-1', name: 'Cajera Uno', active: true })
+      vi.mocked(signInAutoDetect).mockResolvedValue({
+        ok: true,
+        offlineSession: true,
+        profile: {
+          uid: 'uid-1',
+          email: 'cajera1@negocio.com',
+          role: 'cashier',
+          authorizedStores: ['store-1'],
+          displayName: 'Cajera Uno',
+          active: true,
+        },
+      })
+
+      const handler = getHandler('ipc:login')
+      const result = await handler({}, { email: 'cajera1@negocio.com', password: 'correct' }) as {
+        ok: boolean
+        data: { offlineSession?: boolean }
+      }
+
+      expect(result.ok).toBe(true)
+      expect(result.data.offlineSession).toBe(true)
+      expect(ensureStoresSynced).not.toHaveBeenCalled()
+      expect(startCatalogSyncListener).not.toHaveBeenCalled()
+      expect(startOfflineSessionWatch).toHaveBeenCalledWith(expect.objectContaining({
+        email: 'cajera1@negocio.com',
+        password: 'correct',
+      }))
+    })
+  })
+
   describe('LOGIN_CASHIER', () => {
     it('rechaza payload malformado (email inválido)', async () => {
       const handler = getHandler('ipc:login-cashier')
@@ -192,7 +272,15 @@ describe('auth.handler', () => {
       expect(result.data.role).toBe('cashier')
       expect(result.data.userId).toBe('uid-1')
       expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({ id: 'uid-1', firebaseUid: 'uid-1', storeId: 'store-1' }))
-      expect(setActiveSession).toHaveBeenCalledWith({ userId: 'uid-1', storeId: 'store-1', role: 'cashier', shiftId: null, displayName: 'Cajera Uno' })
+      expect(setActiveSession).toHaveBeenCalledWith({
+        userId: 'uid-1',
+        storeId: 'store-1',
+        role: 'cashier',
+        shiftId: null,
+        displayName: 'Cajera Uno',
+        email: 'cajera1@negocio.com',
+        offlineSession: false,
+      })
     })
 
     it('login exitoso reutiliza el perfil local existente sin volver a insertar', async () => {
@@ -276,6 +364,7 @@ describe('auth.handler', () => {
       const result = await handler({}, { role: 'cashier', storeId: 'store-1' })
       expect(result).toMatchObject({ ok: true })
       expect(setActiveSession).toHaveBeenCalledWith(null)
+      expect(stopOfflineSessionWatch).toHaveBeenCalled()
     })
   })
 
@@ -334,6 +423,25 @@ describe('auth.handler', () => {
       const result = await handler({}, { currentPassword: 'vieja123', newPassword: 'nueva456' })
       expect(result).toMatchObject({ ok: true })
       expect(changeOwnPassword).toHaveBeenCalledWith('vieja123', 'nueva456')
+    })
+
+    it('actualiza el hash offline si hay email en sesión', async () => {
+      vi.mocked(changeOwnPassword).mockResolvedValue({ ok: true })
+      vi.mocked(getActiveSession).mockReturnValue({
+        userId: 'uid-1',
+        storeId: 'store-1',
+        role: 'cashier',
+        shiftId: null,
+        email: 'cajera1@negocio.com',
+        displayName: 'Cajera Uno',
+      })
+      const handler = getHandler('ipc:change-password')
+      await handler({}, { currentPassword: 'vieja123', newPassword: 'nueva456' })
+      expect(cacheCredentials).toHaveBeenCalledWith(
+        'cajera1@negocio.com',
+        'nueva456',
+        expect.objectContaining({ uid: 'uid-1', role: 'cashier' }),
+      )
     })
 
     it('propaga REQUIRES_REAUTH', async () => {

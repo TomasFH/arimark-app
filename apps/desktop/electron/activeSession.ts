@@ -15,6 +15,10 @@ export interface ActiveSession {
   shiftId: string | null
   /** Nombre visible del usuario (displayName de Firestore). Se usa en el upsert de la tabla users. */
   displayName?: string
+  /** Email de la cuenta (para recachear hash al cambiar contraseña / re-verify). */
+  email?: string
+  /** true cuando el login se validó contra el hash local (sin Firebase). */
+  offlineSession?: boolean
 }
 
 let _session: ActiveSession | null = null

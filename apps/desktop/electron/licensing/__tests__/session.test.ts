@@ -30,12 +30,25 @@ vi.mock('../../secureStorage', () => ({
     ADMIN_SESSION_TOKEN: 'admin-session-token',
     LAST_LICENSE_VERIFIED_AT: 'last-license-verified-at',
     FIREBASE_ANON_UID: 'firebase-anon-uid',
+    OFFLINE_CREDENTIALS: 'offline-credentials',
   },
+}))
+
+vi.mock('../../offlineAuth', () => ({
+  cacheCredentials: vi.fn(),
+  validateOffline: vi.fn(() => null),
 }))
 
 import { getDoc } from 'firebase/firestore'
 import { signInWithEmailAndPassword } from 'firebase/auth'
-import { signInWithRole, signInAutoDetect, loginAdmin, logoutAdmin, getStoredAdminSession } from '../session'
+import { signInWithRole, signInAutoDetect, loginAdmin, logoutAdmin, getStoredAdminSession, isNetworkAuthError, reverifyOnlineOnly } from '../session'
+import { cacheCredentials, validateOffline } from '../../offlineAuth'
+
+function firebaseErr(code: string): Error & { code: string } {
+  const err = new Error(`Firebase: Error (${code}).`) as Error & { code: string }
+  err.code = code
+  return err
+}
 
 describe('signInWithRole — modo dev', () => {
   beforeEach(() => {
@@ -131,6 +144,11 @@ describe('signInWithRole — modo producción', () => {
       expect(result.profile.authorizedStores).toEqual(['store-1', 'store-2'])
       expect(result.profile.displayName).toBe('Cajera Uno')
     }
+    expect(cacheCredentials).toHaveBeenCalledWith(
+      'cajera1@negocio.com',
+      'pw',
+      expect.objectContaining({ uid: 'uid-001', role: 'cashier' }),
+    )
   })
 
   it('signInAutoDetect rechaza rol butcher con mensaje de celular', async () => {
@@ -230,5 +248,90 @@ describe('loginAdmin — modo producción', () => {
     const result = await loginAdmin('LIC-001', 'admin@test.com', 'correct-password')
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.session.uid).toBe('real-admin-uid')
+  })
+})
+
+describe('login offline (DT-02)', () => {
+  beforeEach(() => {
+    process.env['APP_ENV'] = 'production'
+    secretStore.clear()
+    vi.clearAllMocks()
+    vi.mocked(validateOffline).mockReturnValue(null)
+  })
+
+  it('isNetworkAuthError solo cubre fallos de red', () => {
+    expect(isNetworkAuthError(firebaseErr('auth/network-request-failed'))).toBe(true)
+    expect(isNetworkAuthError(firebaseErr('auth/timeout'))).toBe(true)
+    expect(isNetworkAuthError(firebaseErr('auth/wrong-password'))).toBe(false)
+    expect(isNetworkAuthError(firebaseErr('auth/invalid-credential'))).toBe(false)
+    expect(isNetworkAuthError(new Error('auth/wrong-password'))).toBe(false)
+  })
+
+  it('si Firebase falla por red y el hash local coincide, entra offline', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(firebaseErr('auth/network-request-failed'))
+    vi.mocked(validateOffline).mockReturnValue({
+      userId: 'uid-001',
+      email: 'cajera1@negocio.com',
+      name: 'Cajera Uno',
+      role: 'cashier',
+      authorizedStores: ['store-1'],
+    })
+
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'pw', 'cashier')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.offlineSession).toBe(true)
+      expect(result.profile.uid).toBe('uid-001')
+    }
+  })
+
+  it('si Firebase falla por red y no hay hash, el error es genérico', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(firebaseErr('auth/network-request-failed'))
+    vi.mocked(validateOffline).mockReturnValue(null)
+
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'pw', 'cashier')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/Credenciales incorrectas/)
+  })
+
+  it('credenciales incorrectas con red NO caen al hash local', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(firebaseErr('auth/invalid-credential'))
+    vi.mocked(validateOffline).mockReturnValue({
+      userId: 'uid-001',
+      email: 'cajera1@negocio.com',
+      name: 'Cajera',
+      role: 'cashier',
+      authorizedStores: [],
+    })
+
+    const result = await signInWithRole('LIC-001', 'cajera1@negocio.com', 'wrong', 'cashier')
+    expect(result.ok).toBe(false)
+    expect(validateOffline).not.toHaveBeenCalled()
+  })
+
+  it('signInAutoDetect también entra offline ante auth/network-request-failed', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(firebaseErr('auth/network-request-failed'))
+    vi.mocked(validateOffline).mockReturnValue({
+      userId: 'uid-admin',
+      email: 'admin@negocio.com',
+      name: 'Admin',
+      role: 'admin',
+      authorizedStores: [],
+    })
+
+    const result = await signInAutoDetect('LIC-001', 'admin@negocio.com', 'pw')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.offlineSession).toBe(true)
+      expect(result.profile.role).toBe('admin')
+    }
+  })
+
+  it('reverifyOnlineOnly no cae al hash: red → still_offline, disabled → disabled', async () => {
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(firebaseErr('auth/network-request-failed'))
+    await expect(reverifyOnlineOnly('LIC-001', 'a@b.com', 'pw')).resolves.toBe('still_offline')
+
+    vi.mocked(signInWithEmailAndPassword).mockRejectedValue(firebaseErr('auth/user-disabled'))
+    await expect(reverifyOnlineOnly('LIC-001', 'a@b.com', 'pw')).resolves.toBe('disabled')
   })
 })

@@ -100,6 +100,8 @@ export interface SessionInfo {
   expiresAt: string
   /** Nombre de Firestore. Para filtrar vales (cajera = solo su ficha). */
   displayName?: string
+  /** true cuando el login se validó contra el hash local (sin Firebase). */
+  offlineSession?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -1437,6 +1439,12 @@ export interface HwApi {
    * Retorna función de cleanup para desuscribir.
    */
   onShiftInactivityWarning: (cb: () => void) => () => void
+
+  /** El main revalidó la sesión offline contra Firebase. Quitar el banner. */
+  onOfflineSessionUpgraded: (cb: () => void) => () => void
+
+  /** La cuenta se deshabilitó o el hash ya no vale. Volver al login. */
+  onOfflineSessionRevoked: (cb: () => void) => () => void
 
   /** Fiados remotos aplicados en SQLite (main → renderer). */
   onDebtSyncUpdated: (cb: () => void) => () => void

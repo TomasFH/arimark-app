@@ -5,9 +5,11 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { users } from '../db/schema'
 import { eq } from 'drizzle-orm'
-import { setActiveSession } from '../activeSession'
+import { setActiveSession, getActiveSession } from '../activeSession'
 import { signInWithRole, loginAdmin, logoutAdmin, getStoredAdminSession, signInAutoDetect } from '../licensing/session'
 import { sendPasswordReset, changeOwnPassword } from '../licensing/passwordAuth'
+import { cacheCredentials } from '../offlineAuth'
+import { startOfflineSessionWatch, stopOfflineSessionWatch } from '../offlineSessionWatch'
 import { activateInstallation, signInAnon } from '../licensing/installation'
 import { getBusinessConfig } from '../businessConfig'
 import { syncCatalogWithFirestore, syncAllStoreCatalogs, startCatalogSyncListener, stopCatalogSyncListener } from '../licensing/catalogSync'
@@ -118,6 +120,7 @@ export function registerAuthHandlers(): void {
       if (!result.ok) return { ok: false, error: result.error }
 
       const { profile } = result
+      const offlineSession = result.offlineSession === true
 
       if (profile.role === 'admin') {
         // Flujo admin: guardar sesión en safeStorage
@@ -130,7 +133,15 @@ export function registerAuthHandlers(): void {
 
         // Setear sesión activa con el local por defecto para que el admin
         // pueda operar turnos en modo cajera de emergencia sin error NO_SESSION.
-        setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'admin', shiftId: null, displayName: profile.displayName })
+        setActiveSession({
+          userId: profile.uid,
+          storeId: config.default_store_id,
+          role: 'admin',
+          shiftId: null,
+          displayName: profile.displayName,
+          email: profile.email,
+          offlineSession,
+        })
 
         // Upsert en la tabla users para que los FK de sales resuelvan cuando
         // el admin opera como cajera. El rol se guarda como 'cashier' porque
@@ -152,52 +163,63 @@ export function registerAuthHandlers(): void {
           db.update(users).set({ name: profile.displayName }).where(eq(users.id, existing.id)).run()
         }
 
-        log.info('[ipc:login] Admin autenticado', { email })
-        // Sync proveedores + locales (await locales para cache fresco en UI).
+        log.info('[ipc:login] Admin autenticado', { email, offlineSession })
         const adminConfig = getBusinessConfig()
-        startProviderSyncListener(adminConfig.tenant_id)
-        pushUnsyncedProviders(adminConfig.tenant_id).catch(err =>
-          log.warn('[ipc:login] pushUnsyncedProviders (admin) falló (no bloqueante)', err)
-        )
-        pushUnsyncedDebtEvents(adminConfig.tenant_id).catch(err =>
-          log.warn('[ipc:login] pushUnsyncedDebtEvents (admin) falló (no bloqueante)', err)
-        )
-        pushUnsyncedEmployeeOps(adminConfig.tenant_id).catch(err =>
-          log.warn('[ipc:login] pushUnsyncedEmployeeOps (admin) falló (no bloqueante)', err)
-        )
-        try {
-          await ensureStoresSynced(adminConfig.tenant_id)
-        } catch (err) {
-          log.warn('[ipc:login] ensureStoresSynced (admin) falló (no bloqueante)', err)
+        const runAdminRemoteSync = (): void => {
+          startProviderSyncListener(adminConfig.tenant_id)
+          pushUnsyncedProviders(adminConfig.tenant_id).catch(err =>
+            log.warn('[ipc:login] pushUnsyncedProviders (admin) falló (no bloqueante)', err)
+          )
+          pushUnsyncedDebtEvents(adminConfig.tenant_id).catch(err =>
+            log.warn('[ipc:login] pushUnsyncedDebtEvents (admin) falló (no bloqueante)', err)
+          )
+          pushUnsyncedEmployeeOps(adminConfig.tenant_id).catch(err =>
+            log.warn('[ipc:login] pushUnsyncedEmployeeOps (admin) falló (no bloqueante)', err)
+          )
+          startCatalogSyncListener(adminConfig.tenant_id)
+          startDebtBalanceLiveSync(adminConfig.tenant_id)
+          startDebtCheckpointJob(adminConfig.tenant_id)
         }
-        try {
-          await ensureEmployeesSynced(adminConfig.tenant_id)
-        } catch (err) {
-          log.warn('[ipc:login] ensureEmployeesSynced (admin) falló (no bloqueante)', err)
+        if (!offlineSession) {
+          runAdminRemoteSync()
+          try {
+            await ensureStoresSynced(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] ensureStoresSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
+            await ensureEmployeesSynced(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] ensureEmployeesSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
+            await ensureOrdersSynced(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] ensureOrdersSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
+            await ensureCustomerDebtsSynced(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] ensureCustomerDebtsSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
+            await ensureSpecialCustomersSynced(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] ensureSpecialCustomersSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
+            await syncAllStoreCatalogs(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] syncAllStoreCatalogs (admin) falló (no bloqueante)', err)
+          }
+        } else {
+          startOfflineSessionWatch({
+            licenseKey: config.tenant_id,
+            email,
+            password,
+            onUpgraded: () => { runAdminRemoteSync() },
+          })
         }
-        try {
-          await ensureOrdersSynced(adminConfig.tenant_id)
-        } catch (err) {
-          log.warn('[ipc:login] ensureOrdersSynced (admin) falló (no bloqueante)', err)
-        }
-        try {
-          await ensureCustomerDebtsSynced(adminConfig.tenant_id)
-        } catch (err) {
-          log.warn('[ipc:login] ensureCustomerDebtsSynced (admin) falló (no bloqueante)', err)
-        }
-        try {
-          await ensureSpecialCustomersSynced(adminConfig.tenant_id)
-        } catch (err) {
-          log.warn('[ipc:login] ensureSpecialCustomersSynced (admin) falló (no bloqueante)', err)
-        }
-        try {
-          await syncAllStoreCatalogs(adminConfig.tenant_id)
-        } catch (err) {
-          log.warn('[ipc:login] syncAllStoreCatalogs (admin) falló (no bloqueante)', err)
-        }
-        startCatalogSyncListener(adminConfig.tenant_id)
-        startDebtBalanceLiveSync(adminConfig.tenant_id)
-        startDebtCheckpointJob(adminConfig.tenant_id)
         return {
           ok: true,
           data: {
@@ -205,6 +227,7 @@ export function registerAuthHandlers(): void {
             userId: profile.uid,
             expiresAt: session.expiresAt.toISOString(),
             displayName: profile.displayName,
+            offlineSession,
           },
         }
       }
@@ -224,27 +247,48 @@ export function registerAuthHandlers(): void {
       }
 
       // Setear sesión parcial (storeId se actualizará en SELECT_STORE)
-      setActiveSession({ userId: profile.uid, storeId: config.default_store_id, role: 'cashier', shiftId: null, displayName: profile.displayName })
+      setActiveSession({
+        userId: profile.uid,
+        storeId: config.default_store_id,
+        role: 'cashier',
+        shiftId: null,
+        displayName: profile.displayName,
+        email: profile.email,
+        offlineSession,
+      })
 
-      // Crítico: bajar locales de Firestore ANTES de que el renderer llame getStores()
-      // (el store picker / auto-select usa nombres de la cache SQLite).
-      try {
-        await ensureStoresSynced(config.tenant_id)
-      } catch (err) {
-        log.warn('[ipc:login] ensureStoresSynced (cajera) falló (no bloqueante)', err)
+      if (!offlineSession) {
+        // Crítico: bajar locales de Firestore ANTES de que el renderer llame getStores()
+        // (el store picker / auto-select usa nombres de la cache SQLite).
+        try {
+          await ensureStoresSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureStoresSynced (cajera) falló (no bloqueante)', err)
+        }
+        try {
+          await ensureEmployeesSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureEmployeesSynced (cajera) falló (no bloqueante)', err)
+        }
+        pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
+          log.warn('[ipc:login] pushUnsyncedEmployeeOps (cajera) falló (no bloqueante)', err)
+        )
+        startCatalogSyncListener(config.tenant_id)
+      } else {
+        startOfflineSessionWatch({
+          licenseKey: config.tenant_id,
+          email,
+          password,
+          onUpgraded: () => {
+            startCatalogSyncListener(config.tenant_id)
+            ensureStoresSynced(config.tenant_id).catch(err =>
+              log.warn('[ipc:login] ensureStoresSynced (upgrade) falló (no bloqueante)', err)
+            )
+          },
+        })
       }
-      try {
-        await ensureEmployeesSynced(config.tenant_id)
-      } catch (err) {
-        log.warn('[ipc:login] ensureEmployeesSynced (cajera) falló (no bloqueante)', err)
-      }
-      pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
-        log.warn('[ipc:login] pushUnsyncedEmployeeOps (cajera) falló (no bloqueante)', err)
-      )
 
-      startCatalogSyncListener(config.tenant_id)
-
-      log.info('[ipc:login] Cajera autenticada — pendiente selección de local', { email })
+      log.info('[ipc:login] Cajera autenticada — pendiente selección de local', { email, offlineSession })
       return {
         ok: true,
         data: {
@@ -252,6 +296,7 @@ export function registerAuthHandlers(): void {
           userId: profile.uid,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           displayName: profile.displayName,
+          offlineSession,
         },
       }
     } catch (err) {
@@ -278,6 +323,7 @@ export function registerAuthHandlers(): void {
       }
 
       const { profile } = result
+      const offlineSession = result.offlineSession === true
 
       // Las cajeras pueden operar en cualquier local activo.
       // No se verifica authorizedStores — la selección de local es libre.
@@ -312,8 +358,17 @@ export function registerAuthHandlers(): void {
           .run()
       }
 
-      setActiveSession({ userId: profile.uid, storeId, role: 'cashier', shiftId: null, displayName: profile.displayName })
+      setActiveSession({
+        userId: profile.uid,
+        storeId,
+        role: 'cashier',
+        shiftId: null,
+        displayName: profile.displayName,
+        email: profile.email,
+        offlineSession,
+      })
 
+      if (!offlineSession) {
       // Publicar o bajar catálogo según qué copia esté vigente.
       syncCatalogWithFirestore(config.tenant_id, storeId).catch(err =>
         log.warn('[ipc:login-cashier] syncCatalogWithFirestore falló (no bloqueante)', err)
@@ -363,8 +418,19 @@ export function registerAuthHandlers(): void {
       )
       startDebtBalanceLiveSync(config.tenant_id)
       startDebtCheckpointJob(config.tenant_id)
+      } else {
+        startOfflineSessionWatch({
+          licenseKey: config.tenant_id,
+          email,
+          password,
+          onUpgraded: () => {
+            startCatalogSyncListener(config.tenant_id)
+            startMobileSyncListener(config.tenant_id, storeId)
+          },
+        })
+      }
 
-      log.info('[ipc:login-cashier] Login exitoso', { email, storeId })
+      log.info('[ipc:login-cashier] Login exitoso', { email, storeId, offlineSession })
       return {
         ok: true,
         data: {
@@ -373,6 +439,7 @@ export function registerAuthHandlers(): void {
           storeId,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           displayName: profile.displayName,
+          offlineSession,
         },
       }
     } catch (err) {
@@ -395,12 +462,22 @@ export function registerAuthHandlers(): void {
       return { ok: false, error: result.error }
     }
 
+    const offlineSession = result.offlineSession === true
+    if (!offlineSession) {
     try {
       await syncAllStoreCatalogs(config.tenant_id)
     } catch (err) {
       log.warn('[ipc:login-admin] syncAllStoreCatalogs falló (no bloqueante)', err)
     }
     startCatalogSyncListener(config.tenant_id)
+    } else {
+      startOfflineSessionWatch({
+        licenseKey: config.tenant_id,
+        email: parsed.data.email,
+        password: parsed.data.password,
+        onUpgraded: () => { startCatalogSyncListener(config.tenant_id) },
+      })
+    }
 
     return {
       ok: true,
@@ -408,6 +485,7 @@ export function registerAuthHandlers(): void {
         role: 'admin',
         userId: result.session.uid,
         expiresAt: result.session.expiresAt.toISOString(),
+        offlineSession,
       },
     }
   })
@@ -419,6 +497,8 @@ export function registerAuthHandlers(): void {
     }
 
     const { role } = parsed.data
+
+    stopOfflineSessionWatch()
 
     if (role === 'cashier') {
       stopMobileSyncListener()
@@ -474,6 +554,20 @@ export function registerAuthHandlers(): void {
 
     const result = await changeOwnPassword(currentPassword, newPassword)
     if (!result.ok) return { ok: false, error: result.error, code: result.code }
+    const session = getActiveSession()
+    if (session?.email) {
+      try {
+        cacheCredentials(session.email, newPassword, {
+          uid: session.userId,
+          email: session.email,
+          role: session.role,
+          displayName: session.displayName ?? session.email,
+          authorizedStores: [],
+        })
+      } catch (err) {
+        log.warn('[ipc:change-password] No se pudo actualizar el hash offline', err)
+      }
+    }
     return { ok: true, data: undefined }
   })
 }

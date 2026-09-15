@@ -648,9 +648,9 @@ En un local con dos cajeras (mañana y tarde), la cajera de la mañana podría "
 - `electron/licensing/session.ts` — intentar `validateOffline` si Firebase lanza `auth/network-request-failed`.
 - Renderer: leer flag `offlineSession` del estado de sesión para mostrar el banner.
 
-**Prioridad:** Alta — es un escenario realista en operación diaria.
+**Prioridad:** Hecho 2026-09-15 (Opción E).
 
-**Cuándo implementar:** Antes de la entrega al cliente / puesta en producción real. No bloquea desarrollo, pero debe estar antes del primer uso real sostenido.
+**Cuándo implementar:** Hecho. Módulos: `electron/offlineAuth.ts`, `electron/offlineSessionWatch.ts`, `licensing/session.ts`, banner `OfflineSessionBanner`.
 
 ---
 
@@ -669,9 +669,9 @@ En el handler `OPEN_SHIFT`, si ya hay un turno abierto en el local y su `userId`
 
 Si el turno abierto pertenece a **otra** cajera, mantener el bloqueo actual con el mensaje existente.
 
-**Prioridad:** Alta — es un escenario cotidiano (reinicios de Windows, etc.).
+**Prioridad:** Hecho 2026-09-15. `OPEN_SHIFT` retoma el turno propio (`resumed: true`); `GET_ACTIVE_SHIFT` / `OpenShiftScreen` reanudan sin pedir efectivo; `syncShiftsSafe` no bloquea si no hay red. El caso celular+PC sigue siendo DT-06.
 
-**Cuándo implementar:** Antes de la entrega al cliente / primera jornada real.
+**Cuándo implementar:** Hecho.
 
 ---
 
@@ -1199,4 +1199,22 @@ Tras tocar `apps/mobile`: deploy de Hosting (`pnpm mobile:deploy`). El APK no se
 Edición de catálogo en celu. Bajar la colección `catalog` entera para armar un pedido.
 
 **Cuándo implementar:** ahora; es el **primero** de esta oleada de código (bloque N en `TASKS_V1.md`). Desbloquea al carnicero y el alta del pedido desde el teléfono. No mezclar con handover de billetes ni cambio de contraseña.
+
+**Hecho en código** (checkpoint `8b43423`, 2026-09-11/12): bloques N–R y `FEAT-AUTH-PASSWORD-01` (modal + olvidé contraseña). La plantilla del mail en español se edita en Firebase Console (`docs/AUTH_PASSWORD.md`), no en el repo.
+
+---
+
+### FEAT-MERCH-INTAKE-01: Ingreso de mercadería simplificado — **pendiente v1.0, no codear ahora** (pedido 2026-09-15)
+
+Hasta la Fase 8 (stock por eventos + perfiles de rendimiento) **sigue bloqueada**. Eso no deja un hueco aceptable en v1.0: hoy se puede contar (BLOQUE E, domingo) y gastar/pagar proveedores, pero **no hay registro de qué mercadería entró**.
+
+**Producto (puente, no el stock definitivo):** un libro de ingresos generalizado, no disponibilidad estimada por corte ni desposte.
+
+- **Qué se anota:** cantidad + rubro amplio (ej. medias res, pollos enteros, cortes de cerdo, maples, carbón) y también insumos que **no se venden** (ej. productos de limpieza).
+- **Qué no es:** no descuenta ventas, no proyecta kilos de asado, no reemplaza el conteo dominical, no es el modelo de `docs/STOCK_DOMINIO_FUNCIONAL.md`.
+- **Caja:** algunos ingresos se pagan al cargar (para no duplicar “gasto” vs “entrada”). El puente tiene que poder **atar** el ingreso a un gasto / deuda de proveedor del mismo acto, o dejarlo sin pago (fiado al proveedor / ya pagado / no aplica).
+- **Quién:** admin o quien reciba; no el carnicero salvo que se pida después.
+- **Spark:** colección que crece → consultas por fecha/turno, no `getDocs` de toda la historia.
+
+**Cuándo implementar:** cuando el desarrollador lo pida. No mezclar con Fase 8. No codear en esta sesión.
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
   BrowserWindow: { getAllWindows: vi.fn().mockReturnValue([]) },
+  net: { isOnline: vi.fn(() => true) },
 }))
 
 vi.mock('electron-log', () => ({
@@ -40,7 +41,7 @@ vi.mock('../../licensing/shiftSync', () => ({
   loadCashHandoverForStore: mockLoadCashHandoverForStore,
 }))
 
-import { ipcMain } from 'electron'
+import { ipcMain, net } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession, updateActiveShift } from '../../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
@@ -91,6 +92,7 @@ const SESSION_ADMIN = { userId: 'admin-001', storeId: 'store-001', role: 'admin'
 describe('shift.handler', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(net.isOnline).mockReturnValue(true)
     registerShiftHandlers()
   })
 
@@ -152,6 +154,27 @@ describe('shift.handler', () => {
       expect(result.ok).toBe(true)
       expect(result.data.id).toBe('shift-001')
       expect(startDaemon).toHaveBeenCalledWith(2)
+      expect(updateActiveShift).toHaveBeenCalledWith('shift-001')
+    })
+
+    it('omite reconcileStoreShifts si no hay red', async () => {
+      vi.mocked(net.isOnline).mockReturnValue(false)
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const mockAll = vi.fn().mockReturnValue([])
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({ all: mockAll }),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      await getHandler('ipc:get-active-shift')({})
+      expect(mockReconcileStoreShifts).not.toHaveBeenCalled()
     })
   })
 
@@ -196,6 +219,37 @@ describe('shift.handler', () => {
       expect(result.data.resumed).toBe(true)
       expect(updateActiveShift).toHaveBeenCalledWith('existing-shift')
       expect(startDaemon).toHaveBeenCalledWith(2)
+    })
+
+    it('en producción retoma el turno propio sin exigir conteo de billetes', async () => {
+      const prev = process.env['APP_ENV']
+      process.env['APP_ENV'] = 'production'
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const existingShift = {
+        id: 'existing-shift',
+        userId: 'user-001',
+        storeId: 'store-001',
+        shiftType: 'morning',
+        startedAt: '2026-01-01T08:00:00.000Z',
+        openingCash: 500,
+      }
+      vi.mocked(getDb).mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue(shiftQueryChain([existingShift])),
+          }),
+        }),
+      } as unknown as ReturnType<typeof getDb>)
+
+      const result = await getHandler('ipc:open-shift')({}, { shiftType: 'morning', openingCash: 0 }) as {
+        ok: boolean
+        data?: { resumed?: boolean }
+        code?: string
+      }
+      process.env['APP_ENV'] = prev
+      expect(result.ok).toBe(true)
+      expect(result.data?.resumed).toBe(true)
+      expect(result.code).not.toBe('BILLS_REQUIRED')
     })
 
     it('rechaza con SHIFT_ALREADY_OPEN si el turno abierto pertenece a otro usuario', async () => {

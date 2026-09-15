@@ -50,6 +50,8 @@ export const SECRET_KEYS = {
   LAST_LICENSE_VERIFIED_AT: 'last-license-verified-at',
   FIREBASE_ANON_UID: 'firebase-anon-uid',
   ADMIN_SESSION_TOKEN: 'admin-session-token',
+  /** Hashes scrypt para login offline (DT-02). Nunca la contraseña en texto plano. */
+  OFFLINE_CREDENTIALS: 'offline-credentials',
   // Hardware
   KRETZ_PORT: 'kretz-port',
 } as const

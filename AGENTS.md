@@ -97,15 +97,14 @@ Los scripts raíz (`pnpm dev`, `pnpm test`, etc.) delegan a los paquetes mediant
 - No hay control de concurrencia entre dispositivos: la misma cajera puede estar logueada en la PC y en su celular al mismo tiempo. Firebase Auth es la única fuente de identidad.
 - Alta de cuentas nuevas: mientras no exista un panel de administración (Fase 4) o una Cloud Function dedicada, la creación de una cuenta de cajera/admin (Firebase Auth + documento de perfil en Firestore) es **manual, desde la consola de Firebase**. Deuda técnica señalada, no silenciada.
 - Los datos operativos (turnos, ventas, stock) son 100% locales en SQLite y no dependen de Firebase — solo el acto de login lo requiere. En el **celular** el acceso offline se logra con la sesión persistente de Firebase Auth: la cajera debe haberse logueado al menos una vez con internet en ese dispositivo (configuración inicial), y de ahí en más la app abre y opera offline sin credenciales.
-- **Login offline en PC — decisión pendiente (jul 2026):** `signInWithEmailAndPassword` requiere red; si la PC se reinicia sin internet, actualmente la cajera no puede iniciar sesión. Esto fue "riesgo aceptado" hasta jul 2026, pero se identificó como inaceptable en operación real. La solución acordada a implementar es la **Opción E — caché de credenciales hasheadas en `safeStorage`**:
-  - Al login exitoso con Firebase, el main process guarda en `safeStorage` un registro por usuario: `{ userId, name, role, email, hash: scrypt(password), storedAt, expiresAt: +30 días }`.
-  - En ausencia de internet, la pantalla de login es idéntica a la normal (sin bypass ni botón especial). El main intenta Firebase → falla → busca hash local para ese email → compara con `crypto.scrypt` (Node.js nativo, sin dependencias nuevas).
-  - Si el hash coincide: sesión válida con banner "Sin conexión — sesión guardada localmente".
-  - Si no coincide o no hay hash: "Credenciales incorrectas o sin conexión." — sin información extra.
-  - Cuando vuelve internet: re-verificación silenciosa; si la cuenta fue deshabilitada en Firebase se cierra la sesión.
-  - Limitación aceptada: primera vez en una PC nueva siempre requiere internet (no hay hash previo).
-  - El hash en `safeStorage` expira a los 30 días para forzar re-auth periódica con internet.
-  - **No implementar hasta que el desarrollador confirme inicio de la tarea.**
+- **Login offline en PC — Opción E (hecho 2026-09-15):** `signInWithEmailAndPassword` requiere red; si la PC arranca sin internet, la cajera no puede iniciar sesión. Caché de credenciales hasheadas en `safeStorage`:
+ - Al login exitoso con Firebase, el proceso main guarda por usuario: `{ userId, name, role, email, hash: scrypt(password), storedAt, expiresAt: +30 días }`.
+ - En ausencia de internet, la pantalla de login es idéntica (sin bypass). El main intenta Firebase → falla por red → busca hash local para ese email → compara con `crypto.scrypt` (Node.js nativo, sin dependencias nuevas).
+ - Si el hash coincide: sesión válida con banner "Sin conexión — sesión guardada localmente".
+ - Si no coincide o no hay hash: "Credenciales incorrectas o sin conexión." — sin información extra.
+ - Cuando vuelve internet: re-verificación silenciosa; si la cuenta fue deshabilitada en Firebase se cierra la sesión.
+ - Limitación aceptada: primera vez en una PC nueva siempre requiere internet (no hay hash previo).
+ - El hash en `safeStorage` expira a los 30 días para forzar re-auth periódica con internet.
 
 **Excepción explícita al principio "datos operativos 100% locales" — Proveedores (Fase S1, jul 2026):**
 Los **proveedores** y sus **eventos de deuda** son la primera categoría de datos operativos que se sincronizan con Firestore. Esto se debe a que:

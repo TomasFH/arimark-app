@@ -410,8 +410,8 @@ Para maximizar valor entregable en orden:
 6. ~~F1 / G1~~ ✅
 7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
 8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`; falta backfill `--apply` + deploy índices/reglas). **BLOQUE I checklist cerrada 2026-09-02.**
-9. **Pendiente v1.0 a implementar ahora (documentado 2026-09-10, bloques N–R):** `FEAT-MOB-ORDER-CART-01` → `FEAT-MOB-STAFF-AUTH-01` → `FEAT-CASH-INJECT-02` → `FEAT-CASH-DISCOUNT-01` → `FEAT-CEBO-01`. No mezclar con handover ni cambio de contraseña.
-10. **Pendiente v1.0 (no codear hasta que se pida):** **`FEAT-AUTH-PASSWORD-01`** (cambio de contraseña por el usuario + plantilla de mail en español). **Hecho 2026-09-11:** `FEAT-CASH-HANDOVER-01` (BLOQUE L). **Después, cuando el desarrollador lo pida:** DT-02 (login offline PC), DT-03 (retomar turno propio). Fase 8 Stock sigue bloqueada.
+9. **Hecho en código 2026-09-11/12** (checkpoint `8b43423`): bloques N–R + `FEAT-AUTH-PASSWORD-01` (app). Plantilla de mail de reset: consola Firebase (`docs/AUTH_PASSWORD.md`).
+10. **Hecho 2026-09-15:** **DT-02** (login offline PC, Opción E) y **DT-03** (retomar turno propio). **Pendiente, no codear hasta que se pida:** **`FEAT-MERCH-INTAKE-01`** (ingreso de mercadería puente; ver BLOQUE S). Fase 8 Stock sigue bloqueada. DT-07/08: código listo; falta backfill `--apply` + confirmar índices en prod.
 
 ---
 
@@ -450,51 +450,59 @@ El cierre cuenta billetes que **quedan en la registradora**; la apertura del sig
 
 ---
 
-## BLOQUE M — Contraseña del usuario + mail en español ⏳ PENDIENTE v1.0
+## BLOQUE M — Contraseña del usuario + mail en español ✅ HECHA (app, 2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-AUTH-PASSWORD-01**. Acordado 2026-09-07. **No codear hasta que el desarrollador lo pida.**
+> **Estado:** Completada en app. Producto: `PLAN.md` **FEAT-AUTH-PASSWORD-01**. Detalle: `docs/AUTH_PASSWORD.md`.
 
-Cada usuario cambia o restablece su clave (login “olvidé contraseña” y cambio ya logueado). El admin no lo hace por ellos. Plantilla del mail de Firebase en español; el remitente Spark sigue siendo el de Firebase.
+Login “olvidé contraseña” + cambio ya logueado (PC y celu). El admin no resetea ni ve la clave. **Plantilla** en Firebase Console: editada 2026-09-15 (mejor que el default; falta ver el mail real al crear un empleado).
 
 ---
 
-## BLOQUE N — Pedido con productos de la lista en el celu ⏳ PENDIENTE v1.0 — a implementar ahora
+## BLOQUE N — Pedido con productos de la lista en el celu ✅ HECHA (2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-MOB-ORDER-CART-01**. Acordado 2026-09-10. **A implementar ahora** (primero de esta oleada). No mezclar con `FEAT-CASH-HANDOVER-01` ni `FEAT-AUTH-PASSWORD-01`.
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-MOB-ORDER-CART-01**.
 
 Admin móvil hoy: textarea de descripción. Hay que igualar el carrito de PC (`budgetItems` + `items = summarizeBudgetItems`). Typeahead sobre el catálogo del **local del pedido**. Lecturas Spark: el catálogo es **1 doc** `catalog/{storeId}` (array `products`); cache IndexedDB primero, si falta **un** `getDoc`, typeahead 100 % en memoria. No `getDocs` de la colección `catalog` ni `fetchMergedCatalogFromFirestore`. En PC, subir/bajar `budgetItems` en `orderSync` (hoy no va). Pedidos viejos solo-texto siguen editables. Es el **admin** del celu, no el POS de emergencia. Tras tocar `apps/mobile`: `pnpm mobile:deploy` (el APK no se actualiza con eso).
 
 ---
 
-## BLOQUE O — Email y cuenta al dar de alta en el celu ⏳ PENDIENTE v1.0 — a implementar ahora
+## BLOQUE O — Email y cuenta al dar de alta en el celu ✅ HECHA (2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-MOB-STAFF-AUTH-01**. Acordado 2026-09-10. **A implementar ahora** (después del bloque N). No mezclar con handover ni cambio de contraseña.
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-MOB-STAFF-AUTH-01**.
 
 Hoy el celu solo crea ficha de sueldo. El alta de **cajera** tiene que pedir **email** obligatorio y crear la cuenta Auth (mismo patrón de app secundaria que PC: `createUserWithEmailAndPassword` + `users/{uid}` + mail de clave, sin pisar la sesión del admin). Carnicero: ficha ya + “Dar acceso al celular” / revocar, como en PC. Hace falta internet en el alta. Spark: 1 doc de usuario extra.
 
 ---
 
-## BLOQUE P — Efectivo por acreditación digital ⏳ PENDIENTE v1.0 — a implementar ahora
+## BLOQUE P — Efectivo por acreditación digital ✅ HECHA (2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CASH-INJECT-02**. Acordado 2026-09-10. **A implementar ahora** (después de N y O). Extiende `FEAT-CASH-INJECT-01`. No mezclar con handover ni cambio de contraseña.
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-CASH-INJECT-02**.
 
 Mismo `kind: 'inject'` (sigue sumando a `cashInHand`) con motivo distinguible: **Aporte** vs **Efectivo por digital**. Preferible columna `inject_reason` (filas viejas: `aporte`) para no romper el historial con `concept='Aporte'`. Un solo modal “Ingreso” con dos opciones; nota opcional. Sync del motivo en `expenseSync` y en el import móvil. La app no habla con Postnet/MP; no se registra salida digital.
 
 ---
 
-## BLOQUE Q — Descuento si se paga en efectivo ⏳ PENDIENTE v1.0 — a implementar ahora
+## BLOQUE Q — Descuento si se paga en efectivo ✅ HECHA (2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CASH-DISCOUNT-01**. Acordado 2026-09-10. **A implementar ahora** (después de P). PC + POS celu. No mezclar con handover ni cambio de contraseña.
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-CASH-DISCOUNT-01**.
 
 Regla **por local**: mínimo + % (0 = apagado). El % va sobre el **total de ítems**, no sobre el saldo. Ejemplo: ítems $100.000, seña $20.000 en efectivo, 10 % → total $90.000, a cobrar $70.000. Seña, si hay, tiene que ser **100 % efectivo**; seña digital/mixta → sin descuento. El saldo se cobra con efectivo; un **faltante digital** (lo arma la cajera, sin tope automático) no anula el descuento. Fiado o cobro 100 % digital/crédito: sin descuento. Auditoría de cambios de regla en SQLite (últimas N en el modal). Persistencia en `sales`: `discountAmount`, `discountPercent`. `NumericInput` para pesos y % entero 0–100.
 
 ---
 
-## BLOQUE R — Registro de cebo ⏳ PENDIENTE v1.0 — a implementar ahora
+## BLOQUE R — Registro de cebo ✅ HECHA (2026-09-11)
 
-> **Estado:** No implementada. Producto: `PLAN.md` **FEAT-CEBO-01**. Acordado 2026-09-10. **A implementar ahora** (último de esta oleada). No mezclar con handover ni cambio de contraseña.
+> **Estado:** Completada. Producto: `PLAN.md` **FEAT-CEBO-01**.
 
 Modal desde el POS (PC y POS de emergencia del celu), no una pantalla nueva. Datos: kg + nota opcional. **Cajera o admin; no carnicero.** Consulta/edición: quien lo cargó o un admin. Auditoría visible (quién cargó / quién editó y cuándo). Tabla `cebo_entries` + outbox Firestore; consultas por turno/fecha (no `getDocs` de toda la colección). No mueve caja ni stock. Kg con el patrón decimal del carrito de pedidos (`NumericInput` es solo enteros).
+
+---
+
+## BLOQUE S — Ingreso de mercadería (puente) ⏳ PENDIENTE v1.0 — no codear ahora
+
+> **Estado:** Solo documentado (2026-09-15). Producto: `PLAN.md` **FEAT-MERCH-INTAKE-01**. **No codear hasta que el desarrollador lo pida.** No es la Fase 8.
+
+Hoy hay conteo dominical (BLOQUE E) y gastos/proveedores, pero **no hay libro de qué entró**. Hasta el stock definitivo, v1.0 necesita un registro generalizado: medias res, pollos enteros, cortes de cerdo, maples, carbón, insumos de limpieza, etc. Algunos ingresos no se venden; algunos se pagan en el mismo acto (ata al gasto / deuda del proveedor). No proyecta disponibilidad ni descuenta ventas.
 
 ---
 

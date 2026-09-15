@@ -14,19 +14,19 @@ Convención: `[ ]` pendiente · `[x]` OK · `[!]` bug nuevo.
 - **4.2 Carniceros / Cajeras (Personal):** testeo **2026-08-24 cerrado**.
 - **4.2 Locales:** testeo **2026-08-24 cerrado** (eliminar en PC persiste al reentrar).
 - **4.2 Historial (móvil):** testeo **2026-08-24 cerrado**.
-- **4.3** limitaciones esperadas: testeo **2026-08-24 cerrado**. Catálogo en celu = post 1.0. Liquidación semanal **con pago en PC** (2026-08-25). **Parte 5** POS base testeo 2026-08-25 cerrado; pack emergencia codeado 2026-08-28. **Parte 6** testeo **2026-08-25 cerrado**. **Parte 7** paleta (Tanda 9) **cerrada 2026-08-28**; header de productos diferido (diseño).
+- **4.3** limitaciones esperadas: testeo **2026-08-24 cerrado**. Catálogo en celu = post 1.0. Liquidación semanal **con pago en PC** (2026-08-25). **Parte 5** POS base testeo 2026-08-25 cerrado; pack emergencia codeado 2026-08-28 (sin probar 2026-09-15). **Parte 6** testeo **2026-08-25 cerrado**. **Parte 7** paleta (Tanda 9) **cerrada 2026-08-28**. Header de productos al scrollear **OK 2026-09-15**.
 - La **ola 2026-08-18** A.1–A.6 **re-testeada y aprobada 2026-08-27**. Tandas 1–2 y 4–6 OK. **Tanda 8 y 9 cerradas 2026-08-28.** Tanda 7: proveedores OK; **cierre de caja** — diálogo “¿cerrar?” + **resumen post-cierre** (re-probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md`). **Tanda 3 (carrito de pedidos) codeada 2026-09-02 y Pedidos PC cerrado 2026-09-04** (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Carnicero celu: `CHECKLIST_TESTEO_CARNICERO.md`.
 - **Ola de checklist 2026-08-28 cerrada.** Lo que queda abierto es diseño, deudas documentadas o se re-testea con las implementaciones que vienen.
 
 **Orden práctico:** I (humo) → II (lo que no llegaste a probar de móvil/sync) → III (ola 18, desktop) → IV (tandas, código nuevo). Si un ítem dice “también Tanda N”, al pasarlo en la tanda podés tacharlo en II/III.
 
-**Sigue fuera (no re-probar / no es esta pasada):** UX-PLU-01, UX-PROV-02, FEAT-CAT-03 backup, 3.5 offline, optimizar ↻ móvil (UX-MOB-REFRESH-01). **Catálogo en vivo + edición cajera (BLOQUE I):** probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (el archivo se reutilizó). **No codear ahora:** DT-07, **DT-08**. El Historial **móvil de la Parte 4** sí se recorre como checklist funcional; DT-08 es la deuda de *cómo* pide Firestore, no de tachar la pantalla.
+**Sigue fuera (no re-probar / no es esta pasada):** UX-PLU-01, UX-PROV-02, FEAT-CAT-03 backup, 3.5 offline, optimizar ↻ móvil (UX-MOB-REFRESH-01). **Catálogo en vivo + edición cajera (BLOQUE I):** probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (el archivo se reutilizó). DT-07/08: código listo; falta backfill `--apply` + índices en prod (`docs/FIRESTORE_DT07_DT08.md`). El Historial **móvil de la Parte 4** sí se recorre como checklist funcional.
 
 ---
 
 ## I — Arranque de humo
 
-- [ ] `pnpm dev:prod` abre login admin/cajera sin error de TypeScript ni de migración.
+- [x] `pnpm dev:prod` abre login admin/cajera sin error de TypeScript ni de migración. **OK 2026-09-15.**
 
 ---
 
@@ -60,18 +60,18 @@ Testeo 2026-08-25 (POS base) **cerrado**, salvo Atrás. Selector de locales = ta
 - [x] Confirmar venta → totales coherentes. Cobro: campos **vacíos**; botón ← $resto por medio (como PC). No precargar efectivo = total. **Efectivo de más** (ej. $40.000 sobre $37.500) muestra vuelto y registra el total, como en PC. Re-probar 2026-08-28.
 - [x] Banner offline; al reconectar resync (catálogo/ventas pendientes). Catálogo móvil = descarga al login/reconectar, **no** en vivo.
 - [x] Cerrar turno: pide confirmación (total vendido + efectivo esperado). El POS muestra **en caja** en vivo.
-- [ ] Atrás del sistema: cierra modal/pantalla primero; con la pila vacía pregunta “¿salir de la app?”. **Re-probar 2026-08-28:** (a) abrir y Atrás → modal, no cierra; (b) **Salir** cierra la PWA/APK (window.close + exitApp nativo); Cancelar deja la app; Atrás otra vez vuelve a preguntar.
+- [!] Atrás del sistema: cierra modal/pantalla primero; con la pila vacía pregunta “¿salir de la app?”. **2026-09-15:** al tocar **Salir** la app **no cierra**. Re-probar: (a) abrir y Atrás → modal, no cierra; (b) **Salir** debería cerrar PWA/APK (`window.close` + `exitApp` nativo); Cancelar deja la app; Atrás otra vez vuelve a preguntar.
 
 **No es bug de esta pasada:** el turno abierto en celu **no** aparece como caja activa en PC (`PLAN.md` DT-06).
 
-**Pack emergencia `FEAT-MOB-EMERGENCY-01` (incluido 2026-08-28 — re-probar):**
+**Pack emergencia `FEAT-MOB-EMERGENCY-01` (incluido 2026-08-28 — sin probar 2026-09-15):**
 
 - [ ] **Gasto** (proveedor de la lista o concepto + monto). Resta “en caja”. Deuda de este local (sin cross-local / sin Saldar dedicado).
 - [ ] **Ingreso** de efectivo (monto + nota). Suma “en caja”. PC: sidebar **Ingreso**. Concepto interno sigue `Aporte`.
 - [ ] **Vales** y **Liquidación** (semana en curso). Efectivo baja caja; productos no. Quedan en el turno del celu (DT-06).
 - [ ] **Ventas de este turno:** lista + anular (tachada). El efectivo esperado deja de contar esa venta.
 - [ ] **Fiado en Cobrar:** nombre obligatorio, teléfono opcional, pago inicial opcional. La venta nace fiado; el resto queda como deuda.
-- [ ] Tras sync, en PC (historial / fiados / proveedores / liquidación) se ven gastos con proveedor, ingresos, vales, sueldos, anulaciones y fiados del celu. El **cierre** del celu aparece en Historial PC/admin con etiqueta **Móvil**. **Re-probar 2026-08-28.**
+- [ ] Tras sync, en PC (historial / fiados / proveedores / liquidación) se ven gastos con proveedor, ingresos, vales, sueldos, anulaciones y fiados del celu. El **cierre** del celu aparece en Historial PC/admin con etiqueta **Móvil**.
 
 ### Parte 6 — Sync Desktop ↔ Móvil
 
@@ -120,13 +120,13 @@ Nunca se recorrió. Varios puntos ya están en tandas: al pasar la tanda, tachal
 - [x] **Catálogo merge:** borrar un producto en admin → desaparece en cajera tras ↺.
 - [x] **El recuadro grande de la caja no es un buscador.** Sirve para **escanear el ticket** de la balanza. Para buscar un producto por nombre o PLU: **Menú → Lista**. El placeholder ya no dice “busca”.
 - [x] Cajeras operan en **todos** los locales activos (también III A.6).
-- [ ] **Header de la lista de productos (admin):** al scrollear, las filas **no** se tienen que ver atravesando el encabezado (PLU / Nombre / …). Diferido — se re-testea con el retoque de UI / catálogo.
+- [x] **Header de la lista de productos (admin):** al scrollear, las filas **no** se tienen que ver atravesando el encabezado (PLU / Nombre / …). **OK 2026-09-15.**
 
 ---
 
 ## III — Ola 2026-08-18 (re-testeada 2026-08-27)
 
-A.1–A.6 **cerradas en PC**. **B. Móvil (selector de local cajera)** se deja para después.
+A.1–A.6 **cerradas en PC**. **B. Móvil (selector de local cajera)** cerrado 2026-09-15.
 
 ### A.1 Gastos (proveedor)
 
@@ -177,11 +177,11 @@ También con `pnpm electron:remote` (otra PC simulada):
 
 ### B. Móvil — selector de local (cajera)
 
-Pendiente (no es esta pasada). Hace falta `pnpm mobile:deploy`. Probar en Hosting (cajera):
+**OK 2026-09-15** (Hosting / cajera).
 
-- [ ] Login cajera → selector con **nombres** de locales. Si hay un solo local activo, puede saltear el selector.
-- [ ] Con 2+ locales, se ven todos los activos.
-- [ ] Offline: si ya habías abierto la app online, el selector usa la lista cacheada.
+- [x] Login cajera → selector con **nombres** de locales. Si hay un solo local activo, puede saltear el selector.
+- [x] Con 2+ locales, se ven todos los activos.
+- [x] Offline: si ya habías abierto la app online, el selector usa la lista cacheada.
 
 ---
 
@@ -280,12 +280,13 @@ Tandas 1–2, 4–6, **8 y 9** OK. Tanda 7 proveedores OK. Paleta aceptada con l
 | Qué | Dónde | Notas |
 | --- | --- | --- |
 | Resumen post-cierre de caja | Tanda 7 | Codeado 2026-08-28 — re-probar en `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` |
-| Header de productos al scrollear | Parte 7 | Diferido con el retoque de UI / catálogo |
+| Header de productos al scrollear | Parte 7 | OK 2026-09-15 |
 | Pedidos: cobro con carrito | Tanda 3 | Cerrado 2026-09-04 — `CHECKLIST_TESTEO_PEDIDOS_LISTA.md` |
 | Carnicero celu + Dar acceso | FEAT-BUTCHER-01 | Testear `CHECKLIST_TESTEO_CARNICERO.md` B–D |
-| Selector de local cajera en celu | III B | Cubierto en Parte 5; no re-probar ahora |
-| Pack emergencia celu (gasto/vales/liquidación/Salir) | Parte 5 | Codeado 2026-08-28; se re-testea al usar el POS móvil |
+| Selector de local cajera en celu | III B | OK 2026-09-15 |
+| Pack emergencia celu (gasto/vales/liquidación) | Parte 5 | Codeado 2026-08-28; **sin probar 2026-09-15** |
+| Salir de la app (Atrás → Salir) | Parte 5 | **Bug 2026-09-15:** Salir no cierra |
 | Local habitual (asistencia/vales) | BLOQUE H | Codeado 2026-08-28 — `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` |
-| Login offline PC, catálogo en vivo | DT-02, BLOQUE I | No codear hasta que se pida |
+| Login offline PC, catálogo en vivo | DT-02, BLOQUE I | Hecho 2026-09-15 (Opción E) |
 
 

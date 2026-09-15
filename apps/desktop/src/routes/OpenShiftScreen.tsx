@@ -216,6 +216,14 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   const countedTotal = billRowsCountedTotal(billRows, billMode)
   const expectedTotal = handover ? handover.bills.reduce((s, l) => s + l.denomination * l.quantity, 0) : undefined
 
+  if (checking) {
+    return (
+      <div className="flex flex-1 min-h-0 h-full flex-col items-center justify-center bg-app text-ink">
+        <p className="text-sm text-muted">Comprobando turno abierto…</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-1 min-h-0 h-full flex-col bg-app text-ink overflow-hidden">
       <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-line bg-panel">

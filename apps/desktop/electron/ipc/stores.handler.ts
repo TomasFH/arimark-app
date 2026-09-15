@@ -255,6 +255,8 @@ export function registerStoresHandlers(): void {
         }).run()
       }
 
+      // Catálogo y sync remoto: omitir si el login fue offline (Firestore cuelga sin red).
+      if (!session.offlineSession) {
       // Catálogo: publica si esta PC es la vigente; baja solo si SQLite está vacío o Firestore es más nuevo.
       {
         const config = getBusinessConfig()
@@ -327,6 +329,9 @@ export function registerStoresHandlers(): void {
           log.warn('[ipc:select-store] pushUnsyncedSpecialCustomerOps falló (no bloqueante)', err),
         )
       }
+      } else {
+        log.info('[ipc:select-store] Sesión offline — omito sync Firestore', { storeId })
+      }
 
       log.info('[ipc:select-store] Local seleccionado', { storeId, role: session.role })
       return {
@@ -337,6 +342,7 @@ export function registerStoresHandlers(): void {
           storeId,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           displayName: resolvedDisplayName || session.displayName,
+          offlineSession: session.offlineSession === true,
         },
       }
     } catch (err) {

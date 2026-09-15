@@ -79,6 +79,7 @@ vi.mock('../../licensing/specialCustomerSync', () => ({
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
+import { ensureStoresSynced } from '../../licensing/storeSync'
 import { registerStoresHandlers } from '../stores.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown | Promise<unknown>
@@ -166,6 +167,19 @@ describe('stores.handler', () => {
       const res = await handler(null, { storeId: STORE_ID }) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('NO_SESSION')
+    })
+
+    it('sesión offline omite sync Firestore y propaga offlineSession', async () => {
+      vi.mocked(getActiveSession).mockReturnValue({
+        ...CASHIER_SESSION,
+        offlineSession: true,
+        displayName: 'Cajera',
+      } as unknown as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:select-store')
+      const res = await handler(null, { storeId: STORE_ID }) as { ok: boolean; data: { offlineSession?: boolean } }
+      expect(res.ok).toBe(true)
+      expect(res.data.offlineSession).toBe(true)
+      expect(ensureStoresSynced).not.toHaveBeenCalled()
     })
   })
 

@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, net } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
@@ -67,11 +67,33 @@ function rejectMissingBillCount(
   return null
 }
 
-/** Reconcilia turnos con Firestore. Nunca bloquea el flujo local si falla. */
+const SHIFT_RECONCILE_TIMEOUT_MS = 2500
+
+function isElectronOnline(): boolean {
+  try {
+    return typeof net.isOnline === 'function' ? net.isOnline() : true
+  } catch {
+    return true
+  }
+}
+
+/** Reconcilia turnos con Firestore. Nunca bloquea el flujo local si falla o no hay red. */
 async function syncShiftsSafe(filter: { storeId?: string; userId?: string }): Promise<void> {
+  if (!isElectronOnline()) {
+    log.info('[shift] omito reconcileStoreShifts (sin red)')
+    return
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const config = getBusinessConfig()
-    await reconcileStoreShifts(config.tenant_id, filter)
+    await Promise.race([
+      reconcileStoreShifts(config.tenant_id, filter).finally(() => {
+        if (timer) clearTimeout(timer)
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('reconcile timeout')), SHIFT_RECONCILE_TIMEOUT_MS)
+      }),
+    ])
   } catch (err) {
     log.warn('[shift] reconcileStoreShifts falló (no bloqueante)', err)
   }
@@ -170,6 +192,8 @@ export function registerShiftHandlers(): void {
         // Esto cubre el caso en que la PC se reinició o la sesión se cerró
         // sin cerrar el turno: la cajera puede retomar su turno directamente.
         if (existing.userId === session.userId) {
+          // Resume local (misma SQLite / source=desktop). Un turno abierto en el
+          // celular es otra base (DT-06) y no se retoma desde acá.
           updateActiveShift(existing.id)
           const thresholdHoursResume = _getInactivityThreshold()
           startDaemon(thresholdHoursResume)

@@ -20,6 +20,8 @@ El remitente en **Spark** sigue siendo el de Firebase (`noreply@<proyecto>.fireb
 
 `sendPasswordResetEmail` **no** puede inyectar el HTML desde la app. Si el mail llega en inglés, la plantilla de la consola no se cambió.
 
+**Estado 2026-09-15:** la plantilla de la consola ya se tocó (mejor que el default). Falta confirmar cómo se ve el mail real al crear un empleado o usar “olvidé contraseña”.
+
 ### Texto sugerido (pegar en la consola)
 
 Asunto:

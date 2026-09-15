@@ -59,6 +59,18 @@ const hw: HwApi = {
     return () => ipcRenderer.removeListener(IPC.SHIFT_INACTIVITY_WARNING, listener)
   },
 
+  onOfflineSessionUpgraded: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.OFFLINE_SESSION_UPGRADED, listener)
+    return () => ipcRenderer.removeListener(IPC.OFFLINE_SESSION_UPGRADED, listener)
+  },
+
+  onOfflineSessionRevoked: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.OFFLINE_SESSION_REVOKED, listener)
+    return () => ipcRenderer.removeListener(IPC.OFFLINE_SESSION_REVOKED, listener)
+  },
+
   onDebtSyncUpdated: cb => {
     const listener = () => cb()
     ipcRenderer.on(IPC.DEBT_SYNC_UPDATED, listener)

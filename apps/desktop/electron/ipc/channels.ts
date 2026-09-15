@@ -26,6 +26,10 @@ export const IPC = {
   CLOSE_SHIFT: 'ipc:close-shift',
   FORCE_CLOSE_OPEN_SHIFT: 'ipc:force-close-open-shift',
   SHIFT_INACTIVITY_WARNING: 'ipc:shift-inactivity-warning',   // push main → renderer
+  /** Sesión offline revalidada con Firebase (push main → renderer). */
+  OFFLINE_SESSION_UPGRADED: 'ipc:offline-session-upgraded',
+  /** Cuenta deshabilitada o hash inválido al volver internet (push main → renderer). */
+  OFFLINE_SESSION_REVOKED: 'ipc:offline-session-revoked',
   DISMISS_INACTIVITY_WARNING: 'ipc:dismiss-inactivity-warning',
 
   // Productos (catálogo local)

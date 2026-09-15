@@ -24,7 +24,10 @@ import {
 } from 'firebase/auth'
 import { getFirebaseApp } from './firebase'
 import { getSecret, setSecret, deleteSecret, SECRET_KEYS } from '../secureStorage'
+import { cacheCredentials, validateOffline } from '../offlineAuth'
 import log from 'electron-log'
+
+export const GENERIC_LOGIN_ERROR = 'Credenciales incorrectas o sin conexión.'
 
 export type UserRole = 'cashier' | 'admin'
 
@@ -51,6 +54,64 @@ export interface AdminSession {
   expiresAt: Date
 }
 
+export type SignInResult =
+  | { ok: true; profile: UserProfile; offlineSession?: boolean }
+  | { ok: false; error: string }
+
+export type OnlineReverifyResult = 'upgraded' | 'disabled' | 'still_offline' | 'invalid'
+
+function firebaseAuthCode(err: unknown): string {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code: unknown }).code
+    if (typeof code === 'string') return code
+  }
+  return ''
+}
+
+export function isNetworkAuthError(err: unknown): boolean {
+  const code = firebaseAuthCode(err)
+  if (code === 'auth/network-request-failed' || code === 'auth/timeout') return true
+  const message = err instanceof Error ? err.message : String(err)
+  return message.includes('auth/network-request-failed') || message.includes('auth/timeout')
+}
+
+function tryCacheCredentials(email: string, password: string, profile: UserProfile): void {
+  try {
+    cacheCredentials(email, password, profile)
+  } catch (err) {
+    log.warn('[session] No se pudo cachear credenciales offline', err)
+  }
+}
+
+function tryOfflineSignIn(email: string, password: string, expectedRole?: UserRole): SignInResult {
+  const offline = validateOffline(email, password)
+  if (!offline) return { ok: false, error: GENERIC_LOGIN_ERROR }
+  if (expectedRole && offline.role !== expectedRole) {
+    return { ok: false, error: 'Esta cuenta no tiene el permiso necesario.' }
+  }
+  return {
+    ok: true,
+    offlineSession: true,
+    profile: {
+      uid: offline.userId,
+      email: offline.email,
+      role: offline.role,
+      authorizedStores: offline.authorizedStores,
+      displayName: offline.name,
+      active: true,
+    },
+  }
+}
+
+function handleAuthCatch(err: unknown, email: string, password: string, expectedRole?: UserRole): SignInResult {
+  if (isNetworkAuthError(err)) {
+    return tryOfflineSignIn(email, password, expectedRole)
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  log.error('[session] Error de autenticación', message)
+  return { ok: false, error: GENERIC_LOGIN_ERROR }
+}
+
 // ---------------------------------------------------------------------------
 // Autenticación — común a cajeras y admins
 // ---------------------------------------------------------------------------
@@ -66,7 +127,7 @@ export async function signInWithRole(
   email: string,
   password: string,
   expectedRole: UserRole
-): Promise<{ ok: true; profile: UserProfile } | { ok: false; error: string }> {
+): Promise<SignInResult> {
   const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
   if (APP_ENV === 'dev') {
@@ -127,12 +188,11 @@ export async function signInWithRole(
       active: true,
     }
 
+    tryCacheCredentials(email, password, profile)
     log.info('[session] Login exitoso', { uid, role: expectedRole })
     return { ok: true, profile }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    log.error('[session] Error en signInWithRole', message)
-    return { ok: false, error: 'Credenciales incorrectas o sin conexión.' }
+    return handleAuthCatch(err, email, password, expectedRole)
   }
 }
 
@@ -146,7 +206,7 @@ export async function signInAutoDetect(
   licenseKey: string,
   email: string,
   password: string,
-): Promise<{ ok: true; profile: UserProfile } | { ok: false; error: string }> {
+): Promise<SignInResult> {
   const APP_ENV = process.env['APP_ENV'] ?? 'dev'
 
   if (APP_ENV === 'dev') {
@@ -209,12 +269,11 @@ export async function signInAutoDetect(
       active: true,
     }
 
+    tryCacheCredentials(email, password, profile)
     log.info('[session] Login autodetect exitoso', { uid, role: data.role })
     return { ok: true, profile }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    log.error('[session] Error en signInAutoDetect', message)
-    return { ok: false, error: 'Credenciales incorrectas o sin conexión.' }
+    return handleAuthCatch(err, email, password)
   }
 }
 
@@ -226,7 +285,7 @@ export async function loginAdmin(
   licenseKey: string,
   email: string,
   password: string
-): Promise<{ ok: true; session: AdminSession } | { ok: false; error: string }> {
+): Promise<{ ok: true; session: AdminSession; offlineSession?: boolean } | { ok: false; error: string }> {
   const result = await signInWithRole(licenseKey, email, password, 'admin')
   if (!result.ok) return result
 
@@ -236,7 +295,7 @@ export async function loginAdmin(
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   }
   await setSecret(SECRET_KEYS.ADMIN_SESSION_TOKEN, JSON.stringify(session))
-  return { ok: true, session }
+  return { ok: true, session, offlineSession: result.offlineSession }
 }
 
 export async function logoutAdmin(): Promise<void> {
@@ -265,5 +324,54 @@ export function getStoredAdminSession(): AdminSession | null {
     return session
   } catch {
     return null
+  }
+}
+
+/**
+ * Re-verifica contra Firebase sin caer al hash local.
+ * Usado cuando una sesión offline recupera internet.
+ */
+export async function reverifyOnlineOnly(
+  licenseKey: string,
+  email: string,
+  password: string,
+): Promise<OnlineReverifyResult> {
+  const APP_ENV = process.env['APP_ENV'] ?? 'dev'
+  if (APP_ENV === 'dev') return 'upgraded'
+
+  try {
+    const app = getFirebaseApp()
+    const auth = getAuth(app)
+    const credential = await signInWithEmailAndPassword(auth, email, password)
+    await credential.user.getIdToken(true)
+
+    const db = getFirestore(app)
+    const profileRef = doc(db, 'licenses', licenseKey, 'users', credential.user.uid)
+    const snap = await getDoc(profileRef)
+
+    if (!snap.exists()) return 'invalid'
+    const data = snap.data() as {
+      role?: string
+      authorizedStores?: string[]
+      displayName?: string
+      active?: boolean
+    }
+    if (data.active === false) return 'disabled'
+    if (data.role !== 'cashier' && data.role !== 'admin') return 'invalid'
+
+    const profile: UserProfile = {
+      uid: credential.user.uid,
+      email: credential.user.email ?? email,
+      role: data.role,
+      authorizedStores: data.authorizedStores ?? [],
+      displayName: resolveProfileDisplayName(data.displayName, credential.user.email ?? email),
+      active: true,
+    }
+    tryCacheCredentials(email, password, profile)
+    return 'upgraded'
+  } catch (err) {
+    if (firebaseAuthCode(err) === 'auth/user-disabled') return 'disabled'
+    if (isNetworkAuthError(err)) return 'still_offline'
+    return 'invalid'
   }
 }
