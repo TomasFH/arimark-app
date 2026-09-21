@@ -11,6 +11,8 @@
  *  - providers / employees: caché para gasto, vales y liquidación (v4)
  *  - vales / salaryPayments / providerDebtEvents: pendientes de sync (v4)
  *  - ceboEntries: kilos de cebo del turno (v5; injectReason en expenses es campo extra)
+ *  - merchandiseIntakes: libro de ingreso de mercadería (v6; líneas en v7)
+ *  - merchRubros: chips de rubro de toda la licencia (v7)
  *
  * El acceso offline ya no depende de un PIN: la sesión de Firebase Auth queda
  * persistida en IndexedDB (ver firebase.ts), por lo que la versión 2 del schema
@@ -24,6 +26,10 @@ import type {
   LocalSale,
   LocalExpense,
   LocalCebo,
+  LocalMerchandiseIntake,
+  LocalMerchRubro,
+  LocalMerchVisitDraft,
+  LocalProviderPurchasePrices,
   CachedProvider,
   CachedEmployee,
   LocalVale,
@@ -50,6 +56,10 @@ class MobileDb extends Dexie {
   salaryPayments!: EntityTable<LocalSalaryPayment, 'id'>
   providerDebtEvents!: EntityTable<LocalProviderDebtEvent, 'id'>
   ceboEntries!: EntityTable<LocalCebo, 'id'>
+  merchandiseIntakes!: EntityTable<LocalMerchandiseIntake, 'id'>
+  merchRubros!: EntityTable<LocalMerchRubro, 'id'>
+  merchVisitDrafts!: EntityTable<LocalMerchVisitDraft, 'shiftId'>
+  providerPurchasePrices!: EntityTable<LocalProviderPurchasePrices, 'providerId'>
 
   constructor() {
     super('carniceria-mobile-v1')
@@ -84,6 +94,22 @@ class MobileDb extends Dexie {
     // v5: cebo del turno (kg + nota). injectReason en expenses no requiere índice.
     this.version(5).stores({
       ceboEntries: 'id, shiftId, storeId, syncStatus, createdAt',
+    })
+
+    // v6: libro de ingreso de mercadería (cantidad + rubro + pago del mismo acto).
+    this.version(6).stores({
+      merchandiseIntakes: 'id, shiftId, storeId, syncStatus, createdAt',
+    })
+
+    // v7: líneas por entrega + caché de rubros de la licencia.
+    this.version(7).stores({
+      merchRubros: 'id, sortOrder, archivedAt',
+    })
+
+    // v8: borrador de visita (no se sube a Firestore) + último costo de compra.
+    this.version(8).stores({
+      merchVisitDrafts: 'shiftId',
+      providerPurchasePrices: 'providerId',
     })
   }
 }

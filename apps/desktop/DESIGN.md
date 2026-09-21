@@ -36,7 +36,7 @@ No cablear `business.json.theme.accent` desde este archivo: un accent por client
 
 ## Primitivos
 
-`src/components/ui/`: `Button` (primary coral / secondary / ghost / danger), `Modal` (portal, Escape, overlay), `ScreenHeader`, `ActionMenu`, `ListRow`, `SectionLabel`, `BrandMark` (hexágono, sin emoji de cliente).
+`src/components/ui/`: `Button` (primary coral / secondary / ghost / danger), `Modal` (portal, Escape, overlay), `CollapseReveal` (estirar alto), `SuggestPopover` (autocomplete fuera del flujo), `ScreenHeader`, `ActionMenu`, `ListRow`, `SectionLabel`, `BrandMark` (hexágono, sin emoji de cliente).
 
 Campos enteros: `NumericInput` (`type="text"` + `inputMode="numeric"`, sin `pattern`). Texto de usuario: `min-w-0 truncate` + `title`.
 
@@ -47,3 +47,16 @@ Una acción primaria por contexto; el resto en hamburguesa o `ActionMenu`.
 Caja — riel: Menú, Venta, Vales, Gastos, Turno. Hamburguesa: Ingreso, Cebo, Saldar + consultas/operación/apariencia/sesión.
 
 Tema: `UiSettings.colorScheme` (`light` default), `applyColorScheme` al boot.
+
+## Movimiento — estirar
+
+Cuando un modal o sección cambia de alto porque cambió el **contenido del formulario** (pestaña, visita resuelta, bloque que se abre), usar:
+
+- `.modal-panel-grow` en el panel (`Modal`)
+- `CollapseReveal` en el bloque que entra o sale
+
+Misma curva: `--motion-grow-duration` (200ms) y `--motion-grow-ease` (`cubic-bezier(0.22, 1, 0.36, 1)`).
+
+**No** estirar el marco por autocomplete. Las sugerencias van en `SuggestPopover`, portal **dentro del cuerpo del modal** (no sobre el título ni Cerrar/Registrar). Siguen al campo durante el estirar.
+
+Clase CSS del bloque: `.height-reveal`.

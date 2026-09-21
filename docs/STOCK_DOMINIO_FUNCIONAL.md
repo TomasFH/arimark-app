@@ -190,7 +190,7 @@ El modelo de perfil de rendimiento aplica naturalmente a vacuno en media res. Po
 
 ## Puente v1.0 (no es este módulo)
 
-Hasta implementar Fase 8, el producto puede tener un **libro de ingresos** (`PLAN.md` **FEAT-MERCH-INTAKE-01**): qué rubro y cuánto llegó, a veces con pago al cargar. Eso es un hecho observado grosero. **No** es disponibilidad estimada, **no** usa perfiles de rendimiento y **no** autoriza a codear este documento.
+Hasta implementar Fase 8, el producto tiene un **libro de ingresos** (`PLAN.md` **FEAT-MERCH-INTAKE-01**, v2 2026-09-17): qué rubro y cuánto llegó (entrega con líneas; kilos netos y unidades listos para stats semanales/mensuales), a veces con pago al cargar. Eso es un hecho observado grosero. **No** es disponibilidad estimada, **no** usa perfiles de rendimiento y **no** autoriza a codear el resto de este documento.
 
 ---
 

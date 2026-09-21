@@ -15,7 +15,7 @@ import {
 import { firebaseApp, LICENSE_KEY } from '../firebase'
 import { db } from './db'
 import { isOnline } from './connectivity'
-import { asIsoTimestamp, calcProviderBalance, providerNameKey } from './adminLedger'
+import { asIsoTimestamp, calcProviderBalance, providerIdFromName, providerNameKey } from './adminLedger'
 import { firestorePaidAtBounds } from './week'
 import type {
   CachedEmployee,
@@ -24,6 +24,7 @@ import type {
   LocalVale,
   SalaryValeSnapshotItem,
 } from '../types/pos'
+import { coerceProviderIntakeKind, type ProviderIntakeKind } from '@carniceria/shared'
 
 const firestore = getFirestore(firebaseApp)
 
@@ -40,6 +41,7 @@ export function parseProviderDoc(id: string, data: Record<string, unknown>): Cac
     name,
     archivedAt: asIsoTimestamp(data.archivedAt),
     updatedAt: new Date().toISOString(),
+    intakeKind: coerceProviderIntakeKind(data.intakeKind),
   }
 }
 
@@ -275,16 +277,22 @@ export async function upsertCachedProvider(input: {
   id: string
   name: string
   createdBy: string
+  intakeKind?: ProviderIntakeKind | null
 }): Promise<void> {
   const now = new Date().toISOString()
+  const existing = await db.providers.get(input.id)
+  const intakeKind = input.intakeKind !== undefined
+    ? input.intakeKind
+    : (existing?.intakeKind ?? null)
   await db.providers.put({
     id: input.id,
     name: input.name,
     archivedAt: null,
     updatedAt: now,
+    intakeKind,
   })
   if (!(await isOnline())) return
-  await setDoc(doc(firestore, 'licenses', LICENSE_KEY, 'providers', input.id), {
+  const payload: Record<string, unknown> = {
     id: input.id,
     name: input.name,
     nameKey: providerNameKey(input.name),
@@ -292,7 +300,32 @@ export async function upsertCachedProvider(input: {
     deleted: false,
     createdAt: now,
     createdBy: input.createdBy,
-  }, { merge: true })
+  }
+  if (input.intakeKind !== undefined) payload.intakeKind = input.intakeKind
+  await setDoc(doc(firestore, 'licenses', LICENSE_KEY, 'providers', input.id), payload, { merge: true })
+}
+
+export async function setProviderIntakeKind(input: {
+  id?: string | null
+  name: string
+  createdBy: string
+  intakeKind: ProviderIntakeKind
+}): Promise<CachedProvider> {
+  const id = input.id || providerIdFromName(input.name)
+  await upsertCachedProvider({
+    id,
+    name: input.name,
+    createdBy: input.createdBy,
+    intakeKind: input.intakeKind,
+  })
+  const row = await db.providers.get(id)
+  return row ?? {
+    id,
+    name: input.name,
+    archivedAt: null,
+    updatedAt: new Date().toISOString(),
+    intakeKind: input.intakeKind,
+  }
 }
 
 export function filterProviders(providers: CachedProvider[], queryText: string): CachedProvider[] {

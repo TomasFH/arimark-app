@@ -995,6 +995,8 @@ Historial largo y proveedores en celu = admin (ya existe), no el POS de cajera.
 
 Implementado en POS móvil: gastos con proveedor (lista + deuda de este local), ingreso de efectivo, ventas del turno con anular, fiado en el cobro, **vales y liquidación de la semana en curso**. El celu no clona saldar dedicado, deuda cross-local, pedidos ni catálogo. Vales/sueldo del celu quedan en el turno `source=mobile` (DT-06).
 
+**Deuda visual (post 1.0, sin prioridad ahora):** la UI del POS del celu quedó atrás del desktop. El pack de emergencia **funciona**; no rediseñar para el corte 1.0. Cuando se toque: skill Impeccable sobre el POS de `apps/mobile` (no clonar pantallas de PC). Registro 2026-09-21.
+
 ---
 
 ### FEAT-BUTCHER-01: Cuenta de carnicero — solo celu (implementado 2026-09-02)
@@ -1204,17 +1206,22 @@ Edición de catálogo en celu. Bajar la colección `catalog` entera para armar u
 
 ---
 
-### FEAT-MERCH-INTAKE-01: Ingreso de mercadería simplificado — **pendiente v1.0, no codear ahora** (pedido 2026-09-15)
+### FEAT-MERCH-INTAKE-01: Ingreso de mercadería — **hecho 2026-09-15; v4 visitas por tipo 2026-09-18**
 
-Hasta la Fase 8 (stock por eventos + perfiles de rendimiento) **sigue bloqueada**. Eso no deja un hueco aceptable en v1.0: hoy se puede contar (BLOQUE E, domingo) y gastar/pagar proveedores, pero **no hay registro de qué mercadería entró**.
+Hasta la Fase 8 (stock por eventos + perfiles de rendimiento) **sigue bloqueada**. El puente cubre el hueco: hoy se puede contar (BLOQUE E, domingo) y gastar/pagar proveedores, y **hay un libro de qué mercadería entró**.
 
-**Producto (puente, no el stock definitivo):** un libro de ingresos generalizado, no disponibilidad estimada por corte ni desposte.
+**Producto (puente, no el stock definitivo):** una visita de proveedor = encabezado + renglones en Gastos. El tipo vive en el proveedor (`intake_kind` nullable: `catalog` | `media_res` | `chicken` | `insumos`). En caja: **Productos / Media res / Pollo / Insumos** (nunca “Catálogo”). Primera visita post-deploy: chips; después, el cuerpo del modal ya es el correcto. **Cambiar qué trae** descarta el borrador de renglones.
 
-- **Qué se anota:** cantidad + rubro amplio (ej. medias res, pollos enteros, cortes de cerdo, maples, carbón) y también insumos que **no se venden** (ej. productos de limpieza).
-- **Qué no es:** no descuenta ventas, no proyecta kilos de asado, no reemplaza el conteo dominical, no es el modelo de `docs/STOCK_DOMINIO_FUNCIONAL.md`.
-- **Caja:** algunos ingresos se pagan al cargar (para no duplicar “gasto” vs “entrada”). El puente tiene que poder **atar** el ingreso a un gasto / deuda de proveedor del mismo acto, o dejarlo sin pago (fiado al proveedor / ya pagado / no aplica).
-- **Quién:** admin o quien reciba; no el carnicero salvo que se pida después.
-- **Spark:** colección que crece → consultas por fecha/turno, no `getDocs` de toda la historia.
+- **Productos (`catalog`):** renglones del maple y vendibles. Sin atajo de nombre libre para res/pollo.
+- **Media res:** N unidades → N kilos. Confirmar escribe `merchandise_intakes` **sin** `expenses` ni `provider_debt_events`. El pago de esas medias es otra tarea.
+- **Insumos:** Maxilimp y similares. Ficha de proveedor + concepto + plata + deuda. Sin buscar PLU ni mercadería de venta. El tab Gasto sigue para luz/alquiler sin proveedor.
+- **Último costo de compra:** tabla `provider_purchase_prices` (no es el precio de venta). Primera vez no pide confirmación. Si ya había precio y cambió, antes de finalizar pregunta si recordarlo; si rechaza, esta visita usa el precio tipeado y la memoria queda igual.
+- **Borrador:** un draft por turno (`status=draft`, no se sube a Firestore). Chip «Visita en curso» para reabrir Gastos.
+- **Hechos para estadísticas (aún sin pantallas):** `productId`/`nameKey`, `netKg`/`unitCount`/`packCount`, `unitCost`/`costTotal`, `createdAt`. Agrupar por semana (`mondayWeekRange`) o mes (`calendarMonthRange`).
+- **Dónde vive (1.0):** al confirmar, el encabezado + renglones quedan en SQLite (`merchandise_intakes` + `merchandise_intake_lines`) y se sincronizan a Firestore (`licenses/{key}/merchandiseIntakes/{id}`). El tipo del proveedor queda en `providers.intake_kind` (también en el doc de proveedor). Último costo en `provider_purchase_prices`. El IPC `listShiftMerch` ya puede listar la semana. **Ninguna pantalla de 1.0 lee ese libro** salvo el comprobante al confirmar y el borrador del turno. No hace falta re-capturar: Fase 8 y las stats futuras consultan estas tablas. Confirmado con el desarrollador 2026-09-21.
+- **Qué no es:** no descuenta ventas, no aplica rendimiento 80/20 (Fase 8), no usa `stock_entries`. Los kg no viven en `expenses`. No hay flujo de “pagar medias después”.
+- **Quién:** cajera o admin con turno abierto (PC y celu). Pack de compra: admin en el producto (unidad).
+- **Spark:** `merchandiseIntakes` por `storeId` + `createdAt` (solo confirmadas). `providerPurchasePrices/{providerId}` = 1 doc por proveedor (colección chica). `providers.intakeKind` viaja en el doc de proveedor (colección chica). Nunca `getDocs` de toda la historia.
 
-**Cuándo implementar:** cuando el desarrollador lo pida. No mezclar con Fase 8. No codear en esta sesión.
+**Hecho en código:** migraciones `0044`–`0047`, IPC de visita (borrador/confirmar, media res sin gasto), Gastos PC/móvil por tipo, último costo, pack en catálogo.
 

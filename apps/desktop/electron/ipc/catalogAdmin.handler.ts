@@ -48,6 +48,8 @@ const createProductSchema = z.object({
   category: categoryEnum,
   unit: unitEnum,
   pluNumber: z.number().int().min(1).max(999).nullable(),
+  purchasePackLabel: z.string().max(40).transform(s => s.trim()).nullable().optional(),
+  purchasePackContents: z.number().int().positive().max(99_999).nullable().optional(),
 })
 
 const updateProductSchema = z.object({
@@ -57,6 +59,8 @@ const updateProductSchema = z.object({
   unit: unitEnum.optional(),
   pluNumber: z.number().int().min(1).max(999).nullable().optional(),
   active: z.boolean().optional(),
+  purchasePackLabel: z.string().max(40).transform(s => s.trim()).nullable().optional(),
+  purchasePackContents: z.number().int().positive().max(99_999).nullable().optional(),
 })
 
 const setProductPriceSchema = z.object({
@@ -497,6 +501,8 @@ export function registerCatalogAdminHandlers(): void {
           unit: products.unit,
           pluNumber: products.pluNumber,
           active: products.active,
+          purchasePackLabel: products.purchasePackLabel,
+          purchasePackContents: products.purchasePackContents,
         })
         .from(products)
         .where(eq(products.active, true))
@@ -525,6 +531,8 @@ export function registerCatalogAdminHandlers(): void {
           price: priceMap.get(r.id) ?? null,
           // Si no hay fila en store_products, se considera disponible por defecto
           available: availMap.get(r.id) ?? true,
+          purchasePackLabel: r.purchasePackLabel,
+          purchasePackContents: r.purchasePackContents,
         })),
       }
     } catch (err) {
@@ -547,7 +555,7 @@ export function registerCatalogAdminHandlers(): void {
 
     try {
       const db = getDb()
-      const { name, category, unit, pluNumber } = parsed.data
+      const { name, category, unit, pluNumber, purchasePackLabel, purchasePackContents } = parsed.data
 
       // PLU único solo entre productos activos (los eliminados liberan el número).
       if (pluNumber !== null) {
@@ -572,6 +580,8 @@ export function registerCatalogAdminHandlers(): void {
           category,
           unit,
           pluNumber: pluNumber ?? undefined,
+          purchasePackLabel: purchasePackLabel || null,
+          purchasePackContents: purchasePackContents ?? null,
           active: true,
           createdAt: now,
           updatedAt: now,

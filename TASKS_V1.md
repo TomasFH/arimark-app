@@ -307,7 +307,7 @@ Archivos clave a leer antes de empezar cualquier tarea:
 - **Rol carnicero:** no existe; conteo de stock lo usan admin/cajera de momento.
 - **Pago a empleado (cajera):** Menú → **Liquidación / pago de sueldo**. Neto = sueldo − vales (no monto libre). Gasto `Salario: {nombre}`. Nota opcional. Reemplaza el gasto suelto `Pago: {nombre}`.
 - **Tickets balanza / barcode “emergencia”:** el bloqueo de AGENTS.md (decodificar ticket KRETZ) **no es prioritario**. En operación real, si el lector no trae datos, ya existe **carga manual** (producto + kg/precio). Eso cubre el caso del local.
-- **App móvil ≠ port completo del desktop:** el POS es de **emergencia** (sin conteo, cierre con arqueo, saldar dedicado ni deuda cross-local). Sí tiene cobro, vuelto, fiado, gasto **con proveedor**, ingreso, vales, liquidación de la semana y historial de cierres con etiqueta Móvil. Recorte: `PLAN.md` **FEAT-MOB-EMERGENCY-01**. Unificar caja en vivo = DT-06.
+- **App móvil ≠ port completo del desktop:** el POS es de **emergencia** (sin conteo, cierre con arqueo, saldar dedicado ni deuda cross-local). Sí tiene cobro, vuelto, fiado, gasto **con proveedor**, ingreso, vales, liquidación de la semana y historial de cierres con etiqueta Móvil. Recorte: `PLAN.md` **FEAT-MOB-EMERGENCY-01**. Unificar caja en vivo = DT-06. **UI del POS celu desactualizada vs PC** (2026-09-21): no es 1.0; cuando se retome, Impeccable sobre `apps/mobile`.
 - **Locales de cajera (`authorizedStores`):** editable en hub → Gestión de cajeras (crear + botón Locales). En móvil, el selector de local usa esa lista; con 1 solo local salta directo a abrir turno.
 - **Catálogo ago 2026:** fuente `apps/desktop/scripts/catalog-2026-08.json`; PDF `LISTA_PRECIOS.pdf`. Wipe SQLite Día 0: `pnpm --filter @carniceria/desktop db:wipe:prod` (borra locales y operación; deja el catálogo maestro). Firestore: `pnpm --filter @carniceria/desktop firestore:day0-wipe -- --apply` (conserva admins + installations).
 
@@ -411,7 +411,7 @@ Para maximizar valor entregable en orden:
 7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
 8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`; falta backfill `--apply` + deploy índices/reglas). **BLOQUE I checklist cerrada 2026-09-02.**
 9. **Hecho en código 2026-09-11/12** (checkpoint `8b43423`): bloques N–R + `FEAT-AUTH-PASSWORD-01` (app). Plantilla de mail de reset: consola Firebase (`docs/AUTH_PASSWORD.md`).
-10. **Hecho 2026-09-15:** **DT-02** (login offline PC, Opción E) y **DT-03** (retomar turno propio). **Pendiente, no codear hasta que se pida:** **`FEAT-MERCH-INTAKE-01`** (ingreso de mercadería puente; ver BLOQUE S). Fase 8 Stock sigue bloqueada. DT-07/08: código listo; falta backfill `--apply` + confirmar índices en prod.
+10. **Hecho 2026-09-15:** **DT-02** (login offline PC, Opción E) y **DT-03** (retomar turno propio). **Hecho 2026-09-17:** **`FEAT-MERCH-INTAKE-01`** v2 (BLOQUE S). Fase 8 Stock sigue bloqueada. DT-07/08: código listo; falta backfill `--apply` + confirmar índices en prod.
 
 ---
 
@@ -498,11 +498,11 @@ Modal desde el POS (PC y POS de emergencia del celu), no una pantalla nueva. Dat
 
 ---
 
-## BLOQUE S — Ingreso de mercadería (puente) ⏳ PENDIENTE v1.0 — no codear ahora
+## BLOQUE S — Ingreso de mercadería (puente) ✅ HECHA (2026-09-15; v3 visita en Gastos 2026-09-17)
 
-> **Estado:** Solo documentado (2026-09-15). Producto: `PLAN.md` **FEAT-MERCH-INTAKE-01**. **No codear hasta que el desarrollador lo pida.** No es la Fase 8.
+> **Estado:** Completada (v4). Producto: `PLAN.md` **FEAT-MERCH-INTAKE-01**. No es la Fase 8. No hay pantallas de estadísticas todavía.
 
-Hoy hay conteo dominical (BLOQUE E) y gastos/proveedores, pero **no hay libro de qué entró**. Hasta el stock definitivo, v1.0 necesita un registro generalizado: medias res, pollos enteros, cortes de cerdo, maples, carbón, insumos de limpieza, etc. Algunos ingresos no se venden; algunos se pagan en el mismo acto (ata al gasto / deuda del proveedor). No proyecta disponibilidad ni descuenta ventas.
+Visita de proveedor **dentro de Gastos** (renglones solo si hay proveedor). Catálogo o nombre libre; maple = pack de compra en el producto; media res/pollo = pesar cada unidad; hielo = notas. Último costo de compra aparte del precio de venta (confirmar si cambió). Borrador por turno, no se sube a Firestore. Hechos `netKg` / `unitCount` / `costTotal` / `createdAt` para stats semanales/mensuales. Tablas `merchandise_intakes` + `merchandise_intake_lines` + `provider_purchase_prices`. No proyecta disponibilidad ni descuenta ventas. No usa `stock_entries`. **1.0 sí persiste el libro** (SQLite + Firestore); ninguna UI lo consulta todavía salvo el comprobante y el borrador. Fase 8 / stats leen de ahí.
 
 ---
 

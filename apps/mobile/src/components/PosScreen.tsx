@@ -5,7 +5,7 @@
  */
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { parseKretzBarcode, injectConceptForReason, quoteCashDiscount, remainderIncludesCash, saleTotalFromQuote, isEmptyBillCount, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock, type CashDiscountRule, type InjectReason } from '@carniceria/shared'
+import { parseKretzBarcode, injectConceptForReason, quoteCashDiscount, remainderIncludesCash, saleTotalFromQuote, isEmptyBillCount, resolveCashDiscountRule, weekdayInTimeZone, merchProductKey, type CashDiscountBlock, type CashDiscountRule, type InjectReason } from '@carniceria/shared'
 import { startBarcodeScanning } from '../lib/barcodeScanner'
 import { findByPlu } from '../lib/catalog'
 import { db } from '../lib/db'
@@ -34,6 +34,12 @@ import { expectedCashInHand, shiftRevenue } from '../lib/shiftCash'
 import { fetchStoreCashDiscount } from '../lib/cashDiscountStore'
 import { debtEventId } from '../lib/expenseVisit'
 import { refreshPosCaches, upsertCachedProvider } from '../lib/posCaches'
+import {
+  applyMobilePurchasePrices,
+  discardMerchVisitDraft,
+  getMerchVisitDraft,
+  saveMerchVisitForExpense,
+} from '../lib/merchVisit'
 import { addDaysYmd, weekStartMondayLocalYmd } from '../lib/week'
 import type {
   CatalogProduct,
@@ -89,6 +95,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
   const [showExpense, setShowExpense] = useState(false)
   const [showInject, setShowInject] = useState(false)
   const [showCebo, setShowCebo] = useState(false)
+  const [hasMerchVisitDraft, setHasMerchVisitDraft] = useState(false)
   const [showCashDiscount, setShowCashDiscount] = useState(false)
   const [cashDiscountFallback, setCashDiscountFallback] = useState<CashDiscountRule>({ minAmount: 0, percent: 0 })
   const [cashDiscountSchedule, setCashDiscountSchedule] = useState<CashDiscountBlock[]>([])
@@ -135,12 +142,14 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
   useBackLayer(showCloseRecap, () => onCloseShift())
 
   async function refreshShiftData(): Promise<void> {
-    const [salesRows, expenseRows] = await Promise.all([
+    const [salesRows, expenseRows, draft] = await Promise.all([
       db.sales.where('shiftId').equals(shift.id).toArray(),
       db.expenses.where('shiftId').equals(shift.id).toArray(),
+      getMerchVisitDraft(shift.id),
     ])
     setShiftSales(salesRows)
     setShiftExpenses(expenseRows)
+    setHasMerchVisitDraft(Boolean(draft && draft.lines.length > 0))
   }
 
   useEffect(() => {
@@ -370,80 +379,113 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
     setShowExpense(false)
     setSaveError(null)
     try {
-      const expenseId = uuidv4()
       const now = new Date().toISOString()
-      await db.expenses.put({
-        id: expenseId,
-        shiftId: shift.id,
-        storeId: shift.storeId,
-        kind: 'expense',
-        concept: payload.concept,
-        amount: payload.amount,
-        notes: payload.notes,
-        createdAt: now,
-        createdBy: shift.userId,
-        syncStatus: 'pending',
-        syncedAt: null,
-        providerId: payload.providerId,
-        providerName: payload.providerName,
-        newDebtAmount: payload.newDebtAmount,
-        paysOldDebt: payload.paysOldDebt,
-      })
+      const factsOnly = payload.visitKind === 'media_res'
+      const expenseId = factsOnly ? null : uuidv4()
+      if (!factsOnly && expenseId) {
+        await db.expenses.put({
+          id: expenseId,
+          shiftId: shift.id,
+          storeId: shift.storeId,
+          kind: 'expense',
+          concept: payload.concept,
+          amount: payload.amount,
+          notes: payload.notes,
+          createdAt: now,
+          createdBy: shift.userId,
+          syncStatus: 'pending',
+          syncedAt: null,
+          providerId: payload.providerId,
+          providerName: payload.providerName,
+          newDebtAmount: payload.newDebtAmount,
+          paysOldDebt: payload.paysOldDebt,
+        })
+      }
       if (payload.providerId && payload.providerName) {
         await upsertCachedProvider({
           id: payload.providerId,
           name: payload.providerName,
           createdBy: shift.userId,
+          intakeKind: payload.visitKind ?? undefined,
         })
-        const events: Array<{
-          id: string
-          expenseId: string
-          shiftId: string
-          storeId: string
-          providerId: string
-          providerName: string
-          type: 'debt' | 'payment'
-          amount: number
-          createdAt: string
-          createdBy: string
-          syncStatus: 'pending'
-          syncedAt: null
-        }> = []
-        if (payload.newDebtAmount > 0) {
-          events.push({
-            id: debtEventId(expenseId, 'debt'),
-            expenseId,
-            shiftId: shift.id,
-            storeId: shift.storeId,
-            providerId: payload.providerId,
-            providerName: payload.providerName,
-            type: 'debt' as const,
-            amount: payload.newDebtAmount,
-            createdAt: now,
-            createdBy: shift.userId,
-            syncStatus: 'pending' as const,
-            syncedAt: null,
-          })
+        if (!factsOnly && expenseId) {
+          const events: Array<{
+            id: string
+            expenseId: string
+            shiftId: string
+            storeId: string
+            providerId: string
+            providerName: string
+            type: 'debt' | 'payment'
+            amount: number
+            createdAt: string
+            createdBy: string
+            syncStatus: 'pending'
+            syncedAt: null
+          }> = []
+          if (payload.newDebtAmount > 0) {
+            events.push({
+              id: debtEventId(expenseId, 'debt'),
+              expenseId,
+              shiftId: shift.id,
+              storeId: shift.storeId,
+              providerId: payload.providerId,
+              providerName: payload.providerName,
+              type: 'debt' as const,
+              amount: payload.newDebtAmount,
+              createdAt: now,
+              createdBy: shift.userId,
+              syncStatus: 'pending' as const,
+              syncedAt: null,
+            })
+          }
+          if (payload.paysOldDebt > 0) {
+            events.push({
+              id: debtEventId(expenseId, 'payment'),
+              expenseId,
+              shiftId: shift.id,
+              storeId: shift.storeId,
+              providerId: payload.providerId,
+              providerName: payload.providerName,
+              type: 'payment' as const,
+              amount: payload.paysOldDebt,
+              createdAt: now,
+              createdBy: shift.userId,
+              syncStatus: 'pending' as const,
+              syncedAt: null,
+            })
+          }
+          if (events.length > 0) await db.providerDebtEvents.bulkPut(events)
         }
-        if (payload.paysOldDebt > 0) {
-          events.push({
-            id: debtEventId(expenseId, 'payment'),
-            expenseId,
-            shiftId: shift.id,
-            storeId: shift.storeId,
-            providerId: payload.providerId,
-            providerName: payload.providerName,
-            type: 'payment' as const,
-            amount: payload.paysOldDebt,
-            createdAt: now,
-            createdBy: shift.userId,
-            syncStatus: 'pending' as const,
-            syncedAt: null,
-          })
-        }
-        if (events.length > 0) await db.providerDebtEvents.bulkPut(events)
       }
-      setSuccess('Gasto registrado')
+      if (payload.merchLines && payload.merchLines.length > 0 && payload.providerId && payload.providerName) {
+        await saveMerchVisitForExpense({
+          shift,
+          viewerName,
+          expenseId,
+          lines: payload.merchLines,
+          notes: payload.notes,
+          paidAmount: factsOnly ? 0 : payload.amount,
+          debtAmount: factsOnly ? 0 : payload.newDebtAmount,
+          providerId: payload.providerId,
+          providerName: payload.providerName,
+        })
+        if (!factsOnly) {
+          await applyMobilePurchasePrices({
+            providerId: payload.providerId,
+            lines: payload.merchLines.map(l => ({
+              productKey: merchProductKey(l.productId, l.rubroName),
+              name: l.rubroName,
+              costUnit: l.costUnit,
+              unitCost: l.unitCost,
+            })),
+            acceptPriceUpdates: payload.acceptPriceUpdates !== false,
+          })
+        }
+      } else {
+        await discardMerchVisitDraft(shift.id)
+      }
+      setSuccess(factsOnly ? 'Visita registrada' : 'Gasto registrado')
       setTimeout(() => setSuccess(null), 2000)
       await refreshShiftData()
       triggerSync().catch((err: unknown) => {
@@ -560,6 +602,15 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           <span className="font-mono text-xs text-emerald-400" title="Efectivo estimado en caja">
             {formatARS(cashInHand)} en caja
           </span>
+          {hasMerchVisitDraft && (
+            <button
+              type="button"
+              onClick={() => setShowExpense(true)}
+              className="rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-300"
+            >
+              Visita en curso
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -789,8 +840,12 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
       {showExpense && (
         <ShiftExpenseModal
           storeId={shift.storeId}
+          shiftId={shift.id}
+          userId={shift.userId}
+          catalog={catalog}
           onConfirm={payload => { void saveExpense(payload) }}
-          onClose={() => setShowExpense(false)}
+          onClose={() => { setShowExpense(false); void refreshShiftData() }}
+          onDraftChanged={() => { void refreshShiftData() }}
         />
       )}
 

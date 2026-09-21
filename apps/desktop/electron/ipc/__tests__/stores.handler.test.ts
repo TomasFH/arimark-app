@@ -76,6 +76,10 @@ vi.mock('../../licensing/specialCustomerSync', () => ({
   pushUnsyncedSpecialCustomerOps: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/merchRubroSync', () => ({
+  ensureMerchRubrosSynced: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'

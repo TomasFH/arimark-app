@@ -6,6 +6,7 @@ import { CASH_INJECT_CONCEPT } from '../types/pos'
 import type {
   LocalCebo,
   LocalExpense,
+  LocalMerchandiseIntake,
   LocalProviderDebtEvent,
   LocalSalaryPayment,
   LocalSale,
@@ -14,6 +15,7 @@ import type {
   SalePaymentDraft,
 } from '../types/pos'
 import { resolvedSaleStatus } from './shiftCash'
+import { merchLineToFirestore } from '@carniceria/shared'
 
 export function isInitialShiftUpload(syncedAt: string | null): boolean {
   return syncedAt === null
@@ -560,6 +562,99 @@ export function buildCeboOpsPayload(row: LocalCebo): CeboOpsPayload {
     shiftId: staging.shiftId,
     quantityKg: staging.quantityKg,
     notes: staging.notes,
+    createdAt: staging.createdAt,
+    createdBy: staging.createdBy,
+    createdByName: staging.createdByName,
+    updatedAt: staging.updatedAt,
+    updatedBy: staging.updatedBy,
+    updatedByName: staging.updatedByName,
+    deleted: false,
+  }
+}
+
+export interface MerchStagingPayload {
+  id: string
+  shiftId: string
+  storeId: string
+  lines: Array<Record<string, unknown>>
+  notes: string | null
+  paymentKind: LocalMerchandiseIntake['paymentKind']
+  paidAmount: number
+  debtAmount: number
+  providerId: string | null
+  providerName: string | null
+  expenseId: string | null
+  status: 'confirmed'
+  createdAt: string
+  createdBy: string
+  createdByName: string
+  updatedAt: string | null
+  updatedBy: string | null
+  updatedByName: string | null
+  importedAt: null
+}
+
+export function buildMerchStagingPayload(row: LocalMerchandiseIntake): MerchStagingPayload {
+  return {
+    id: row.id,
+    shiftId: row.shiftId,
+    storeId: row.storeId,
+    lines: (row.lines ?? []).map(merchLineToFirestore),
+    notes: row.notes,
+    paymentKind: row.paymentKind,
+    paidAmount: row.paidAmount,
+    debtAmount: row.debtAmount,
+    providerId: row.providerId,
+    providerName: row.providerName,
+    expenseId: row.expenseId,
+    status: 'confirmed',
+    createdAt: row.createdAt,
+    createdBy: row.createdBy,
+    createdByName: row.createdByName,
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
+    updatedByName: row.updatedByName,
+    importedAt: null,
+  }
+}
+
+export interface MerchOpsPayload {
+  id: string
+  storeId: string
+  shiftId: string
+  lines: Array<Record<string, unknown>>
+  notes: string | null
+  paymentKind: LocalMerchandiseIntake['paymentKind']
+  paidAmount: number
+  debtAmount: number
+  providerId: string | null
+  providerName: string | null
+  expenseId: string | null
+  status: 'confirmed'
+  createdAt: string
+  createdBy: string
+  createdByName: string
+  updatedAt: string | null
+  updatedBy: string | null
+  updatedByName: string | null
+  deleted: false
+}
+
+export function buildMerchOpsPayload(row: LocalMerchandiseIntake): MerchOpsPayload {
+  const staging = buildMerchStagingPayload(row)
+  return {
+    id: staging.id,
+    storeId: staging.storeId,
+    shiftId: staging.shiftId,
+    lines: staging.lines,
+    notes: staging.notes,
+    paymentKind: staging.paymentKind,
+    paidAmount: staging.paidAmount,
+    debtAmount: staging.debtAmount,
+    providerId: staging.providerId,
+    providerName: staging.providerName,
+    expenseId: staging.expenseId,
+    status: staging.status,
     createdAt: staging.createdAt,
     createdBy: staging.createdBy,
     createdByName: staging.createdByName,

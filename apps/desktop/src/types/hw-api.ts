@@ -4,9 +4,9 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, StoreHoursBlock } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, ProviderIntakeKind, StoreHoursBlock } from '@carniceria/shared'
 
-export type { BillLine, CashDiscountBlock, CashHandoverAudit }
+export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, ProviderIntakeKind }
 
 export type AppEnv = 'dev' | 'production'
 
@@ -270,8 +270,9 @@ export interface ProductRow {
   category: 'beef_cut' | 'poultry' | 'pork' | 'other'
   unit: 'kg' | 'unit'
   pluNumber: number
-  /** Precio vigente en el local ($/kg o $/unidad). null si no hay precio cargado. */
   price: number | null
+  purchasePackLabel?: string | null
+  purchasePackContents?: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +291,8 @@ export interface AdminProductRow {
   price: number | null
   /** Disponibilidad en el local seleccionado (de store_products). */
   available: boolean
+  purchasePackLabel?: string | null
+  purchasePackContents?: number | null
 }
 
 export interface CatalogRevisionRow {
@@ -346,6 +349,8 @@ export interface CreateProductPayload {
   category: 'beef_cut' | 'poultry' | 'pork' | 'other'
   unit: 'kg' | 'unit'
   pluNumber: number | null
+  purchasePackLabel?: string | null
+  purchasePackContents?: number | null
 }
 
 export interface UpdateProductPayload {
@@ -355,6 +360,8 @@ export interface UpdateProductPayload {
   unit?: 'kg' | 'unit'
   pluNumber?: number | null
   active?: boolean
+  purchasePackLabel?: string | null
+  purchasePackContents?: number | null
 }
 
 export interface SetProductPricePayload {
@@ -845,6 +852,8 @@ export interface ProviderRow {
   phone?: string
   notes?: string
   archivedAt?: string
+  /** null = todavía no se eligió qué trae. UI: Productos / Media res / Pollo. */
+  intakeKind: ProviderIntakeKind | null
 }
 
 export interface ProviderWithDebtRow {
@@ -1217,6 +1226,44 @@ export interface HistoryDebtRow {
   amount: number
   eventType: 'created' | 'partial_payment' | 'paid' | 'cancelled' | 'reopened'
   notes: string | null
+}
+
+export interface MerchandiseIntakeLineDraft {
+  rubroId: string
+  weightsKg?: number[]
+  kg?: number
+  count?: number
+  packContents?: number
+  packTareKg?: number
+  hasIce?: boolean
+}
+
+export interface MerchRubroRow {
+  id: string
+  name: string
+  template: MerchIntakeTemplate
+  packContents: number | null
+  packTareKg: number | null
+  packLabel: string | null
+  sortOrder: number
+  archivedAt: string | null
+}
+
+export interface MerchandiseIntakeRow {
+  id: string
+  lines: MerchIntakeLineSnapshot[]
+  notes: string | null
+  paymentKind: MerchIntakePaymentKind
+  paidAmount: number
+  debtAmount: number
+  providerName: string | null
+  expenseId: string | null
+  createdById: string
+  createdByName: string
+  createdAt: string
+  updatedByName: string | null
+  updatedAt: string | null
+  canEdit: boolean
 }
 
 export interface HistoryValeRow {
@@ -1643,6 +1690,61 @@ export interface HwApi {
   registerCebo: (payload: { quantityKg: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
   updateCebo: (payload: { id: string; quantityKg: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
 
+  listShiftMerch: (payload?: { weekOffset?: number }) => Promise<IpcResult<MerchandiseIntakeRow[]>>
+  getMerchVisitDraft: () => Promise<IpcResult<{
+    id: string
+    providerId: string | null
+    providerName: string | null
+    notes: string | null
+    lines: MerchVisitFormLine[]
+  } | null>>
+  saveMerchVisitDraft: (payload: {
+    providerId?: string
+    provider?: string
+    notes?: string
+    lines: MerchVisitFormLine[]
+  }) => Promise<IpcResult<{ id: string }>>
+  discardMerchVisitDraft: () => Promise<IpcResult<{ id: string | null }>>
+  confirmMerchVisit: (payload: {
+    lines: MerchVisitLineDraft[]
+    notes?: string
+    providerId?: string
+    provider?: string
+    concept?: string
+    amount?: number
+    newDebtAmount?: number
+    paysOldDebt?: number
+    debtStoreId?: string
+    acceptPriceUpdates: boolean
+    visitKind?: ProviderIntakeKind
+  }) => Promise<IpcResult<{ id: string; expenseId: string | null }>>
+  getProviderPurchasePrices: (payload: { providerId: string }) => Promise<IpcResult<Array<{
+    productKey: string
+    name: string
+    costUnit: 'kg' | 'unit' | 'pack'
+    unitCost: number
+  }>>>
+  listMerchRubros: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<MerchRubroRow[]>>
+  createMerchRubro: (payload: {
+    name: string
+    template: MerchIntakeTemplate
+    packContents?: number
+    packTareKg?: number
+    packLabel?: string
+    sortOrder?: number
+  }) => Promise<IpcResult<MerchRubroRow>>
+  updateMerchRubro: (payload: {
+    id: string
+    name?: string
+    template?: MerchIntakeTemplate
+    packContents?: number | null
+    packTareKg?: number | null
+    packLabel?: string | null
+    sortOrder?: number
+  }) => Promise<IpcResult<MerchRubroRow>>
+  archiveMerchRubro: (payload: { id: string }) => Promise<IpcResult<{ id: string }>>
+  unarchiveMerchRubro: (payload: { id: string }) => Promise<IpcResult<{ id: string }>>
+
   // ---- Proveedores (Fase S1) ----
   /** Lista proveedores activos desde la cache local. */
   listProviders: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<ProviderRow[]>>
@@ -1650,6 +1752,12 @@ export interface HwApi {
   createProvider: (payload: { name: string; phone?: string; notes?: string }) => Promise<IpcResult<ProviderRow>>
   /** Edita nombre, teléfono o notas de un proveedor. */
   updateProvider: (payload: { id: string; name?: string; phone?: string | null; notes?: string | null }) => Promise<IpcResult<ProviderRow>>
+  /** Cajera o admin: persiste qué mercadería trae (Productos / Media res / Pollo). */
+  setProviderIntakeKind: (payload: {
+    providerId?: string
+    provider?: string
+    intakeKind: ProviderIntakeKind
+  }) => Promise<IpcResult<ProviderRow>>
   /** Archiva un proveedor (lo oculta; conserva deuda e historial). */
   archiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>
   /** Restaura un proveedor archivado. */

@@ -674,6 +674,10 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
   const [category, setCategory] = useState<AdminProductRow['category']>(product?.category ?? 'beef_cut')
   const [unit, setUnit] = useState<'kg' | 'unit'>(product?.unit ?? 'kg')
   const [pluRaw, setPluRaw] = useState(product?.pluNumber != null ? String(product.pluNumber) : '')
+  const [packLabel, setPackLabel] = useState(product?.purchasePackLabel ?? '')
+  const [packContentsRaw, setPackContentsRaw] = useState(
+    product?.purchasePackContents != null ? String(product.purchasePackContents) : '',
+  )
   // Precio solo en creación: un campo compartido o uno por local
   const [samePriceAll, setSamePriceAll] = useState(true)
   const [sharedPriceRaw, setSharedPriceRaw] = useState('')
@@ -749,6 +753,11 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
     if (pluRaw !== '' && (isNaN(pluNumber!) || pluNumber! < 1 || pluNumber! > 999)) {
       setError('El PLU debe ser un número entre 1 y 999.'); return
     }
+    const packContents = unit === 'unit' ? parseNumericInput(packContentsRaw) : null
+    const packLabelValue = unit === 'unit' && packContents != null && packContents > 0
+      ? (packLabel.trim() || 'Cajón')
+      : null
+    const packContentsValue = unit === 'unit' && packContents != null && packContents > 0 ? packContents : null
     setSaving(true)
     let productId: string | undefined
     if (isEdit && product) {
@@ -757,11 +766,20 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
       if (category !== product.category) payload.category = category
       if (unit !== product.unit) payload.unit = unit
       if (pluNumber !== product.pluNumber) payload.pluNumber = pluNumber
+      if (packLabelValue !== (product.purchasePackLabel ?? null)) payload.purchasePackLabel = packLabelValue
+      if (packContentsValue !== (product.purchasePackContents ?? null)) payload.purchasePackContents = packContentsValue
       const r = await window.hw.updateProduct(payload)
       if (!r.ok) { setError(r.error); setSaving(false); return }
       productId = product.id
     } else {
-      const payload: CreateProductPayload = { name: name.trim(), category, unit, pluNumber }
+      const payload: CreateProductPayload = {
+        name: name.trim(),
+        category,
+        unit,
+        pluNumber,
+        purchasePackLabel: packLabelValue,
+        purchasePackContents: packContentsValue,
+      }
       const r = await window.hw.createProduct(payload)
       if (!r.ok) { setError(r.error); setSaving(false); return }
       productId = r.data.id
@@ -817,13 +835,44 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
               </select>
             </Field>
             <Field label="Unidad">
-              <select value={unit} onChange={e => setUnit(e.target.value as 'kg' | 'unit')}
+              <select
+                value={unit}
+                onChange={e => {
+                  const next = e.target.value as 'kg' | 'unit'
+                  setUnit(next)
+                  if (next === 'kg') {
+                    setPackLabel('')
+                    setPackContentsRaw('')
+                  }
+                }}
                 className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40">
                 <option value="kg">kg (pesable)</option>
                 <option value="unit">Unidad</option>
               </select>
             </Field>
           </div>
+          {unit === 'unit' && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Pack de compra (opcional)">
+                <input
+                  type="text"
+                  value={packLabel}
+                  onChange={e => setPackLabel(e.target.value.slice(0, 40))}
+                  maxLength={40}
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
+                  placeholder="Cajón"
+                />
+              </Field>
+              <Field label="Unidades por pack">
+                <NumericInput
+                  value={packContentsRaw}
+                  onChange={setPackContentsRaw}
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
+                  placeholder="12"
+                />
+              </Field>
+            </div>
+          )}
           <Field label="Número de PLU (1–999, opcional)">
             <input type="text" inputMode="numeric" value={pluRaw}
               onChange={e => setPluRaw(e.target.value.replace(/\D/g, '').slice(0, 3))}

@@ -75,6 +75,8 @@ export function registerProductsHandlers(): void {
           category: products.category,
           unit: products.unit,
           pluNumber: products.pluNumber,
+          purchasePackLabel: products.purchasePackLabel,
+          purchasePackContents: products.purchasePackContents,
           available: storeProducts.available,
         })
         .from(products)
@@ -106,6 +108,8 @@ export function registerProductsHandlers(): void {
           unit: r.unit,
           pluNumber: r.pluNumber as number,
           price: priceMap.get(r.id) ?? null,
+          purchasePackLabel: r.purchasePackLabel,
+          purchasePackContents: r.purchasePackContents,
         })),
       }
     } catch (err) {

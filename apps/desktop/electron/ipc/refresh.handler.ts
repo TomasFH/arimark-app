@@ -20,6 +20,8 @@ import {
   pushUnsyncedProviders,
   pushUnsyncedDebtEvents,
 } from '../licensing/providerSync'
+import { pushUnsyncedMerchandiseIntakes } from '../licensing/merchIntakeSync'
+import { ensureMerchRubrosSynced } from '../licensing/merchRubroSync'
 import type { IpcResult } from '../../src/types/hw-api'
 
 export interface RefreshRemoteDataResult {
@@ -85,6 +87,11 @@ export function registerRefreshHandlers(): void {
       } catch (err) {
         log.warn('[ipc:refresh-remote-data] ensureSpecialCustomersSynced falló (no bloqueante)', err)
       }
+      try {
+        await ensureMerchRubrosSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:refresh-remote-data] ensureMerchRubrosSynced falló (no bloqueante)', err)
+      }
 
       pushUnsyncedProviders(config.tenant_id).catch(err =>
         log.warn('[ipc:refresh-remote-data] pushUnsyncedProviders falló (no bloqueante)', err),
@@ -103,6 +110,9 @@ export function registerRefreshHandlers(): void {
       )
       pushUnsyncedSpecialCustomerOps(config.tenant_id).catch(err =>
         log.warn('[ipc:refresh-remote-data] pushUnsyncedSpecialCustomerOps falló (no bloqueante)', err),
+      )
+      pushUnsyncedMerchandiseIntakes(config.tenant_id).catch(err =>
+        log.warn('[ipc:refresh-remote-data] pushUnsyncedMerchandiseIntakes falló (no bloqueante)', err),
       )
 
       log.info('[ipc:refresh-remote-data] Sync remoto disparado', { storeId, role: session.role })

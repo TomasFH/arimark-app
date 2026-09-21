@@ -256,7 +256,7 @@ export default function App() {
   }
 
   async function handleSelectStore(
-    partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName'>,
+    partialSession: Pick<SessionInfo, 'role' | 'userId' | 'expiresAt' | 'displayName' | 'offlineSession'>,
     storeId: string,
     initStatus: InitStatus,
     intent?: 'cashier',

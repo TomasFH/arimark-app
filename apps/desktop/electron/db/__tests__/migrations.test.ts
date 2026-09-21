@@ -45,6 +45,10 @@ describe('migrations', () => {
       'catalog_audit_events',
       'cash_discount_audits',
       'cebo_entries',
+      'merchandise_intakes',
+      'merchandise_intake_rubros',
+      'merchandise_intake_lines',
+      'provider_purchase_prices',
     ]
 
     for (const table of expected) {
@@ -206,6 +210,29 @@ describe('migrations', () => {
       ]))
     })
 
+    it('tiene merchandise_intakes (migración 0044)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(merchandise_intakes)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'id',
+        'store_id',
+        'shift_id',
+        'notes',
+        'payment_kind',
+        'paid_amount',
+        'debt_amount',
+        'provider_id',
+        'provider_name',
+        'expense_id',
+        'created_by',
+        'created_at',
+        'updated_by',
+        'updated_at',
+        'synced_at',
+      ]))
+      expect(cols.map(c => c.name)).not.toContain('category')
+    })
+
     it('tiene handover de caja en shifts y kind en bill_denominations (migración 0042)', async () => {
       const { sqlite } = await createInMemoryDb()
       const shiftCols = sqlite.prepare('PRAGMA table_info(shifts)').all() as { name: string }[]
@@ -222,6 +249,47 @@ describe('migrations', () => {
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_bill_denoms_shift_kind'",
       ).all() as { name: string }[]
       expect(indexes.length).toBe(1)
+    })
+
+    it('tiene rubros y líneas de mercadería (migración 0045)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const headerCols = sqlite.prepare('PRAGMA table_info(merchandise_intakes)').all() as { name: string }[]
+      const names = headerCols.map(c => c.name)
+      expect(names).not.toContain('category')
+      expect(names).not.toContain('unit')
+      expect(names).not.toContain('quantity')
+      expect(names).toEqual(expect.arrayContaining(['payment_kind', 'created_at', 'store_id']))
+      const rubros = sqlite.prepare('SELECT COUNT(*) AS n FROM merchandise_intake_rubros').get() as { n: number }
+      expect(rubros.n).toBeGreaterThanOrEqual(12)
+      const lineCols = sqlite.prepare('PRAGMA table_info(merchandise_intake_lines)').all() as { name: string }[]
+      expect(lineCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'intake_id', 'rubro_id', 'net_kg', 'unit_count', 'kg_per_unit', 'weights_json',
+      ]))
+    })
+
+    it('tiene visita de mercadería y último costo (migración 0046)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const productCols = sqlite.prepare('PRAGMA table_info(products)').all() as { name: string }[]
+      expect(productCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'purchase_pack_label',
+        'purchase_pack_contents',
+      ]))
+      const headerCols = sqlite.prepare('PRAGMA table_info(merchandise_intakes)').all() as { name: string }[]
+      expect(headerCols.map(c => c.name)).toEqual(expect.arrayContaining(['status', 'draft_json']))
+      const lineCols = sqlite.prepare('PRAGMA table_info(merchandise_intake_lines)').all() as { name: string }[]
+      expect(lineCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'product_id', 'name_key', 'cost_unit', 'unit_cost', 'cost_total', 'pack_count',
+      ]))
+      const priceCols = sqlite.prepare('PRAGMA table_info(provider_purchase_prices)').all() as { name: string }[]
+      expect(priceCols.map(c => c.name)).toEqual(expect.arrayContaining([
+        'provider_id', 'product_key', 'unit_cost',
+      ]))
+    })
+
+    it('tiene intake_kind en providers (migración 0047)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(providers)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('intake_kind')
     })
 
   it('tiene el índice idx_debt_events_customer', async () => {

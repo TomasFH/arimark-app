@@ -150,6 +150,40 @@ describe('providers.handler', () => {
     })
   })
 
+  describe('SET_PROVIDER_INTAKE_KIND (ipc:set-provider-intake-kind)', () => {
+    it('cajera persiste el tipo en un proveedor nuevo', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:set-provider-intake-kind')
+      const result = await (handler(null, {
+        provider: 'Oso Maple',
+        intakeKind: 'catalog',
+      }) as Promise<{ ok: boolean; data: { id: string; intakeKind: string | null } }>)
+      expect(result.ok).toBe(true)
+      expect(result.data.intakeKind).toBe('catalog')
+      const row = db.select().from(providers).all()[0]
+      expect(row?.intakeKind).toBe('catalog')
+    })
+
+    it('cajera persiste insumos (sin mercadería de venta)', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:set-provider-intake-kind')
+      const result = await (handler(null, {
+        provider: 'Maxilimp',
+        intakeKind: 'insumos',
+      }) as Promise<{ ok: boolean; data: { id: string; intakeKind: string | null } }>)
+      expect(result.ok).toBe(true)
+      expect(result.data.intakeKind).toBe('insumos')
+    })
+
+    it('rechaza payload sin tipo', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const handler = getHandler('ipc:set-provider-intake-kind')
+      const result = await (handler(null, { provider: 'Oso' }) as Promise<{ ok: boolean; code?: string }>)
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+  })
+
   // -------------------------------------------------------------------------
   describe('CREATE_PROVIDER (ipc:create-provider)', () => {
     it('crea un proveedor nuevo con id determinístico', async () => {

@@ -38,6 +38,8 @@ import { isOnline, onConnectivityChange } from './connectivity'
 import {
   buildCeboOpsPayload,
   buildCeboStagingPayload,
+  buildMerchOpsPayload,
+  buildMerchStagingPayload,
   buildCustomerFirestorePayload,
   buildDebtEventFirestorePayload,
   buildExpenseOpsPayload,
@@ -55,7 +57,7 @@ import {
 } from './syncPayloads'
 import { providerNameKey } from './adminLedger'
 import { debtEventServerTimestampFields, touchDebtCheckpointTail } from './debtCheckpointWrite'
-import type { LocalCebo, LocalExpense, LocalSale, LocalShift } from '../types/pos'
+import type { LocalCebo, LocalExpense, LocalMerchandiseIntake, LocalSale, LocalShift } from '../types/pos'
 
 const firestore = getFirestore(firebaseApp)
 
@@ -80,20 +82,21 @@ export async function triggerSync(): Promise<void> {
 }
 
 async function syncPendingShifts(): Promise<void> {
-  const [statusShifts, pendingSales, pendingExpenses, pendingVales, pendingSalary, pendingCebo] = await Promise.all([
+  const [statusShifts, pendingSales, pendingExpenses, pendingVales, pendingSalary, pendingCebo, pendingMerch] = await Promise.all([
     db.shifts.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.sales.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.expenses.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.vales.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.salaryPayments.where('syncStatus').anyOf(['pending', 'error']).toArray(),
     db.ceboEntries.where('syncStatus').anyOf(['pending', 'error']).toArray(),
+    db.merchandiseIntakes.where('syncStatus').anyOf(['pending', 'error']).toArray(),
   ])
 
   const shiftIds = collectShiftIdsToSync(
     statusShifts,
     pendingSales,
     pendingExpenses,
-    [...pendingVales, ...pendingSalary, ...pendingCebo],
+    [...pendingVales, ...pendingSalary, ...pendingCebo, ...pendingMerch],
   )
   const shiftsToUpload: LocalShift[] = []
   const seen = new Set<string>()
@@ -232,6 +235,25 @@ async function uploadShift(shift: LocalShift): Promise<void> {
     }
   }
 
+  const pendingMerch = await db.merchandiseIntakes
+    .where('shiftId')
+    .equals(shift.id)
+    .filter(c => (c.syncStatus === 'pending' || c.syncStatus === 'error') && c.status !== 'draft')
+    .toArray()
+
+  for (const entry of pendingMerch) {
+    try {
+      await uploadMerch(shift.storeId, shift.id, entry)
+      await db.merchandiseIntakes.update(entry.id, {
+        syncStatus: 'synced',
+        syncedAt: new Date().toISOString(),
+      })
+    } catch (err) {
+      console.error('[sync] Error al subir mercadería', entry.id, err)
+      await db.merchandiseIntakes.update(entry.id, { syncStatus: 'error' })
+    }
+  }
+
   await db.shifts.update(shift.id, {
     syncStatus: 'synced',
     syncedAt: now,
@@ -359,6 +381,22 @@ async function uploadCebo(storeId: string, shiftId: string, entry: LocalCebo): P
   await setDoc(
     doc(firestore, 'licenses', LICENSE_KEY, 'ceboEntries', entry.id),
     buildCeboOpsPayload(entry),
+    { merge: true },
+  )
+}
+
+async function uploadMerch(storeId: string, shiftId: string, entry: LocalMerchandiseIntake): Promise<void> {
+  const stagingCol = collection(
+    firestore,
+    'licenses', LICENSE_KEY,
+    'sync', storeId,
+    'shifts', shiftId,
+    'merch',
+  )
+  await setDoc(doc(stagingCol, entry.id), buildMerchStagingPayload(entry), { merge: true })
+  await setDoc(
+    doc(firestore, 'licenses', LICENSE_KEY, 'merchandiseIntakes', entry.id),
+    buildMerchOpsPayload(entry),
     { merge: true },
   )
 }

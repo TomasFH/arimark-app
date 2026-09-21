@@ -200,6 +200,7 @@ export default function CashierScreen({
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showCashInjectModal, setShowCashInjectModal] = useState(false)
   const [showCeboModal, setShowCeboModal] = useState(false)
+  const [hasMerchVisitDraft, setHasMerchVisitDraft] = useState(false)
   const [showCashDiscountModal, setShowCashDiscountModal] = useState(false)
   const [cashDiscountFallback, setCashDiscountFallback] = useState({ minAmount: 0, percent: 0 })
   const [cashDiscountSchedule, setCashDiscountSchedule] = useState<CashDiscountBlock[]>([])
@@ -257,9 +258,19 @@ export default function CashierScreen({
     })
   }, [])
 
+  const refreshMerchVisitDraft = useCallback(() => {
+    void window.hw.getMerchVisitDraft().then(r => {
+      setHasMerchVisitDraft(Boolean(r.ok && r.data && r.data.lines.length > 0))
+    })
+  }, [])
+
   useEffect(() => {
     reloadPosCatalog()
   }, [reloadPosCatalog])
+
+  useEffect(() => {
+    refreshMerchVisitDraft()
+  }, [refreshMerchVisitDraft, isActive])
 
   useCatalogSyncReload(reloadPosCatalog)
 
@@ -680,6 +691,16 @@ export default function CashierScreen({
                 <span className="font-mono text-xs tabular-nums text-success shrink-0" title="Efectivo estimado en caja">
                   {formatARS(cashInHand)} en caja
                 </span>
+              )}
+              {hasMerchVisitDraft && (
+                <button
+                  type="button"
+                  onClick={() => setShowExpenseModal(true)}
+                  className="shrink-0 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-500/25"
+                  title="Hay una visita de proveedor sin confirmar"
+                >
+                  Visita en curso
+                </button>
               )}
               {SHOW_SPECIAL_CUSTOMER_POS_SELECTOR && specialCustomers.length > 0 && (
                 <select
@@ -1135,8 +1156,9 @@ export default function CashierScreen({
       {showExpenseModal && (
         <ExpenseModal
           onSaved={refreshBalance}
-          onRegistered={() => setShowExpenseModal(false)}
-          onCancel={() => setShowExpenseModal(false)}
+          onRegistered={() => { setShowExpenseModal(false); refreshMerchVisitDraft() }}
+          onCancel={() => { setShowExpenseModal(false); refreshMerchVisitDraft() }}
+          onDraftChanged={refreshMerchVisitDraft}
         />
       )}
 

@@ -3,7 +3,7 @@
  * Usados tanto en la capa de persistencia (db.ts) como en los componentes de UI.
  */
 
-import type { BillLine, InjectReason } from '@carniceria/shared'
+import type { BillLine, InjectReason, MerchCostUnit, MerchIntakeLineSnapshot, MerchVisitFormLine, ProviderIntakeKind } from '@carniceria/shared'
 
 export type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 export type ShiftType = 'morning' | 'evening'
@@ -37,6 +37,8 @@ export interface CatalogProduct {
   unit: 'kg' | 'unit'
   /** Precio vigente en pesos (no centavos). */
   price: number
+  purchasePackLabel?: string | null
+  purchasePackContents?: number | null
 }
 
 export interface LocalShift {
@@ -129,6 +131,7 @@ export interface CachedProvider {
   name: string
   archivedAt: string | null
   updatedAt: string
+  intakeKind: ProviderIntakeKind | null
 }
 
 export interface CachedEmployee {
@@ -218,6 +221,60 @@ export interface LocalCebo {
   updatedAt: string | null
   updatedBy: string | null
   updatedByName: string | null
+  syncStatus: SyncStatus
+  syncedAt: string | null
+}
+
+export interface LocalMerchandiseIntake {
+  id: string
+  shiftId: string
+  storeId: string
+  lines: MerchIntakeLineSnapshot[]
+  /** Docs viejos (un renglón). Se sintetizan a `lines` al leer. */
+  category?: string
+  unit?: 'kg' | 'u'
+  quantity?: number
+  notes: string | null
+  paymentKind: 'none' | 'paid_now' | 'on_account'
+  paidAmount: number
+  debtAmount: number
+  providerId: string | null
+  providerName: string | null
+  expenseId: string | null
+  status?: 'draft' | 'confirmed'
+  createdAt: string
+  createdBy: string
+  createdByName: string
+  updatedAt: string | null
+  updatedBy: string | null
+  updatedByName: string | null
+  syncStatus: SyncStatus
+  syncedAt: string | null
+}
+
+export interface LocalMerchRubro {
+  id: string
+  name: string
+  template: 'pieces_weight' | 'packs' | 'weight' | 'count'
+  packContents: number | null
+  packTareKg: number | null
+  packLabel: string | null
+  sortOrder: number
+  archivedAt: string | null
+}
+
+export interface LocalMerchVisitDraft {
+  shiftId: string
+  providerId: string | null
+  providerName: string | null
+  notes: string | null
+  lines: MerchVisitFormLine[]
+  updatedAt: string
+}
+
+export interface LocalProviderPurchasePrices {
+  providerId: string
+  items: Record<string, { name: string; costUnit: MerchCostUnit; unitCost: number; updatedAt: string }>
   syncStatus: SyncStatus
   syncedAt: string | null
 }

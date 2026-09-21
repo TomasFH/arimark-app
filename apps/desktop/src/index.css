@@ -29,6 +29,10 @@
   --danger: #c0362c;
   --success: #1f7a38;
   --overlay: rgba(28, 28, 30, 0.45);
+
+  /* Estirar alto de modal/sección (no usar para autocomplete). */
+  --motion-grow-duration: 0.2s;
+  --motion-grow-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 [data-theme='dark'] {
@@ -165,6 +169,23 @@
 
 .animate-modal-enter {
   animation: modal-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Estirar: el panel sigue el contenido real. Autocomplete va en SuggestPopover. */
+.modal-panel-grow {
+  interpolate-size: allow-keywords;
+  transition: height var(--motion-grow-duration) var(--motion-grow-ease);
+}
+
+.height-reveal {
+  transition: grid-template-rows var(--motion-grow-duration) var(--motion-grow-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-panel-grow,
+  .height-reveal {
+    transition: none;
+  }
 }
 
 /* ── Fade genérico ────────────────────────────────────────────────────────── */

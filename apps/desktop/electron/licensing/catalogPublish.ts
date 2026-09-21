@@ -65,6 +65,8 @@ interface CatalogProduct {
   priceUpdatedAt: string
   /** Visibilidad en este local. Ausente = disponible (compat con snapshots viejos). */
   available: boolean
+  purchasePackLabel?: string | null
+  purchasePackContents?: number | null
 }
 
 function publishKey(licenseKey: string, storeId: string): string {
@@ -80,6 +82,8 @@ export function catalogContentFingerprint(
     unit: string
     price: number
     available?: boolean
+    purchasePackLabel?: string | null
+    purchasePackContents?: number | null
   }>,
   deletedProductIds: string[],
 ): string {
@@ -93,6 +97,8 @@ export function catalogContentFingerprint(
         p.unit,
         p.price,
         p.available === false ? '0' : '1',
+        p.purchasePackLabel ?? '',
+        p.purchasePackContents ?? '',
       ].join('\t'),
     )
     .sort()
@@ -115,6 +121,8 @@ export function buildPublishedCatalog(storeId: string): {
       unit: products.unit,
       createdAt: products.createdAt,
       updatedAt: products.updatedAt,
+      purchasePackLabel: products.purchasePackLabel,
+      purchasePackContents: products.purchasePackContents,
     })
     .from(products)
     .where(and(eq(products.active, true), isNotNull(products.pluNumber)))
@@ -165,6 +173,8 @@ export function buildPublishedCatalog(storeId: string): {
         updatedAt: r.updatedAt ?? r.createdAt,
         priceUpdatedAt: priceMeta?.validFrom ?? r.updatedAt ?? r.createdAt,
         available: availMap.get(r.productId) ?? true,
+        purchasePackLabel: r.purchasePackLabel,
+        purchasePackContents: r.purchasePackContents,
       }
     })
 

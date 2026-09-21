@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react'
 import StoreHoursScheduleEditor from '../components/StoreHoursScheduleEditor'
-import { Button, Modal, ScreenHeader } from '../components/ui'
+import { Button, ScreenHeader } from '../components/ui'
 import type { StoreRow } from '../types/hw-api'
 import {
   editorScheduleFromStore,

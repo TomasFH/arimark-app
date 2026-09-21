@@ -89,6 +89,11 @@ export const products = sqliteTable('products', {
   createdAt: text('created_at').notNull(),
   /** Última edición de ficha (nombre/PLU/categoría/unidad). Null = usar createdAt. */
   updatedAt: text('updated_at'),
+  /**
+   * Compra por bulto (maple = cajón de N maples). Null = se compra en la unidad del catálogo.
+   */
+  purchasePackLabel: text('purchase_pack_label'),
+  purchasePackContents: integer('purchase_pack_contents'),
 })
 
 // ---------------------------------------------------------------------------
@@ -421,6 +426,12 @@ export const providers = sqliteTable('providers', {
   nameKey: text('name_key').notNull(),
   phone: text('phone'),
   notes: text('notes'),
+  /**
+   * Qué mercadería trae este proveedor. null = todavía no se preguntó.
+   * `catalog` | `media_res` | `chicken` | `insumos`.
+   * En UI: Productos / Media res / Pollo / Insumos.
+   */
+  intakeKind: text('intake_kind'),
   archivedAt: text('archived_at'),
   createdAt: text('created_at').notNull(),
   /** Nullable para backfill de proveedores migrados de gastos previos. */
@@ -498,7 +509,8 @@ export const billDenominations = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Ingreso de mercadería (stock)
+// Ingreso de mercadería por producto (Fase 8 — no usar en v1.0).
+// El puente operativo es `merchandise_intakes`.
 // ---------------------------------------------------------------------------
 export const stockEntries = sqliteTable('stock_entries', {
   id: text('id').primaryKey(),
@@ -820,5 +832,124 @@ export const ceboEntries = sqliteTable(
   table => [
     index('idx_cebo_shift').on(table.shiftId, table.createdAt),
     index('idx_cebo_store_created').on(table.storeId, table.createdAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Libro de ingreso de mercadería (puente; no es stock por corte).
+// Encabezado = una entrega. Líneas = hechos agregables (rubro + kg/u + fecha).
+// Rubros de toda la licencia, editables por el admin.
+// ---------------------------------------------------------------------------
+export const merchandiseIntakeRubros = sqliteTable(
+  'merchandise_intake_rubros',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    template: text('template', {
+      enum: ['pieces_weight', 'packs', 'weight', 'count'],
+    }).notNull(),
+    packContents: integer('pack_contents'),
+    packTareKg: real('pack_tare_kg'),
+    packLabel: text('pack_label'),
+    sortOrder: integer('sort_order').notNull(),
+    archivedAt: text('archived_at'),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by'),
+    updatedAt: text('updated_at'),
+    updatedBy: text('updated_by'),
+    syncedAt: text('synced_at'),
+  },
+  table => [index('idx_merch_rubro_sort').on(table.sortOrder, table.name)],
+)
+
+export const merchandiseIntakes = sqliteTable(
+  'merchandise_intakes',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    shiftId: text('shift_id')
+      .notNull()
+      .references(() => shifts.id),
+    notes: text('notes'),
+    paymentKind: text('payment_kind', { enum: ['none', 'paid_now', 'on_account'] }).notNull(),
+    paidAmount: integer('paid_amount').notNull().default(0),
+    debtAmount: integer('debt_amount').notNull().default(0),
+    providerId: text('provider_id').references(() => providers.id),
+    providerName: text('provider_name'),
+    /** Gasto del mismo acto; sin FK para no bloquear ediciones en Gastos. */
+    expenseId: text('expense_id'),
+    /** `draft` = visita en curso (no sync). `confirmed` = hecho cerrado. */
+    status: text('status', { enum: ['draft', 'confirmed'] }).notNull().default('confirmed'),
+    /** JSON del formulario en curso (renglones incompletos). Null si está confirmado. */
+    draftJson: text('draft_json'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedBy: text('updated_by').references(() => users.id),
+    updatedAt: text('updated_at'),
+    syncedAt: text('synced_at'),
+  },
+  table => [
+    index('idx_merch_intake_shift').on(table.shiftId, table.createdAt),
+    index('idx_merch_intake_store_created').on(table.storeId, table.createdAt),
+  ],
+)
+
+export const merchandiseIntakeLines = sqliteTable(
+  'merchandise_intake_lines',
+  {
+    id: text('id').primaryKey(),
+    intakeId: text('intake_id')
+      .notNull()
+      .references(() => merchandiseIntakes.id, { onDelete: 'cascade' }),
+    rubroId: text('rubro_id').notNull(),
+    rubroName: text('rubro_name').notNull(),
+    template: text('template', {
+      enum: ['pieces_weight', 'packs', 'weight', 'count'],
+    }).notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    packLabel: text('pack_label'),
+    count: integer('count').notNull(),
+    packContents: integer('pack_contents'),
+    packTareKg: real('pack_tare_kg'),
+    hasIce: integer('has_ice', { mode: 'boolean' }).notNull().default(false),
+    grossKg: real('gross_kg'),
+    netKg: real('net_kg'),
+    unitCount: integer('unit_count'),
+    kgPerUnit: real('kg_per_unit'),
+    weightsJson: text('weights_json'),
+    productId: text('product_id'),
+    nameKey: text('name_key'),
+    costUnit: text('cost_unit'),
+    unitCost: integer('unit_cost').notNull().default(0),
+    costTotal: integer('cost_total').notNull().default(0),
+    packCount: integer('pack_count'),
+  },
+  table => [
+    index('idx_merch_line_intake').on(table.intakeId, table.sortOrder),
+    index('idx_merch_line_rubro').on(table.rubroId),
+  ],
+)
+
+/** Último costo de compra por proveedor + producto (no es el precio de venta). */
+export const providerPurchasePrices = sqliteTable(
+  'provider_purchase_prices',
+  {
+    providerId: text('provider_id')
+      .notNull()
+      .references(() => providers.id),
+    productKey: text('product_key').notNull(),
+    name: text('name').notNull(),
+    costUnit: text('cost_unit', { enum: ['kg', 'unit', 'pack'] }).notNull(),
+    unitCost: integer('unit_cost').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    syncedAt: text('synced_at'),
+  },
+  table => [
+    primaryKey({ columns: [table.providerId, table.productKey] }),
+    index('idx_purchase_price_provider').on(table.providerId),
   ],
 )

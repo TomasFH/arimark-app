@@ -309,6 +309,34 @@
       "when": 1789200000000,
       "tag": "0043_cash_discount_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1789519917133,
+      "tag": "0044_merchandise_intakes",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1789673097018,
+      "tag": "0045_merchandise_intake_lines",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1789679440502,
+      "tag": "0046_merch_visit_purchase",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1789741327276,
+      "tag": "0047_provider_intake_kind",
+      "breakpoints": true
     }
   ]
 }

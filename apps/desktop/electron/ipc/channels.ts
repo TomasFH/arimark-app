@@ -79,6 +79,21 @@ export const IPC = {
   REGISTER_CEBO: 'ipc:register-cebo',
   UPDATE_CEBO: 'ipc:update-cebo',
 
+  // Ingreso de mercadería (puente)
+  LIST_SHIFT_MERCH: 'ipc:list-shift-merch',
+  REGISTER_MERCH_INTAKE: 'ipc:register-merch-intake',
+  UPDATE_MERCH_INTAKE: 'ipc:update-merch-intake',
+  GET_MERCH_VISIT_DRAFT: 'ipc:get-merch-visit-draft',
+  SAVE_MERCH_VISIT_DRAFT: 'ipc:save-merch-visit-draft',
+  DISCARD_MERCH_VISIT_DRAFT: 'ipc:discard-merch-visit-draft',
+  CONFIRM_MERCH_VISIT: 'ipc:confirm-merch-visit',
+  GET_PROVIDER_PURCHASE_PRICES: 'ipc:get-provider-purchase-prices',
+  LIST_MERCH_RUBROS: 'ipc:list-merch-rubros',
+  CREATE_MERCH_RUBRO: 'ipc:create-merch-rubro',
+  UPDATE_MERCH_RUBRO: 'ipc:update-merch-rubro',
+  ARCHIVE_MERCH_RUBRO: 'ipc:archive-merch-rubro',
+  UNARCHIVE_MERCH_RUBRO: 'ipc:unarchive-merch-rubro',
+
   // Clientes de fiados (Fase 6 — creados durante el flujo de deuda)
   CREATE_CUSTOMER: 'ipc:create-customer',
   GET_CUSTOMERS: 'ipc:get-customers',
@@ -117,6 +132,7 @@ export const IPC = {
   LIST_PROVIDERS: 'ipc:list-providers',
   CREATE_PROVIDER: 'ipc:create-provider',
   UPDATE_PROVIDER: 'ipc:update-provider',
+  SET_PROVIDER_INTAKE_KIND: 'ipc:set-provider-intake-kind',
   ARCHIVE_PROVIDER: 'ipc:archive-provider',
   UNARCHIVE_PROVIDER: 'ipc:unarchive-provider',
   DELETE_PROVIDER: 'ipc:delete-provider',

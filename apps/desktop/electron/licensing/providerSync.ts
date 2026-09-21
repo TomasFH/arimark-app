@@ -33,6 +33,7 @@ import { providers, providerDebtEvents, stores, shifts, expenses, users } from '
 import { eq } from 'drizzle-orm'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
+import { coerceProviderIntakeKind } from '@carniceria/shared'
 import { providerNameKey } from '../ipc/providerUtils'
 import { debtEventServerTimestampFields } from './debtCheckpoint'
 import { touchDebtCheckpointTail } from './debtCheckpointTail'
@@ -47,6 +48,7 @@ function upsertProviderFromRemote(data: {
   nameKey?: string
   phone?: string | null
   notes?: string | null
+  intakeKind?: string | null
   archivedAt?: string | null
   createdAt?: string
   createdBy?: string | null
@@ -64,12 +66,17 @@ function upsertProviderFromRemote(data: {
   const nameKey = data.nameKey || providerNameKey(data.name)
   const createdAt = data.createdAt || now
 
+  const remoteKind = data.intakeKind === undefined
+    ? undefined
+    : coerceProviderIntakeKind(data.intakeKind)
+
   db.insert(providers).values({
     id,
     name: data.name,
     nameKey,
     phone: data.phone ?? null,
     notes: data.notes ?? null,
+    intakeKind: remoteKind ?? null,
     archivedAt: data.archivedAt ?? null,
     createdAt,
     createdBy: null,
@@ -87,6 +94,7 @@ function upsertProviderFromRemote(data: {
         updatedAt: data.updatedAt ?? null,
         updatedBy: null,
         syncedAt: now,
+        ...(remoteKind !== undefined ? { intakeKind: remoteKind } : {}),
       },
     })
     .run()
@@ -213,6 +221,7 @@ export async function pushUnsyncedProviders(licenseKey: string): Promise<void> {
         nameKey: p.nameKey,
         phone: p.phone ?? null,
         notes: p.notes ?? null,
+        intakeKind: p.intakeKind ?? null,
         archivedAt: p.archivedAt ?? null,
         createdAt: p.createdAt,
         createdBy: p.createdBy ?? null,

@@ -36,6 +36,52 @@ export interface MondayWeekRange {
   weekOffset: number
 }
 
+export interface CalendarMonthRange {
+  startYmd: string
+  endInclusiveYmd: string
+  endYmdExclusive: string
+  startIso: string
+  endIso: string
+  monthOffset: number
+  year: number
+  month: number
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+/** Mes civil AR. monthOffset 0 = mes actual; negativo = meses anteriores. */
+export function calendarMonthRange(
+  monthOffset = 0,
+  now: Date = new Date(),
+  timeZone = DISPLAY_TIMEZONE,
+): CalendarMonthRange {
+  const ymd = civilYmd(now, timeZone)
+  const [ys, ms] = ymd.split('-')
+  const y0 = Number(ys)
+  const m0 = Number(ms)
+  const idx = y0 * 12 + (m0 - 1) + monthOffset
+  const year = Math.floor(idx / 12)
+  const month = ((idx % 12) + 12) % 12 + 1
+  const startYmd = `${year}-${pad2(month)}-01`
+  const nextIdx = idx + 1
+  const nextYear = Math.floor(nextIdx / 12)
+  const nextMonth = (nextIdx % 12) + 1
+  const endYmdExclusive = `${nextYear}-${pad2(nextMonth)}-01`
+  const endInclusiveYmd = addDaysYmd(endYmdExclusive, -1)
+  return {
+    startYmd,
+    endInclusiveYmd,
+    endYmdExclusive,
+    startIso: ymdMidnightArIso(startYmd),
+    endIso: ymdMidnightArIso(endYmdExclusive),
+    monthOffset,
+    year,
+    month,
+  }
+}
+
 /** Medianoche civil AR → ISO UTC. Argentina no usa DST. */
 function ymdMidnightArIso(ymd: string): string {
   return new Date(`${ymd}T00:00:00.000-03:00`).toISOString()

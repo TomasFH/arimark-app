@@ -28,6 +28,7 @@ import { pushUnsyncedEmployeeOps, ensureEmployeesSynced, stopEmployeeSyncListene
 import { ensureOrdersSynced, stopOrderSyncListener } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, stopCustomerDebtSyncListener } from '../licensing/customerDebtSync'
 import { ensureSpecialCustomersSynced, stopSpecialCustomerSyncListener } from '../licensing/specialCustomerSync'
+import { ensureMerchRubrosSynced, stopMerchRubroSyncListener } from '../licensing/merchRubroSync'
 import { startDebtCheckpointJob, stopDebtCheckpointJob } from '../licensing/debtCheckpointJob'
 import { startDebtBalanceLiveSync, stopDebtBalanceLiveSync } from '../licensing/debtBalanceLive'
 import { setSecret, SECRET_KEYS } from '../secureStorage'
@@ -208,6 +209,11 @@ export function registerAuthHandlers(): void {
             log.warn('[ipc:login] ensureSpecialCustomersSynced (admin) falló (no bloqueante)', err)
           }
           try {
+            await ensureMerchRubrosSynced(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] ensureMerchRubrosSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
             await syncAllStoreCatalogs(adminConfig.tenant_id)
           } catch (err) {
             log.warn('[ipc:login] syncAllStoreCatalogs (admin) falló (no bloqueante)', err)
@@ -269,6 +275,11 @@ export function registerAuthHandlers(): void {
           await ensureEmployeesSynced(config.tenant_id)
         } catch (err) {
           log.warn('[ipc:login] ensureEmployeesSynced (cajera) falló (no bloqueante)', err)
+        }
+        try {
+          await ensureMerchRubrosSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:login] ensureMerchRubrosSynced (cajera) falló (no bloqueante)', err)
         }
         pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
           log.warn('[ipc:login] pushUnsyncedEmployeeOps (cajera) falló (no bloqueante)', err)
@@ -413,6 +424,11 @@ export function registerAuthHandlers(): void {
       } catch (err) {
         log.warn('[ipc:login-cashier] ensureSpecialCustomersSynced falló (no bloqueante)', err)
       }
+      try {
+        await ensureMerchRubrosSynced(config.tenant_id)
+      } catch (err) {
+        log.warn('[ipc:login-cashier] ensureMerchRubrosSynced falló (no bloqueante)', err)
+      }
       pushUnsyncedEmployeeOps(config.tenant_id).catch(err =>
         log.warn('[ipc:login-cashier] pushUnsyncedEmployeeOps falló (no bloqueante)', err)
       )
@@ -508,6 +524,7 @@ export function registerAuthHandlers(): void {
       stopOrderSyncListener()
       stopCustomerDebtSyncListener()
       stopSpecialCustomerSyncListener()
+      stopMerchRubroSyncListener()
       stopCatalogSyncListener()
       stopDebtBalanceLiveSync()
       stopDebtCheckpointJob()
@@ -519,6 +536,7 @@ export function registerAuthHandlers(): void {
       stopOrderSyncListener()
       stopCustomerDebtSyncListener()
       stopSpecialCustomerSyncListener()
+      stopMerchRubroSyncListener()
       stopCatalogSyncListener()
       stopDebtBalanceLiveSync()
       stopDebtCheckpointJob()

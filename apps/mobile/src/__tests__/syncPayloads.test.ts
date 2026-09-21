@@ -6,6 +6,8 @@ import {
   buildDebtEventFirestorePayload,
   buildExpenseOpsPayload,
   buildExpenseStagingPayload,
+  buildMerchOpsPayload,
+  buildMerchStagingPayload,
   buildSaleFirestorePayload,
   buildSaleOpsPayload,
   buildShiftFirestorePayload,
@@ -226,6 +228,56 @@ describe('syncPayloads', () => {
     expect(buildCeboStagingPayload(row).importedAt).toBeNull()
     expect(buildCeboOpsPayload(row).quantityKg).toBe(2.5)
     expect(buildCeboOpsPayload(row).deleted).toBe(false)
+  })
+
+  it('mercadería staging incluye importedAt null, líneas y pago', () => {
+    const row = {
+      id: 'merch-1',
+      shiftId: 'shift-1',
+      storeId: 'store-1',
+      lines: [{
+        id: 'l1',
+        rubroId: 'rubro_media_res',
+        rubroName: 'Media res',
+        template: 'pieces_weight' as const,
+        sortOrder: 0,
+        packLabel: null,
+        count: 2,
+        packContents: null,
+        packTareKg: null,
+        hasIce: false,
+        grossKg: 180,
+        netKg: 180,
+        unitCount: 2,
+        kgPerUnit: 90,
+        weightsKg: [90, 90],
+        productId: null,
+        nameKey: 'media res',
+        costUnit: 'kg' as const,
+        unitCost: 2200,
+        costTotal: 396000,
+        packCount: null,
+      }],
+      notes: 'frigo',
+      paymentKind: 'paid_now' as const,
+      paidAmount: 80000,
+      debtAmount: 0,
+      providerId: null,
+      providerName: null,
+      expenseId: 'exp-1',
+      createdAt: '2026-09-15T10:00:00.000Z',
+      createdBy: 'uid-1',
+      createdByName: 'Ana',
+      updatedAt: null,
+      updatedBy: null,
+      updatedByName: null,
+      syncStatus: 'pending' as const,
+      syncedAt: null,
+    }
+    expect(buildMerchStagingPayload(row).importedAt).toBeNull()
+    expect(buildMerchOpsPayload(row).lines[0]).toMatchObject({ rubroId: 'rubro_media_res', netKg: 180 })
+    expect(buildMerchOpsPayload(row).paidAmount).toBe(80000)
+    expect(buildMerchOpsPayload(row).deleted).toBe(false)
   })
 
   it('fiado: deuda neta = total − pagos; customer y evento created', () => {

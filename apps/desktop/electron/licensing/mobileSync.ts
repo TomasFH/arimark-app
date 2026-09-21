@@ -32,6 +32,7 @@ import { pushUnsyncedShifts } from './shiftSync'
 import { pushUnsyncedSales } from './saleSync'
 import { pushUnsyncedExpenses } from './expenseSync'
 import { pushUnsyncedCebo } from './ceboSync'
+import { pushUnsyncedMerchandiseIntakes } from './merchIntakeSync'
 import { pushUnsyncedVales, pushUnsyncedSalaryPayments } from './employeeSync'
 import { pushUnsyncedProviders, pushUnsyncedDebtEvents } from './providerSync'
 import { parseBillLines } from '@carniceria/shared'
@@ -39,6 +40,7 @@ import {
   applyMobileShiftImport,
   type MobileCeboImport,
   type MobileExpenseImport,
+  type MobileMerchandiseIntakeImport,
   type MobileSaleImport,
   type MobileSalaryImport,
   type MobileShiftImport,
@@ -152,18 +154,28 @@ async function importShift(
     'cebo'
   )
 
-  const [salesSnap, expensesSnap, valesSnap, salarySnap, ceboSnap] = await Promise.all([
+  const merchCol = collection(
+    firestore,
+    'licenses', licenseKey,
+    'sync', storeId,
+    'shifts', shiftData.id,
+    'merch'
+  )
+
+  const [salesSnap, expensesSnap, valesSnap, salarySnap, ceboSnap, merchSnap] = await Promise.all([
     getDocs(query(salesCol, where('importedAt', '==', null))),
     getDocs(query(expensesCol, where('importedAt', '==', null))),
     getDocs(query(valesCol, where('importedAt', '==', null))),
     getDocs(query(salaryCol, where('importedAt', '==', null))),
     getDocs(query(ceboCol, where('importedAt', '==', null))),
+    getDocs(query(merchCol, where('importedAt', '==', null))),
   ])
   const salesData: MobileSale[] = salesSnap.docs.map(d => d.data() as MobileSale)
   const expensesData: MobileExpense[] = expensesSnap.docs.map(d => d.data() as MobileExpense)
   const valesData: MobileValeImport[] = valesSnap.docs.map(d => d.data() as MobileValeImport)
   const salaryData: MobileSalaryImport[] = salarySnap.docs.map(d => d.data() as MobileSalaryImport)
   const ceboData: MobileCeboImport[] = ceboSnap.docs.map(d => d.data() as MobileCeboImport)
+  const merchData: MobileMerchandiseIntakeImport[] = merchSnap.docs.map(d => d.data() as MobileMerchandiseIntakeImport)
 
   const shiftImport: MobileShiftImport = {
     id: shiftData.id,
@@ -194,6 +206,7 @@ async function importShift(
     valesData,
     salaryData,
     ceboData,
+    merchData,
   )
 
   log.info('[mobileSync] Turno procesado', {
@@ -205,6 +218,7 @@ async function importShift(
     valesInserted: result.valesInserted,
     salaryInserted: result.salaryInserted,
     ceboInserted: result.ceboInserted,
+    merchInserted: result.merchInserted,
     shouldMarkImported: result.shouldMarkImported,
   })
 
@@ -225,6 +239,9 @@ async function importShift(
     ...ceboSnap.docs.map(d => updateDoc(d.ref, { importedAt }).catch(err => {
       log.warn('[mobileSync] No se pudo marcar cebo importado', { id: d.id, err })
     })),
+    ...merchSnap.docs.map(d => updateDoc(d.ref, { importedAt }).catch(err => {
+      log.warn('[mobileSync] No se pudo marcar mercadería importada', { id: d.id, err })
+    })),
   ])
 
   if (result.shouldMarkImported) {
@@ -241,6 +258,7 @@ async function importShift(
     await pushUnsyncedVales(tenantId)
     await pushUnsyncedSalaryPayments(tenantId)
     await pushUnsyncedCebo(tenantId)
+    await pushUnsyncedMerchandiseIntakes(tenantId)
   } catch (err) {
     log.warn('[mobileSync] push operativo post-import falló (no bloqueante)', err)
   }

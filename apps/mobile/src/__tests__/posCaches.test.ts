@@ -3,7 +3,9 @@ import { parseEmployeeDoc, parseProviderDoc, parseValeDoc, filterProviders } fro
 
 describe('posCaches parsers', () => {
   it('parsea proveedor y omite deleted', () => {
-    expect(parseProviderDoc('id1', { name: 'Oso' })?.name).toBe('Oso')
+    expect(parseProviderDoc('id1', { name: 'Oso' })?.intakeKind).toBeNull()
+    expect(parseProviderDoc('id1', { name: 'Oso', intakeKind: 'media_res' })?.intakeKind).toBe('media_res')
+    expect(parseProviderDoc('id1', { name: 'Maxilimp', intakeKind: 'insumos' })?.intakeKind).toBe('insumos')
     expect(parseProviderDoc('id1', { name: 'Oso', deleted: true })).toBeNull()
     expect(parseProviderDoc('id1', { name: '  ' })).toBeNull()
   })
@@ -30,8 +32,8 @@ describe('posCaches parsers', () => {
 
   it('filterProviders es case-insensitive', () => {
     const list = [
-      { id: '1', name: 'Oso', archivedAt: null, updatedAt: '' },
-      { id: '2', name: 'La Estancia', archivedAt: null, updatedAt: '' },
+      { id: '1', name: 'Oso', archivedAt: null, updatedAt: '', intakeKind: null },
+      { id: '2', name: 'La Estancia', archivedAt: null, updatedAt: '', intakeKind: 'catalog' as const },
     ]
     expect(filterProviders(list, 'oso')).toHaveLength(1)
     expect(filterProviders(list, '')).toHaveLength(2)

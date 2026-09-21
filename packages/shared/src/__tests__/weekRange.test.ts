@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mondayWeekRange, weekdayInTimeZone, weekStartMondayYmd } from '../weekRange'
+import { calendarMonthRange, mondayWeekRange, weekdayInTimeZone, weekStartMondayYmd } from '../weekRange'
 
 describe('weekRange', () => {
   it('el lunes de una fecha de miércoles es ese lunes', () => {
@@ -21,5 +21,23 @@ describe('weekRange', () => {
   it('weekdayInTimeZone usa el día civil AR', () => {
     // Viernes 11 sep 2026 01:00 AR = jueves 10 noche UTC
     expect(weekdayInTimeZone(new Date('2026-09-11T01:00:00.000-03:00'))).toBe(5)
+  })
+
+  it('calendarMonthRange cubre el mes civil AR', () => {
+    const range = calendarMonthRange(0, new Date('2026-09-17T15:00:00.000-03:00'))
+    expect(range.year).toBe(2026)
+    expect(range.month).toBe(9)
+    expect(range.startYmd).toBe('2026-09-01')
+    expect(range.endInclusiveYmd).toBe('2026-09-30')
+    expect(range.startIso).toBe(new Date('2026-09-01T00:00:00.000-03:00').toISOString())
+    expect(range.endIso).toBe(new Date('2026-10-01T00:00:00.000-03:00').toISOString())
+  })
+
+  it('calendarMonthRange(-1) es el mes civil anterior', () => {
+    const range = calendarMonthRange(-1, new Date('2026-09-17T15:00:00.000-03:00'))
+    expect(range.year).toBe(2026)
+    expect(range.month).toBe(8)
+    expect(range.startYmd).toBe('2026-08-01')
+    expect(range.endInclusiveYmd).toBe('2026-08-31')
   })
 })

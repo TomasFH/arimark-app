@@ -12,7 +12,7 @@ import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
 import type { ProviderWithDebtRow, ProviderRow, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
 import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
-import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, ScreenHeader } from '../components/ui'
 
 interface Props {
   onBack: () => void
@@ -243,7 +243,7 @@ export default function ProvidersScreen({ onBack }: Props) {
                                 label: 'Editar',
                                 onSelect: () => setModal({
                                   type: 'edit',
-                                  provider: { id: p.id, name: p.name, phone: p.phone, notes: p.notes },
+                                  provider: { id: p.id, name: p.name, phone: p.phone, notes: p.notes, intakeKind: null },
                                 }),
                               },
                               ...(anyStoreHasDebt && anyStoreHasCredit

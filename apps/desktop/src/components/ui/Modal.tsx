@@ -1,8 +1,16 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { cx } from './cx'
 
+const ModalSuggestLayerContext = createContext<RefObject<HTMLElement | null> | null>(null)
+
+export function useModalSuggestLayer() {
+  return useContext(ModalSuggestLayerContext)
+}
+
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
+/** hug: alto al contenido. workspace: alto de trabajo, tope moderado. */
+export type ModalFrame = 'hug' | 'workspace'
 
 export interface ModalProps {
   open: boolean
@@ -12,6 +20,7 @@ export interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   size?: ModalSize
+  frame?: ModalFrame
   closeOnOverlay?: boolean
   closeOnEscape?: boolean
   className?: string
@@ -24,6 +33,16 @@ const WIDTH: Record<ModalSize, string> = {
   xl: 'max-w-4xl',
 }
 
+const FRAME: Record<ModalFrame, string> = {
+  hug: 'h-max max-h-[min(78vh,48rem)]',
+  workspace: 'h-[min(78vh,44rem)]',
+}
+
+const BODY: Record<ModalFrame, string> = {
+  hug: 'min-h-0 min-w-0 overflow-y-auto overscroll-contain px-5 py-4 text-ink',
+  workspace: 'min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 text-ink',
+}
+
 export function Modal({
   open,
   onClose,
@@ -32,12 +51,14 @@ export function Modal({
   children,
   footer,
   size = 'md',
+  frame = 'hug',
   closeOnOverlay = true,
   closeOnEscape = true,
   className,
 }: ModalProps) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
+  const suggestLayerRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
@@ -78,6 +99,7 @@ export function Modal({
         className={cx('absolute inset-0 bg-overlay', !closeOnOverlay && 'pointer-events-none')}
         onClick={closeOnOverlay ? onClose : undefined}
       />
+      <ModalSuggestLayerContext.Provider value={suggestLayerRef}>
       <div
         ref={panelRef}
         role="dialog"
@@ -85,26 +107,34 @@ export function Modal({
         aria-labelledby={title != null && header == null ? titleId : undefined}
         tabIndex={-1}
         className={cx(
-          'relative z-10 flex w-full min-w-0 max-h-[min(90vh,44rem)] flex-col overflow-hidden rounded-2xl bg-panel',
-          'shadow-[0_12px_40px_rgba(28,28,30,0.16)] outline-none animate-modal-enter',
+          'relative z-10 flex min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl bg-panel',
+          'shadow-[0_12px_40px_rgba(28,28,30,0.16)] outline-none animate-modal-enter modal-panel-grow',
+          FRAME[frame],
           WIDTH[size],
           className,
         )}
       >
         {heading != null && (
-          <div className="flex min-w-0 items-center gap-2 border-b border-line px-5 py-3.5">
+          <div className="relative z-20 flex shrink-0 min-w-0 items-center gap-2 border-b border-line px-5 py-3.5">
             {heading}
           </div>
         )}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4 text-ink">
-          {children}
+        <div className={cx('relative min-h-0 min-w-0', frame === 'workspace' && 'flex flex-1 flex-col')}>
+          <div className={BODY[frame]}>
+            {children}
+          </div>
+          <div
+            ref={node => { suggestLayerRef.current = node }}
+            className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+          />
         </div>
         {footer != null && (
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3">
+          <div className="relative z-20 flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3">
             {footer}
           </div>
         )}
       </div>
+      </ModalSuggestLayerContext.Provider>
     </div>,
     document.body,
   )

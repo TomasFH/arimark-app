@@ -13,6 +13,8 @@ const PRODUCT: AdminProductRow = {
   active: true,
   price: 18000,
   available: true,
+  purchasePackLabel: null,
+  purchasePackContents: null,
 }
 
 function useHarness() {

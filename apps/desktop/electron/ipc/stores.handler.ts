@@ -22,6 +22,7 @@ import { pushUnsyncedEmployeeOps, ensureEmployeesSynced } from '../licensing/emp
 import { ensureOrdersSynced, pushUnsyncedOrders } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
 import { ensureSpecialCustomersSynced, pushUnsyncedSpecialCustomerOps } from '../licensing/specialCustomerSync'
+import { ensureMerchRubrosSynced } from '../licensing/merchRubroSync'
 import { getBusinessConfig } from '../businessConfig'
 import { ensureCatalogSeedUser, seedCatalogOntoStore } from '../db/seedStoreCatalog'
 import { publishCatalog } from '../licensing/catalogPublish'
@@ -318,6 +319,11 @@ export function registerStoresHandlers(): void {
           await ensureSpecialCustomersSynced(config.tenant_id)
         } catch (err) {
           log.warn('[ipc:select-store] ensureSpecialCustomersSynced falló (no bloqueante)', err)
+        }
+        try {
+          await ensureMerchRubrosSynced(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:select-store] ensureMerchRubrosSynced falló (no bloqueante)', err)
         }
         pushUnsyncedOrders(config.tenant_id).catch(err =>
           log.warn('[ipc:select-store] pushUnsyncedOrders falló (no bloqueante)', err),

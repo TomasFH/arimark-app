@@ -82,6 +82,8 @@ describe('ProductFormModal — historial plegado', () => {
     active: true,
     price: 55556,
     available: true,
+    purchasePackLabel: null,
+    purchasePackContents: null,
   }
 
   beforeEach(() => {

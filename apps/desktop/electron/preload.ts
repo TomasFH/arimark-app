@@ -159,6 +159,18 @@ const hw: HwApi = {
   registerCebo: payload => ipcRenderer.invoke(IPC.REGISTER_CEBO, payload),
   updateCebo: payload => ipcRenderer.invoke(IPC.UPDATE_CEBO, payload),
 
+  listShiftMerch: payload => ipcRenderer.invoke(IPC.LIST_SHIFT_MERCH, payload),
+  getMerchVisitDraft: () => ipcRenderer.invoke(IPC.GET_MERCH_VISIT_DRAFT),
+  saveMerchVisitDraft: payload => ipcRenderer.invoke(IPC.SAVE_MERCH_VISIT_DRAFT, payload),
+  discardMerchVisitDraft: () => ipcRenderer.invoke(IPC.DISCARD_MERCH_VISIT_DRAFT),
+  confirmMerchVisit: payload => ipcRenderer.invoke(IPC.CONFIRM_MERCH_VISIT, payload),
+  getProviderPurchasePrices: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_PURCHASE_PRICES, payload),
+  listMerchRubros: payload => ipcRenderer.invoke(IPC.LIST_MERCH_RUBROS, payload),
+  createMerchRubro: payload => ipcRenderer.invoke(IPC.CREATE_MERCH_RUBRO, payload),
+  updateMerchRubro: payload => ipcRenderer.invoke(IPC.UPDATE_MERCH_RUBRO, payload),
+  archiveMerchRubro: payload => ipcRenderer.invoke(IPC.ARCHIVE_MERCH_RUBRO, payload),
+  unarchiveMerchRubro: payload => ipcRenderer.invoke(IPC.UNARCHIVE_MERCH_RUBRO, payload),
+
   getProviderDebt: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_DEBT, payload),
 
   getProviderNames: () => ipcRenderer.invoke(IPC.GET_PROVIDER_NAMES),
@@ -167,6 +179,7 @@ const hw: HwApi = {
   listProviders: payload => ipcRenderer.invoke(IPC.LIST_PROVIDERS, payload),
   createProvider: payload => ipcRenderer.invoke(IPC.CREATE_PROVIDER, payload),
   updateProvider: payload => ipcRenderer.invoke(IPC.UPDATE_PROVIDER, payload),
+  setProviderIntakeKind: payload => ipcRenderer.invoke(IPC.SET_PROVIDER_INTAKE_KIND, payload),
   archiveProvider: payload => ipcRenderer.invoke(IPC.ARCHIVE_PROVIDER, payload),
   unarchiveProvider: payload => ipcRenderer.invoke(IPC.UNARCHIVE_PROVIDER, payload),
   deleteProvider: payload => ipcRenderer.invoke(IPC.DELETE_PROVIDER, payload),

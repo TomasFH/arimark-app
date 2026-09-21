@@ -34,6 +34,25 @@ import { PROVIDER_DEBT_CHECKPOINTS_COL } from '@carniceria/shared'
 import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore'
 import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderDebtEventRow } from '../../src/types/hw-api'
 import { stampAdminAdjustAuthor } from '../../src/lib/providerLedgerNotes'
+import { coerceProviderIntakeKind, PROVIDER_INTAKE_KINDS } from '@carniceria/shared'
+
+function mapProviderRow(r: {
+  id: string
+  name: string
+  phone: string | null
+  notes: string | null
+  archivedAt: string | null
+  intakeKind: string | null
+}): ProviderRow {
+  return {
+    id: r.id,
+    name: r.name,
+    phone: r.phone ?? undefined,
+    notes: r.notes ?? undefined,
+    archivedAt: r.archivedAt ?? undefined,
+    intakeKind: coerceProviderIntakeKind(r.intakeKind),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Schemas de validación
@@ -50,6 +69,12 @@ const updateProviderSchema = z.object({
   name: z.string().min(1).max(100).transform(s => s.trim()).optional(),
   phone: z.string().max(50).optional().nullable().transform(s => typeof s === 'string' ? s.trim() || null : s),
   notes: z.string().max(300).optional().nullable(),
+})
+
+const setProviderIntakeKindSchema = z.object({
+  providerId: z.string().min(1).optional(),
+  provider: z.string().max(100).transform(s => s.trim()).optional(),
+  intakeKind: z.enum(PROVIDER_INTAKE_KINDS),
 })
 
 const archiveProviderSchema = z.object({
@@ -114,19 +139,14 @@ export function registerProvidersHandlers(): void {
         phone: providers.phone,
         notes: providers.notes,
         archivedAt: providers.archivedAt,
+        intakeKind: providers.intakeKind,
       }).from(providers).all()
 
       const filtered = parsed.data.includeArchived
         ? rows
         : rows.filter(r => !r.archivedAt)
 
-      const result: ProviderRow[] = filtered.map(r => ({
-        id: r.id,
-        name: r.name,
-        phone: r.phone ?? undefined,
-        notes: r.notes ?? undefined,
-        archivedAt: r.archivedAt ?? undefined,
-      }))
+      const result: ProviderRow[] = filtered.map(mapProviderRow)
 
       return { ok: true, data: result }
     } catch (err) {
@@ -175,13 +195,7 @@ export function registerProvidersHandlers(): void {
         const current = db.select().from(providers).where(eq(providers.id, id)).get()!
         return {
           ok: true,
-          data: {
-            id: current.id,
-            name: current.name,
-            phone: current.phone ?? undefined,
-            notes: current.notes ?? undefined,
-            archivedAt: current.archivedAt ?? undefined,
-          },
+          data: mapProviderRow(current),
         }
       }
 
@@ -202,7 +216,8 @@ export function registerProvidersHandlers(): void {
       )
 
       log.info('[ipc:create-provider] Proveedor creado', { id, name })
-      return { ok: true, data: { id, name, phone: phone ?? undefined, notes: notes ?? undefined } }
+      const created = db.select().from(providers).where(eq(providers.id, id)).get()!
+      return { ok: true, data: mapProviderRow(created) }
     } catch (err) {
       log.error('[ipc:create-provider] Error', err)
       return { ok: false, error: 'Error al crear proveedor.' }
@@ -251,16 +266,84 @@ export function registerProvidersHandlers(): void {
       log.info('[ipc:update-provider] Proveedor actualizado', { id })
       return {
         ok: true,
-        data: {
-          id: updated.id,
-          name: updated.name,
-          phone: updated.phone ?? undefined,
-          notes: updated.notes ?? undefined,
-        },
+        data: mapProviderRow(updated),
       }
     } catch (err) {
       log.error('[ipc:update-provider] Error', err)
       return { ok: false, error: 'Error al actualizar proveedor.' }
+    }
+  })
+
+  ipcMain.handle(IPC.SET_PROVIDER_INTAKE_KIND, async (_event, payload: unknown): Promise<IpcResult<ProviderRow>> => {
+    const parsed = setProviderIntakeKindSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:set-provider-intake-kind] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+
+    const name = parsed.data.provider
+    if (!parsed.data.providerId && (!name || name.length === 0)) {
+      return { ok: false, error: 'Ingresá el proveedor.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const now = new Date().toISOString()
+    try {
+      const db = getDb()
+      let id = parsed.data.providerId
+      if (id) {
+        const existing = db.select().from(providers).where(eq(providers.id, id)).get()
+        if (!existing) return { ok: false, error: 'Proveedor no encontrado.', code: 'NOT_FOUND' }
+        if (existing.archivedAt) {
+          db.update(providers).set({
+            archivedAt: null,
+            updatedAt: now,
+            updatedBy: session.userId,
+            syncedAt: null,
+          }).where(eq(providers.id, id)).run()
+        }
+      } else {
+        id = providerIdFromName(name!)
+        const existing = db.select().from(providers).where(eq(providers.id, id)).get()
+        if (!existing) {
+          db.insert(providers).values({
+            id,
+            name: name!,
+            nameKey: providerNameKey(name!),
+            intakeKind: parsed.data.intakeKind,
+            createdAt: now,
+            createdBy: session.userId,
+            syncedAt: null,
+          }).run()
+        } else if (existing.archivedAt) {
+          db.update(providers).set({
+            archivedAt: null,
+            updatedAt: now,
+            updatedBy: session.userId,
+            syncedAt: null,
+          }).where(eq(providers.id, id)).run()
+        }
+      }
+
+      db.update(providers).set({
+        intakeKind: parsed.data.intakeKind,
+        updatedAt: now,
+        updatedBy: session.userId,
+        syncedAt: null,
+      }).where(eq(providers.id, id)).run()
+
+      const config = getBusinessConfig()
+      pushUnsyncedProviders(config.tenant_id).catch(err =>
+        log.warn('[ipc:set-provider-intake-kind] push falló (no bloqueante)', err)
+      )
+
+      const row = db.select().from(providers).where(eq(providers.id, id)).get()!
+      log.info('[ipc:set-provider-intake-kind] Tipo de visita', { id, intakeKind: parsed.data.intakeKind })
+      return { ok: true, data: mapProviderRow(row) }
+    } catch (err) {
+      log.error('[ipc:set-provider-intake-kind] Error', err)
+      return { ok: false, error: 'Error al guardar qué trae el proveedor.' }
     }
   })
 

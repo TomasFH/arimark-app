@@ -55,6 +55,11 @@ vi.mock('../../licensing/specialCustomerSync', () => ({
   stopSpecialCustomerSyncListener: vi.fn(),
 }))
 
+vi.mock('../../licensing/merchRubroSync', () => ({
+  ensureMerchRubrosSynced: vi.fn().mockResolvedValue(undefined),
+  stopMerchRubroSyncListener: vi.fn(),
+}))
+
 vi.mock('../../licensing/providerSync', () => ({
   startProviderSyncListener: vi.fn(),
   stopProviderSyncListener: vi.fn(),

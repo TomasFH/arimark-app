@@ -22,9 +22,6 @@ import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
 import { Button, Modal } from '../components/ui'
 
-const fieldClass =
-  'w-full rounded-lg border border-line bg-input px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
-
 type Mode = 'products' | 'advance'
 
 interface DraftItem {

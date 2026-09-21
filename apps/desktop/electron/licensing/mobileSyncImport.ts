@@ -25,11 +25,16 @@ import {
   employeeVales,
   salaryPayments,
   ceboEntries,
+  merchandiseIntakes,
+  merchandiseIntakeLines,
 } from '../db/schema'
 import { providerNameKey } from '../ipc/providerUtils'
+import { snapshotToDbLine } from './merchIntakeDb'
 import {
   coerceInjectReason,
+  coerceMerchIntakePaymentKind,
   injectConceptForReason,
+  parseMerchLinesFromUnknown,
   parseBillLines,
   type BillLine,
 } from '@carniceria/shared'
@@ -160,6 +165,27 @@ export interface MobileCeboImport {
   updatedAt?: string | null
 }
 
+export interface MobileMerchandiseIntakeImport {
+  id: string
+  shiftId: string
+  category?: string
+  unit?: string
+  quantity?: number
+  lines?: unknown
+  notes: string | null
+  paymentKind?: string
+  paidAmount?: number
+  debtAmount?: number
+  providerId?: string | null
+  providerName?: string | null
+  expenseId?: string | null
+  status?: 'draft' | 'confirmed' | string | null
+  createdAt: string
+  createdBy: string
+  updatedBy?: string | null
+  updatedAt?: string | null
+}
+
 export interface MobileShiftImportResult {
   insertedShift: boolean
   salesInserted: number
@@ -168,6 +194,7 @@ export interface MobileShiftImportResult {
   valesInserted: number
   salaryInserted: number
   ceboInserted: number
+  merchInserted: number
   /** Solo true cuando el turno ya cerró: la PC puede marcar importedAt. */
   shouldMarkImported: boolean
 }
@@ -508,6 +535,7 @@ export function applyMobileShiftImport(
   valesData: MobileValeImport[] = [],
   salaryData: MobileSalaryImport[] = [],
   ceboData: MobileCeboImport[] = [],
+  merchData: MobileMerchandiseIntakeImport[] = [],
 ): MobileShiftImportResult {
   ensureUserCache(db, shiftData.userId, shiftData.displayName, storeId)
   for (const sale of salesData) {
@@ -538,6 +566,14 @@ export function applyMobileShiftImport(
       ensureUserCache(db, cebo.updatedBy, shiftData.displayName, storeId)
     }
   }
+  for (const merch of merchData) {
+    if (merch.createdBy && merch.createdBy !== shiftData.userId) {
+      ensureUserCache(db, merch.createdBy, shiftData.displayName, storeId)
+    }
+    if (merch.updatedBy && merch.updatedBy !== shiftData.userId) {
+      ensureUserCache(db, merch.updatedBy, shiftData.displayName, storeId)
+    }
+  }
 
   let insertedShift = false
   let salesInserted = 0
@@ -546,6 +582,7 @@ export function applyMobileShiftImport(
   let valesInserted = 0
   let salaryInserted = 0
   let ceboInserted = 0
+  let merchInserted = 0
 
   db.transaction(tx => {
     const existing = tx.select().from(shifts).where(eq(shifts.id, shiftData.id)).get()
@@ -664,6 +701,48 @@ export function applyMobileShiftImport(
       }).run()
       ceboInserted += 1
     }
+    for (const merch of merchData) {
+      if (merch.status === 'draft') continue
+      const existingMerch = tx.select().from(merchandiseIntakes).where(eq(merchandiseIntakes.id, merch.id)).get()
+      if (existingMerch) continue
+      const lines = parseMerchLinesFromUnknown(merch.lines, {
+        intakeId: merch.id,
+        category: merch.category,
+        unit: merch.unit,
+        quantity: merch.quantity,
+      })
+      if (lines.length === 0) continue
+      const paymentKind = coerceMerchIntakePaymentKind(merch.paymentKind) ?? 'none'
+      const providerId = merch.providerId?.trim() || null
+      const providerName = (merch.providerName ?? '').trim() || null
+      if (providerId && providerName) {
+        upsertProvider(tx as unknown as AppDb, providerId, providerName, merch.createdAt, merch.createdBy)
+      }
+      const paidAmount = Number(merch.paidAmount)
+      const debtAmount = Number(merch.debtAmount)
+      tx.insert(merchandiseIntakes).values({
+        id: merch.id,
+        storeId,
+        shiftId: shiftData.id,
+        notes: merch.notes,
+        paymentKind,
+        paidAmount: Number.isFinite(paidAmount) ? Math.max(0, Math.round(paidAmount)) : 0,
+        debtAmount: Number.isFinite(debtAmount) ? Math.max(0, Math.round(debtAmount)) : 0,
+        providerId,
+        providerName,
+        expenseId: merch.expenseId?.trim() || null,
+        status: 'confirmed',
+        createdBy: merch.createdBy,
+        createdAt: merch.createdAt,
+        updatedBy: merch.updatedBy ?? null,
+        updatedAt: merch.updatedAt ?? null,
+        syncedAt: null,
+      }).run()
+      for (const line of lines) {
+        tx.insert(merchandiseIntakeLines).values(snapshotToDbLine(merch.id, line)).run()
+      }
+      merchInserted += 1
+    }
   })
 
   return {
@@ -674,6 +753,7 @@ export function applyMobileShiftImport(
     valesInserted,
     salaryInserted,
     ceboInserted,
+    merchInserted,
     shouldMarkImported: shouldMarkMobileShiftImported(shiftData.closedAt),
   }
 }
