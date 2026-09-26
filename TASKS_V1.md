@@ -371,7 +371,7 @@ El merge por ítem ya existía (`catalogSync.ts`). Se agregó el **listener en v
 - Cajera: crear ficha, editar nombre/PLU/categoría/unidad, precio, “quitar/mostrar” **solo su local**, y **Cargar en balanza**. Retiro global / versiones = solo admin (hub).
 - Auditoría SQLite `catalog_audit_events` (migración `0035`).
 
-**No se hizo (sigue vigente):** edición de catálogo en el celu; FEAT-CAT-03 backup masivo; sync automático a la KRETZ; Blaze. **DT-07/DT-08:** código 2026-09-04; ver `docs/FIRESTORE_DT07_DT08.md` (producción: índices + backfill + deploy).
+**No se hizo (sigue vigente):** edición de catálogo en el celu; FEAT-CAT-03 backup masivo; sync automático a la KRETZ; Blaze. **DT-07/DT-08:** código 2026-09-04; **producción 2026-09-21** (índices, `--apply`, Hosting). Ver `docs/FIRESTORE_DT07_DT08.md`.
 
 **Spark (medir en jornada real, no en un domingo de pruebas):**
 1. Firebase Console → proyecto `arimark-7f418` → Usage / Firestore Usage.
@@ -409,9 +409,9 @@ Para maximizar valor entregable en orden:
 5. ~~E1–E3~~ ✅ código; **pendiente checklist manual**
 6. ~~F1 / G1~~ ✅
 7. ~~Completar checklist en local real~~ ✅ ola **2026-08-28 cerrada** (`CHECKLIST_TESTEO_SESION.md`). Resumen post-cierre + BLOQUE H **hechos**. **BLOQUE I (A+B) hecho 2026-08-30.**
-8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`; falta backfill `--apply` + deploy índices/reglas). **BLOQUE I checklist cerrada 2026-09-02.**
+8. **Hecho 2026-09-02/04:** `FEAT-ORDER-CART-01` + `FEAT-BUTCHER-01` (código). Pedidos PC cerrado (`CHECKLIST_TESTEO_PEDIDOS_LISTA.md`). Acceso celular del carnicero vive en **Empleados** (`StaffScreen`). **Checklist horario + último local + carnicero C.4 cerrados 2026-09-07.** **DT-04 hecho 2026-09-06.** **DT-07/DT-08 código 2026-09-04; producción 2026-09-21** (`docs/FIRESTORE_DT07_DT08.md`). **BLOQUE I checklist cerrada 2026-09-02.**
 9. **Hecho en código 2026-09-11/12** (checkpoint `8b43423`): bloques N–R + `FEAT-AUTH-PASSWORD-01` (app). Plantilla de mail de reset: consola Firebase (`docs/AUTH_PASSWORD.md`).
-10. **Hecho 2026-09-15:** **DT-02** (login offline PC, Opción E) y **DT-03** (retomar turno propio). **Hecho 2026-09-17:** **`FEAT-MERCH-INTAKE-01`** v2 (BLOQUE S). Fase 8 Stock sigue bloqueada. DT-07/08: código listo; falta backfill `--apply` + confirmar índices en prod.
+10. **Hecho 2026-09-15:** **DT-02** (login offline PC, Opción E) y **DT-03** (retomar turno propio). **Hecho 2026-09-17:** **`FEAT-MERCH-INTAKE-01`** v2 (BLOQUE S). Fase 8 Stock sigue bloqueada. **DT-07/08 producción 2026-09-21.**
 
 ---
 

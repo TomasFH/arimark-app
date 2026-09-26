@@ -27,9 +27,9 @@ type ModalMode =
   | { type: 'history'; provider: ProviderWithDebtRow }
 
 function storeBalanceDisplay(balance: number): { label: string; className: string } {
-  if (balance > 0) return { label: formatARS(balance), className: 'text-amber-600' }
+  if (balance > 0) return { label: formatARS(balance), className: 'text-danger' }
   if (balance < 0) return { label: `A favor ${formatARS(-balance)}`, className: 'text-success' }
-  return { label: 'Sin deuda', className: 'text-success' }
+  return { label: 'Al día', className: 'text-muted' }
 }
 
 const HISTORY_PAGE = 20
@@ -98,6 +98,29 @@ export default function ProvidersScreen({ onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchived])
 
+  const sorted = useMemo(() => {
+    function rank(p: ProviderWithDebtRow): number {
+      if (p.total > 0 || p.perStore.some(s => s.balance > 0)) return 0
+      if (p.total < 0 || p.perStore.some(s => s.balance < 0)) return 1
+      return 2
+    }
+    return [...list].sort((a, b) => {
+      const byMoney = rank(a) - rank(b)
+      if (byMoney !== 0) return byMoney
+      return a.name.localeCompare(b.name, 'es')
+    })
+  }, [list])
+
+  function rowMoney(p: ProviderWithDebtRow): { label: string; className: string } {
+    const owes = p.perStore.some(s => s.balance > 0)
+    const credit = p.perStore.some(s => s.balance < 0)
+    if (p.total > 0) return { label: formatARS(p.total), className: 'text-danger' }
+    if (p.total < 0) return { label: formatARS(-p.total), className: 'text-success' }
+    if (owes && credit) return { label: 'Compensado', className: 'text-muted' }
+    if (owes) return { label: 'Debe', className: 'text-danger' }
+    return { label: 'Al día', className: 'text-muted' }
+  }
+
   function toggleExpand(id: string) {
     setExpandedId(prev => prev === id ? null : id)
   }
@@ -135,14 +158,9 @@ export default function ProvidersScreen({ onBack }: Props) {
         subtitle={showArchived ? 'Eliminados — restaurar para volver a usarlos' : 'Deuda combinada entre todos los locales'}
         onBack={onBack}
         actions={
-          <>
-            <Button type="button" variant="secondary" size="sm" onClick={() => setShowArchived(v => !v)}>
-              {showArchived ? 'Ver activos' : 'Ver eliminados'}
-            </Button>
-            {!showArchived && (
-              <Button size="sm" onClick={() => setModal({ type: 'create' })}>+ Nuevo</Button>
-            )}
-          </>
+          !showArchived ? (
+            <Button size="sm" onClick={() => setModal({ type: 'create' })}>+ Nuevo</Button>
+          ) : undefined
         }
       />
 
@@ -163,7 +181,31 @@ export default function ProvidersScreen({ onBack }: Props) {
         )}
 
         {!loading && !error && (
-          <div className="p-4 space-y-3">
+          <div className="mx-auto w-full max-w-3xl px-4 py-4">
+            <div className="mb-4 grid max-w-xs grid-cols-2 rounded-xl bg-raised p-1" role="tablist" aria-label="Estado de los proveedores">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!showArchived}
+                onClick={() => setShowArchived(false)}
+                className={`rounded-lg py-2 text-sm font-semibold transition-colors ${
+                  !showArchived ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink'
+                }`}
+              >
+                Activos
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={showArchived}
+                onClick={() => setShowArchived(true)}
+                className={`rounded-lg py-2 text-sm font-semibold transition-colors ${
+                  showArchived ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink'
+                }`}
+              >
+                Eliminados
+              </button>
+            </div>
             {list.length === 0 && (
               <div className="text-center py-12">
                 <p className="text-muted text-sm">
@@ -175,56 +217,40 @@ export default function ProvidersScreen({ onBack }: Props) {
               </div>
             )}
 
-            {list.map(p => {
+            {sorted.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-line bg-panel">
+            {sorted.map(p => {
               const isExpanded = expandedId === p.id
               const anyStoreHasDebt = p.perStore.some(s => s.balance > 0)
               const anyStoreHasCredit = p.perStore.some(s => s.balance < 0)
+              const money = rowMoney(p)
 
               return (
-                <div
-                  key={p.id}
-                  className={`rounded-xl border transition-colors ${
-                    p.total > 0 || anyStoreHasDebt
-                      ? 'border-amber-500/30 bg-amber-500/10'
-                      : 'border-line bg-panel'
-                  }`}
-                >
-                  {/* Fila principal */}
-                  <div className="flex items-center gap-3 px-4 py-3">
+                <div key={p.id} className="border-b border-line last:border-b-0">
+                  <div className="flex items-center gap-2 px-4 py-3">
                     <button
-                      className="flex-1 min-w-0 flex items-center gap-3 text-left"
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
                       onClick={() => toggleExpand(p.id)}
                     >
-                      <div className="w-8 h-8 rounded-full bg-raised flex items-center justify-center text-xs font-bold text-ink shrink-0">
-                        {p.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate" title={p.name}>{p.name}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink" title={p.name}>{p.name}</p>
                         {p.phone && (
-                          <p className="text-xs text-muted truncate" title={formatPhoneInput(p.phone)}>
+                          <p className="truncate text-xs text-muted" title={formatPhoneInput(p.phone)}>
                             {formatPhoneInput(p.phone)}
                           </p>
                         )}
-                        {p.total > 0 && (
-                          <p className="text-xs text-amber-600">
-                            Deuda total: {formatARS(p.total)}
-                          </p>
-                        )}
-                        {p.total < 0 && (
-                          <p className="text-xs text-success">
-                            Saldo a favor: {formatARS(-p.total)}
-                          </p>
-                        )}
-                        {p.total === 0 && anyStoreHasDebt && (
-                          <p className="text-xs text-amber-600">Saldo compensado entre locales</p>
-                        )}
-                        {p.total === 0 && !anyStoreHasDebt && !anyStoreHasCredit && (
-                          <p className="text-xs text-success">Sin deuda pendiente</p>
-                        )}
                       </div>
-                      <span className="text-subtle text-sm shrink-0">
-                        {isExpanded ? '▲' : '▼'}
+                      <span className={`shrink-0 text-sm font-semibold tabular-nums ${money.className}`}>
+                        {money.label}
                       </span>
+                      <svg
+                        className={`h-3.5 w-3.5 shrink-0 text-subtle transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        aria-hidden
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                      </svg>
                     </button>
 
                     <ActionMenu
@@ -282,6 +308,8 @@ export default function ProvidersScreen({ onBack }: Props) {
                 </div>
               )
             })}
+            </div>
+            )}
           </div>
         )}
       </div>

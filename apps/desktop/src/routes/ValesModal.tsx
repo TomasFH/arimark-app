@@ -86,6 +86,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
   const [quantityText, setQuantityText] = useState('')
   const [priceText, setPriceText] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
+  const productInputRef = useRef<HTMLInputElement>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const nextDraftId = useRef(0)
 
@@ -219,6 +220,11 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
     const id = String(nextDraftId.current++)
     setDraftItems(prev => [...prev, { id, product: selectedProduct, quantityText, priceText }])
     setQuantityText('')
+    setProductQuery('')
+    setSelectedProductId('')
+    setPriceText('')
+    setShowProductSuggestions(false)
+    setTimeout(() => productInputRef.current?.focus(), 0)
   }
 
   function handleRemoveItem(id: string) {
@@ -495,15 +501,19 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                 {/* Formulario de registro */}
                 <div className="rounded-xl border border-line bg-raised p-3 space-y-3">
                   {/* Tabs */}
-                  <div className="flex rounded-lg bg-hover p-0.5 gap-0.5">
+                  <div className="grid grid-cols-2 overflow-hidden rounded-lg bg-app" role="tablist">
                     {(['products', 'advance'] as Mode[]).map(m => (
                       <button
                         key={m}
                         type="button"
+                        role="tab"
+                        aria-selected={mode === m}
                         onClick={() => { setMode(m); resetForm() }}
                         disabled={saving}
-                        className={`flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
-                          mode === m ? 'bg-hover text-ink shadow-sm' : 'text-muted hover:text-ink'
+                        className={`py-2 text-[11px] font-semibold transition-colors ${
+                          m === 'products' ? 'border-r border-line' : ''
+                        } ${
+                          mode === m ? 'bg-panel text-ink' : 'text-muted hover:bg-hover hover:text-ink'
                         }`}
                       >
                         {m === 'products' ? 'Con productos' : 'Adelanto en efectivo'}
@@ -521,10 +531,15 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                         <p className="text-xs text-muted">Sin productos con precio. Configurá el catálogo desde el panel admin.</p>
                       ) : (
                         <>
+                          <form
+                            className="space-y-2.5"
+                            onSubmit={e => { e.preventDefault(); handleAddItem() }}
+                          >
                           <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
                             <div className="relative min-w-0">
                               <label className="block text-[10px] text-muted mb-1">Producto (nombre o PLU)</label>
                               <input
+                                ref={productInputRef}
                                 type="text"
                                 value={productQuery}
                                 onChange={e => {
@@ -536,7 +551,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                                 onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
                                 disabled={saving}
                                 autoComplete="off"
-                                placeholder="ej. asado o 5"
+                                placeholder=""
                                 className="w-full rounded-lg bg-input border border-line px-2 py-2 text-xs text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                               />
                               {showProductSuggestions && productSuggestions.length > 0 && (
@@ -594,14 +609,14 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                             </div>
                           </div>
                           <button
-                            type="button"
-                            onClick={handleAddItem}
+                            type="submit"
                             disabled={saving || !selectedProductId || !quantityText || !priceText}
-                            className="w-full rounded-lg py-1.5 text-xs font-medium bg-hover hover:bg-hover text-ink transition-colors disabled:opacity-50"
+                            className="w-full rounded-lg border border-line bg-panel py-1.5 text-xs font-medium text-ink transition-colors hover:bg-hover disabled:opacity-50"
                           >
                             + Agregar ítem
                           </button>
                           {addError && <p className="text-xs text-danger">{addError}</p>}
+                          </form>
                         </>
                       )}
 
@@ -665,7 +680,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                           maxLength={200}
                           disabled={saving}
                           onChange={e => setAdvanceDescription(e.target.value)}
-                          placeholder="Ej. adelanto familiar…"
+                          placeholder=""
                           className="w-full rounded-lg bg-input border border-line px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
                         />
                       </div>
@@ -675,7 +690,11 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
                   {formError && <p className="text-xs text-danger">{formError}</p>}
                   {success && <p className="text-xs text-success">{success}</p>}
 
-                  <p className="text-[10px] text-subtle">Se descuenta de la caja del turno abierto.</p>
+                  <p className="text-[10px] text-subtle">
+                    {mode === 'advance'
+                      ? 'Sale efectivo de la caja del turno.'
+                      : 'No sale efectivo. Se descuenta del sueldo de la semana.'}
+                  </p>
                 </div>
               </>
             )}

@@ -3,6 +3,7 @@
  * La nota es opcional (ej. “le pagué menos porque llegó tarde”).
  */
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   addDaysYmd,
   formatARS,
@@ -243,14 +244,14 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
     await load(true)
   }
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-overlay p-4"
       onClick={e => {
         if (e.target === e.currentTarget && !payingId) onClose()
       }}
     >
-      <div className="flex flex-col bg-raised border border-line rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh]">
+      <div className="flex flex-col bg-panel border border-line rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh]">
         <div className="flex items-center justify-between gap-2 min-w-0 border-b border-line px-5 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-ink truncate">Liquidación semanal</h2>
@@ -301,7 +302,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+        <div className="flex-1 overflow-y-auto space-y-2 bg-app px-5 py-4">
           {!loading && rows.length > 0 && (
             <input
               type="text"
@@ -309,7 +310,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
               onChange={e => setFilterText(e.target.value)}
               maxLength={100}
               placeholder="Buscar empleado…"
-              className="w-full bg-raised border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent"
             />
           )}
 
@@ -341,7 +342,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
           )}
 
           {!loading && filteredRows.length > 0 && (
-            <div className="rounded-lg border border-line bg-raised px-3 py-2 grid grid-cols-3 gap-2 text-center mb-2">
+            <div className="mb-2 grid grid-cols-3 gap-2 rounded-xl border border-line bg-panel px-3 py-3 text-center">
               <div>
                 <p className="text-[10px] text-muted">Bruto total</p>
                 <p className="text-xs text-ink tabular-nums">{formatARS(totalGross)}</p>
@@ -366,7 +367,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
               return (
                 <div
                   key={employee.id}
-                  className="rounded-xl border border-line bg-raised overflow-hidden"
+                  className="overflow-hidden rounded-xl border border-line bg-panel"
                 >
                   <button
                     type="button"
@@ -548,6 +549,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }

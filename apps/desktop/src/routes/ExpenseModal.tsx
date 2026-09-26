@@ -2,7 +2,7 @@
  * Modal para registrar un gasto durante el turno activo.
  *
  * Dos modos excluyentes:
- *   - Gasto: qué se pagó + monto. Sin proveedor ni mercadería.
+ *   - Otros: qué se pagó + monto. Sin proveedor ni mercadería.
  *   - Proveedor: quién trajo mercadería, renglones, entregado / deuda.
  * El concepto no se pide en una visita: el proveedor identifica el registro.
  * Autocomplete de proveedores (LIST_PROVIDERS). Nombre nuevo se crea al guardar.
@@ -16,6 +16,7 @@ import { formatPhoneInput } from '../lib/phoneInput'
 import PaymentReceipt from '../components/PaymentReceipt'
 import { isAdminAdjustNote } from '../lib/providerLedgerNotes'
 import { Button, CollapseReveal, Modal, SuggestPopover } from '../components/ui'
+import { showAppToast } from '../components/ui/AppToast'
 import { namedSuggest } from '../lib/namedSuggest'
 import type { ExpenseRow, ProductRow, ProviderDebtRow, ProviderRow, StoreRow } from '../types/hw-api'
 import ProviderVisitMerchBlock, { type PurchasePriceMap } from './ProviderVisitMerchBlock'
@@ -126,10 +127,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [draftHydrated, setDraftHydrated] = useState(!!editingExpense)
   const acceptPriceUpdatesRef = useRef(true)
   const kindTouchedRef = useRef(false)
-  const [factsReceipt, setFactsReceipt] = useState<{
-    providerName: string
-    items: MerchVisitReceiptItem[]
-  } | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -489,10 +486,9 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     if (!r.ok) { showError(r.error, 'merch'); return }
     onDraftChanged?.()
     onSaved?.()
-    setFactsReceipt({
-      providerName: providerInput.trim(),
-      items: merchVisitReceiptItems(merchResolved.drafts),
-    })
+    const units = merchResolved.drafts.reduce((sum, line) => sum + (line.count ?? 0), 0)
+    showAppToast(units > 0 ? `Media res registrada · ${units} ${units === 1 ? 'unidad' : 'unidades'}` : 'Media res registrada')
+    onRegistered()
   }
 
   async function handleSubmit() {
@@ -630,36 +626,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   }
 
   // ── COMPROBANTE ────────────────────────────────────────────────────────
-  if (factsReceipt) {
-    return (
-      <Modal
-        open
-        onClose={onRegistered}
-        title="Visita registrada"
-        size="md"
-        footer={(
-          <Button variant="primary" onClick={onRegistered}>Cerrar</Button>
-        )}
-      >
-        <div className="space-y-3">
-          <p className="min-w-0 truncate text-sm font-medium text-ink" title={factsReceipt.providerName}>
-            {factsReceipt.providerName}
-          </p>
-          {factsReceipt.items.length > 0 ? (
-            <ul className="max-h-[11.5rem] overflow-y-auto [scrollbar-gutter:stable] divide-y divide-line rounded-xl border border-line bg-raised/40 px-4">
-              {factsReceipt.items.map((item, i) => (
-                <li key={`${item.name}-${i}`} className="flex items-baseline justify-between gap-3 py-2 min-w-0">
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink" title={item.name}>{item.name}</span>
-                  <span className="shrink-0 tabular-nums text-sm text-muted" title={item.qty}>{item.qty}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      </Modal>
-    )
-  }
-
   if (receipt) {
     const isCreditBalance = receipt.finalBalance < 0
     const isDebtBalance = receipt.finalBalance > 0
@@ -855,7 +821,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-app p-1" role="tablist" aria-label="Tipo de registro">
             {([
               { id: 'provider' as const, label: 'Proveedor' },
-              { id: 'simple' as const, label: 'Gasto' },
+              { id: 'simple' as const, label: 'Otros' },
             ]).map(opt => (
               <button
                 key={opt.id}

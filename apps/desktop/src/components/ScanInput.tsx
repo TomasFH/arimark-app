@@ -1,16 +1,16 @@
 /**
  * Panel de carga manual (botón Manual del POS).
  *
- * Pestaña default "PLU + precio": ingreso por PLU o nombre.
- *   - Productos por kg: campos Peso y Precio vinculados (regla de tres).
- *   - Productos por unidad: solo campo Cantidad (entero). Precio = qty × catálogo.
- *     Checkbox "Precio especial" desbloquea precio editable + muestra aviso.
- *
- * Pestaña "Código manual": pegar el EAN-13 del ticket KRETZ (sin lector USB).
+ * Ingreso por PLU o nombre.
+ *   - Productos por kg: peso y precio total. Sin precio especial van atados
+ *     (regla de tres). Con precio especial el total sigue saliendo del peso
+ *     hasta que la cajera lo corrige; corregirlo no cambia el peso.
+ *   - Productos por unidad: cantidad entera. Precio = qty × catálogo, salvo
+ *     precio especial (precio por unidad editable, arranca en el de lista).
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { parseKretzBarcode, centsToARS, searchProductsByQuery } from '@carniceria/shared'
+import { searchProductsByQuery } from '@carniceria/shared'
 import NumericInput from './NumericInput'
 import DecimalInput from './DecimalInput'
 import {
@@ -22,9 +22,6 @@ import {
 } from '../lib/numericInput'
 import type { SaleItemDraft, ProductRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
-import { buildItemFromBarcode } from '../lib/barcodeItem'
-
-type Tab = 'scan' | 'manual'
 
 interface Props {
   onAddItem: (item: SaleItemDraft) => void
@@ -80,19 +77,19 @@ const CATEGORY_LABELS: Record<string, string> = {
 // Componente
 // ---------------------------------------------------------------------------
 
+function kgTotalRaw(weight: string, unitPrice: number): string {
+  const w = parseDecimalInput(weight)
+  if (w == null || w <= 0 || unitPrice <= 0) return ''
+  return formatDecimalInputValue(String(Math.round(w * unitPrice)))
+}
+
 export default function ScanInput({ onAddItem, products, specialPriceByProductId = {} }: Props) {
-  const [tab, setTab] = useState<Tab>('manual')
-
-  // --- Scan state ---
-  const [barcode, setBarcode] = useState('')
-  const [barcodeError, setBarcodeError] = useState('')
-  const barcodeInputRef = useRef<HTMLInputElement>(null)
-
-  // --- Manual state ---
   const [pluRaw, setPluRaw] = useState('')
   const [weightRaw, setWeightRaw] = useState('')
   const [priceRaw, setPriceRaw] = useState('')
   const [specialPrice, setSpecialPrice] = useState(false)
+  /** La cajera escribió un total distinto al de lista. El peso deja de pisarlo. */
+  const [priceTouched, setPriceTouched] = useState(false)
   const [manualError, setManualError] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const pluInputRef = useRef<HTMLInputElement>(null)
@@ -100,12 +97,9 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   const priceInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (tab === 'scan') barcodeInputRef.current?.focus()
-      else pluInputRef.current?.focus()
-    }, 50)
+    const timer = setTimeout(() => pluInputRef.current?.focus(), 50)
     return () => clearTimeout(timer)
-  }, [tab])
+  }, [])
 
   // ── PLU lookup ──────────────────────────────────────────────────────────
 
@@ -143,15 +137,9 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
+    setPriceTouched(false)
     setManualError('')
     setShowSuggestions(false)
-  }
-
-  function handleTabChange(next: Tab) {
-    setTab(next)
-    setBarcode('')
-    setBarcodeError('')
-    resetManual()
   }
 
   // ── PLU suggestion pick ────────────────────────────────────────────────
@@ -163,6 +151,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
+    setPriceTouched(false)
     setTimeout(() => weightInputRef.current?.focus(), 50)
   }
 
@@ -180,6 +169,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
+    setPriceTouched(false)
   }
 
   // ── Manual: productos por kg (campos bidireccionales) ──────────────────
@@ -187,13 +177,11 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   function handleKgWeightChange(v: string) {
     setWeightRaw(v)
     setManualError('')
-    if (!specialPrice && refPrice && refPrice > 0) {
-      const w = parseDecimalInput(v)
-      if (w !== null && w > 0) {
-        setPriceRaw(formatDecimalInputValue(String(Math.round(w * refPrice))))
-      }
-    } else if (!specialPrice && (!refPrice || refPrice === 0)) {
-      // Sin precio de catálogo: enfocar el campo precio para que el usuario lo ingrese
+    if (refPrice && refPrice > 0 && (!specialPrice || !priceTouched)) {
+      setPriceRaw(kgTotalRaw(v, refPrice))
+      return
+    }
+    if (!specialPrice && (!refPrice || refPrice === 0)) {
       const w = parseDecimalInput(v)
       if (w !== null && w > 0) {
         setTimeout(() => priceInputRef.current?.focus(), 0)
@@ -204,7 +192,11 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   function handleKgPriceChange(v: string) {
     setPriceRaw(v)
     setManualError('')
-    if (!specialPrice && refPrice && refPrice > 0) {
+    if (specialPrice) {
+      setPriceTouched(v.trim().length > 0)
+      return
+    }
+    if (refPrice && refPrice > 0) {
       const p = parseDecimalInput(v)
       if (p !== null && p > 0) {
         setWeightRaw(toEsAR(p / refPrice, 3))
@@ -222,9 +214,15 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
   function handleSpecialPriceToggle(checked: boolean) {
     setSpecialPrice(checked)
+    setPriceTouched(false)
     if (!checked) {
-      // Al desactivar precio especial, limpiar precio manual
-      setPriceRaw('')
+      if (!isUnit && refPrice && refPrice > 0) {
+        setPriceRaw(kgTotalRaw(weightRaw, refPrice))
+      }
+      return
+    }
+    if (isUnit && refPrice && refPrice > 0) {
+      setPriceRaw(formatDecimalInputValue(String(Math.round(refPrice))))
     }
   }
 
@@ -281,52 +279,6 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     }
   }
 
-  // ── Scan ───────────────────────────────────────────────────────────────
-
-  function tryAddFromBarcode(digits: string): boolean {
-    const parsed = parseKretzBarcode(digits)
-    if (!parsed) return false
-    const plu = parseInt(parsed.pluNumber, 10)
-    const product = products.find(p => p.pluNumber === plu)
-    const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
-    onAddItem(item)
-    return true
-  }
-
-  function handleBarcodeChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const digits = e.target.value.replace(/\D/g, '')
-    setBarcode(digits)
-    setBarcodeError('')
-    if (digits.length === 13) {
-      if (tryAddFromBarcode(digits)) {
-        setBarcode('')
-        setTimeout(() => barcodeInputRef.current?.focus(), 0)
-      }
-    }
-  }
-
-  function handleBarcodeSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setBarcodeError('')
-    if (tryAddFromBarcode(barcode.trim())) {
-      setBarcode('')
-      setTimeout(() => barcodeInputRef.current?.focus(), 0)
-    } else {
-      setBarcodeError('Código inválido. Verificar que sea el código del ticket KRETZ (13 dígitos, prefijo 20).')
-    }
-  }
-
-  const barcodePreview = (() => {
-    const parsed = parseKretzBarcode(barcode.trim())
-    if (!parsed) return null
-    const plu = parseInt(parsed.pluNumber, 10)
-    return {
-      plu,
-      name: products.find(p => p.pluNumber === plu)?.name,
-      total: centsToARS(parsed.totalCents),
-    }
-  })()
-
   // ── Derivados para render ──────────────────────────────────────────────
 
   // Validación del botón submit
@@ -345,73 +297,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
   return (
     <div className="border-t border-line px-3 py-2 space-y-2">
-      {/* Tabs — ambas opciones son alternativas/emergencia cuando no hay lector USB */}
-      <div className="flex rounded-md overflow-hidden border border-line text-[10px] font-semibold">
-        <button
-          type="button"
-          onClick={() => handleTabChange('manual')}
-          className={`flex-1 py-1 transition-colors ${
-            tab === 'manual'
-              ? 'bg-input text-ink'
-              : 'bg-panel text-muted hover:text-ink'
-          }`}
-        >
-          ⚡ PLU + precio
-        </button>
-        <button
-          type="button"
-          onClick={() => handleTabChange('scan')}
-          className={`flex-1 py-1 transition-colors ${
-            tab === 'scan'
-              ? 'bg-input text-ink'
-              : 'bg-panel text-muted hover:text-ink'
-          }`}
-        >
-          📱 Código manual
-        </button>
-      </div>
-
-      {/* ── Pestaña Código manual (alternativa sin lector USB) ───────── */}
-      {tab === 'scan' && (
-        <form onSubmit={handleBarcodeSubmit} className="space-y-2">
-          <p className="text-[10px] text-muted leading-snug">
-            Ingresá el código del ticket (13 dígitos). Con el lector USB no hace falta.
-          </p>
-          <input
-            ref={barcodeInputRef}
-            type="text"
-            inputMode="numeric"
-            value={barcode}
-            onChange={handleBarcodeChange}
-            placeholder="2001060000012"
-            data-barcode-input="true"
-            className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
-          />
-          {barcodePreview && (
-            <p className="text-[10px] text-success truncate">
-              PLU {barcodePreview.plu}{barcodePreview.name ? ` — ${barcodePreview.name}` : ''} · {formatARS(barcodePreview.total)}
-            </p>
-          )}
-          {barcodeError && (
-            <p className="text-[10px] text-red-400">{barcodeError}</p>
-          )}
-          <button
-            type="submit"
-            disabled={!barcode.trim()}
-            className="w-full rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-ink hover:bg-accent disabled:opacity-40"
-          >
-            Agregar a la venta
-          </button>
-        </form>
-      )}
-
-      {/* ── Pestaña PLU + precio (emergencia) ────────────────────────── */}
-      {tab === 'manual' && (
         <form onSubmit={handleManualSubmit} className="space-y-2">
-          <p className="text-[10px] text-muted leading-snug">
-            Emergencia: ingresá el PLU y los datos del producto.
-          </p>
-
           {/* PLU con autocomplete — acepta número PLU o nombre del producto */}
           <div className="relative">
             <label className="block text-[9px] text-muted mb-0.5">PLU o nombre</label>
@@ -422,7 +308,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
               onChange={e => handlePluChange(e.target.value)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
               onFocus={() => pluRaw.trim() && setShowSuggestions(true)}
-              placeholder="ej. 5 o 'vacío'"
+              placeholder=""
               autoComplete="off"
               className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
             />
@@ -477,7 +363,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                 <NumericInput
                   value={weightRaw}
                   onChange={handleUnitQuantityChange}
-                  placeholder="ej. 2"
+                  placeholder=""
                   ref={weightInputRef}
                   className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                 />
@@ -503,8 +389,12 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                   <DecimalInput
                     ref={priceInputRef}
                     value={priceRaw}
-                    onChange={v => { setPriceRaw(v); setManualError('') }}
-                    placeholder={refPrice ? String(refPrice) : 'ej. 5.500'}
+                    onChange={v => {
+                      setPriceRaw(v)
+                      setPriceTouched(v.trim().length > 0)
+                      setManualError('')
+                    }}
+                    placeholder=""
                     className="w-full rounded-md border border-orange-700 bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                   />
                   {priceRaw && parseNumericInput(weightRaw) && parseDecimalInput(priceRaw) && (
@@ -527,7 +417,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     maxDecimals={3}
                     weightMode
                     ref={weightInputRef}
-                    placeholder="ej. 0,490"
+                    placeholder=""
                     className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                   />
                 </div>
@@ -542,7 +432,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     ref={priceInputRef}
                     value={priceRaw}
                     onChange={handleKgPriceChange}
-                    placeholder="ej. 7.350"
+                    placeholder=""
                     className={`w-full rounded-md border bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:outline-none ${
                       specialPrice ? 'border-line-strong focus:border-line-accent' : 'border-line focus:border-line-accent'
                     }`}
@@ -570,12 +460,12 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                 />
                 <span className="text-[10px] text-ink">Precio especial</span>
                 <span className="text-[9px] text-subtle">
-                  {isUnit ? '(fuera de lista por unidad)' : '(desvincula peso y precio)'}
+                  {isUnit ? 'precio por unidad distinto de lista' : 'podés corregir el total'}
                 </span>
               </label>
               {specialPrice && (
                 <p className="rounded bg-raised px-2 py-1.5 text-[10px] text-muted leading-snug">
-                  ⚠ Precio fuera de lista. Confirmá que no es un error antes de agregar.
+                  Precio fuera de lista. Confirmá que no es un error antes de agregar.
                 </p>
               )}
             </div>
@@ -607,7 +497,6 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
             Agregar a la venta
           </button>
         </form>
-      )}
     </div>
   )
 }

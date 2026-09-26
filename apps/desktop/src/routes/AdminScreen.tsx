@@ -936,11 +936,11 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
 
         {isEdit && allowGlobalDelete && onRequestGlobalDelete && (
           <div className="mt-5 pt-4 border-t border-line">
-            <p className="text-xs text-subtle mb-2">Zona de peligro</p>
+            <p className="text-xs text-subtle mb-2">Todos los locales</p>
             <button
               type="button"
               onClick={onRequestGlobalDelete}
-              className="text-xs text-danger hover:text-danger hover:bg-danger/10 px-3 py-1.5 rounded-lg transition-colors border border-danger/30 w-full"
+              className="w-full rounded-xl border border-line bg-panel px-3 py-2.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10"
             >
               Quitar del catálogo (libera el PLU en todos los locales)
             </button>
@@ -1209,7 +1209,7 @@ function GlobalDeleteProductModal({ product, deleting, onConfirm, onCancel }: Gl
           Usalo para productos de prueba o fichas que no deberían existir.
         </p>
         <p className="text-xs text-muted">
-          Si el producto se vende en otro local, no lo quites: desactivá el toggle Disponible en este local.
+          Si el producto se vende en otro local, no lo quites: sacalo solo de la venta de este local.
         </p>
     </Modal>
   )

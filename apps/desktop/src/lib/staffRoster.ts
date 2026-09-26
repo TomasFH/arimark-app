@@ -15,6 +15,8 @@ export interface StaffEmployeeInput {
   kind?: string
   homeStoreId?: string | null
   firebaseUid?: string | null
+  /** Cuenta celular del carnicero. Las cajeras usan el email de Auth. */
+  loginEmail?: string | null
 }
 
 export interface StaffMember {
@@ -94,7 +96,7 @@ export function buildStaffRoster(
     weeklyWage: e.weeklyWage,
     kind: 'butcher' as const,
     active: e.active,
-    email: null,
+    email: e.loginEmail?.trim() || null,
     cashierUid: null,
     employeeId: e.id,
     homeStoreId: e.homeStoreId ?? null,

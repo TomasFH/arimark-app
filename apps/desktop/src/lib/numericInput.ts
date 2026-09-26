@@ -83,6 +83,8 @@ export interface FormatDecimalOptions {
    *     (un peso < 1 kg siempre tiene decimales).
    */
   weightMode?: boolean
+  /** Máximo de dígitos de la parte entera (sin contar decimales). */
+  maxWholeDigits?: number
 }
 
 /**
@@ -126,6 +128,10 @@ export function formatDecimalInputValue(raw: string, maxDecimals = 2, options: F
     intPart = cleaned.slice(0, commaIndex)
     decPart = cleaned.slice(commaIndex + 1).replace(/,/g, '').slice(0, maxDecimals)
     hasTrailingComma = cleaned.endsWith(',') && decPart.length === 0
+  }
+
+  if (options.maxWholeDigits != null && options.maxWholeDigits > 0 && intPart.length > options.maxWholeDigits) {
+    intPart = intPart.slice(0, options.maxWholeDigits)
   }
 
   const formattedInt = intPart ? formatIntegerWithDots(intPart) : ''

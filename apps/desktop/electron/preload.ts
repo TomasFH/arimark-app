@@ -197,6 +197,7 @@ const hw: HwApi = {
   archiveEmployee: payload => ipcRenderer.invoke(IPC.ARCHIVE_EMPLOYEE, payload),
   unarchiveEmployee: payload => ipcRenderer.invoke(IPC.UNARCHIVE_EMPLOYEE, payload),
   grantButcherAccess: payload => ipcRenderer.invoke(IPC.GRANT_BUTCHER_ACCESS, payload),
+  listButcherLoginEmails: () => ipcRenderer.invoke(IPC.LIST_BUTCHER_LOGIN_EMAILS),
   revokeButcherAccess: payload => ipcRenderer.invoke(IPC.REVOKE_BUTCHER_ACCESS, payload),
 
   // Asistencia (Bloque D)

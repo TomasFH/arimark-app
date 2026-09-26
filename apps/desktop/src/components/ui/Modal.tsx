@@ -33,15 +33,16 @@ const WIDTH: Record<ModalSize, string> = {
   xl: 'max-w-4xl',
 }
 
+/** Tope: el zoom de Electron agranda el CSS; 100dvh es la ventana visible. */
+const PANEL_CAP = 'max-h-[min(48rem,calc(100dvh-2rem))]'
+
 const FRAME: Record<ModalFrame, string> = {
-  hug: 'h-max max-h-[min(78vh,48rem)]',
-  workspace: 'h-[min(78vh,44rem)]',
+  hug: PANEL_CAP,
+  workspace: `h-[min(44rem,calc(100dvh-2rem))] ${PANEL_CAP}`,
 }
 
-const BODY: Record<ModalFrame, string> = {
-  hug: 'min-h-0 min-w-0 overflow-y-auto overscroll-contain px-5 py-4 text-ink',
-  workspace: 'min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 text-ink',
-}
+const BODY =
+  'min-h-0 min-w-0 flex-auto overflow-y-auto overscroll-contain px-5 py-4 text-ink'
 
 export function Modal({
   open,
@@ -119,8 +120,8 @@ export function Modal({
             {heading}
           </div>
         )}
-        <div className={cx('relative min-h-0 min-w-0', frame === 'workspace' && 'flex flex-1 flex-col')}>
-          <div className={BODY[frame]}>
+        <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
+          <div className={BODY}>
             {children}
           </div>
           <div

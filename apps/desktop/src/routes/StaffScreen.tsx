@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import NumericInput from '../components/NumericInput'
 import { formatARS, toLocalDate } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
-import { Button, Modal, ScreenHeader } from '../components/ui'
+import { Button, Modal } from '../components/ui'
 import { GrantButcherAccessModal, RevokeButcherAccessModal } from '../components/ButcherAccessModals'
 import { buildStaffRoster, type StaffKind, type StaffMember } from '../lib/staffRoster'
 import SalaryPaymentModal from './SalaryPaymentModal'
@@ -30,10 +30,11 @@ export default function StaffScreen({ onBack }: Props) {
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    const [cashiersR, empR, storesR] = await Promise.all([
+    const [cashiersR, empR, storesR, emailsR] = await Promise.all([
       window.hw.listCashiers(),
       window.hw.listEmployees({ includeArchived: true }),
       window.hw.getStores(),
+      window.hw.listButcherLoginEmails(),
     ])
     if (!cashiersR.ok) {
       setError(cashiersR.error ?? 'No se pudieron cargar las cajeras.')
@@ -65,8 +66,15 @@ export default function StaffScreen({ onBack }: Props) {
         }
       }
     }
+    const emailByUid = new Map(
+      emailsR.ok ? emailsR.data.map(row => [row.uid, row.email]) : [],
+    )
     setCashiers(cashiersR.data)
-    setEmployees(empList)
+    setEmployees(empList.map(e => (
+      e.firebaseUid && emailByUid.has(e.firebaseUid)
+        ? { ...e, loginEmail: emailByUid.get(e.firebaseUid) ?? null }
+        : e
+    )))
     if (storesR.ok) setStores(storesR.data.filter(s => !s.archivedAt))
     setLoading(false)
   }, [])
@@ -86,6 +94,7 @@ export default function StaffScreen({ onBack }: Props) {
         kind: e.kind,
         homeStoreId: e.homeStoreId,
         firebaseUid: e.firebaseUid,
+        loginEmail: e.loginEmail,
       })),
     ),
     [cashiers, employees],
@@ -100,20 +109,27 @@ export default function StaffScreen({ onBack }: Props) {
   const visibleButchers = roster.butchers.filter(m => (showArchived ? !m.active : m.active))
 
   return (
-    <div className="flex h-screen flex-col bg-app text-ink">
-      <ScreenHeader
-        title="Empleados"
-        subtitle="Cajeras y carniceros · sueldo, vales y acceso a la app"
-        onBack={onBack}
-        actions={
-          !showArchived ? (
+    <>
+    <Modal
+      open
+      onClose={onBack}
+      size="xl"
+      frame="hug"
+      header={(
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-base font-semibold text-ink">Empleados</h2>
+            <p className="truncate text-xs text-muted">Cajeras y carniceros · sueldo, vales y acceso</p>
+          </div>
+          {!showArchived && (
             <Button size="sm" onClick={() => setShowCreate(true)}>+ Nuevo</Button>
-          ) : undefined
-        }
-      />
-
-      <div className="flex shrink-0 items-center gap-2 border-b border-line bg-panel px-6 py-2.5">
-        <div className="flex rounded-xl bg-raised p-0.5">
+          )}
+          <Button variant="ghost" size="sm" onClick={onBack} aria-label="Cerrar empleados">Cerrar</Button>
+        </div>
+      )}
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 rounded-xl bg-app p-1" role="tablist" aria-label="Estado del personal">
           <button
             type="button"
             onClick={() => setShowArchived(false)}
@@ -145,7 +161,7 @@ export default function StaffScreen({ onBack }: Props) {
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div>
         {loading && (
           <p className="py-16 text-center text-sm text-muted">Cargando empleados…</p>
         )}
@@ -188,6 +204,7 @@ export default function StaffScreen({ onBack }: Props) {
           </div>
         )}
       </div>
+    </Modal>
 
       {selected && (
         <EmployeeDetailModal
@@ -217,7 +234,7 @@ export default function StaffScreen({ onBack }: Props) {
       {showLiquidation && (
         <SalaryPaymentModal onClose={() => setShowLiquidation(false)} />
       )}
-    </div>
+    </>
   )
 }
 
@@ -457,8 +474,8 @@ function EmployeeDetailModal({
       }
     >
           {member.email && (
-            <p className="truncate text-sm text-muted" title={member.email}>
-              {member.email}
+            <p className="truncate text-sm text-ink" title={member.email}>
+              <span className="text-muted">Email · </span>{member.email}
             </p>
           )}
 
@@ -639,7 +656,7 @@ function EmployeeDetailModal({
                       setFormError(r.error ?? 'No se pudo otorgar el acceso.')
                     })
                   }}
-                  className="w-full rounded-lg border border-line-accent bg-accent-soft px-4 py-2 text-sm text-success hover:bg-hover disabled:opacity-50"
+                  className="w-full rounded-xl border border-line bg-panel px-4 py-2.5 text-sm font-semibold text-ink hover:bg-hover disabled:opacity-50"
                 >
                   {grantingAccess ? 'Restableciendo…' : 'Dar acceso al celular'}
                 </button>
@@ -666,7 +683,7 @@ function EmployeeDetailModal({
                 <button
                   type="button"
                   onClick={() => setConfirm('delete')}
-                  className="w-full rounded-lg border border-danger/30 px-4 py-2 text-sm text-danger hover:bg-danger/10"
+                  className="w-full rounded-xl border border-line bg-panel px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger/10"
                 >
                   Eliminar
                 </button>
@@ -675,7 +692,7 @@ function EmployeeDetailModal({
                 <button
                   type="button"
                   onClick={() => setConfirm('archive')}
-                  className="w-full rounded-lg border border-danger/30 px-4 py-2 text-sm text-danger hover:bg-danger/10"
+                  className="w-full rounded-xl border border-line bg-panel px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger/10"
                 >
                   Eliminar
                 </button>
@@ -815,18 +832,37 @@ function CreateEmployeeModal({
       return
     }
 
+    const mail = email.trim().toLowerCase()
+    if (mail && !mail.includes('@')) {
+      setSaving(false)
+      setFormError('El email no es válido.')
+      return
+    }
     const r = await window.hw.createEmployee({
       name: trimmed,
       weeklyWage,
       kind: 'butcher',
       homeStoreId: homeStoreId || null,
     })
-    setSaving(false)
     if (!r.ok) {
+      setSaving(false)
       setFormError(r.error ?? 'No se pudo crear el empleado.')
       return
     }
+    if (mail) {
+      const access = await window.hw.grantButcherAccess({ employeeId: r.data.id, email: mail })
+      setSaving(false)
+      if (!access.ok) {
+        setFormError(access.error ?? 'La ficha se creó, pero no se pudo enviar el acceso al celu.')
+        await onSaved()
+        return
+      }
+      setCreatedEmail(mail)
+      return
+    }
+    setSaving(false)
     await onSaved()
+    onClose()
   }
 
   if (createdEmail) {
@@ -834,7 +870,7 @@ function CreateEmployeeModal({
       <Modal
         open
         onClose={() => { void onSaved() }}
-        title="Cajera creada"
+        title={kind === 'butcher' ? 'Carnicero creado' : 'Cajera creada'}
         footer={<Button className="mr-auto" onClick={() => void onSaved()}>Cerrar</Button>}
       >
         <p className="text-sm text-muted">
@@ -868,7 +904,7 @@ function CreateEmployeeModal({
               className="w-full rounded-xl border border-line bg-raised px-4 py-3 text-left hover:bg-hover"
             >
               <p className="text-sm font-medium">Carnicero</p>
-              <p className="mt-0.5 text-xs text-muted">Sueldo y vales. El acceso al celu se da después, desde la ficha.</p>
+              <p className="mt-0.5 text-xs text-muted">Sueldo y vales. El email, si lo cargás, abre el celu.</p>
             </button>
             <Button fullWidth variant="secondary" onClick={onClose}>Cancelar</Button>
           </div>
@@ -877,7 +913,7 @@ function CreateEmployeeModal({
             <p className="text-xs text-muted">
               {kind === 'cashier'
                 ? 'Recibirá un email para definir su contraseña. Puede operar en todos los locales activos.'
-                : 'Queda registrado para asistencia, sueldo y vales. El acceso al celu se da desde la ficha.'}
+                : 'Sin email queda solo la ficha de sueldo y vales. Con email, le llega el mail para elegir la contraseña y entra al celu.'}
             </p>
             <div>
               <label className="mb-1 block text-sm text-ink">Nombre</label>
@@ -891,16 +927,19 @@ function CreateEmployeeModal({
                 placeholder="Nombre del empleado"
               />
             </div>
-            {kind === 'cashier' && (
+            {(kind === 'cashier' || kind === 'butcher') && (
               <div>
-                <label className="mb-1 block text-sm text-ink">Email</label>
+                <label className="mb-1 block text-sm text-ink">
+                  Email{kind === 'butcher' ? ' (opcional)' : ''}
+                </label>
                 <input
                   type="email"
                   value={email}
                   maxLength={120}
                   onChange={e => setEmail(e.target.value)}
+                  autoComplete="off"
                   className="w-full rounded-lg border border-line bg-input px-3 py-2.5 text-ink focus:border-line-accent focus:outline-none"
-                  placeholder="cajera@ejemplo.com"
+                  placeholder=""
                 />
               </div>
             )}
@@ -941,7 +980,7 @@ function CreateEmployeeModal({
                 Atrás
               </Button>
               <Button type="submit" className="flex-1" loading={saving}>
-                {kind === 'cashier' ? 'Crear y enviar email' : 'Crear'}
+                {kind === 'cashier' || email.trim() ? 'Crear y enviar email' : 'Crear'}
               </Button>
             </div>
           </form>

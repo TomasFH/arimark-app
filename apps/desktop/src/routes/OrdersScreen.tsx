@@ -218,7 +218,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-acc
           <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors">
             Cancelar
           </button>
-          <button onClick={onConfirm} className={`flex-1 py-2 rounded-xl font-semibold transition-colors text-ink ${confirmClassName}`}>
+          <button onClick={onConfirm} className={`flex-1 rounded-xl py-2 font-semibold transition-colors ${confirmClassName}`}>
             {confirmLabel}
           </button>
         </div>
@@ -1243,7 +1243,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
             </>
           }
           confirmLabel={confirmStatus.status === 'ready' ? 'Sí, marcar listo' : confirmStatus.status === 'delivered' ? 'Sí, marcar entregado' : 'Sí, revertir'}
-          confirmClassName={confirmStatus.status === 'delivered' ? 'bg-accent hover:bg-accent' : confirmStatus.status === 'ready' ? 'bg-accent hover:bg-accent' : 'bg-amber-600 hover:bg-amber-700'}
+          confirmClassName="bg-accent text-accent-fg hover:bg-accent"
           onConfirm={() => void executeStatusChange(confirmStatus.order, confirmStatus.status)}
           onCancel={() => setConfirmStatus(null)}
         />
@@ -1286,7 +1286,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
             </>
           }
           confirmLabel="Sí, cancelar pedido"
-          confirmClassName="bg-danger hover:bg-danger"
+          confirmClassName="bg-danger text-accent-fg hover:bg-danger"
           onConfirm={() => void executeCancelOrder(confirmCancel, registerRefund)}
           onCancel={() => setConfirmCancel(null)}
         />
@@ -1355,7 +1355,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
             </>
           }
           confirmLabel="Sí, eliminar para siempre"
-          confirmClassName="bg-danger hover:bg-danger"
+          confirmClassName="bg-danger text-accent-fg hover:bg-danger"
           onConfirm={() => void executeHardDelete(confirmHardDelete)}
           onCancel={() => setConfirmHardDelete(null)}
         />
@@ -1368,34 +1368,30 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
 // Componentes internos
 // ---------------------------------------------------------------------------
 
-function ProductQtyTable({ lines, showPrice = false }: { lines: BudgetCartLine[]; showPrice?: boolean }) {
+function productSummary(lines: BudgetCartLine[]): string {
+  return lines.map(line => {
+    const hint = formatOrderQtyHint(line)
+    const qty = hint ? `${formatOrderQty(line)} ${hint}` : formatOrderQty(line)
+    return `${line.name} ${qty}`
+  }).join(' · ')
+}
+
+function ProductDetailList({ lines }: { lines: BudgetCartLine[] }) {
   return (
-    <table className="w-auto max-w-full border-collapse text-sm">
-      <tbody>
-        {lines.map((line, i) => {
-          const hint = formatOrderQtyHint(line)
-          return (
-            <tr key={i}>
-              <td
-                className="border border-line px-2.5 py-1 text-ink max-w-[11rem] truncate"
-                title={line.name}
-              >
-                {line.name}
-              </td>
-              <td className="border border-line px-2.5 py-1 text-right whitespace-nowrap">
-                <span className="tabular-nums text-ink">{formatOrderQty(line)}</span>
-                {hint && <span className="ml-1.5 text-[11px] text-muted">{hint}</span>}
-              </td>
-              {showPrice && (
-                <td className="border border-line px-2.5 py-1 text-right text-muted tabular-nums whitespace-nowrap">
-                  {formatARS(line.unitPrice)}/{line.unit === 'kg' ? 'kg' : 'u'}
-                </td>
-              )}
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+    <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-app">
+      {lines.map((line, i) => {
+        const hint = formatOrderQtyHint(line)
+        const qty = hint ? `${formatOrderQty(line)} ${hint}` : formatOrderQty(line)
+        const price = `${formatARS(line.unitPrice)}/${line.unit === 'kg' ? 'kg' : 'u'}`
+        return (
+          <li key={i} className="flex min-w-0 items-baseline gap-3 px-3 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.name}>{line.name}</span>
+            <span className="shrink-0 text-sm tabular-nums text-muted" title={qty}>{qty}</span>
+            <span className="shrink-0 text-xs tabular-nums text-subtle" title={price}>{price}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -1496,13 +1492,12 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/30" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
             )}
           </div>
-          {productLines ? (
-            <div className="mt-2">
-              <ProductQtyTable lines={productLines} />
-            </div>
-          ) : (
-            <p className="text-sm text-muted mt-1.5 truncate" title={order.items}>
-              {order.items}
+          {!expanded && (
+            <p
+              className="mt-1.5 truncate text-sm text-muted"
+              title={productLines ? productSummary(productLines) : order.items}
+            >
+              {productLines ? productSummary(productLines) : order.items}
             </p>
           )}
         </div>
@@ -1556,11 +1551,6 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
               )}
             </div>
             <div className="space-y-2 min-w-0">
-              {estimate > 0 && (
-                <p className="text-sm text-ink">
-                  Total estimado: <span className="font-semibold text-ink tabular-nums">{formatARS(estimate)}</span>
-                </p>
-              )}
               {depositPayments.length > 0 && (
                 <div className="text-sm text-muted space-y-0.5">
                   <p className="font-medium text-ink">Seña: {formatARS(order.depositAmount)}</p>
@@ -1572,9 +1562,11 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
             </div>
           </div>
 
-          {productLines && (
-            <ProductQtyTable lines={productLines} showPrice />
-          )}
+          {productLines ? (
+            <ProductDetailList lines={productLines} />
+          ) : order.items ? (
+            <p className="text-sm text-muted" title={order.items}>{order.items}</p>
+          ) : null}
 
           {(order.status === 'pending' || order.status === 'ready') && (
             <div className="flex items-center gap-2 pt-1 border-t border-line" onClick={e => e.stopPropagation()}>

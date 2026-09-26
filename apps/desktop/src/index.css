@@ -171,6 +171,21 @@
   animation: modal-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toast-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* Estirar: el panel sigue el contenido real. Autocomplete va en SuggestPopover. */
 .modal-panel-grow {
   interpolate-size: allow-keywords;
@@ -185,6 +200,9 @@
   .modal-panel-grow,
   .height-reveal {
     transition: none;
+  }
+  .animate-toast-in {
+    animation: none;
   }
 }
 

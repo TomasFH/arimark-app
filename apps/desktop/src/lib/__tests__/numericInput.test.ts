@@ -146,6 +146,8 @@ describe('numericInput', () => {
 
       it('no inserta coma para enteros >= 1 (ej. 1500g = 1,500 kg)', () => {
         expect(formatDecimalInputValue('1500', 3, { weightMode: true })).toBe('1.500')
+        expect(formatDecimalInputValue('1500', 3, { weightMode: true, maxWholeDigits: 3 })).toBe('150')
+        expect(formatDecimalInputValue('120,5', 3, { weightMode: true, maxWholeDigits: 3 })).toBe('120,5')
       })
     })
   })

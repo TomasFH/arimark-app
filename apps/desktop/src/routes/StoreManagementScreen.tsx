@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react'
 import StoreHoursScheduleEditor from '../components/StoreHoursScheduleEditor'
-import { Button, ScreenHeader } from '../components/ui'
+import { Button, Modal } from '../components/ui'
 import type { StoreRow } from '../types/hw-api'
 import {
   editorScheduleFromStore,
@@ -138,61 +138,72 @@ export default function StoreManagementScreen({ onBack }: Props) {
     setStores(prev => prev.map(s => s.id === r.data.id ? r.data : s))
   }
 
+  const listed = showDeleted ? deletedStores : activeStores
+
   return (
-    <div className="flex flex-col h-screen bg-app text-ink">
-      <ScreenHeader
-        title="Gestión de locales"
-        subtitle={showDeleted ? 'Locales eliminados — restaurar para volver a usarlos' : 'Locales registrados en el sistema'}
-        onBack={onBack}
-        actions={
-          <>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowDeleted(v => !v)}
-            >
-              {showDeleted ? 'Ver activos' : 'Ver eliminados'}
-            </Button>
-            {!showDeleted && (
-              <Button type="button" size="sm" onClick={openCreate}>
-                + Nuevo local
-              </Button>
-            )}
-          </>
-        }
-      />
+    <>
+    <Modal
+      open
+      onClose={onBack}
+      size="lg"
+      frame="hug"
+      header={(
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-base font-semibold text-ink">Locales</h2>
+            <p className="truncate text-xs text-muted">Nombre, dirección y horario</p>
+          </div>
+          {!showDeleted && (
+            <Button type="button" size="sm" onClick={openCreate}>+ Nuevo</Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onBack} aria-label="Cerrar locales">Cerrar</Button>
+        </div>
+      )}
+    >
+        <div className="mb-4 grid grid-cols-2 rounded-xl bg-app p-1" role="tablist" aria-label="Estado de los locales">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!showDeleted}
+            onClick={() => setShowDeleted(false)}
+            className={`rounded-lg py-2 text-sm font-semibold transition-colors ${
+              !showDeleted ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink'
+            }`}
+          >
+            Activos
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={showDeleted}
+            onClick={() => setShowDeleted(true)}
+            className={`rounded-lg py-2 text-sm font-semibold transition-colors ${
+              showDeleted ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink'
+            }`}
+          >
+            Eliminados
+          </button>
+        </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-6">
-        <section className="rounded-2xl border border-line bg-raised p-4 space-y-2">
-
-        {loading && <p className="text-muted text-sm animate-pulse">Cargando…</p>}
-        {error && <p className="text-red-400/80 text-sm">{error}</p>}
+        {loading && <p className="text-sm text-muted">Cargando…</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
         {saveSuccessMsg && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-success/30 bg-success/15 text-success text-sm">
-            <span>✓</span>
-            {saveSuccessMsg}
-          </div>
+          <p className="mb-3 text-sm text-success">{saveSuccessMsg}</p>
         )}
 
         {!loading && !error && (
           <>
-            {/* Lista: activos o eliminados (opt-in) */}
-            <div className="space-y-2">
-              {!showDeleted && activeStores.length === 0 && (
-                <p className="text-muted text-sm text-center py-8">No hay locales activos.</p>
+            <div className="overflow-hidden rounded-2xl border border-line bg-panel">
+              {listed.length === 0 && (
+                <p className="px-4 py-8 text-center text-sm text-muted">
+                  {showDeleted ? 'No hay locales eliminados.' : 'No hay locales activos.'}
+                </p>
               )}
-              {showDeleted && deletedStores.length === 0 && (
-                <p className="text-muted text-sm text-center py-8">No hay locales eliminados.</p>
-              )}
-              {(showDeleted ? deletedStores : activeStores).map(store => (
+              {listed.map(store => (
                 <div
                   key={store.id}
-                  className={`rounded-xl border px-5 py-4 flex items-center gap-3 min-w-0 ${
-                    showDeleted ? 'border-line-strong bg-input/60 opacity-70' : 'border-line-strong bg-input'
-                  }`}
+                  className="flex min-w-0 items-center gap-3 border-b border-line px-4 py-3 last:border-b-0"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 min-w-0">
@@ -229,7 +240,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
                     ) : (
                       <button
                         onClick={() => openDeleteConfirm(store)}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-line text-muted hover:bg-red-950/30 hover:text-red-400/80 hover:border-red-900/50 transition-colors"
+                        className="rounded-lg border border-line px-3 py-1.5 text-xs text-danger transition-colors hover:bg-danger/10"
                       >
                         Eliminar
                       </button>
@@ -240,19 +251,29 @@ export default function StoreManagementScreen({ onBack }: Props) {
             </div>
           </>
         )}
-        </section>
-        </div>
-      </div>
+    </Modal>
 
       {/* Modal crear / editar */}
       {modal && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-raised rounded-2xl border border-line w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-modal-enter">
-            <h2 className="text-base font-semibold">
-              {modal.mode === 'create' ? 'Nuevo local' : `Editar "${modal.store?.name}"`}
-            </h2>
-
-            <form onSubmit={e => void handleSave(e)} className="space-y-4">
+        <Modal
+          open
+          onClose={() => { if (!saving) setModal(null) }}
+          closeOnOverlay={!saving}
+          closeOnEscape={!saving}
+          size="lg"
+          title={modal.mode === 'create' ? 'Nuevo local' : 'Editar local'}
+          footer={(
+            <>
+              <Button type="button" variant="secondary" className="mr-auto" onClick={() => setModal(null)} disabled={saving}>
+                Cancelar
+              </Button>
+              <Button type="submit" form="store-form" loading={saving} disabled={!formName.trim()}>
+                {saving ? 'Guardando…' : modal.mode === 'create' ? 'Crear local' : 'Guardar'}
+              </Button>
+            </>
+          )}
+        >
+            <form id="store-form" onSubmit={e => void handleSave(e)} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm text-muted">Nombre del local *</label>
                 <input
@@ -280,63 +301,39 @@ export default function StoreManagementScreen({ onBack }: Props) {
 
               <StoreHoursScheduleEditor schedule={formSchedule} onChange={setFormSchedule} />
 
-              {saveError && <p className="text-red-400 text-sm">{saveError}</p>}
-
-              <div className="flex gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setModal(null)}
-                  disabled={saving}
-                  className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving || !formName.trim()}
-                  className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent font-semibold transition-colors disabled:opacity-40"
-                >
-                  {saving ? 'Guardando…' : modal.mode === 'create' ? 'Crear local' : 'Guardar cambios'}
-                </button>
-              </div>
+              {saveError && <p className="text-sm text-danger">{saveError}</p>}
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal confirmar eliminación */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-          <div className="bg-raised rounded-2xl border border-line w-full max-w-sm p-6 space-y-4">
-            <h2 className="text-base font-semibold text-ink min-w-0">
-              ¿Estás seguro que querés eliminar{' '}
-              <span className="truncate inline-block max-w-full align-bottom" title={deleteTarget.name}>
-                {deleteTarget.name}
-              </span>
-              ?
-            </h2>
-            {actionError && (
-              <p className="text-red-400/80 text-sm bg-red-950/30 border border-red-900/40 rounded-lg p-3">{actionError}</p>
-            )}
-            <div className="flex gap-3 pt-1">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                disabled={actioning}
-                className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors disabled:opacity-40"
-              >
+        <Modal
+          open
+          onClose={() => { if (!actioning) setDeleteTarget(null) }}
+          closeOnOverlay={!actioning}
+          closeOnEscape={!actioning}
+          size="sm"
+          title="Eliminar local"
+          footer={(
+            <>
+              <Button variant="secondary" className="mr-auto" onClick={() => setDeleteTarget(null)} disabled={actioning}>
                 Cancelar
-              </button>
-              <button
-                onClick={() => void handleDelete()}
-                disabled={actioning}
-                className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-900/80 border border-red-900/50 text-red-400/90 font-semibold text-ink transition-colors disabled:opacity-40"
-              >
+              </Button>
+              <Button variant="danger" onClick={() => void handleDelete()} loading={actioning}>
                 {actioning ? 'Eliminando…' : 'Eliminar'}
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </>
+          )}
+        >
+            <p className="text-sm text-muted">
+              ¿Eliminar{' '}
+              <span className="font-medium text-ink" title={deleteTarget.name}>{deleteTarget.name}</span>
+              ? Se puede restaurar desde Eliminados.
+            </p>
+            {actionError && <p className="mt-3 text-sm text-danger">{actionError}</p>}
+        </Modal>
       )}
-    </div>
+    </>
   )
 }

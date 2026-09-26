@@ -33,6 +33,10 @@ describe('StaffScreen — acceso celular del carnicero', () => {
         ],
       }),
       getStores: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      listButcherLoginEmails: vi.fn().mockResolvedValue({
+        ok: true,
+        data: [{ uid: 'uid-abc', email: 'carnicero@negocio.com' }],
+      }),
       listVales: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       grantButcherAccess: vi.fn(),
       revokeButcherAccess: vi.fn(),
@@ -57,6 +61,7 @@ describe('StaffScreen — acceso celular del carnicero', () => {
     await user.click(screen.getByRole('button', { name: 'Cerrar' }))
     await user.click(screen.getByRole('button', { name: /Carnicero Con Acceso/ }))
     expect(await screen.findByRole('button', { name: 'Revocar acceso' })).toBeInTheDocument()
+    expect(screen.getAllByTitle('carnicero@negocio.com').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Dar acceso al celular' })).not.toBeInTheDocument()
   })
 

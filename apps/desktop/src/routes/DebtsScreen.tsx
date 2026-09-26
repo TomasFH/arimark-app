@@ -136,7 +136,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
         </svg>
       </button>
 
-      <div className="flex items-center gap-2 px-4 pb-3">
+      <div className="flex items-center gap-2 px-4 py-3">
         <Button size="sm" onClick={onPayment}>Registrar pago</Button>
         <ActionMenu
           items={[{ id: 'cancel', label: 'Cancelar deuda', danger: true, onSelect: onCancel }]}

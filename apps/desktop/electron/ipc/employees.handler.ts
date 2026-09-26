@@ -517,4 +517,34 @@ export function registerEmployeesHandlers(): void {
     scheduleEmployeePush('ipc:revoke-butcher-access')
     return { ok: true, data: undefined }
   })
+
+  // Email de la cuenta celular (perfil Firestore). La ficha SQLite no lo guarda.
+  ipcMain.handle(IPC.LIST_BUTCHER_LOGIN_EMAILS, async (): Promise<IpcResult<Array<{ uid: string; email: string }>>> => {
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo los administradores pueden ver estas cuentas.', code: 'FORBIDDEN' }
+    }
+    if (!isFirebaseAvailable()) return { ok: true, data: [] }
+
+    const uids = getDb().select().from(employees).all()
+      .map(row => row.firebaseUid)
+      .filter((uid): uid is string => Boolean(uid))
+    if (uids.length === 0) return { ok: true, data: [] }
+
+    try {
+      const licenseKey = getBusinessConfig().tenant_id
+      const { getFirestore, doc, getDoc } = await import('firebase/firestore')
+      const fsDb = getFirestore(getFirebaseApp())
+      const pairs = await Promise.all(uids.map(async uid => {
+        const snap = await getDoc(doc(fsDb, 'licenses', licenseKey, 'users', uid))
+        const email = snap.data()?.['email']
+        return typeof email === 'string' && email.trim() ? { uid, email: email.trim() } : null
+      }))
+      return { ok: true, data: pairs.filter((row): row is { uid: string; email: string } => row != null) }
+    } catch (err) {
+      log.warn('[ipc:list-butcher-login-emails] No se pudieron leer los emails', err)
+      return { ok: true, data: [] }
+    }
+  })
 }

@@ -20,7 +20,7 @@ Convención: `[ ]` pendiente · `[x]` OK · `[!]` bug nuevo.
 
 **Orden práctico:** I (humo) → II (lo que no llegaste a probar de móvil/sync) → III (ola 18, desktop) → IV (tandas, código nuevo). Si un ítem dice “también Tanda N”, al pasarlo en la tanda podés tacharlo en II/III.
 
-**Sigue fuera (no re-probar / no es esta pasada):** UX-PLU-01, UX-PROV-02, FEAT-CAT-03 backup, 3.5 offline, optimizar ↻ móvil (UX-MOB-REFRESH-01). **Catálogo en vivo + edición cajera (BLOQUE I):** probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (el archivo se reutilizó). DT-07/08: código listo; falta backfill `--apply` + índices en prod (`docs/FIRESTORE_DT07_DT08.md`). El Historial **móvil de la Parte 4** sí se recorre como checklist funcional.
+**Sigue fuera (no re-probar / no es esta pasada):** UX-PLU-01, UX-PROV-02, FEAT-CAT-03 backup, 3.5 offline, optimizar ↻ móvil (UX-MOB-REFRESH-01). **Catálogo en vivo + edición cajera (BLOQUE I):** probar con `CHECKLIST_TESTEO_CIERRE_Y_HABITUAL.md` (el archivo se reutilizó). DT-07/08: **producción 2026-09-21** (`docs/FIRESTORE_DT07_DT08.md`). El Historial **móvil de la Parte 4** sí se recorre como checklist funcional.
 
 ---
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   quoteCashDiscount,
   remainderIncludesCash,
+  removeDiscountBlock,
   resolveCashDiscountRule,
   roundCashDiscount,
   saleTotalFromQuote,
@@ -126,6 +127,21 @@ describe('resolveCashDiscountRule', () => {
       weekday: 0,
       shiftType: 'evening',
     }).percent).toBe(20)
+  })
+
+  it('quitar el único horario lo saca; no lo deja vacío', () => {
+    expect(removeDiscountBlock(weekend, 0)).toEqual([])
+  })
+
+  it('quitar uno de varios deja el resto', () => {
+    const second = {
+      days: [3] as const,
+      morning: { minAmount: 0, percent: 5 },
+      afternoon: { minAmount: 0, percent: 5 },
+    }
+    expect(removeDiscountBlock([...weekend, { ...second, days: [...second.days] }], 0)).toEqual([
+      { ...second, days: [...second.days] },
+    ])
   })
 
   it('0 % en el bloque apaga el descuento ese turno', () => {

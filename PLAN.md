@@ -730,6 +730,8 @@ Además el Historial (PC y admin celu) **lista también** `source='mobile'` con 
 
 Workaround operativo: cerrar en el celu y abrir otro en la PC. Quedan dos IDs de turno. Cuando se implemente DT-06, el objetivo es **un** turno y varios dispositivos, no fusionar a mano dos cierres viejos.
 
+**Expectativa confirmada 2026-09-22 (post 1.0, no implementar ahora):** corte de luz con la caja ya abierta en la PC → el celu no pide abrir otra caja; sigue las ventas de ese turno. Al volver la luz, esas ventas están en la PC y se sigue la misma sesión. El costo Firestore es el de sincronizar el turno vivo (cada venta), no el de bajar un historial entero.
+
 Estadísticas “por turno” en el futuro: o se deja de filtrar `source` y se muestran dos jornadas (Mañana PC + Mañana celu) sumables por día/cajera/local, o se unifica en vivo (esta deuda). No hay un “mismo turno con 2 cajas” en el modelo actual.
 
 **Prerequisitos técnicos para implementar la visión completa:**
@@ -750,7 +752,7 @@ Mueve ventas y gastos de "datos 100% locales" a "datos sincronizados con Firesto
 
 ### DT-07: Historial de proveedores a escala + memoria del celular (acordado 2026-08-20)
 
-**Estado (2026-09-04):** código de checkpoint + job + listener hecho. Documentación de la oleada: `docs/FIRESTORE_DT07_DT08.md`. Pendiente de producción: deploy de índices/reglas, `--apply` del backfill de `createdAtServer`, y recién ahí `mobile:deploy`. El detalle de **un** proveedor sigue pidiendo sus eventos (no el ledger entero al boot).
+**Estado (2026-09-21):** código + **producción**. Índices/reglas, `--apply` del backfill y `mobile:deploy` hechos (`docs/FIRESTORE_DT07_DT08.md` §9). El detalle de **un** proveedor sigue pidiendo sus eventos (no el ledger entero al boot).
 
 **Problema:**
 Hoy el historial admin de PC pide a Firestore **todos** los eventos de un proveedor (`where providerId == X`, sin fecha ni `limit`). El celu admin, al entrar a Proveedores, hace `getDocs` de **toda** la colección `providerDebtEvents` para armar saldos e historial. El listener de PC (`onSnapshot` de esa colección) además **copia todos los eventos al SQLite de cada PC**.
@@ -772,7 +774,7 @@ Varias cajeras tienen el teléfono lleno (a veces no abre WhatsApp). **Requisito
 
 **Prioridad:** Media — no bloquea el testeo actual; conviene antes de meses de uso real, sobre todo en celu.
 
-**Cuándo implementar:** Hecho en código (2026-09-04) junto con DT-08. Producción: ver `docs/FIRESTORE_DT07_DT08.md` §9.
+**Cuándo implementar:** Hecho en código (2026-09-04) junto con DT-08. **Producción 2026-09-21:** ver `docs/FIRESTORE_DT07_DT08.md` §9.
 
 ---
 
@@ -878,7 +880,7 @@ Misma familia: fiados/eventos de cliente y gastos si se listan enteros. DT-07 cu
 
 1. **Historial de ventas (celu y PC remota):** **hecho.** Lista de turnos por **fecha y local** (query a `shifts` acotada, default 7 días). Al abrir un turno: `where shiftId == ese`. Totales de la lista por `shiftId in (...)`, no bajando `sales` entero.
 2. **Cache + ↻ barato** (criterio “imposible a mano”): **pendiente.** El detalle ya visto no se vuelve a bajar al navegar; el botón Actualizar tiene intervalo mínimo o solo pega deltas. Sin esto, un mash de ↻ sobre un turno grande todavía puede acercarse al cupo.
-3. **DT-07** en la misma oleada: **hecho en código** (checkpoint + job + no copiar el ledger entero al encender). Backfill de `createdAtServer` pendiente de `--apply`.
+3. **DT-07** en la misma oleada: **hecho en código** (checkpoint + job + no copiar el ledger entero al encender). Backfill `--apply` **hecho 2026-09-21**.
 4. **Historial para cajeras** (idea de producto, no implementada): sí se puede — “los días que yo trabajé” / un día concreto. **Obligatorio** el mismo recorte por turno o fecha (~100–200 lecturas). Prohibido clonar el Historial admin actual (`getDocs` de todo). Admin y cajera el mismo día: con query por turno, suma chica; con “traer todo”, cada uno paga el archivo completo.
 5. **DT-05** (`daily_summaries`): para “¿cómo nos fue en marzo?” sin pintar 6.000 tickets. **No borra** ventas. No arregla el `getDocs` de Firestore. SQLite local, prioridad baja, cuando el `.sqlite` pese o las sumas anden lentas.
 6. **No compactar destruyendo.** A los 3 meses el detalle del ticket sigue existiendo por si hace falta. Lo que no se hace es **bajarlo** hasta que alguien pida ese día. El celu no es el archivo (DT-07): no cachear historial largo en el teléfono.
@@ -894,7 +896,7 @@ Misma familia: fiados/eventos de cliente y gastos si se listan enteros. DT-07 cu
 
 #### Prioridad y cuándo
 
-Media. Código de recortes + checkpoint **hecho 2026-09-04** (`docs/FIRESTORE_DT07_DT08.md`). Falta el paso a producción (índices, backfill, deploy). El 80 % del producto (caja, catálogo, ABM chico) **ya escala**. Lo que queda de DT-08 es palanca 2 (cache/↻) y el detalle de un ledger individual a escala.
+Media. Código de recortes + checkpoint **hecho 2026-09-04**; **producción 2026-09-21** (`docs/FIRESTORE_DT07_DT08.md` §9). El 80 % del producto (caja, catálogo, ABM chico) **ya escala**. Lo que queda de DT-08 es palanca 2 (cache/↻) y el detalle de un ledger individual a escala.
 
 ---
 
@@ -1214,7 +1216,7 @@ Hasta la Fase 8 (stock por eventos + perfiles de rendimiento) **sigue bloqueada*
 
 - **Productos (`catalog`):** renglones del maple y vendibles. Sin atajo de nombre libre para res/pollo.
 - **Media res:** N unidades → N kilos. Confirmar escribe `merchandise_intakes` **sin** `expenses` ni `provider_debt_events`. El pago de esas medias es otra tarea.
-- **Insumos:** Maxilimp y similares. Ficha de proveedor + concepto + plata + deuda. Sin buscar PLU ni mercadería de venta. El tab Gasto sigue para luz/alquiler sin proveedor.
+- **Insumos:** Maxilimp y similares. Ficha de proveedor + concepto + plata + deuda. Sin buscar PLU ni mercadería de venta. El tab **Otros** sigue para luz/alquiler sin proveedor.
 - **Último costo de compra:** tabla `provider_purchase_prices` (no es el precio de venta). Primera vez no pide confirmación. Si ya había precio y cambió, antes de finalizar pregunta si recordarlo; si rechaza, esta visita usa el precio tipeado y la memoria queda igual.
 - **Borrador:** un draft por turno (`status=draft`, no se sube a Firestore). Chip «Visita en curso» para reabrir Gastos.
 - **Hechos para estadísticas (aún sin pantallas):** `productId`/`nameKey`, `netKg`/`unitCount`/`packCount`, `unitCost`/`costTotal`, `createdAt`. Agrupar por semana (`mondayWeekRange`) o mes (`calendarMonthRange`).
@@ -1224,4 +1226,27 @@ Hasta la Fase 8 (stock por eventos + perfiles de rendimiento) **sigue bloqueada*
 - **Spark:** `merchandiseIntakes` por `storeId` + `createdAt` (solo confirmadas). `providerPurchasePrices/{providerId}` = 1 doc por proveedor (colección chica). `providers.intakeKind` viaja en el doc de proveedor (colección chica). Nunca `getDocs` de toda la historia.
 
 **Hecho en código:** migraciones `0044`–`0047`, IPC de visita (borrador/confirmar, media res sin gasto), Gastos PC/móvil por tipo, último costo, pack en catálogo.
+
+---
+
+### Caja y ganancia — cómo leer la plata (acordado 2026-09-22, pantallas después de la checklist)
+
+Dos preguntas distintas. No mezclarlas cuando haya estadísticas.
+
+**Ganancia** (¿el local vendió / perdió?): la venta cuenta **una vez**, el día en que sale la mercadería. Un fiado es ingreso ese día aunque no haya entrado efectivo. El cobro posterior (efectivo, débito, billetera o crédito) **no** es otra venta: es cobrar algo ya vendido. Tiene que verse (ledger + historial del turno), porque es plata que entró tarde, pero no se suma de nuevo a la ganancia.
+
+**Caja** (¿cuánta plata hay en el cajón?):
+
+| Movimiento | Cajón | Patrimonio del negocio |
+|---|---|---|
+| Venta en efectivo | Sube | Ingreso |
+| Cobro de fiado en efectivo | Sube | No es ingreso nuevo |
+| Cobro de fiado con débito / billetera / crédito | No cambia | No es ingreso nuevo; entra a esa cuenta, no al cajón |
+| **Aporte** | Sube | Entra plata de afuera (los dueños). No es venta. Es más plata en el negocio |
+| **Efectivo por digital** | Sube | No entra plata nueva: el cliente deja efectivo y se le acredita afuera (billetera). Cambia el formato, no el balance |
+| **Sueldo** (cajera o admin, con turno abierto) | Baja el neto | Egreso. No es una venta al revés. El archivo de la semana es `salaryPayments`; la plata que salió es el gasto `Salario: {nombre}` |
+
+El aporte y el efectivo por digital **ya se guardan distintos** (`injectReason`: `aporte` | `wallet_cash`). Las stats futuras tienen que mantener esa diferencia: aporte = plata nueva en la caja; efectivo por digital = cambio de formato.
+
+**Pendiente de UI (post checklist):** en cobro en efectivo, si el monto no cubre el total, botón «Fiar el resto» que abre el fiado con ese pago cargado. No automático.
 

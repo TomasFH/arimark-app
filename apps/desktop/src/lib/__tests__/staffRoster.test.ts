@@ -50,6 +50,14 @@ describe('buildStaffRoster', () => {
     expect(roster.butchers[0]?.firebaseUid).toBe('uid-1')
   })
 
+  it('muestra el email de la cuenta celular del carnicero', () => {
+    const roster = buildStaffRoster(
+      [],
+      [{ id: 'e1', name: 'Pedro', weeklyWage: 1, active: true, kind: 'butcher', firebaseUid: 'uid-1', loginEmail: 'pedro@negocio.com' }],
+    )
+    expect(roster.butchers[0]?.email).toBe('pedro@negocio.com')
+  })
+
   it('trata kind ausente como carnicero', () => {
     const roster = buildStaffRoster(
       [],

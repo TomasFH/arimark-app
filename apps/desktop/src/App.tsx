@@ -20,6 +20,7 @@ import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
+import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 
@@ -426,6 +427,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      <AppToastHost />
       <DevBanner />
       {(('session' in state && state.session.offlineSession) ||
         (state.screen === 'store-picker' && state.partialSession.offlineSession)) && (

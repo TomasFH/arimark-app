@@ -193,7 +193,7 @@ Los dos que caen a `date`:
 - `095c63f1-c527-4c63-b43c-2df4489c9f1f` → `2026-08-18T08:18:17.377Z`
 - `31487fdd-87bb-4738-8f95-2ecbb2950951` → `2026-08-18T08:19:04.426Z`
 
-**`--apply` no se corrió.** Tampoco se hizo `mobile:deploy` a propósito: sin el campo, el saldo en vivo saldría 0.
+**Producción 2026-09-21:** índices + reglas desplegados en `arimark-7f418`. `--apply` corrido. En ese momento había **4** `providerDebtEvents` y **0** de cliente; los 4 **ya tenían** `createdAtServer` (escrituras posteriores al código de 2026-09-04). El apply escribió **2 tails**. `pnpm mobile:deploy` hecho el mismo día. El job de compactación arranca al loguear una PC en prod (`dev:prod` o el instalador).
 
 ---
 
@@ -212,14 +212,12 @@ Los dos que caen a `date`:
 
 ---
 
-## 9. Orden para producción (pendiente de OK)
+## 9. Orden para producción — **hecho 2026-09-21**
 
-1. Deploy de **índices + reglas** (`firestore:indexes` y `firestore:rules`). Sin los índices, las queries nuevas fallan en runtime.
-2. `node apps/desktop/scripts/backfillCreatedAtServer.mjs --apply`
-3. Recién ahí usar la app con job + listeners (`pnpm dev:prod` / build).
-4. `pnpm mobile:deploy` cuando el celu deba re-probar.
-
-Hasta (2), el job es no-op y el saldo en vivo puede verse en 0.
+1. ~~Deploy de **índices + reglas**~~ ✅ `firebase deploy --only firestore:rules,firestore:indexes` → `arimark-7f418`. Las reglas ya estaban al día; los índices (deuda, turnos, orders, merch, cebo, vales) quedaron publicados.
+2. ~~`backfillCreatedAtServer.mjs --apply`~~ ✅ dry-run + apply. Nada que parchar en eventos; 2 `debtCheckpointTails` escritos (`oso` y `juan pollo` en un local).
+3. Job + listeners: al abrir la **PC de producción** (login cajera/admin). El celu no corre el job.
+4. ~~`pnpm mobile:deploy`~~ ✅ Hosting `https://arimark-7f418.web.app`.
 
 ---
 

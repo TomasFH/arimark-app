@@ -150,6 +150,7 @@ export const IPC = {
   ARCHIVE_EMPLOYEE: 'ipc:archive-employee',
   UNARCHIVE_EMPLOYEE: 'ipc:unarchive-employee',
   GRANT_BUTCHER_ACCESS: 'ipc:grant-butcher-access',
+  LIST_BUTCHER_LOGIN_EMAILS: 'ipc:list-butcher-login-emails',
   REVOKE_BUTCHER_ACCESS: 'ipc:revoke-butcher-access',
 
   // Asistencia (Bloque D)

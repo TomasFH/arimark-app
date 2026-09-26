@@ -14,6 +14,8 @@ type DecimalInputProps = Omit<
    * y auto-inserta coma después del cero inicial (04 → 0,4).
    */
   weightMode?: boolean
+  /** Máximo de dígitos enteros. Ej. 3 → no pasa de 999. */
+  maxWholeDigits?: number
 }
 
 /**
@@ -23,9 +25,9 @@ type DecimalInputProps = Omit<
  * Validación al enviar: parseDecimalInput() en el contenedor padre.
  */
 const DecimalInput = forwardRef<HTMLInputElement, DecimalInputProps>(
-  function DecimalInput({ value, onChange, maxDecimals = 2, weightMode = false, ...rest }, ref) {
+  function DecimalInput({ value, onChange, maxDecimals = 2, weightMode = false, maxWholeDigits, ...rest }, ref) {
     function handleChange(e: ChangeEvent<HTMLInputElement>) {
-      onChange(formatDecimalInputValue(e.target.value, maxDecimals, { weightMode }))
+      onChange(formatDecimalInputValue(e.target.value, maxDecimals, { weightMode, maxWholeDigits }))
     }
 
     return (

@@ -218,7 +218,6 @@ export function removeDiscountBlock(
   schedule: CashDiscountBlock[],
   blockIndex: number,
 ): CashDiscountBlock[] {
-  if (schedule.length <= 1) return [emptyDiscountBlock()]
   return schedule.filter((_, i) => i !== blockIndex)
 }
 

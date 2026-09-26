@@ -597,4 +597,25 @@ describe('employees.handler', () => {
       expect(row?.firebaseUid).toBe('uid-sigue')
     })
   })
+
+  describe('LIST_BUTCHER_LOGIN_EMAILS', () => {
+    it('sin firebase devuelve lista vacía', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      const res = await (getHandler('ipc:list-butcher-login-emails')(null) as Promise<{
+        ok: boolean
+        data: unknown[]
+      }>)
+      expect(res).toEqual({ ok: true, data: [] })
+    })
+
+    it('una cajera no puede verlos', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      const res = await (getHandler('ipc:list-butcher-login-emails')(null) as Promise<{
+        ok: boolean
+        code?: string
+      }>)
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+    })
+  })
 })

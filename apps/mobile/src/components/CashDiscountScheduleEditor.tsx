@@ -86,7 +86,7 @@ export function CashDiscountScheduleEditor({ schedule, onChange }: Props) {
               onClick={() => onChange(removeDiscountBlock(schedule, index))}
               className="shrink-0 text-xs text-gray-500"
             >
-              Quitar
+              Quitar horario
             </button>
           </div>
 

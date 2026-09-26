@@ -36,23 +36,33 @@ export default function CeboModal({ onClose }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [weekOffset, setWeekOffset] = useState(0)
+  const [listLoading, setListLoading] = useState(true)
   const week = mondayWeekRange(weekOffset)
   const canRegister = weekOffset === 0
 
-  async function reload() {
-    const r = await window.hw.listShiftCebo({ weekOffset })
-    if (!r.ok) {
-      setError(r.error)
-      return
-    }
-    setRows(r.data)
-  }
-
-  useEffect(() => {
+  function changeWeek(next: number) {
+    setWeekOffset(next)
+    setRows([])
+    setListLoading(true)
     setEditingId(null)
     setKgRaw('')
     setNotes('')
-    void reload()
+    setError(null)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void window.hw.listShiftCebo({ weekOffset }).then(r => {
+      if (cancelled) return
+      setListLoading(false)
+      if (!r.ok) {
+        setError(r.error)
+        setRows([])
+        return
+      }
+      setRows([...r.data].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+    })
+    return () => { cancelled = true }
   }, [weekOffset])
 
   function startEdit(row: CeboRow) {
@@ -86,7 +96,12 @@ export default function CeboModal({ onClose }: Props) {
       return
     }
     resetForm()
-    await reload()
+    setListLoading(true)
+    const listed = await window.hw.listShiftCebo({ weekOffset })
+    setListLoading(false)
+    if (listed.ok) {
+      setRows([...listed.data].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+    }
   }
 
   const weekTitle = formatWeekRangeLabel(week.startYmd, week.endInclusiveYmd)
@@ -124,7 +139,7 @@ export default function CeboModal({ onClose }: Props) {
       <p className="mb-4 text-sm text-muted">Anota kilos y una nota. No mueve caja ni stock.</p>
 
       <div className="mb-4 flex min-w-0 items-center gap-2">
-        <Button variant="secondary" size="sm" onClick={() => setWeekOffset(o => o - 1)}>
+        <Button variant="secondary" size="sm" onClick={() => changeWeek(weekOffset - 1)}>
           ← Anterior
         </Button>
         <p className="min-w-0 flex-1 truncate text-center text-xs text-muted" title={weekTitle}>
@@ -134,7 +149,7 @@ export default function CeboModal({ onClose }: Props) {
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => setWeekOffset(o => Math.min(0, o + 1))}
+          onClick={() => changeWeek(Math.min(0, weekOffset + 1))}
           disabled={weekOffset === 0}
         >
           Siguiente →
@@ -142,7 +157,7 @@ export default function CeboModal({ onClose }: Props) {
       </div>
 
       <ul className="mb-4 max-h-48 space-y-2 overflow-y-auto">
-        {rows.length === 0 && (
+        {!listLoading && rows.length === 0 && (
           <li className="py-2 text-center text-sm text-muted">Sin cebo esta semana.</li>
         )}
         {rows.map(row => {

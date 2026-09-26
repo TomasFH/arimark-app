@@ -9,8 +9,8 @@
  *    igualmente: previene que los dígitos del scanner contaminen el campo y, al
  *    completar la lectura, restaura el valor previo del campo mediante el setter
  *    nativo (compatible con React controlled inputs).
- *  - Si el campo tiene data-barcode-input="true" (el input de "Código manual" en
- *    ScanInput), el hook se silencia porque ese campo ya procesa barcodes por sí solo.
+ *  - Si el campo tiene data-barcode-input="true", el hook se silencia porque
+ *    ese campo ya procesa barcodes por sí solo.
  *  - Si disabled=true (ej. modal de cobro abierto), el hook no hace nada.
  *
  * Secuencia de detección:

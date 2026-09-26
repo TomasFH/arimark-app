@@ -485,9 +485,11 @@ export default function PaymentModal({
               ? Math.ceil(rowAmountParsed / rowInstallments)
               : null
 
+            const showRemove = rows.length > 2
+
             return (
               <div key={row.id} className="space-y-1.5">
-                <div className="flex items-center gap-2 min-w-0">
+                <div className={`grid items-center gap-2 ${showRemove ? 'grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_9.25rem_2rem]' : 'grid-cols-[minmax(0,10.5rem)_minmax(0,1fr)_9.25rem]'}`}>
                   <select
                     value={row.method}
                     onChange={e => {
@@ -495,7 +497,7 @@ export default function PaymentModal({
                       if (next === 'cash' && cashAlreadyUsed && !isCashRow) return
                       updateRow(row.id, { method: next, installments: undefined })
                     }}
-                    className="min-w-0 flex-[1.4] rounded-xl border border-line bg-input px-2 py-2.5 text-sm text-ink focus:outline-none focus:border-line-accent"
+                    className="w-full min-w-0 rounded-xl border border-line bg-input px-2 py-2.5 text-sm text-ink focus:outline-none focus:border-line-accent"
                   >
                     <option value="debit">Débito</option>
                     <option value="wallet">Billetera Virtual</option>
@@ -505,7 +507,7 @@ export default function PaymentModal({
                     </option>
                   </select>
 
-                  <div className="relative min-w-0 flex-1">
+                  <div className="relative min-w-0">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">$</span>
                     <NumericInput
                       value={row.amount}
@@ -517,25 +519,29 @@ export default function PaymentModal({
                     />
                   </div>
 
-                  {showFillBtn && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => fillRowRemainder(row.id)}
-                      title="Completar con el monto restante"
-                    >
-                      ← {formatARS(rowRem)}
-                    </Button>
-                  )}
+                  <div className="flex h-10 w-full items-center justify-stretch">
+                    {showFillBtn && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => fillRowRemainder(row.id)}
+                        title="Completar con el monto restante"
+                        className="w-full truncate px-2"
+                      >
+                        ← {formatARS(rowRem)}
+                      </Button>
+                    )}
+                  </div>
 
-                  {rows.length > 2 && (
+                  {showRemove && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => removeRow(row.id)}
-                      className="px-2 text-muted hover:text-danger"
+                      className="px-0 text-muted hover:text-danger"
                       title="Eliminar fila"
+                      aria-label="Eliminar medio de pago"
                     >
                       ✕
                     </Button>

@@ -105,10 +105,13 @@ export function VisitWeightGrid({
   values,
   onChange,
   unitLabel,
+  maxWholeDigits,
 }: {
   values: string[]
   onChange: (next: string[]) => void
   unitLabel: string
+  /** Tope de la parte entera. Media res: 3 (nunca más de 999 kg). */
+  maxWholeDigits?: number
 }) {
   if (values.length === 0) return null
   return (
@@ -124,6 +127,7 @@ export function VisitWeightGrid({
               onChange(next)
             }}
             weightMode
+            maxWholeDigits={maxWholeDigits}
             aria-label={`${unitLabel} ${i + 1}`}
             className={FIELD}
           />
@@ -177,6 +181,7 @@ export function MediaResVisitForm({
             values={weights}
             onChange={weightRaws => commit({ weightRaws })}
             unitLabel="Kilos"
+            maxWholeDigits={3}
           />
         </div>
       )}
