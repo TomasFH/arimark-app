@@ -255,54 +255,59 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
                 <table className="w-full table-fixed border-separate border-spacing-0 text-xs">
                   <ProductsListColgroup />
                   <tbody>
-                    {sorted.map(p => (
-                      <tr key={p.id} className="border-b border-line hover:bg-hover/40 transition-colors">
-                        <td className="px-5 py-2 font-bold text-orange-400 tabular-nums">
-                          {p.pluNumber ?? <span className="text-subtle font-normal">—</span>}
-                        </td>
-                        <td className="min-w-0 px-3 py-2 text-ink">
-                          <span className="block truncate" title={p.name}>{p.name}</span>
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex items-center justify-end gap-1">
+                    {sorted.map((p, i) => {
+                      const rowBg = i % 2 === 0
+                        ? 'bg-panel group-hover:bg-hover'
+                        : 'bg-app group-hover:bg-hover'
+                      return (
+                        <tr key={p.id} className="group">
+                          <td className={`border-t border-line px-5 py-2 font-bold text-orange-400 tabular-nums ${rowBg}`}>
+                            {p.pluNumber ?? <span className="text-subtle font-normal">—</span>}
+                          </td>
+                          <td className={`min-w-0 border-t border-line px-3 py-2 text-ink ${rowBg}`}>
+                            <span className="block truncate" title={p.name}>{p.name}</span>
+                          </td>
+                          <td className={`border-t border-line px-3 py-2 text-right ${rowBg}`}>
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setPriceProduct(p)}
+                                className="tabular-nums text-ink"
+                                title="Cambiar precio"
+                              >
+                                {p.price != null ? formatARS(p.price) : <span className="text-muted font-normal">—</span>}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setHistoryProduct(p)}
+                                className="text-subtle hover:text-ink"
+                                title="Ver historial de precios"
+                              >
+                                ↓
+                              </button>
+                            </div>
+                          </td>
+                          <td className={`border-t border-line px-3 py-2 text-muted ${rowBg}`}>{CATEGORY_LABELS[p.category] ?? p.category}</td>
+                          <td className={`border-t border-line px-3 py-2 text-right text-muted ${rowBg}`}>{UNIT_LABELS[p.unit] ?? p.unit}</td>
+                          <td className={`border-t border-line px-2 py-2 text-center ${rowBg}`}>
+                            <CatalogToggle
+                              checked={p.available}
+                              disabled={isAvailabilityPending(p.id)}
+                              onChange={() => void toggleAvailability(p)}
+                            />
+                          </td>
+                          <td className={`border-t border-line px-3 py-2 text-right ${rowBg}`}>
                             <button
                               type="button"
-                              onClick={() => setPriceProduct(p)}
-                              className="tabular-nums text-amber-300 font-medium hover:text-amber-200"
-                              title="Cambiar precio"
+                              onClick={() => setEditProduct(p)}
+                              className="rounded px-1.5 py-0.5 text-[11px] text-ink hover:bg-hover hover:text-ink"
                             >
-                              {p.price != null ? formatARS(p.price) : <span className="text-muted font-normal">—</span>}
+                              Editar
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setHistoryProduct(p)}
-                              className="text-subtle hover:text-ink"
-                              title="Ver historial de precios"
-                            >
-                              ↓
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-muted">{CATEGORY_LABELS[p.category] ?? p.category}</td>
-                        <td className="px-3 py-2 text-right text-muted">{UNIT_LABELS[p.unit] ?? p.unit}</td>
-                        <td className="px-2 py-2 text-center">
-                          <CatalogToggle
-                            checked={p.available}
-                            disabled={isAvailabilityPending(p.id)}
-                            onChange={() => void toggleAvailability(p)}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setEditProduct(p)}
-                            className="rounded px-1.5 py-0.5 text-[11px] text-ink hover:bg-hover hover:text-ink"
-                          >
-                            Editar
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

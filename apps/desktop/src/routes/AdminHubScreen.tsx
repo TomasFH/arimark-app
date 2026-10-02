@@ -8,7 +8,7 @@ import { applyColorScheme } from '../lib/theme'
 import AttendanceModal from './AttendanceModal'
 import StockCountModal from './StockCountModal'
 import ChangePasswordModal from '../components/ChangePasswordModal'
-import { ActionMenu, BrandMark, Button, SectionLabel } from '../components/ui'
+import { ActionMenu, BrandMark, Button, Modal, SectionLabel } from '../components/ui'
 
 /** Asistencia pausada: reactivar con `true`. No borrar AttendanceModal. */
 const SHOW_ATTENDANCE_UI = false
@@ -37,13 +37,21 @@ function IconWell({ children }: { children: ReactNode }) {
   )
 }
 
-const ICONS = {
-  gear: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10.3 3.2h3.4l.4 2.2a7 7 0 0 1 1.7.9l2.1-.8 1.7 2.9-1.7 1.5a7 7 0 0 1 0 1.8l1.7 1.5-1.7 2.9-2.1-.8a7 7 0 0 1-1.7.9l-.4 2.2h-3.4l-.4-2.2a7 7 0 0 1-1.7-.9l-2.1.8-1.7-2.9 1.7-1.5a7 7 0 0 1 0-1.8L4.4 8.4l1.7-2.9 2.1.8a7 7 0 0 1 1.7-.9l.4-2.2Z" />
-      <circle cx="12" cy="12" r="2.4" />
+function GearIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+      />
+      <circle cx="12" cy="12" r="3" />
     </svg>
-  ),
+  )
+}
+
+const ICONS = {
+  gear: <GearIcon />,
   store: (
     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 10.5 5.5 5h13L20 10.5M5 10.5V19h14v-8.5M9 19v-5h6v5" />
@@ -166,7 +174,9 @@ function GroupTile({ icon, label, description, options, expanded, onToggle }: Gr
       <button
         type="button"
         onClick={onToggle}
-        className="group flex w-full items-center gap-3 rounded-2xl p-3.5 text-left transition-colors hover:bg-hover"
+        className={`group flex w-full items-center gap-3 p-3.5 text-left transition-colors hover:bg-hover ${
+          expanded ? 'rounded-t-2xl' : 'rounded-2xl'
+        }`}
         aria-expanded={expanded}
       >
         <IconWell>{icon}</IconWell>
@@ -234,6 +244,7 @@ export default function AdminHubScreen({
   const [expandedGroup, setExpandedGroup] = useState<'stock' | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
+  const [logoutConfirm, setLogoutConfirm] = useState<{ openShift: boolean } | null>(null)
   const [uiSettings, setUiSettings] = useState<UiSettings>({ zoomFactor: 1.0, colorScheme: 'light' })
 
   useEffect(() => {
@@ -280,6 +291,16 @@ export default function AdminHubScreen({
     }
   }
 
+  async function requestLogout(): Promise<void> {
+    try {
+      const result = await window.hw.getUserOpenShift()
+      setLogoutConfirm({ openShift: result.ok && result.data != null })
+    } catch (err) {
+      console.error('[AdminHubScreen] no se pudo consultar el turno abierto', err)
+      setLogoutConfirm({ openShift: false })
+    }
+  }
+
   return (
     <div className="flex h-screen flex-col bg-app text-ink">
       <header className="relative flex items-center justify-between gap-3 border-b border-line bg-panel px-6 py-3">
@@ -293,16 +314,15 @@ export default function AdminHubScreen({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant={showSettings ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setShowSettings(v => !v)}
-          >
-            Ajustes
-          </Button>
           <ActionMenu
-            label="Cuenta"
+            label="Configuración"
+            trigger={<GearIcon className="h-5 w-5 text-ink" />}
             items={[
+              {
+                id: 'settings',
+                label: 'Ajustes',
+                onSelect: () => setShowSettings(true),
+              },
               {
                 id: 'refresh',
                 label: refreshing ? 'Actualizando…' : 'Actualizar datos',
@@ -318,7 +338,7 @@ export default function AdminHubScreen({
                 id: 'logout',
                 label: 'Cerrar sesión',
                 danger: true,
-                onSelect: onLogout,
+                onSelect: () => { void requestLogout() },
               },
             ]}
           />
@@ -452,7 +472,7 @@ export default function AdminHubScreen({
 
           <div>
             <SectionLabel>Análisis</SectionLabel>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 items-start gap-2">
               <Tile icon={ICONS.chart} label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
               {SHOW_ATTENDANCE_UI && (
                 <Tile icon={ICONS.check} label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} />
@@ -482,6 +502,36 @@ export default function AdminHubScreen({
       {showChangePassword && (
         <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
       )}
+      <Modal
+        open={logoutConfirm != null}
+        onClose={() => setLogoutConfirm(null)}
+        size="sm"
+        title="Cerrar sesión"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setLogoutConfirm(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setLogoutConfirm(null)
+                onLogout()
+              }}
+            >
+              {logoutConfirm?.openShift ? 'Cerrar sesión igual' : 'Cerrar sesión'}
+            </Button>
+          </>
+        }
+      >
+        {logoutConfirm?.openShift ? (
+          <p className="text-sm text-ink">
+            La caja sigue abierta. La próxima cajera no va a poder abrir la suya hasta que esta se cierre.
+          </p>
+        ) : (
+          <p className="text-sm text-ink">¿Seguro que querés cerrar sesión?</p>
+        )}
+      </Modal>
     </div>
   )
 }

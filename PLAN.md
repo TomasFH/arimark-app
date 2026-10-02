@@ -1250,3 +1250,17 @@ El aporte y el efectivo por digital **ya se guardan distintos** (`injectReason`:
 
 **Pendiente de UI (post checklist):** en cobro en efectivo, si el monto no cubre el total, botón «Fiar el resto» que abre el fiado con ese pago cargado. No automático.
 
+---
+
+### Caja colgada — la cajera se fue sin cerrar (propuesta 2026-10-01, no implementar todavía)
+
+Hoy un turno abierto bloquea al siguiente en ese local. `FORCE_CLOSE_OPEN_SHIFT` existe solo en la PC, solo para admin, y cierra **sin** contar billetes. No está en el celu. La inactividad larga avisa, no reemplaza este caso.
+
+**Qué conviene (antes de 1.0, cuando se codee):**
+
+1. Quien llega (cajera o admin) ve «{nombre} dejó la caja abierta» y puede **cerrar esa caja contando lo que hay ahora**. Ese conteo es el cierre del turno anterior y la apertura del nuevo. Queda anotado quién cerró, no la cajera que se fue. No hace falta su contraseña.
+2. Lo mismo desde el **celu del admin**: en el hub, turnos abiertos del local, misma acción. El celu no opera esa caja; solo la cierra para que la PC pueda abrir.
+3. El cierre forzado sin contar (el de hoy) queda como emergencia, con aviso de que el efectivo esperado de ese turno no se arqueó.
+
+No compartir claves. No impedir que alguien cierre sesión con la caja abierta (el aviso al salir ya está); esto cubre cuando igual se fue.
+

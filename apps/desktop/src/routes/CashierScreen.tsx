@@ -16,7 +16,7 @@ import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import DebtModal from '../components/DebtModal'
 import ChangePasswordModal from '../components/ChangePasswordModal'
-import { BrandMark, Button, ListRow, ScreenHeader, SectionLabel, cx } from '../components/ui'
+import { BrandMark, Button, ListRow, Modal, ScreenHeader, cx } from '../components/ui'
 import type { SaleItemDraft, SalePaymentPayload, ShiftInfo, SessionInfo, ProductRow, SpecialCustomerRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { applyColorScheme, type ColorScheme } from '../lib/theme'
@@ -64,7 +64,7 @@ interface CartItem extends SaleItemDraft {
 }
 
 // ---------------------------------------------------------------------------
-// Inline SVG icons (Heroicons outline 1.5px stroke)
+// Inline SVG icons. Rail: stroke 1.5. Ítems del menú lateral: stroke 1.8.
 // ---------------------------------------------------------------------------
 
 const IconMenu = () => (
@@ -98,20 +98,20 @@ const IconClock = () => (
 )
 
 const IconSettle = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75h19.5M4.5 15.75l4.5-7.5 3 4.5 3.75-6 3.75 9" />
   </svg>
 )
 
 const IconCashInject = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v9m0 0-3.75-3.75M12 13.5l3.75-3.75M3.75 19.5h16.5" />
     <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 16.5h13.5v2.25a.75.75 0 0 1-.75.75H6a.75.75 0 0 1-.75-.75V16.5Z" />
   </svg>
 )
 
 const IconCebo = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M8.25 6.75h7.5M6 10.5h12M7.5 14.25h9M9 18h6" />
   </svg>
 )
@@ -125,6 +125,92 @@ const IconX = () => (
 const IconScan = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.5v15M7.5 4.5v15M10.5 4.5v15M12.75 4.5v15M16.5 4.5v15M20.25 4.5v15" />
+  </svg>
+)
+
+const IconCatalog = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+  </svg>
+)
+
+const IconOrders = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 3h6m-6 3h3.75M9.75 3.75h4.5A1.5 1.5 0 0 1 15.75 5.25V6h1.5A1.5 1.5 0 0 1 18.75 7.5v12a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5v-12A1.5 1.5 0 0 1 6.75 6H8.25V5.25a1.5 1.5 0 0 1 1.5-1.5Z" />
+  </svg>
+)
+
+const IconFiado = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+  </svg>
+)
+
+const IconSpecialCustomer = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+  </svg>
+)
+
+const IconStock = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+  </svg>
+)
+
+const IconPayroll = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+  </svg>
+)
+
+const IconCashDiscount = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m18.75 5.25-13.5 13.5" />
+    <circle cx="7.5" cy="7.5" r="2.25" />
+    <circle cx="16.5" cy="16.5" r="2.25" />
+  </svg>
+)
+
+const IconShiftExpenses = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25 15 8.25m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0c1.1.128 1.907 1.077 1.907 2.185Z" />
+  </svg>
+)
+
+const IconRefresh = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+  </svg>
+)
+
+const IconAttendance = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+  </svg>
+)
+
+const IconHub = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+  </svg>
+)
+
+const IconLock = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+  </svg>
+)
+
+const IconKey = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
+  </svg>
+)
+
+const IconLogout = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
   </svg>
 )
 
@@ -159,16 +245,40 @@ function SidebarBtn({ icon, label, onClick, active }: SidebarBtnProps) {
   )
 }
 
-function MenuDangerItem({ label, onClick }: { label: string; onClick: () => void }) {
+function MenuDangerItem({ label, leading, onClick }: { label: string; leading: ReactNode; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className="flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-sm font-medium text-danger transition-colors hover:bg-hover"
     >
+      <span className="shrink-0">{leading}</span>
       <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
     </button>
   )
+}
+
+function MenuSection({
+  title,
+  divided = false,
+  children,
+}: {
+  title: string
+  divided?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={divided ? 'mt-2 border-t border-line pt-3' : undefined}>
+      <p className="mb-1 min-w-0 truncate px-4 text-sm font-semibold text-ink" title={title}>
+        {title}
+      </p>
+      {children}
+    </div>
+  )
+}
+
+function menuLeading(icon: ReactNode) {
+  return <span className="text-muted">{icon}</span>
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +328,7 @@ export default function CashierScreen({
   const [showSalesModal, setShowSalesModal] = useState(false)
   const [showDebtModal, setShowDebtModal] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [debtLoading, setDebtLoading] = useState(false)
   const [debtError, setDebtError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1001,84 +1112,142 @@ export default function CashierScreen({
             </div>
 
             <div className="flex-1 overflow-y-auto py-2">
-              <SectionLabel className="px-4">Caja</SectionLabel>
-              <ListRow
-                title="Ingreso"
-                leading={<span className="text-muted"><IconCashInject /></span>}
-                onClick={() => { setShowCashInjectModal(true); closeMenu() }}
-              />
-              <ListRow
-                title="Cebo"
-                leading={<span className="text-muted"><IconCebo /></span>}
-                onClick={() => { setShowCeboModal(true); closeMenu() }}
-              />
-              <ListRow
-                title="Saldar"
-                leading={<span className="text-muted"><IconSettle /></span>}
-                onClick={() => { setShowSettleDebtModal(true); closeMenu() }}
-              />
+              <MenuSection title="Caja">
+                <ListRow
+                  title="Ingreso"
+                  leading={menuLeading(<IconCashInject />)}
+                  onClick={() => { setShowCashInjectModal(true); closeMenu() }}
+                />
+                <ListRow
+                  title="Cebo"
+                  leading={menuLeading(<IconCebo />)}
+                  onClick={() => { setShowCeboModal(true); closeMenu() }}
+                />
+                <ListRow
+                  title="Saldar"
+                  leading={menuLeading(<IconSettle />)}
+                  onClick={() => { setShowSettleDebtModal(true); closeMenu() }}
+                />
+              </MenuSection>
 
-              <SectionLabel className="mt-4 px-4">Consultas</SectionLabel>
-              <ListRow title="Catálogo" onClick={() => { setShowProductsModal(true); closeMenu() }} />
-              {onViewOrders && (
-                <ListRow title="Pedidos" onClick={() => { onViewOrders(); closeMenu() }} />
-              )}
-              {onViewDebts && (
-                <ListRow title="Fiados" onClick={() => { onViewDebts(); closeMenu() }} />
-              )}
-              {onViewSpecialCustomers && (
-                <ListRow title="Clientes especiales" onClick={() => { onViewSpecialCustomers(); closeMenu() }} />
-              )}
+              <MenuSection title="Consultas" divided>
+                <ListRow
+                  title="Catálogo"
+                  leading={menuLeading(<IconCatalog />)}
+                  onClick={() => { setShowProductsModal(true); closeMenu() }}
+                />
+                {onViewOrders && (
+                  <ListRow
+                    title="Pedidos"
+                    leading={menuLeading(<IconOrders />)}
+                    onClick={() => { onViewOrders(); closeMenu() }}
+                  />
+                )}
+                {onViewDebts && (
+                  <ListRow
+                    title="Fiados"
+                    leading={menuLeading(<IconFiado />)}
+                    onClick={() => { onViewDebts(); closeMenu() }}
+                  />
+                )}
+                {onViewSpecialCustomers && (
+                  <ListRow
+                    title="Clientes especiales"
+                    leading={menuLeading(<IconSpecialCustomer />)}
+                    onClick={() => { onViewSpecialCustomers(); closeMenu() }}
+                  />
+                )}
+              </MenuSection>
 
-              <SectionLabel className="mt-4 px-4">Operación</SectionLabel>
-              <ListRow title="Stock" onClick={() => { setShowStockCountModal(true); closeMenu() }} />
-              <ListRow title="Liquidación" onClick={() => { setShowSalaryModal(true); closeMenu() }} />
-              <ListRow title="Desc. efectivo" onClick={() => { setShowCashDiscountModal(true); closeMenu() }} />
-              <ListRow title="Gastos del turno" onClick={() => { setShowExpenseListModal(true); closeMenu() }} />
-              <ListRow
-                title={refreshing ? 'Actualizando…' : 'Actualizar'}
-                disabled={refreshing}
-                onClick={() => { void handleRefreshRemote(); closeMenu() }}
-              />
-              {SHOW_ATTENDANCE_UI && (
-                <ListRow title="Asistencia" onClick={() => { setShowAttendanceModal(true); closeMenu() }} />
-              )}
+              <MenuSection title="Operación" divided>
+                <ListRow
+                  title="Stock"
+                  leading={menuLeading(<IconStock />)}
+                  onClick={() => { setShowStockCountModal(true); closeMenu() }}
+                />
+                <ListRow
+                  title="Liquidación"
+                  leading={menuLeading(<IconPayroll />)}
+                  onClick={() => { setShowSalaryModal(true); closeMenu() }}
+                />
+                <ListRow
+                  title="Desc. efectivo"
+                  leading={menuLeading(<IconCashDiscount />)}
+                  onClick={() => { setShowCashDiscountModal(true); closeMenu() }}
+                />
+                <ListRow
+                  title="Gastos del turno"
+                  leading={menuLeading(<IconShiftExpenses />)}
+                  onClick={() => { setShowExpenseListModal(true); closeMenu() }}
+                />
+                <ListRow
+                  title={refreshing ? 'Actualizando…' : 'Actualizar'}
+                  leading={menuLeading(<IconRefresh />)}
+                  disabled={refreshing}
+                  onClick={() => { void handleRefreshRemote(); closeMenu() }}
+                />
+                {SHOW_ATTENDANCE_UI && (
+                  <ListRow
+                    title="Asistencia"
+                    leading={menuLeading(<IconAttendance />)}
+                    onClick={() => { setShowAttendanceModal(true); closeMenu() }}
+                  />
+                )}
+              </MenuSection>
             </div>
 
             <div className="shrink-0 max-h-[55%] overflow-y-auto border-t border-line py-2">
-              <SectionLabel className="px-4">Apariencia</SectionLabel>
-              <div className="mx-3 mb-3 flex rounded-xl bg-hover p-1">
-                <button
-                  type="button"
-                  onClick={() => { void handleColorScheme('light') }}
-                  aria-pressed={colorScheme === 'light'}
-                  className={cx(
-                    'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
-                    colorScheme === 'light' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
-                  )}
-                >
-                  Claro
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { void handleColorScheme('dark') }}
-                  aria-pressed={colorScheme === 'dark'}
-                  className={cx(
-                    'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
-                    colorScheme === 'dark' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
-                  )}
-                >
-                  Oscuro
-                </button>
-              </div>
+              <MenuSection title="Apariencia">
+                <div className="mx-3 mb-1 flex rounded-xl bg-hover p-1">
+                  <button
+                    type="button"
+                    onClick={() => { void handleColorScheme('light') }}
+                    aria-pressed={colorScheme === 'light'}
+                    className={cx(
+                      'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
+                      colorScheme === 'light' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
+                    )}
+                  >
+                    Claro
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void handleColorScheme('dark') }}
+                    aria-pressed={colorScheme === 'dark'}
+                    className={cx(
+                      'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
+                      colorScheme === 'dark' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
+                    )}
+                  >
+                    Oscuro
+                  </button>
+                </div>
+              </MenuSection>
 
-              <SectionLabel className="px-4">Sesión</SectionLabel>
-              {onReturnToHub && (
-                <ListRow title="Hub" onClick={() => { onReturnToHub(); closeMenu() }} />
-              )}
-              <MenuDangerItem label="Cerrar caja" onClick={() => { onCloseShift(); closeMenu() }} />
-              <ListRow title="Contraseña" onClick={() => { setShowChangePassword(true); closeMenu() }} />
-              <ListRow title="Cerrar sesión" onClick={() => { onLogout(); closeMenu() }} />
+              <MenuSection title="Sesión" divided>
+                {onReturnToHub && (
+                  <ListRow
+                    title="Hub"
+                    leading={menuLeading(<IconHub />)}
+                    onClick={() => { onReturnToHub(); closeMenu() }}
+                  />
+                )}
+                <MenuDangerItem
+                  label="Cerrar caja"
+                  leading={<IconLock />}
+                  onClick={() => { onCloseShift(); closeMenu() }}
+                />
+                <ListRow
+                  title="Cambiar contraseña"
+                  leading={menuLeading(<IconKey />)}
+                  onClick={() => { setShowChangePassword(true); closeMenu() }}
+                />
+                <ListRow
+                  title="Cerrar sesión"
+                  leading={menuLeading(<IconLogout />)}
+                  onClick={() => { closeMenu(); setShowLogoutConfirm(true) }}
+                />
+              </MenuSection>
             </div>
           </div>
         </>
@@ -1205,6 +1374,33 @@ export default function CashierScreen({
       {showChangePassword && (
         <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
       )}
+
+      <Modal
+        open={showLogoutConfirm}
+        onClose={() => setShowLogoutConfirm(false)}
+        title="Cerrar sesión"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowLogoutConfirm(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setShowLogoutConfirm(false)
+                onLogout()
+              }}
+            >
+              Cerrar sesión igual
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink">
+          Hay un turno abierto. La caja sigue abierta y quien sigue no va a poder abrir la suya hasta cerrar este turno.
+        </p>
+      </Modal>
 
     </div>
   )

@@ -114,7 +114,7 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
             setResumeCountDate(undefined)
             setShowNew(true)
           }}
-          className="shrink-0 px-4 py-2 rounded-lg bg-accent hover:bg-accent text-sm font-medium transition-colors"
+          className="shrink-0 px-4 py-2 rounded-lg bg-accent hover:bg-accent text-sm font-medium text-accent-fg transition-colors"
         >
           + Nuevo conteo
         </button>
@@ -350,7 +350,7 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
                     setDetail(null)
                     setShowNew(true)
                   }}
-                  className="rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-accent text-ink"
+                  className="rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-accent text-accent-fg"
                 >
                   Editar
                 </button>

@@ -17,6 +17,13 @@ interface Props {
 const fieldClass =
   'w-full rounded-xl border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
 
+function reasonOptionClass(selected: boolean): string {
+  return [
+    'flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-2 transition-colors hover:bg-hover',
+    selected ? 'border-line-accent bg-accent-soft' : 'border-line bg-raised',
+  ].join(' ')
+}
+
 export default function CashInjectModal({ onCancel, onSaved }: Props) {
   const [amountRaw, setAmountRaw] = useState('')
   const [notes, setNotes] = useState('')
@@ -77,7 +84,7 @@ export default function CashInjectModal({ onCancel, onSaved }: Props) {
 
       <fieldset className="mb-4 space-y-2">
         <legend className="text-sm text-muted">Motivo</legend>
-        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line px-3 py-2 hover:bg-hover">
+        <label className={reasonOptionClass(injectReason === 'aporte')}>
           <input
             type="radio"
             name="inject-reason"
@@ -90,7 +97,7 @@ export default function CashInjectModal({ onCancel, onSaved }: Props) {
             <span className="block text-xs text-muted">Plata que mandan los admin.</span>
           </span>
         </label>
-        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line px-3 py-2 hover:bg-hover">
+        <label className={reasonOptionClass(injectReason === 'wallet_cash')}>
           <input
             type="radio"
             name="inject-reason"

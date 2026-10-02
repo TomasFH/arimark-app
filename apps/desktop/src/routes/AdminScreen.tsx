@@ -399,7 +399,7 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                     ? 'bg-accent-soft group-hover:bg-accent-soft'
                     : i % 2 === 0
                       ? 'bg-panel group-hover:bg-hover'
-                      : 'bg-raised group-hover:bg-hover'
+                      : 'bg-app group-hover:bg-hover'
 
                   return (
                     <tr key={p.id} className="group">

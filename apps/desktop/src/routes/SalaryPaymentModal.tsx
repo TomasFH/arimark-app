@@ -479,7 +479,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
                               setPayError(null)
                               setPayingId(employee.id)
                             }}
-                            className="w-full shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-ink hover:bg-success/100 transition-colors"
+                            className="w-full shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-success/100 transition-colors"
                           >
                             {summary.netToPay > 0
                               ? `Pagar ${formatARS(summary.netToPay)}`
@@ -541,7 +541,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
                 type="button"
                 onClick={() => void confirmPay()}
                 disabled={saving}
-                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-ink hover:bg-success/100 disabled:opacity-40"
+                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-success/100 disabled:opacity-40"
               >
                 {saving ? 'Pagando…' : 'Confirmar'}
               </button>

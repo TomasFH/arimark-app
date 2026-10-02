@@ -71,9 +71,8 @@ export function ActionMenu({ items, align = 'end', label = 'Más acciones', trig
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen(v => !v)}
         className={cx(
-          'flex items-center justify-center rounded-lg text-muted transition-colors',
+          'flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors',
           'hover:bg-hover hover:text-ink',
-          trigger == null ? 'h-8 w-8' : 'h-8 px-2.5 text-xs font-medium',
           open && 'bg-hover text-ink',
         )}
       >
@@ -94,9 +93,9 @@ export function ActionMenu({ items, align = 'end', label = 'Más acciones', trig
             role="menu"
             aria-label={label}
             style={{ top: coords.top, left: coords.left, width: MENU_WIDTH }}
-            className="fixed z-[51] overflow-hidden rounded-xl bg-panel py-1 shadow-[0_8px_28px_rgba(28,28,30,0.16)] ring-1 ring-line"
+            className="fixed z-[51] overflow-hidden rounded-xl bg-panel shadow-[0_8px_28px_rgba(28,28,30,0.16)] ring-1 ring-line"
           >
-            {items.map(item => (
+            {items.map((item, index) => (
               <button
                 key={item.id}
                 type="button"
@@ -108,8 +107,10 @@ export function ActionMenu({ items, align = 'end', label = 'Más acciones', trig
                   close()
                 }}
                 className={cx(
-                  'flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                  'flex w-full min-w-0 items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors',
                   'disabled:pointer-events-none disabled:opacity-40',
+                  index === 0 && 'rounded-t-xl',
+                  index === items.length - 1 && 'rounded-b-xl',
                   item.danger ? 'text-danger hover:bg-hover' : 'text-ink hover:bg-hover',
                 )}
               >

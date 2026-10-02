@@ -564,7 +564,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
         {isAdmin && (
           <button
             onClick={openCreate}
-            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-ink hover:bg-accent transition-colors"
+            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg hover:bg-accent transition-colors"
           >
             + Nuevo cliente
           </button>
@@ -669,7 +669,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               <button
                 onClick={handleSubmitForm}
                 disabled={formSaving}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-ink hover:bg-accent disabled:opacity-50"
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg hover:bg-accent disabled:opacity-50"
               >
                 {formSaving ? 'Guardando…' : editingCustomer ? 'Guardar' : 'Crear'}
               </button>

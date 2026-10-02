@@ -4,7 +4,7 @@ Convención: `[ ]` pendiente · `[x]` OK · `[!]` se rompió (anotá qué).
 
 Esto **no** es un recuento de colores, tipografías ni copys. Es para confirmar que, después de todas las oleadas, **cada rol todavía puede operar** y que lo que escribe uno lo ve el otro.
 
-Cuando esta checklist esté completa (sin `[!]` de función), **1.0 se da por cerrada**. Durante la pasada podés anotar mejoras de UI al final: no bloquean el cierre. El **icono de la app** queda afuera: todavía no hay imágenes.
+Cuando esta checklist esté completa (sin `[!]` de función), **1.0 se da por cerrada**. Durante la pasada podés anotar mejoras de UI al final: no bloquean el cierre. El ícono de la app (la A) está en `apps/desktop/build-resources/` y entra en el instalador 0.5.0.
 
 ---
 
@@ -55,6 +55,7 @@ Eso cubre migraciones, IPC, visitas de mercadería, deudas, auth de roles, carri
 - Rediseño del POS celu (funciona; se ve viejo).
 - **Fiar el resto** (post checklist, 2026-09-22): en cobro en efectivo, si el monto no cubre el total, un botón chico «Fiar el resto» abre el fiado con ese pago ya cargado. No es el camino por defecto: un tipeo no debe crear deuda solo.
 - **Estadísticas de plata** (post checklist, sin pantallas todavía): ver `PLAN.md` «Caja y ganancia». El cobro de un fiado no se pierde: queda en el ledger. No es una segunda venta.
+- **Caja colgada** (antes de 1.0, sin codear): si una cajera se va con el turno abierto, la siguiente o un admin cierran esa caja contando lo que hay, también desde el celu del admin. Sin pedir la clave de la que se fue. Ver `PLAN.md` «Caja colgada».
 
 ---
 

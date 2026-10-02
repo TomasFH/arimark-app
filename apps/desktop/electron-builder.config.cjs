@@ -24,6 +24,7 @@ module.exports = {
   ],
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
+    icon: 'build-resources/icon.ico',
     signAndEditExecutable: false,
   },
   nsis: {

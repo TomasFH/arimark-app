@@ -526,7 +526,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
             <button
               type="button"
               onClick={onClose}
-              className="mt-2 rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-success/100 text-ink"
+              className="mt-2 rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-success/100 text-accent-fg"
             >
               Cerrar
             </button>
@@ -794,7 +794,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                             type="button"
                             disabled={saving}
                             onClick={() => applyAdjust(row)}
-                            className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium bg-accent hover:bg-success/100 text-ink disabled:opacity-50"
+                            className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium bg-accent hover:bg-success/100 text-accent-fg disabled:opacity-50"
                           >
                             Aplicar
                           </button>
@@ -827,7 +827,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={handleFinalizeClick}
                 disabled={saving || loading || rows.length === 0}
-                className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-success/100 text-ink transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg px-4 py-2 text-sm font-medium bg-accent hover:bg-success/100 text-accent-fg transition-colors disabled:opacity-50"
               >
                 {saving ? 'Guardando…' : countStatus === 'final' ? 'Guardar cambios' : 'Finalizar conteo'}
               </button>
@@ -865,7 +865,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
                 type="button"
                 onClick={() => void handleFinalizeConfirm()}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-accent hover:bg-success/100 text-ink font-semibold transition-colors disabled:opacity-40"
+                className="flex-1 py-2 rounded-xl bg-accent hover:bg-success/100 text-accent-fg font-semibold transition-colors disabled:opacity-40"
               >
                 {saving ? 'Guardando…' : countStatus === 'final' ? 'Sí, guardar' : 'Sí, finalizar'}
               </button>

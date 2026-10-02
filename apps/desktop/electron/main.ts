@@ -1,5 +1,6 @@
 import './bootEnv'
 import { app, BrowserWindow, Menu } from 'electron'
+import fs from 'fs'
 import path from 'path'
 import log from 'electron-log'
 import { registerAllHandlers } from './ipc/index'
@@ -28,12 +29,20 @@ log.info('[main] Iniciando app', { version: app.getVersion(), env: process.env['
 
 const isDev = process.env['NODE_ENV'] === 'development'
 
+function windowIconPath(): string | undefined {
+  // El .ico trae 16, 24 y 32 px ya armados. Si se pasa el PNG de 1024,
+  // Windows muestrea píxeles sueltos para la barra de título y el logo se desarma.
+  const iconPath = path.join(__dirname, '../../build-resources/icon.ico')
+  return fs.existsSync(iconPath) ? iconPath : undefined
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 640,
+    icon: windowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
