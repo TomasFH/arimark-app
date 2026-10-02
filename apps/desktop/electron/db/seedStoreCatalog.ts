@@ -26,7 +26,8 @@ export interface MasterCatalogProduct {
   name: string
   category: ProductCategory
   unit: ProductUnit
-  price: number
+  /** Ausente o null: el PLU está en la lista, pero no hay precio de lista para copiar. */
+  price: number | null
 }
 
 export interface MasterCatalogFile {
@@ -69,7 +70,7 @@ export function loadMasterCatalog(filePath?: string): MasterCatalogFile | null {
       if (!raw || typeof raw !== 'object') continue
       const p = raw as Record<string, unknown>
       if (typeof p['plu'] !== 'number' || typeof p['name'] !== 'string') continue
-      if (typeof p['price'] !== 'number') continue
+      const price = typeof p['price'] === 'number' ? p['price'] : null
       const category = p['category']
       const unit = p['unit']
       if (typeof category !== 'string' || !CATEGORIES.has(category as ProductCategory)) continue
@@ -79,7 +80,7 @@ export function loadMasterCatalog(filePath?: string): MasterCatalogFile | null {
         name: p['name'],
         category: category as ProductCategory,
         unit: unit as ProductUnit,
-        price: p['price'],
+        price,
       })
     }
     return { pricesValidFrom: parsed.pricesValidFrom, products: productsOut }
@@ -94,6 +95,7 @@ export function loadMasterCatalogPricesByPlu(filePath?: string): Map<number, num
   const catalog = loadMasterCatalog(filePath)
   if (!catalog) return map
   for (const p of catalog.products) {
+    if (typeof p.price !== 'number') continue
     map.set(p.plu, p.price)
   }
   return map

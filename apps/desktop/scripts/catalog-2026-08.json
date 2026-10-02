@@ -1,6 +1,6 @@
 {
   "pricesValidFrom": "2026-08-03T12:00:00.000Z",
-  "note": "Lista de precios del local — ago 2026. Packs = precio del pack (unit). Pieza/ofertas N = $/kg. Hamburguesas carne/pollo mismo precio, productos distintos.",
+  "note": "Lista de PLU del local. Precios de ago 2026 donde están. PLU 500–518 y 550–555 se agregaron en el local en oct 2026 (capturas de la app): sin precio acá porque las capturas no lo traían; no inventar uno.",
   "products": [
     {
       "plu": 1,
@@ -825,6 +825,206 @@
       "unit": "kg",
       "price": 7000,
       "section": "Ofertas pieza"
+    },
+    {
+      "plu": 500,
+      "name": "Patitas de pollo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 501,
+      "name": "Medallón de pollo",
+      "category": "poultry",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 502,
+      "name": "Medallón Jamón y Queso",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 503,
+      "name": "Papa noisette",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 504,
+      "name": "Papa carita",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 505,
+      "name": "Papa tradicional",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 506,
+      "name": "Bastón espinaca",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 507,
+      "name": "Nugget Brocoli",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 508,
+      "name": "Nugget crocante",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 509,
+      "name": "Medallón de merluza",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 510,
+      "name": "Calabaza",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 511,
+      "name": "Pochoclo",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 512,
+      "name": "Filet rebozado",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 513,
+      "name": "Merluza marinada",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 514,
+      "name": "Bastón mozzarella",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 515,
+      "name": "Chicken finger",
+      "category": "poultry",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 516,
+      "name": "Bastón de merluza",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 517,
+      "name": "Brocoli",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 518,
+      "name": "Crispy",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Congelados"
+    },
+    {
+      "plu": 550,
+      "name": "Provoleta",
+      "category": "other",
+      "unit": "unit",
+      "price": null,
+      "section": "Almacén"
+    },
+    {
+      "plu": 551,
+      "name": "Carbón chico",
+      "category": "other",
+      "unit": "unit",
+      "price": null,
+      "section": "Almacén"
+    },
+    {
+      "plu": 552,
+      "name": "Carbón grande",
+      "category": "other",
+      "unit": "unit",
+      "price": null,
+      "section": "Almacén"
+    },
+    {
+      "plu": 553,
+      "name": "Maderitas",
+      "category": "other",
+      "unit": "unit",
+      "price": null,
+      "section": "Almacén"
+    },
+    {
+      "plu": 554,
+      "name": "Leña",
+      "category": "other",
+      "unit": "unit",
+      "price": null,
+      "section": "Almacén"
+    },
+    {
+      "plu": 555,
+      "name": "Aceite",
+      "category": "other",
+      "unit": "unit",
+      "price": null,
+      "section": "Almacén"
     }
   ]
 }

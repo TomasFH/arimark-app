@@ -53,7 +53,7 @@ interface CatalogProduct {
   name: string
   category: 'beef_cut' | 'poultry' | 'pork' | 'other'
   unit: 'kg' | 'unit'
-  price: number
+  price: number | null
 }
 
 interface CatalogFile {
@@ -165,6 +165,7 @@ async function main() {
   } else {
     let priceCount = 0
     for (const product of CATALOG.products) {
+      if (typeof product.price !== 'number') continue
       const productId = productIdForPlu(product.plu)
       const existingPrice = db.prepare(`
         SELECT id FROM product_prices

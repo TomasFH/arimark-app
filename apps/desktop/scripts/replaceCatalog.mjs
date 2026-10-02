@@ -133,14 +133,16 @@ function main() {
         createdAt: now,
       })
       for (const store of stores) {
-        insertPrice.run(
-          randomUUID(),
-          id,
-          store.id,
-          p.price,
-          catalog.pricesValidFrom,
-          seedUserId,
-        )
+        if (typeof p.price === 'number') {
+          insertPrice.run(
+            randomUUID(),
+            id,
+            store.id,
+            p.price,
+            catalog.pricesValidFrom,
+            seedUserId,
+          )
+        }
         upsertStoreProduct.run(store.id, id)
       }
       inserted++
