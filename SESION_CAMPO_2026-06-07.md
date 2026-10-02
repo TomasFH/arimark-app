@@ -6,6 +6,9 @@ continuar el desarrollo relacionado con hardware.
 
 > **Actualización 15/06/2026:** El serial USB sí sirve para **gestión de PLUs** (comandos R30 `2005`/`5005`).
 > Ver documentación completa en `SESION_CAMPO_2026-06-15_KRETZ_PLU.md`.
+>
+> **Actualización 02/10/2026:** disco nuevo en la PC del local, COM4, tres balanzas y PLU nuevos.
+> Ver `SESION_CAMPO_2026-10-02.md`.
 
 ---
 

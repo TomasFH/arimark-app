@@ -182,7 +182,7 @@ Entregado:
 - PLU management completo: probar enlace (cmd 0002), leer (cmd 5005/5001), crear/actualizar (cmd 2005), borrar (cmd 3005). Validado en carnicería con balanza KRETZ REPORT NX (sesión 15/06/2026).
 - Hardware manager: dev sin `KRETZ_PORT` usa mock; dev con `KRETZ_PORT` o producción usa driver real; gestiona conexión, reconexión con backoff exponencial, `setHardwareStatus()`.
 - **Detección automática de puerto (jul 2026):** `portDetect.ts` sondea todos los puertos COM con el protocolo R30 (`0002`) y conecta en caliente al que responde. Validado en campo con dos balanzas REPORT NX idénticas en COM8 y COM11. UI en DevTools → Hardware → "Detectar balanza automáticamente"; el puerto se persiste en `safeStorage`.
-- **Pendiente 1.0 — cambio de balanza en la app oficial (campo 2026-10-02):** tres REPORT NX. Al enchufar la 2.ª y la 3.ª, el instalador no las detecta. Reiniciar la app oficial no alcanzó en la 3.ª. El procedimiento que sí funcionó: cerrar la oficial, confirmar el enlace en DevTools de la versión de pruebas, volver a la oficial. Ese panel no está en el instalador y no puede ser el camino del local. Hay que detectar la balanza recién enchufada desde la app oficial. Alternativa mínima: en el modal «Cargar catálogo en la balanza», un botón que reintente la conexión contra el COM que responda. Ver `CHECKLIST_CIERRE_1_0.md`.
+- **Pendiente 1.0 — cambio de balanza en la app oficial (campo 2026-10-02):** tres REPORT NX. Al enchufar la 2.ª y la 3.ª, el instalador no las detecta. Reiniciar la app oficial no alcanzó en la 3.ª. El procedimiento que sí funcionó: cerrar la oficial, confirmar el enlace en DevTools de la versión de pruebas, volver a la oficial. Ese panel no está en el instalador y no puede ser el camino del local. Hay que detectar la balanza recién enchufada desde la app oficial. Alternativa mínima: en el modal «Cargar catálogo en la balanza», un botón que reintente la conexión contra el COM que responda. Ver `CHECKLIST_CIERRE_1_0.md` y `SESION_CAMPO_2026-10-02.md`.
 - IPC tipado con zod para todos los comandos de PLU y configuración de puerto.
 - Panel DevTools integrado en la app (solo modo dev) para diagnóstico, log de eventos y gestión de PLUs.
 - Tests de modos de fallo del mock (`timeout`, `garbage`, `disconnect`, `malformed_response`): implementados y testeados.
@@ -476,13 +476,13 @@ La charla con los dueños del negocio (jul 2026) definió el enfoque:
 
 ## Checklist de testeo con balanza física — Fase 4
 
-Ejecutar cuando la balanza KRETZ REPORT NX esté disponible. Prerequisitos: ver `SESION_CAMPO_2026-06-15_KRETZ_PLU.md`.
+Ejecutar cuando la balanza KRETZ REPORT NX esté disponible. Prerequisitos: `SESION_CAMPO_2026-06-15_KRETZ_PLU.md` y, para el disco nuevo y las tres balanzas, `SESION_CAMPO_2026-10-02.md`.
 
 ### Preparación
 - [ ] Cerrar iTegra y cualquier otro programa que use el puerto COM de la balanza.
 - [ ] Verificar en Administrador de dispositivos que la balanza aparece como puerto COM (driver JDATAGATE instalado). **El número de COM puede variar** entre PCs o balanzas idénticas (ej. COM8 en una, COM11 en otra).
 - [ ] Ejecutar `pnpm seed:dev` para asegurarse de tener el catálogo de prueba cargado.
-- [ ] Iniciar la app: `pnpm dev` o `pnpm dev:hw` (este último fuerza COM8 por variable de entorno; si la balanza está en otro COM, usar detección automática — ver abajo).
+- [ ] Iniciar la app: `pnpm dev` (mock) o `pnpm dev:hw` (hardware real, sin fijar COM8; si el COM guardado no responde, sondea los demás).
 - [ ] **Detectar la balanza:** DevTools → pestaña **Hardware** → **"Detectar balanza automáticamente"**. La app sondea todos los puertos COM, se conecta al que responda R30 y guarda el puerto (sin reiniciar). Alternativa manual: ingresar el COM en el mismo panel y guardar (requiere reinicio).
 
 ### Verificación de conexión base

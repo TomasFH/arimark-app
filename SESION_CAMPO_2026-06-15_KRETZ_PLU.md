@@ -8,6 +8,8 @@ Leer este documento antes de tocar `electron/hardware/kretz/` o `PluManagerPanel
 
 Documento relacionado (sesión anterior, contexto general): `SESION_CAMPO_2026-06-07.md`.
 
+> **Actualización 02/10/2026:** en la PC del local con disco nuevo la balanza enumeró en COM4, y hay tres REPORT NX. `pnpm dev:hw` ya no fija COM8. La app oficial no detecta sola la 2.ª ni la 3.ª. Procedimiento, iTegra y PLU nuevos: `SESION_CAMPO_2026-10-02.md`.
+
 ---
 
 ## Resumen ejecutivo
@@ -25,9 +27,9 @@ Documento relacionado (sesión anterior, contexto general): `SESION_CAMPO_2026-0
 ## Cómo arrancar para probar PLUs
 
 ```bash
-pnpm dev:hw    # fuerza COM8; si la balanza está en otro COM, ver detección automática abajo
+pnpm dev:hw    # hardware real. No fija COM8: usa el COM guardado o busca el que responde
 # o
-pnpm dev       # mock por defecto; luego detectar balanza desde DevTools
+pnpm dev       # mock. La carga del catálogo del local se hace desde el instalador, no desde esta base
 ```
 
 Requisitos:
@@ -41,7 +43,8 @@ Variables de entorno relevantes:
 
 ```
 APP_ENV=dev
-KRETZ_PORT=COM8   # solo si se usa pnpm dev:hw; la detección automática ignora esto en caliente
+KRETZ_AUTOPROBE=1   # lo define pnpm dev:hw
+# KRETZ_PORT=COM4   # opcional, solo para forzar un COM concreto
 ```
 
 ---
@@ -436,7 +439,7 @@ Sesión en la carnicería con **dos balanzas KRETZ REPORT NX** (misma marca y mo
 | Segunda balanza, primer uso (COM11) | ❌ Falló con puerto fijo COM8 (`pnpm dev:hw`) |
 | Detección automática de puerto + reconexión en caliente | ✅ Funciona en COM11 |
 
-**Lección:** dos balanzas idénticas no se distinguen por nombre de dispositivo; el número de COM depende de la PC y del puerto USB. Cambiar el COM manualmente en DevTools y reiniciar **no alcanza** si `pnpm dev:hw` fuerza `KRETZ_PORT=COM8` por variable de entorno. La detección automática (sondeo R30 en todos los COM) resuelve el caso sin reiniciar.
+**Lección:** dos balanzas idénticas no se distinguen por nombre de dispositivo; el número de COM depende de la PC y del puerto USB. Cambiar el COM manualmente en DevTools y reiniciar no alcanza si `pnpm dev:hw` fuerza `KRETZ_PORT=COM8` por variable de entorno. La detección automática (sondeo R30 en todos los COM) resuelve el caso sin reiniciar. Desde el 02/10/2026 `pnpm dev:hw` ya no fija COM8 (`KRETZ_AUTOPROBE=1`). La app oficial sigue sin ese camino: ver `SESION_CAMPO_2026-10-02.md`.
 
 **Archivos de la feature:** `electron/hardware/kretz/portDetect.ts`, `electron/ipc/kretzPort.handler.ts`, botón en `DevToolsPanel.tsx` (pestaña Hardware).
 
@@ -458,8 +461,8 @@ Sesión en la carnicería con **dos balanzas KRETZ REPORT NX** (misma marca y mo
 
 - [ ] Cerrar iTegra antes de abrir arimark-app
 - [ ] Verificar en Administrador de dispositivos en qué COM aparece la balanza (puede variar)
-- [ ] `pnpm dev` o `pnpm dev:hw`
-- [ ] DevTools → Hardware → **"Detectar balanza automáticamente"** (si el COM no es COM8)
+- [ ] `pnpm dev:hw` (no fija COM8) para hablar con la balanza; `pnpm dev` queda en mock
+- [ ] DevTools → Hardware → **"Detectar balanza automáticamente"** si el COM guardado no es el de esta balanza
 - [ ] DevTools → PLUs → “Verificar conexión” → debe decir R30 OK
 - [ ] Buscar PLU existente por número real (no por posición)
 - [ ] Crear PLU de prueba con precio > $10.000
