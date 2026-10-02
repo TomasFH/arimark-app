@@ -181,7 +181,7 @@ function HardwareTab({ onLog }: { onLog: (entry: Omit<LogEntry, 'id'>) => void }
         <p className="text-[10px] font-bold uppercase tracking-wide text-muted">Configurar hardware</p>
 
         <div>
-          <label className="text-[10px] text-muted">Puerto KRETZ (ej. COM8; vacío = mock)</label>
+          <label className="text-[10px] text-muted">Puerto KRETZ (ej. COM11; vacío en pnpm dev = mock)</label>
           <input
             type="text"
             value={editPort}

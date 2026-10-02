@@ -142,11 +142,11 @@ Solo existen dos entornos. No hay un tercer modo intermedio.
 
 - **`APP_ENV=dev`** (modo de pruebas):
   - Base de datos separada (`userData/dev/app.sqlite`).
-  - Hardware: driver real si `KRETZ_PORT` está definido; mock en caso contrario.
+  - Hardware: driver real si `KRETZ_PORT` está definido o si `KRETZ_AUTOPROBE=1`; mock en caso contrario.
   - Firebase desactivado. Sin verificación de licencia. Sin activación.
   - Banner amarillo visible en la UI: "MODO PRUEBAS".
   - Botón "Saltar login" disponible en la pantalla de login.
-  - Script: `pnpm dev` (mock) o `pnpm dev:hw` (hardware real con COM8).
+  - Script: `pnpm dev` (mock) o `pnpm dev:hw` (hardware real: puerto guardado, o detección del COM que responde).
 - **`APP_ENV=production`** (modo real):
   - Base de datos en `userData/app.sqlite`.
   - Hardware real (driver serie KRETZ desde `safeStorage`).
@@ -224,8 +224,8 @@ Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refier
 ## Hardware — mocks
 
 - Los mocks de hardware (`__mocks__/kretzDriver.ts`) **nunca se incluyen en el bundle de producción**. El `afterPack` lo verifica.
-- En `APP_ENV=dev` sin `KRETZ_PORT`, la app usa automáticamente el mock KRETZ.
-- **Detección automática de puerto (jul 2026):** DevTools → Hardware → "Detectar balanza automáticamente" sondea todos los COM con R30 (`0002`), conecta en caliente y persiste el puerto en `safeStorage`. Necesario cuando la balanza enumeró en un COM distinto al configurado (ej. COM11 vs COM8). `pnpm dev:hw` fuerza COM8 por env — la detección en caliente lo sobreescribe sin reiniciar.
+- En `APP_ENV=dev` sin `KRETZ_PORT` y sin `KRETZ_AUTOPROBE`, la app usa automáticamente el mock KRETZ.
+- **Detección automática de puerto:** DevTools → Hardware → "Detectar balanza automáticamente" sondea todos los COM con R30 (`0002`), conecta en caliente y persiste el puerto en `safeStorage`. Si el COM configurado (`KRETZ_PORT` o el secreto) no abre o no responde al enlace, el arranque hace ese sondeo solo, guarda el COM que contesta y no se queda clavado en un COM muerto (por ejemplo COM8 después de un disco nuevo). `pnpm dev:hw` activa `KRETZ_AUTOPROBE=1` y no hardcodea COM8: si la balanza está en COM8 y responde, la encuentra igual. `pnpm dev` sin puerto sigue en mock.
 - En tests, los mocks se importan directamente.
 - Los modos de fallo inyectables (`timeout`, `garbage`, `disconnect`, `malformed_response`) deben estar implementados y testeados antes de cerrar la Fase 1.
 

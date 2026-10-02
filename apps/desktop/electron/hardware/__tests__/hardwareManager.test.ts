@@ -13,6 +13,7 @@ vi.mock('../../ipc/hardwareStatus.handler', () => ({
 
 vi.mock('../../secureStorage', () => ({
   getSecret: vi.fn(() => null),
+  setSecret: vi.fn(),
   SECRET_KEYS: { KRETZ_PORT: 'kretz-port' },
 }))
 
@@ -31,6 +32,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   delete process.env['KRETZ_MOCK_MODE']
   delete process.env['KRETZ_MOCK_INTERVAL_MS']
+  delete process.env['KRETZ_PORT']
+  delete process.env['KRETZ_AUTOPROBE']
 })
 
 afterEach(() => {

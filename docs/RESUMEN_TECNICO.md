@@ -177,7 +177,7 @@ Gate de licencia **no-op** (TASKS A1). `tenant_id` = namespace. Activación por 
 
 `electron/hardware/kretz/` (`kretzDriver.ts`, `r30Protocol.ts`, `r30Parser.ts`, `portDetect.ts`). Baud 115200.
 
-Comandos: enlace `0002`, leer `5005/5001`, upsert `2005`, borrar `3005`. Sync masivo: `KRETZ_SYNC_CATALOG` + progreso. Puerto en `KRETZ_PORT` o `safeStorage`. Detección automática sondea todos los COM.
+Comandos: enlace `0002`, leer `5005/5001`, upsert `2005`, borrar `3005`. Sync masivo: `KRETZ_SYNC_CATALOG` + progreso. Puerto en `KRETZ_PORT` o `safeStorage`. Si ese COM no responde, se sondean los demás y se guarda el que contesta. `pnpm dev:hw` usa `KRETZ_AUTOPROBE=1` (no fuerza COM8). `pnpm dev` sin puerto sigue en mock.
 
 Mocks con fallos inyectables (`timeout`, `garbage`, `disconnect`, `malformed_response`); `afterPack` impide que entren al bundle de prod.
 

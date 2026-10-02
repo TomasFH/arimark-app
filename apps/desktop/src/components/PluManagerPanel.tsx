@@ -146,8 +146,8 @@ export default function PluManagerPanel() {
       } else {
         showFeedback(
           'error',
-          'El puerto COM8 está abierto (pestaña Hardware), pero la balanza no respondió OK al protocolo R30. ' +
-            'Cerrá iTegra, la mini app u otro programa que use COM8 e intentá de nuevo.'
+          'La balanza no respondió OK al protocolo R30. Cerrá iTegra y cualquier programa que use el puerto COM, ' +
+            'y en DevTools → Hardware usá «Detectar balanza automáticamente».'
         )
       }
     } catch {
@@ -323,8 +323,8 @@ export default function PluManagerPanel() {
           <StatusBadge linked={linked} />
         </div>
         <p className="text-xs text-muted">
-          Conectá la balanza por USB (COM8). El punto verde en la pestaña Hardware solo indica que el
-          puerto serial está abierto; acá se prueba que la balanza responda al protocolo R30.
+          Conectá la balanza por USB y cerrá iTegra. El punto verde en Hardware aparece cuando el COM
+          responde al protocolo R30; si el puerto guardado no contesta, la app busca otro COM.
         </p>
         <button
           onClick={handleTestLink}

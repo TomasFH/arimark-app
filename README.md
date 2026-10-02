@@ -36,7 +36,7 @@ Ver [`AGENTS.md`](./AGENTS.md) para el conjunto completo de reglas que gobiernan
 
 **Los datos de pruebas nunca se mezclan con producción.**
 
-En modo `dev`, si se define `KRETZ_PORT=COM8`, se usa el driver real de la balanza. Si no está definido, se usa el mock. En la carnicería, si la balanza enumeró en otro COM (ej. COM11), usar **DevTools → Hardware → "Detectar balanza automáticamente"**: sondea todos los puertos con el protocolo R30 y conecta sin reiniciar la app.
+En modo `dev`, si se define `KRETZ_PORT` (o hay un puerto guardado), se usa el driver real. Si ese COM no abre o no responde al enlace R30, la app sondea los demás, se conecta al que contesta y lo guarda. Sin puerto y sin `KRETZ_AUTOPROBE`, se usa el mock. `pnpm dev:hw` no fija COM8: detecta el COM (COM8 u otro) y, si hace falta, **DevTools → Hardware → "Detectar balanza automáticamente"** repite el sondeo en caliente. iTegra tiene que estar cerrado.
 
 ## Configuración por cliente
 
@@ -61,7 +61,7 @@ Copiar `apps/desktop/config/business.example.json` a `apps/desktop/config/busine
 ```bash
 pnpm install          # instalar dependencias
 pnpm dev              # modo pruebas con mock de balanza (desarrollo local)
-pnpm dev:hw           # modo pruebas con balanza real (fuerza COM8; si la balanza está en otro COM, usar detección automática en DevTools)
+pnpm dev:hw           # modo pruebas con balanza real (detecta el COM; no fuerza COM8)
 pnpm dev:prod         # modo producción desde fuente (requiere business.json y Firebase)
 pnpm build:prod       # compilar instalador de producción (.exe)
 pnpm test             # ejecutar suite completa
