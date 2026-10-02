@@ -56,6 +56,7 @@ Eso cubre migraciones, IPC, visitas de mercadería, deudas, auth de roles, carri
 - **Fiar el resto** (post checklist, 2026-09-22): en cobro en efectivo, si el monto no cubre el total, un botón chico «Fiar el resto» abre el fiado con ese pago ya cargado. No es el camino por defecto: un tipeo no debe crear deuda solo.
 - **Estadísticas de plata** (post checklist, sin pantallas todavía): ver `PLAN.md` «Caja y ganancia». El cobro de un fiado no se pierde: queda en el ledger. No es una segunda venta.
 - **Caja colgada** (antes de 1.0, sin codear): si una cajera se va con el turno abierto, la siguiente o un admin cierran esa caja contando lo que hay, también desde el celu del admin. Sin pedir la clave de la que se fue. Ver `PLAN.md` «Caja colgada».
+- **Reconocer la balanza al enchufarla** (1.0, campo 2026-10-02): hay tres KRETZ REPORT NX y cada una enumera en un COM distinto. La app oficial se queda con el COM de la primera; al pasar a la segunda hay que cerrarla y volver a abrirla. La detección de DevTools no le llega al instalador (otra carpeta de datos) y en producción ese panel no existe. Objetivo: al enchufar otra balanza, la app abierta la encuentra sola. Si eso no es fiable, un botón en el modal **Cargar catálogo en la balanza** que reintente el enlace y se conecte al COM que responda, sin reiniciar. No cargar el catálogo desde `pnpm dev`: esa base no es la del local.
 
 ---
 
