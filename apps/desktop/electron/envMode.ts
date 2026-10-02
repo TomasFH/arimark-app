@@ -3,7 +3,7 @@
  *
  * Modos:
  *  - dev        → modo de pruebas (sin Firebase, sin licencias, DB separada)
- *                 Hardware: real si KRETZ_PORT está definido, mock en caso contrario.
+ *                 Hardware: real si KRETZ_PORT o KRETZ_AUTOPROBE=1; mock en caso contrario.
  *  - production → modo real (Firebase, licencias, DB de producción, hardware real)
  */
 

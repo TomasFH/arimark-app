@@ -14,8 +14,16 @@
 
 import log from 'electron-log'
 import { setHardwareStatus } from '../ipc/hardwareStatus.handler'
-import { getSecret, SECRET_KEYS } from '../secureStorage'
+import { getSecret, setSecret, SECRET_KEYS } from '../secureStorage'
 import type { KretzDriver, SendPluArgs, PluRow } from './kretz/kretzDriver.interface'
+
+export interface HardwareManagerOptions {
+  /**
+   * Sin puerto configurado, sondear los COM al arrancar.
+   * Lo activa `pnpm dev:hw` (`KRETZ_AUTOPROBE=1`). No aplica al mock de `pnpm dev`.
+   */
+  autoprobe?: boolean
+}
 
 const MIN_RECONNECT_MS = 5_000
 const MAX_RECONNECT_MS = 30_000
@@ -25,21 +33,38 @@ export class HardwareManager {
   private _kretzReconnectDelay = MIN_RECONNECT_MS
   /** Puerto actualmente en uso por el driver real (null si es mock o sin configurar). */
   private _kretzPort: string | null = null
+  /** `pnpm dev:hw` sin puerto guardado: sondear en vez de caer al mock. */
+  private _autoprobe = false
+  /** Evita sondeos anidados mientras un sondeo ya está en curso. */
+  private _probing = false
+  /**
+   * El driver real emite `connected` al abrir el COM, antes del test R30.
+   * Mientras esto es true, ese evento no marca la balanza como conectada.
+   */
+  private _suppressConnected = false
 
-  constructor(private kretz: KretzDriver, kretzPort: string | null = null) {
+  constructor(
+    private kretz: KretzDriver,
+    kretzPort: string | null = null,
+    options?: HardwareManagerOptions
+  ) {
     this._kretzPort = kretzPort
+    this._autoprobe = options?.autoprobe === true
     this._wireKretzEvents()
   }
 
   /** Inicia conexión con la balanza. Llamar al arrancar la app. */
   async start(): Promise<void> {
-    await Promise.allSettled([this._connectKretz()])
+    await this._connectKretz()
   }
 
   /** Cierra conexión limpiamente. Llamar al cerrar la app. */
   async stop(): Promise<void> {
     this._clearReconnect('kretz')
+    // Sin listeners, el 'disconnected' del cierre no programa otra reconexión.
+    this.kretz.removeAllListeners()
     await Promise.allSettled([this.kretz.disconnect()])
+    this._clearReconnect('kretz')
   }
 
   // ---------------------------------------------------------------------------
@@ -70,23 +95,56 @@ export class HardwareManager {
   // Conexión y reconexión
   // ---------------------------------------------------------------------------
 
-  private async _connectKretz(): Promise<void> {
+  private async _connectKretz(): Promise<boolean> {
+    // Sin COM pedido pero con autodetección (`pnpm dev:hw`): no usar el mock.
+    if (this._autoprobe && !this._kretzPort) {
+      const found = await this._probeAndAdopt()
+      if (found) return true
+      log.info('[hardware] No se encontró la balanza en ningún COM')
+      setHardwareStatus({ scale: 'error' })
+      this._scheduleReconnect()
+      return false
+    }
+
+    const verifyLink = Boolean(this._kretzPort?.trim())
+    this._suppressConnected = verifyLink
     try {
       await this.kretz.connect()
+      if (verifyLink) {
+        const linked = await this.kretz.testLink()
+        if (!linked) {
+          throw new Error(
+            `[kretz] El puerto ${this._kretzPort} no respondió al test de enlace R30`
+          )
+        }
+        this._markKretzLinked()
+      }
       this._kretzReconnectDelay = MIN_RECONNECT_MS
-      // Estado actualizado via evento 'connected' en _wireKretzEvents
+      return true
     } catch (err) {
+      this._suppressConnected = false
       const msg = err instanceof Error ? err.message : String(err)
       // "Puerto serial no configurado" es el estado normal cuando la balanza
       // todavía no está enchufada o no fue configurada. No es un error crítico.
-      const isUnconfigured = msg.toLowerCase().includes('no configurado') || msg.toLowerCase().includes('not configured')
+      const isUnconfigured =
+        msg.toLowerCase().includes('no configurado') ||
+        msg.toLowerCase().includes('not configured')
       if (isUnconfigured) {
         log.debug('[hardware] KRETZ: puerto no configurado, reintentando en background')
       } else {
         log.warn('[hardware] Fallo al conectar KRETZ', msg)
       }
+
+      // Puerto pedido (env o secreto) que no abre o no habla R30: buscar otro COM.
+      // No aplica al mock (`pnpm dev` sin puerto) ni a un sondeo ya en curso.
+      if (!this._probing && this._kretzPort) {
+        const found = await this._probeAndAdopt()
+        if (found) return true
+      }
+
       setHardwareStatus({ scale: 'error' })
       this._scheduleReconnect()
+      return false
     }
   }
 
@@ -124,14 +182,93 @@ export class HardwareManager {
    * sin reiniciar la app. Cierra y descarta el driver anterior (incluido el mock).
    */
   async setKretzPort(portPath: string): Promise<void> {
+    await this._adoptPort(portPath)
+  }
+
+  /**
+   * Detecta automáticamente el puerto de la balanza sondeando el protocolo R30
+   * en todos los puertos serie disponibles. Para poder sondear libremente, primero
+   * libera el puerto que estuviera en uso. Si encuentra una balanza, la conecta,
+   * persiste el puerto y lo devuelve; si no, reanuda la reconexión y devuelve null.
+   */
+  async detectAndConnectKretz(): Promise<string | null> {
+    const port = await this._probeAndAdopt()
+    if (!port) {
+      setHardwareStatus({ scale: 'error' })
+      this._scheduleReconnect()
+      return null
+    }
+    return port
+  }
+
+  /**
+   * Cierra el driver actual, sondea todos los COM y, si uno responde al enlace
+   * R30, lo adopta y lo guarda. Devuelve null si ninguno responde.
+   */
+  private async _probeAndAdopt(): Promise<string | null> {
+    if (this._probing) return null
+    this._probing = true
+    let released = false
+    try {
+      this._clearReconnect('kretz')
+      log.info('[hardware] Sondeando puertos COM para la balanza KRETZ', {
+        configuredPort: this._kretzPort,
+      })
+
+      this.kretz.removeAllListeners()
+      released = true
+      try {
+        await this.kretz.disconnect()
+      } catch (err) {
+        log.debug(
+          '[hardware] El driver previo no estaba conectado',
+          err instanceof Error ? err.message : String(err)
+        )
+      }
+
+      const { detectKretzPort } = await import('./kretz/portDetect')
+      const found = await detectKretzPort()
+      if (!found) {
+        log.info('[hardware] Ningún COM respondió al protocolo R30')
+        return null
+      }
+
+      const previous = this._kretzPort
+      const linked = await this._adoptPort(found)
+      if (!linked) return null
+
+      this._persistKretzPort(found)
+      if (previous !== found) {
+        log.info('[hardware] Se reemplazó el puerto KRETZ que no respondía', {
+          previous,
+          port: found,
+        })
+      }
+      return found
+    } catch (err) {
+      log.error('[hardware] Error al sondear puertos COM', err)
+      return null
+    } finally {
+      this._probing = false
+      if (released && this.kretz.listenerCount('connected') === 0) {
+        this._wireKretzEvents()
+      }
+    }
+  }
+
+  /** Instala un driver real en `portPath` y verifica el enlace R30. */
+  private async _adoptPort(portPath: string): Promise<boolean> {
     this._clearReconnect('kretz')
 
     const previous = this.kretz
     previous.removeAllListeners()
     try {
       await previous.disconnect()
-    } catch {
-      // El driver anterior puede no estar conectado — no es un error.
+    } catch (err) {
+      log.debug(
+        '[hardware] No se pudo cerrar el driver anterior',
+        err instanceof Error ? err.message : String(err)
+      )
     }
 
     const { KretzRealDriver } = await import('./kretz/kretzDriver')
@@ -139,38 +276,28 @@ export class HardwareManager {
     this._kretzPort = portPath
     this._kretzReconnectDelay = MIN_RECONNECT_MS
     this._wireKretzEvents()
-    await this._connectKretz()
+    return this._connectKretz()
   }
 
-  /**
-   * Detecta automáticamente el puerto de la balanza sondeando el protocolo R30
-   * en todos los puertos serie disponibles. Para poder sondear libremente, primero
-   * libera el puerto que estuviera en uso. Si encuentra una balanza, la conecta y
-   * devuelve su puerto; si no, restaura el driver anterior y devuelve null.
-   */
-  async detectAndConnectKretz(): Promise<string | null> {
-    this._clearReconnect('kretz')
-
-    // Liberar el driver actual para no bloquear su propio puerto durante el sondeo.
-    this.kretz.removeAllListeners()
+  private _persistKretzPort(port: string): void {
     try {
-      await this.kretz.disconnect()
-    } catch {
-      // Sin conexión previa — nada que liberar.
+      setSecret(SECRET_KEYS.KRETZ_PORT, port)
+      log.info('[hardware] Puerto KRETZ guardado', { port })
+    } catch (err) {
+      // safeStorage puede no estar disponible (tests, Linux sin keyring).
+      // La conexión ya quedó hecha; el próximo arranque volverá a detectar.
+      log.warn('[hardware] No se pudo guardar el puerto KRETZ', {
+        port,
+        err: err instanceof Error ? err.message : String(err),
+      })
     }
+  }
 
-    const { detectKretzPort } = await import('./kretz/portDetect')
-    const port = await detectKretzPort()
-
-    if (!port) {
-      // No se detectó nada: reactivar el driver previo para no dejar la app sin balanza.
-      this._wireKretzEvents()
-      this._scheduleReconnect()
-      return null
-    }
-
-    await this.setKretzPort(port)
-    return port
+  private _markKretzLinked(): void {
+    this._suppressConnected = false
+    log.info('[hardware] KRETZ conectada', { port: this._kretzPort })
+    setHardwareStatus({ scale: 'connected' })
+    this._clearReconnect('kretz')
   }
 
   // ---------------------------------------------------------------------------
@@ -179,9 +306,8 @@ export class HardwareManager {
 
   private _wireKretzEvents(): void {
     this.kretz.on('connected', () => {
-      log.info('[hardware] KRETZ conectada')
-      setHardwareStatus({ scale: 'connected' })
-      this._clearReconnect('kretz')
+      if (this._suppressConnected) return
+      this._markKretzLinked()
     })
 
     this.kretz.on('disconnected', () => {
@@ -205,7 +331,8 @@ export async function createHardwareManager(): Promise<HardwareManager> {
   const env = process.env['APP_ENV'] ?? 'dev'
 
   if (env === 'dev') {
-    // En dev: usar hardware real si KRETZ_PORT está definido, mock en caso contrario.
+    // Puerto explícito (env o secreto) → driver real. Si ese COM no responde,
+    // _connectKretz sondea el resto. Sin puerto ni KRETZ_AUTOPROBE → mock.
     const kretzPort =
       process.env['KRETZ_PORT'] ?? getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
 
@@ -215,12 +342,19 @@ export async function createHardwareManager(): Promise<HardwareManager> {
       return new HardwareManager(new KretzRealDriver(kretzPort), kretzPort)
     }
 
+    if (process.env['KRETZ_AUTOPROBE'] === '1') {
+      const { KretzRealDriver } = await import('./kretz/kretzDriver')
+      log.info('[hardware] Modo dev — sin puerto guardado, se detecta la balanza')
+      return new HardwareManager(new KretzRealDriver(''), null, { autoprobe: true })
+    }
+
     const { KretzMockDriver } = await import('./kretz/__mocks__/kretzDriver')
     log.info('[hardware] Modo dev — usando mock KRETZ (sin KRETZ_PORT)')
     return new HardwareManager(new KretzMockDriver())
   }
 
-  // Producción: leer config de secureStorage
+  // Producción: leer config de secureStorage. Si el COM guardado no responde,
+  // el arranque sondea los demás (el número de COM cambia con el disco/USB).
   const kretzPort = getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
   const { KretzRealDriver } = await import('./kretz/kretzDriver')
   return new HardwareManager(new KretzRealDriver(kretzPort), kretzPort || null)
