@@ -32,7 +32,10 @@ const isDev = process.env['NODE_ENV'] === 'development'
 function windowIconPath(): string | undefined {
   // El .ico trae 16, 24 y 32 px ya armados. Si se pasa el PNG de 1024,
   // Windows muestrea píxeles sueltos para la barra de título y el logo se desarma.
-  const iconPath = path.join(__dirname, '../../build-resources/icon.ico')
+  // En el instalador el archivo viaja como resources/icon.ico. En dev sigue al lado del repo.
+  const packaged = path.join(process.resourcesPath, 'icon.ico')
+  const dev = path.join(__dirname, '../../build-resources/icon.ico')
+  const iconPath = fs.existsSync(packaged) ? packaged : dev
   return fs.existsSync(iconPath) ? iconPath : undefined
 }
 
