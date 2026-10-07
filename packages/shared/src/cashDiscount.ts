@@ -84,17 +84,24 @@ export function quoteCashDiscount(input: {
   depositAmount?: number
   depositDigitalAmount?: number
   remainderIncludesCash: boolean
+  /**
+   * Descuento de esta venta fuera de la regla del local.
+   * Ignora mínimo, efectivo y seña digital. El fiado sigue sin descuento.
+   */
+  force?: boolean
 }): CashDiscountQuote {
   const itemTotal = Math.round(input.itemTotal)
   const deposit = Math.max(0, Math.round(input.depositAmount ?? 0))
+  const isDebt = input.isDebt === true
   const pre = cashDiscountPreconditions({
     rule: input.rule,
     itemTotal,
-    isDebt: input.isDebt === true,
+    isDebt,
     depositAmount: deposit,
     depositDigitalAmount: Math.max(0, Math.round(input.depositDigitalAmount ?? 0)),
   })
-  const eligible = pre && input.remainderIncludesCash
+  const forced = input.force === true && !isDebt && input.rule.percent > 0
+  const eligible = forced || (pre && input.remainderIncludesCash)
   const discountAmount = eligible ? roundCashDiscount(itemTotal, input.rule.percent) : 0
   const discountedTotal = eligible ? Math.max(0, itemTotal - discountAmount) : itemTotal
   const amountDue = Math.max(0, (eligible ? discountedTotal : itemTotal) - deposit)
@@ -105,6 +112,14 @@ export function quoteCashDiscount(input: {
     discountedTotal,
     amountDue,
   }
+}
+
+/** Marca corta del historial. Solo si el tilde de excepción estuvo activo. */
+export function exceptionalDiscountLabel(percent: number): string {
+  const pct = typeof percent === 'number' && Number.isFinite(percent)
+    ? Math.min(100, Math.max(0, Math.round(percent)))
+    : 0
+  return `descuento aparte ${pct}%`
 }
 
 /** `sale.total` persistido: con descuento es el total de ítems ya descontado; si no, ítems − seña. */

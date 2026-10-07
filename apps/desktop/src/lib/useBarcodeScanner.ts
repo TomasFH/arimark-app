@@ -161,8 +161,11 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
       lastKeyTimeRef.current = now
       bufferRef.current += e.key
 
-      // Auto-submit al alcanzar la longitud exacta del EAN-13
+      // Auto-submit al alcanzar la longitud exacta del EAN-13.
+      // El lector manda un Enter después: hay que tragárselo aunque el foco
+      // esté en un botón (si no, reabre Vales, Gastos o Turno).
       if (bufferRef.current.length === 13) {
+        pendingEnterBlockRef.current = true
         flush(bufferRef.current)
         return
       }

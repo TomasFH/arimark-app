@@ -69,6 +69,9 @@ export interface AdminSale {
   createdAt: string
   items: AdminSaleItem[]
   payments: AdminSalePayment[]
+  /** True solo si el tilde de excepción estuvo activo en el cobro. */
+  discountException?: boolean
+  discountPercent?: number
 }
 
 export type PaymentTotals = Record<PaymentMethod, number> & { total: number }
@@ -251,6 +254,8 @@ export async function fetchAdminSalesForShift(shiftId: string): Promise<AdminSal
         paymentMethod?: PaymentMethod
         amount?: number
       }>
+      discountException?: boolean
+      discountPercent?: number
     }
     if (data.shiftId !== shiftId) continue
     sales.push({
@@ -270,6 +275,10 @@ export async function fetchAdminSalesForShift(shiftId: string): Promise<AdminSal
           p.paymentMethod != null && typeof p.amount === 'number',
         )
         .map(p => ({ paymentMethod: p.paymentMethod, amount: p.amount })),
+      discountException: data.discountException === true,
+      discountPercent: typeof data.discountPercent === 'number' && Number.isFinite(data.discountPercent)
+        ? data.discountPercent
+        : 0,
     })
   }
   sales.sort((a, b) => a.createdAt.localeCompare(b.createdAt))

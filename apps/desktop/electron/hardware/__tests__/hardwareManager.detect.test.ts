@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'events'
 
 vi.mock('electron', () => ({
@@ -37,11 +37,15 @@ vi.mock('../kretz/kretzDriver', () => ({
 }))
 
 const detectKretzPortMock = vi.fn()
+const listSerialPortsMock = vi.fn()
+const probeKretzPortMock = vi.fn()
 vi.mock('../kretz/portDetect', () => ({
   detectKretzPort: (...args: unknown[]) => detectKretzPortMock(...args),
+  listSerialPorts: (...args: unknown[]) => listSerialPortsMock(...args),
+  probeKretzPort: (...args: unknown[]) => probeKretzPortMock(...args),
 }))
 
-import { HardwareManager } from '../hardwareManager'
+import { HardwareManager, KRETZ_PORT_WATCH_MS } from '../hardwareManager'
 import type { KretzDriver } from '../kretz/kretzDriver.interface'
 import { setHardwareStatus } from '../../ipc/hardwareStatus.handler'
 
@@ -70,6 +74,11 @@ function asDriver(driver: EventEmitter): KretzDriver {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  detectKretzPortMock.mockReset()
+  listSerialPortsMock.mockReset()
+  probeKretzPortMock.mockReset()
+  listSerialPortsMock.mockResolvedValue([])
+  probeKretzPortMock.mockResolvedValue(false)
   realDriverInstances.length = 0
   delete process.env['KRETZ_PORT']
   delete process.env['KRETZ_AUTOPROBE']
@@ -235,6 +244,154 @@ describe('createHardwareManager — KRETZ_AUTOPROBE', () => {
 
     expect(detectKretzPortMock).not.toHaveBeenCalled()
     expect(manager.getKretzPort()).toBe('COM8')
+    await manager.stop()
+  })
+})
+
+async function flushAsync(): Promise<void> {
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setImmediate(resolve))
+  }
+}
+
+describe('HardwareManager — enchufe en caliente', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function portsQueAparecen(inicial: string[], despues: string[]): void {
+    let llamadas = 0
+    listSerialPortsMock.mockImplementation(async () => {
+      llamadas += 1
+      return (llamadas === 1 ? inicial : despues).map(path => ({ path }))
+    })
+  }
+
+  it('si aparece un COM y no hay enlace, sondea, adopta y guarda ese puerto', async () => {
+    vi.useFakeTimers()
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(false)
+    portsQueAparecen(['COM4'], ['COM4', 'COM11'])
+    let sondeos = 0
+    detectKretzPortMock.mockImplementation(async () => {
+      sondeos += 1
+      return sondeos === 1 ? null : 'COM11'
+    })
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+
+    await manager.start()
+    expect(manager.getKretzPort()).toBe('COM4')
+    expect(setSecretMock).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(KRETZ_PORT_WATCH_MS)
+
+    expect(manager.getKretzPort()).toBe('COM11')
+    expect(setSecretMock).toHaveBeenCalledWith('kretz-port', 'COM11')
+    expect(setHardwareStatus).toHaveBeenCalledWith(expect.objectContaining({ scale: 'connected' }))
+    await manager.stop()
+  })
+
+  it('si ya hay enlace y el COM nuevo responde, se queda con ese puerto', async () => {
+    vi.useFakeTimers()
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(true)
+    portsQueAparecen(['COM4'], ['COM4', 'COM11'])
+    probeKretzPortMock.mockImplementation(async (path: unknown) => path === 'COM11')
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+
+    await manager.start()
+    expect(detectKretzPortMock).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(KRETZ_PORT_WATCH_MS)
+
+    expect(probeKretzPortMock).toHaveBeenCalledWith('COM11')
+    expect(detectKretzPortMock).not.toHaveBeenCalled()
+    expect(manager.getKretzPort()).toBe('COM11')
+    expect(setSecretMock).toHaveBeenCalledWith('kretz-port', 'COM11')
+    await manager.stop()
+  })
+
+  it('si el COM nuevo no responde, no cambia ni guarda el puerto', async () => {
+    vi.useFakeTimers()
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(true)
+    portsQueAparecen(['COM4'], ['COM4', 'COM11'])
+    probeKretzPortMock.mockResolvedValue(false)
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+
+    await manager.start()
+    await vi.advanceTimersByTimeAsync(KRETZ_PORT_WATCH_MS)
+
+    expect(probeKretzPortMock).toHaveBeenCalledWith('COM11')
+    expect(manager.getKretzPort()).toBe('COM4')
+    expect(setSecretMock).not.toHaveBeenCalled()
+    expect(detectKretzPortMock).not.toHaveBeenCalled()
+    expect(setHardwareStatus).toHaveBeenCalledWith(expect.objectContaining({ scale: 'connected' }))
+    await manager.stop()
+  })
+
+  it('si se pierde el enlace, sondea y adopta el COM que responde', async () => {
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(true)
+    listSerialPortsMock.mockResolvedValue([{ path: 'COM4' }])
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+    await manager.start()
+
+    detectKretzPortMock.mockResolvedValue('COM11')
+    initial.emit('disconnected')
+    await flushAsync()
+
+    expect(manager.getKretzPort()).toBe('COM11')
+    expect(detectKretzPortMock).toHaveBeenCalled()
+    expect(setSecretMock).toHaveBeenCalledWith('kretz-port', 'COM11')
+    await manager.stop()
+  })
+
+  it('si se pierde el enlace y nadie responde, no guarda otro puerto', async () => {
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(true)
+    listSerialPortsMock.mockResolvedValue([{ path: 'COM4' }])
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+    await manager.start()
+
+    detectKretzPortMock.mockResolvedValue(null)
+    initial.emit('disconnected')
+    await flushAsync()
+
+    expect(setHardwareStatus).toHaveBeenCalledWith({ scale: 'error' })
+    expect(manager.getKretzPort()).toBe('COM4')
+    expect(setSecretMock).not.toHaveBeenCalled()
+    expect(realDriverInstances).toHaveLength(0)
+    await manager.stop()
+  })
+
+  it('el mock de dev sin puerto no lista ni sondea COM', async () => {
+    vi.useFakeTimers()
+    const { createHardwareManager } = await import('../hardwareManager')
+    const manager = await createHardwareManager()
+
+    await manager.start()
+    await vi.advanceTimersByTimeAsync(KRETZ_PORT_WATCH_MS * 4)
+
+    expect(listSerialPortsMock).not.toHaveBeenCalled()
+    expect(detectKretzPortMock).not.toHaveBeenCalled()
+    expect(probeKretzPortMock).not.toHaveBeenCalled()
+    expect(realDriverInstances).toHaveLength(0)
+    await manager.stop()
+  })
+
+  it('en producción sin puerto guardado sondea al arrancar y guarda el que responde', async () => {
+    process.env['APP_ENV'] = 'production'
+    detectKretzPortMock.mockResolvedValue('COM11')
+    const { createHardwareManager } = await import('../hardwareManager')
+    const manager = await createHardwareManager()
+
+    await manager.start()
+
+    expect(realDriverInstances.length).toBeGreaterThan(0)
+    expect(manager.getKretzPort()).toBe('COM11')
+    expect(detectKretzPortMock).toHaveBeenCalled()
+    expect(setSecretMock).toHaveBeenCalledWith('kretz-port', 'COM11')
     await manager.stop()
   })
 })

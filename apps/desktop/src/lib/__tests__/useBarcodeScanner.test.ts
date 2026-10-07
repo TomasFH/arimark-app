@@ -169,6 +169,25 @@ describe('useBarcodeScanner — descarte de buffer', () => {
   })
 })
 
+describe('useBarcodeScanner — Enter residual', () => {
+  it('no deja que el Enter posterior active el botón enfocado', () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan }))
+
+    const button = document.createElement('button')
+    document.body.appendChild(button)
+    button.focus()
+
+    for (const ch of '2001060000012') pressKey(ch)
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    document.dispatchEvent(enter)
+
+    expect(onScan).toHaveBeenCalledOnce()
+    expect(enter.defaultPrevented).toBe(true)
+    button.remove()
+  })
+})
+
 describe('useBarcodeScanner — disabled', () => {
   it('no intercepta nada cuando disabled=true', async () => {
     const onScan = vi.fn()

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildItemFromBarcode, applySpecialUnitPrice } from '../barcodeItem'
+import { buildItemFromBarcode, applySpecialUnitPrice, assignCatalogProduct, valeLineFromBarcode } from '../barcodeItem'
 import type { ProductRow } from '../../types/hw-api'
 
 const kgProduct: ProductRow = {
@@ -40,11 +40,13 @@ describe('buildItemFromBarcode — producto por kg', () => {
     expect(item.productName).toBe('Vacío')
   })
 
-  it('fallback a PLU N si no hay producto en catálogo', () => {
+  it('entra con el precio del ticket si no hay producto en catálogo', () => {
     const item = buildItemFromBarcode(99, 10000, undefined)
     expect(item.productName).toBe('PLU 99')
+    expect(item.productId).toBeNull()
     expect(item.weightKg).toBe(1)
     expect(item.unitPrice).toBe(10000)
+    expect(item.subtotal).toBe(10000)
   })
 })
 
@@ -82,5 +84,64 @@ describe('applySpecialUnitPrice', () => {
     const item = buildItemFromBarcode(5, 17535, kgProduct)
     expect(applySpecialUnitPrice(item, undefined)).toEqual(item)
     expect(applySpecialUnitPrice(item, 0)).toEqual(item)
+  })
+})
+
+describe('assignCatalogProduct', () => {
+  const ticket = buildItemFromBarcode(99, 17535, undefined)
+
+  it('deriva el peso si el precio de lista cierra con el ticket', () => {
+    const assigned = assignCatalogProduct(ticket, kgProduct)
+    expect(assigned.productId).toBe(kgProduct.id)
+    expect(assigned.productName).toBe('Vacío')
+    expect(assigned.subtotal).toBe(17535)
+    expect(assigned.unitPrice).toBe(21000)
+    expect(assigned.weightKg).toBeCloseTo(17535 / 21000, 5)
+    expect(assigned.priceDiscrepancy).toBeUndefined()
+  })
+
+  it('deja precio especial si el total no coincide con unidades de lista', () => {
+    const assigned = assignCatalogProduct(
+      buildItemFromBarcode(99, 7000, undefined),
+      unitProduct,
+    )
+    expect(assigned.productId).toBe(unitProduct.id)
+    expect(assigned.subtotal).toBe(7000)
+    expect(assigned.priceDiscrepancy).toBe(true)
+    expect(assigned.unitPrice).not.toBe(unitProduct.price)
+  })
+
+  it('usa el precio del ticket cuando el producto no tiene precio de lista', () => {
+    const otros: ProductRow = {
+      id: 'prod-otros',
+      pluNumber: 999,
+      name: 'Otros',
+      category: 'other',
+      unit: 'kg',
+      price: null,
+    }
+    const assigned = assignCatalogProduct(ticket, otros)
+    expect(assigned.productId).toBe('prod-otros')
+    expect(assigned.productName).toBe('Otros')
+    expect(assigned.pluNumber).toBe(999)
+    expect(assigned.subtotal).toBe(17535)
+    expect(assigned.unitPrice).toBe(17535)
+    expect(assigned.priceDiscrepancy).toBe(true)
+  })
+})
+
+describe('valeLineFromBarcode', () => {
+  it('agrega el producto del ticket a la lista del vale', () => {
+    const line = valeLineFromBarcode('2000517535000', [kgProduct])
+    expect(line.ok).toBe(true)
+    if (!line.ok) return
+    expect(line.product.id).toBe(kgProduct.id)
+    expect(line.priceText).toBe('21.000')
+    expect(line.quantityText).toContain('0,835')
+  })
+
+  it('no arma línea si el PLU no está en el catálogo', () => {
+    const line = valeLineFromBarcode('2009910000009', [kgProduct])
+    expect(line).toEqual({ ok: false, error: 'PLU 99 no está en el catálogo.' })
   })
 })

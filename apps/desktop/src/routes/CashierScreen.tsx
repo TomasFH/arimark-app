@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } fro
 import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
 import PaymentModal from '../components/PaymentModal'
+import CatalogAssignField from '../components/CatalogAssignField'
+import BagsPanel from '../components/BagsPanel'
 import ProductsListModal from '../components/ProductsListModal'
 import ExpenseModal from './ExpenseModal'
 import CashInjectModal from './CashInjectModal'
@@ -22,7 +24,8 @@ import { formatARS, formatKg } from '../lib/datetime'
 import { applyColorScheme, type ColorScheme } from '../lib/theme'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS, normalizeCashDiscountRule, parseCashDiscountSchedule, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock } from '@carniceria/shared'
-import { applySpecialUnitPrice, buildItemFromBarcode } from '../lib/barcodeItem'
+import { applySpecialUnitPrice, assignCatalogProduct, buildItemFromBarcode } from '../lib/barcodeItem'
+import { addBagToCart, collapseDuplicateBags, removeBagQuantity } from '../lib/bags'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 
 interface Props {
@@ -46,8 +49,6 @@ interface Props {
   /** Callback para indicar que el carrito fue consumido (App.tsx limpia el estado) */
   onOrderCartConsumed?: () => void
 }
-
-const FALLBACK_PRODUCT_ID = '00000000-0000-0000-0001-000000000099'
 
 /**
  * Selector de cliente especial en el header del POS (aplica precios acordados al escanear / Manual).
@@ -110,6 +111,13 @@ const IconCashInject = () => (
   </svg>
 )
 
+const IconGear = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+)
+
 const IconCebo = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M8.25 6.75h7.5M6 10.5h12M7.5 14.25h9M9 18h6" />
@@ -119,12 +127,6 @@ const IconCebo = () => (
 const IconX = () => (
   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-  </svg>
-)
-
-const IconScan = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.5v15M7.5 4.5v15M10.5 4.5v15M12.75 4.5v15M16.5 4.5v15M20.25 4.5v15" />
   </svg>
 )
 
@@ -281,6 +283,119 @@ function menuLeading(icon: ReactNode) {
   return <span className="text-muted">{icon}</span>
 }
 
+function PosSettingsPage({
+  zoomFactor,
+  colorScheme,
+  onBack,
+  onZoom,
+  onScheme,
+  onPassword,
+}: {
+  zoomFactor: number
+  colorScheme: ColorScheme
+  onBack: () => void
+  onZoom: (factor: number) => void
+  onScheme: (scheme: ColorScheme) => void
+  onPassword: () => void
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-muted transition-colors hover:bg-hover hover:text-ink"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+        Ajustes
+      </button>
+
+      <div className="space-y-4 px-4 py-3">
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-ink">Tamaño</p>
+            <span className="font-mono text-sm font-semibold tabular-nums text-ink">
+              {Math.round(zoomFactor * 100)}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onZoom(zoomFactor - 0.1)}
+              disabled={zoomFactor <= 0.6}
+              title="Reducir tamaño"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-ink hover:bg-hover disabled:opacity-30"
+            >
+              −
+            </button>
+            <div className="relative h-1.5 flex-1 rounded-full bg-hover">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-accent"
+                style={{ width: `${((zoomFactor - 0.6) / 1.4) * 100}%` }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => onZoom(zoomFactor + 0.1)}
+              disabled={zoomFactor >= 2}
+              title="Aumentar tamaño"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-ink hover:bg-hover disabled:opacity-30"
+            >
+              +
+            </button>
+          </div>
+          {zoomFactor !== 1 && (
+            <button
+              type="button"
+              onClick={() => onZoom(1)}
+              className="mt-2 text-[10px] text-muted hover:text-ink"
+            >
+              Restablecer al 100%
+            </button>
+          )}
+        </div>
+
+        <div className="border-t border-line pt-3">
+          <p className="mb-2 text-xs font-medium text-ink">Apariencia</p>
+          <div className="flex rounded-xl bg-hover p-1">
+            <button
+              type="button"
+              onClick={() => onScheme('light')}
+              aria-pressed={colorScheme === 'light'}
+              className={cx(
+                'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
+                colorScheme === 'light' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
+              )}
+            >
+              Claro
+            </button>
+            <button
+              type="button"
+              onClick={() => onScheme('dark')}
+              aria-pressed={colorScheme === 'dark'}
+              className={cx(
+                'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
+                colorScheme === 'dark' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
+              )}
+            >
+              Oscuro
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-line">
+        <ListRow
+          title="Cambiar contraseña"
+          leading={menuLeading(<IconKey />)}
+          onClick={onPassword}
+        />
+      </div>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -354,9 +469,8 @@ export default function CashierScreen({
   // ── New UI state ───────────────────────────────────────────────────────────
   const [showManualPanel, setShowManualPanel] = useState(false)
   const [showMenuPanel, setShowMenuPanel] = useState(false)
-  const [heroInput, setHeroInput] = useState('')
-  const [heroError, setHeroError] = useState('')
-  const heroInputRef = useRef<HTMLInputElement>(null)
+  const [menuPage, setMenuPage] = useState<'root' | 'settings'>('root')
+  const [zoomFactor, setZoomFactor] = useState(1)
   const [colorScheme, setColorScheme] = useState<ColorScheme>(() => (
     document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
   ))
@@ -389,13 +503,21 @@ export default function CashierScreen({
     void window.hw.getUiSettings().then(r => {
       if (!r.ok) return
       setColorScheme(r.data.colorScheme)
+      setZoomFactor(r.data.zoomFactor)
       applyColorScheme(r.data.colorScheme)
     })
     return window.hw.onUiSettingsChanged(settings => {
       setColorScheme(settings.colorScheme)
+      setZoomFactor(settings.zoomFactor)
       applyColorScheme(settings.colorScheme)
     })
   }, [])
+
+  async function handleSetZoom(next: number): Promise<void> {
+    const clamped = Math.max(0.6, Math.min(2, Math.round(next * 10) / 10))
+    const r = await window.hw.setUiSettings({ zoomFactor: clamped })
+    if (r.ok) setZoomFactor(r.data.zoomFactor)
+  }
 
   async function handleColorScheme(scheme: ColorScheme): Promise<void> {
     applyColorScheme(scheme)
@@ -528,20 +650,25 @@ export default function CashierScreen({
   // ── Cart logic ─────────────────────────────────────────────────────────────
 
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0)
+  const pendingCatalog = cart.some(item => !item.productId)
   /** Monto neto a cobrar ahora: descuenta la seña del pedido activo */
   const cartNetTotal = Math.max(0, cartTotal - (activeOrder?.depositAmount ?? 0))
   const hasManualItems = cart.some(item => item.manualEntry)
 
   const addItem = useCallback((item: SaleItemDraft) => {
-    const special = item.productId ? specialPriceByProductId[item.productId] : undefined
+    // Precio especial manual en kg: el ítem ya trae el kilo que escribió la cajera.
+    const keepTypedKilo = item.manualEntry === true && item.priceDiscrepancy === true && item.unit === 'kg'
+    const special = !keepTypedKilo && item.productId ? specialPriceByProductId[item.productId] : undefined
     const priced = applySpecialUnitPrice(item, special)
     setCart(prev => [...prev, { ...priced, localId: `tmp-${crypto.randomUUID()}` }])
     setError('')
     setLastSaleId(null)
   }, [specialPriceByProductId])
 
+  const railPanelOpen = showValesModal || showExpenseModal || showSalesModal
   const anyModalOpen = showPaymentModal || showProductsModal
     || showCashInjectModal || showCeboModal || showCashDiscountModal
+    || railPanelOpen
 
   const handleGlobalScan = useCallback((digits: string) => {
     const parsed = parseKretzBarcode(digits)
@@ -561,6 +688,43 @@ export default function CashierScreen({
     setCart(prev => prev.filter(i => i.localId !== localId))
   }
 
+  function assignItemProduct(localId: string, product: ProductRow) {
+    setCart(prev => prev.map(item => (
+      item.localId === localId
+        ? { ...assignCatalogProduct(item, product), localId: item.localId }
+        : item
+    )))
+  }
+
+  useEffect(() => {
+    const bagIds = new Set(products.filter(product => product.category === 'bags').map(product => product.id))
+    setCart(prev => collapseDuplicateBags(prev, bagIds))
+  }, [products, cart])
+
+  function addBag(product: ProductRow, quantity: number) {
+    setCart(prev => addBagToCart(prev, product, quantity, `tmp-${crypto.randomUUID()}`))
+    setError('')
+    setLastSaleId(null)
+  }
+
+  function removeBag(productId: string, quantity: number) {
+    setCart(prev => removeBagQuantity(prev, productId, quantity))
+  }
+
+  function saleItemsFromCart() {
+    const items: Array<{ productId: string; quantity: number; unitPrice: number; subtotal: number }> = []
+    for (const item of cart) {
+      if (!item.productId) return null
+      items.push({
+        productId: item.productId,
+        quantity: item.unit === 'unit' ? Math.round(item.weightKg) : item.weightKg,
+        unitPrice: item.unitPrice,
+        subtotal: item.subtotal,
+      })
+    }
+    return items
+  }
+
   function clearCart() {
     setCart([])
     setError('')
@@ -572,46 +736,21 @@ export default function CashierScreen({
     if (cart.length === 0 && activeOrder) setActiveOrder(null)
   }, [cart.length, activeOrder])
 
-  // ── Hero input handlers ────────────────────────────────────────────────────
-
-  function handleHeroChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const digits = e.target.value.replace(/\D/g, '')
-    setHeroInput(digits)
-    setHeroError('')
-    if (digits.length === 13) {
-      const parsed = parseKretzBarcode(digits)
-      if (parsed) {
-        const plu = parseInt(parsed.pluNumber, 10)
-        const product = products.find(p => p.pluNumber === plu)
-        const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
-        addItem(item)
-        setHeroInput('')
-        setTimeout(() => heroInputRef.current?.focus(), 0)
-      }
-    }
-  }
-
-  function handleHeroSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!heroInput.trim()) return
-    const parsed = parseKretzBarcode(heroInput.trim())
-    if (parsed) {
-      const plu = parseInt(parsed.pluNumber, 10)
-      const product = products.find(p => p.pluNumber === plu)
-      const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
-      addItem(item)
-      setHeroInput('')
-      setTimeout(() => heroInputRef.current?.focus(), 0)
-    } else {
-      setHeroError('Código inválido — verificá que sea el ticket de la balanza (13 dígitos, prefijo 20).')
-    }
-  }
-
   // ── Sale handlers ──────────────────────────────────────────────────────────
 
-  async function handleConfirmSale(payments: SalePaymentPayload[], notes?: string) {
+  async function handleConfirmSale(
+    payments: SalePaymentPayload[],
+    notes?: string,
+    discountPercent?: number,
+    discountException?: boolean,
+  ) {
     if (cart.length === 0) {
       setError('Agregá al menos un producto antes de confirmar.')
+      return
+    }
+    const items = saleItemsFromCart()
+    if (!items) {
+      setError('Asigná un producto del catálogo a cada ticket.')
       return
     }
     setLoading(true)
@@ -619,17 +758,14 @@ export default function CashierScreen({
     setShowPaymentModal(false)
     try {
       const result = await window.hw.createSale({
-        items: cart.map(item => ({
-          productId: item.productId ?? FALLBACK_PRODUCT_ID,
-          quantity: item.unit === 'unit' ? Math.round(item.weightKg) : item.weightKg,
-          unitPrice: item.unitPrice,
-          subtotal: item.subtotal,
-        })),
+        items,
         payments,
         manualEntry: hasManualItems,
         notes,
         orderId: activeOrder?.orderId,
         depositCredit: activeOrder?.depositAmount && activeOrder.depositAmount > 0 ? activeOrder.depositAmount : undefined,
+        discountPercent,
+        discountException,
       })
       if (!result.ok) {
         setError(result.error ?? 'Error al procesar la venta.')
@@ -647,6 +783,10 @@ export default function CashierScreen({
   }
 
   function openPaymentModal() {
+    if (cart.some(item => !item.productId)) {
+      setError('Asigná un producto del catálogo a cada ticket.')
+      return
+    }
     setError('')
     setLastSaleId(null)
     setShowPaymentModal(true)
@@ -672,16 +812,16 @@ export default function CashierScreen({
     notes?: string
   }) {
     if (cart.length === 0) return
+    const items = saleItemsFromCart()
+    if (!items) {
+      setDebtError('Asigná un producto del catálogo a cada ticket.')
+      return
+    }
     setDebtLoading(true)
     setDebtError(null)
     try {
       const saleResult = await window.hw.createSale({
-        items: cart.map(item => ({
-          productId: item.productId ?? FALLBACK_PRODUCT_ID,
-          quantity: item.unit === 'unit' ? Math.round(item.weightKg) : item.weightKg,
-          unitPrice: item.unitPrice,
-          subtotal: item.subtotal,
-        })),
+        items,
         payments: payload.paymentMethods,
         isDebt: true,
         customerId: payload.customerId,
@@ -718,7 +858,10 @@ export default function CashierScreen({
 
   const shiftLabel = shift.shiftType === 'morning' ? 'Mañana' : 'Tarde'
 
-  function closeMenu() { setShowMenuPanel(false) }
+  function closeMenu() {
+    setShowMenuPanel(false)
+    setMenuPage('root')
+  }
 
   useEffect(() => {
     if (!showMenuPanel) return
@@ -843,63 +986,34 @@ export default function CashierScreen({
             {/* ━━━ LEFT COLUMN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
             <div className="flex flex-1 flex-col min-w-0 gap-4">
 
-              {/* Page title */}
-              <p className="text-base font-semibold text-ink shrink-0">Área de Venta</p>
-
-              {/* Hero scan input + manual toggle */}
-              <div className="shrink-0 flex gap-2">
-                <form onSubmit={handleHeroSubmit} className="flex-1 min-w-0">
-                  <div className={cx(
-                    'flex h-14 items-center gap-3 rounded-xl border bg-panel px-4 transition-colors focus-within:border-accent',
-                    heroError ? 'border-danger' : 'border-line',
-                  )}>
-                    <span className="shrink-0 text-muted"><IconScan /></span>
-                    <input
-                      ref={heroInputRef}
-                      type="text"
-                      inputMode="numeric"
-                      value={heroInput}
-                      onChange={handleHeroChange}
-                      placeholder="Escaneá el ticket de la balanza"
-                      data-barcode-input="true"
-                      autoFocus
-                      className="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-subtle focus:outline-none"
-                    />
-                    {scanFlash ? (
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-success animate-pulse">
-                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                        <span className="max-w-[8rem] truncate" title={scanFlash}>{scanFlash}</span>
-                      </span>
-                    ) : (
-                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
-                        <span className="h-1.5 w-1.5 rounded-full bg-line" />
-                        Lector listo
-                      </span>
+              <div className="flex shrink-0 items-center justify-between gap-3 min-w-0">
+                <p className="text-base font-semibold text-ink">Área de Venta</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  {scanFlash ? (
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-success">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+                      <span className="truncate" title={scanFlash}>{scanFlash}</span>
+                    </span>
+                  ) : (
+                    <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted">
+                      <span className="h-1.5 w-1.5 rounded-full bg-line" />
+                      Lector listo
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowManualPanel(v => !v)}
+                    title="Cargar un producto por nombre o PLU"
+                    className={cx(
+                      'h-9 shrink-0 rounded-lg border px-3 text-sm font-medium transition-colors',
+                      showManualPanel
+                        ? 'border-accent bg-accent-soft text-ink'
+                        : 'border-line bg-panel text-ink hover:bg-hover',
                     )}
-                  </div>
-                  {heroError && (
-                    <p className="mt-1.5 px-1 text-xs text-danger">{heroError}</p>
-                  )}
-                </form>
-
-                <button
-                  type="button"
-                  onClick={() => setShowManualPanel(v => !v)}
-                  title="Ingresar producto manualmente por PLU y precio"
-                  className={cx(
-                    'h-14 shrink-0 rounded-xl border px-4 text-sm font-medium transition-colors',
-                    showManualPanel
-                      ? 'border-accent bg-accent-soft text-ink'
-                      : 'border-line bg-panel text-muted hover:bg-hover hover:text-ink',
-                  )}
-                >
-                  <span className="flex items-center gap-2">
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5 3 12l3.75 4.5m6.75-9L17.25 12l-3.75 4.5M11.25 3l-1.5 18" />
-                    </svg>
-                    <span>Manual</span>
-                  </span>
-                </button>
+                  >
+                    Manual
+                  </button>
+                </div>
               </div>
 
               {/* Manual PLU panel */}
@@ -932,8 +1046,16 @@ export default function CashierScreen({
               </div>
 
               {/* Cart items — panel elevado para no fundirse con el fondo */}
-              <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_8px_24px_rgba(28,28,30,0.06)]">
-                <div className="h-full overflow-y-auto space-y-0.5 p-1">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_8px_24px_rgba(28,28,30,0.06)]">
+                <div className="shrink-0 border-b border-line px-3 py-2">
+                  <BagsPanel
+                    products={products}
+                    lines={cart}
+                    onAdd={addBag}
+                    onRemove={removeBag}
+                  />
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto space-y-0.5 p-1">
                 {cart.length === 0 ? (
                   <div className="flex h-48 flex-col items-center justify-center gap-3 text-muted">
                     <svg className="h-10 w-10 text-subtle" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2} aria-hidden>
@@ -975,12 +1097,18 @@ export default function CashierScreen({
                           {item.priceDiscrepancy && (
                             <span
                               className="shrink-0 rounded px-1 py-0.5 text-[10px] text-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
-                              title="El precio del ticket no coincide con el catálogo. Verificar la balanza."
+                              title="El precio no coincide con la lista. La venta usa el precio del ticket."
                             >
                               precio
                             </span>
                           )}
                         </div>
+                        {!item.productId && (
+                          <CatalogAssignField
+                            products={products}
+                            onAssign={product => assignItemProduct(item.localId, product)}
+                          />
+                        )}
                         <p className="mt-0.5 font-mono text-[11px] text-muted tabular-nums">
                           {item.unit === 'unit'
                             ? `${Math.round(item.weightKg)} u. × ${formatARS(item.unitPrice)}/u.`
@@ -1058,6 +1186,9 @@ export default function CashierScreen({
                     </p>
                   </div>
 
+                  {pendingCatalog && (
+                    <p className="text-xs text-danger">Asigná un producto del catálogo a cada ticket.</p>
+                  )}
                   {error && (
                     <div className="rounded-lg px-3 py-2 bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]">
                       <p className="text-xs text-danger">{error}</p>
@@ -1074,7 +1205,7 @@ export default function CashierScreen({
                     size="lg"
                     fullWidth
                     loading={loading}
-                    disabled={cart.length === 0}
+                    disabled={cart.length === 0 || pendingCatalog}
                     onClick={openPaymentModal}
                     className="!h-14 text-lg"
                   >
@@ -1112,6 +1243,17 @@ export default function CashierScreen({
             </div>
 
             <div className="flex-1 overflow-y-auto py-2">
+              {menuPage === 'settings' ? (
+                <PosSettingsPage
+                  zoomFactor={zoomFactor}
+                  colorScheme={colorScheme}
+                  onBack={() => setMenuPage('root')}
+                  onZoom={factor => { void handleSetZoom(factor) }}
+                  onScheme={scheme => { void handleColorScheme(scheme) }}
+                  onPassword={() => { setShowChangePassword(true); closeMenu() }}
+                />
+              ) : (
+              <>
               <MenuSection title="Caja">
                 <ListRow
                   title="Ingreso"
@@ -1119,7 +1261,7 @@ export default function CashierScreen({
                   onClick={() => { setShowCashInjectModal(true); closeMenu() }}
                 />
                 <ListRow
-                  title="Cebo"
+                  title="Sebo"
                   leading={menuLeading(<IconCebo />)}
                   onClick={() => { setShowCeboModal(true); closeMenu() }}
                 />
@@ -1194,35 +1336,17 @@ export default function CashierScreen({
                   />
                 )}
               </MenuSection>
+              </>
+              )}
             </div>
 
+            {menuPage === 'root' && (
             <div className="shrink-0 max-h-[55%] overflow-y-auto border-t border-line py-2">
-              <MenuSection title="Apariencia">
-                <div className="mx-3 mb-1 flex rounded-xl bg-hover p-1">
-                  <button
-                    type="button"
-                    onClick={() => { void handleColorScheme('light') }}
-                    aria-pressed={colorScheme === 'light'}
-                    className={cx(
-                      'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
-                      colorScheme === 'light' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
-                    )}
-                  >
-                    Claro
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { void handleColorScheme('dark') }}
-                    aria-pressed={colorScheme === 'dark'}
-                    className={cx(
-                      'flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors',
-                      colorScheme === 'dark' ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]' : 'text-muted hover:text-ink',
-                    )}
-                  >
-                    Oscuro
-                  </button>
-                </div>
-              </MenuSection>
+              <ListRow
+                title="Ajustes"
+                leading={menuLeading(<IconGear />)}
+                onClick={() => setMenuPage('settings')}
+              />
 
               <MenuSection title="Sesión" divided>
                 {onReturnToHub && (
@@ -1238,17 +1362,13 @@ export default function CashierScreen({
                   onClick={() => { onCloseShift(); closeMenu() }}
                 />
                 <ListRow
-                  title="Cambiar contraseña"
-                  leading={menuLeading(<IconKey />)}
-                  onClick={() => { setShowChangePassword(true); closeMenu() }}
-                />
-                <ListRow
                   title="Cerrar sesión"
                   leading={menuLeading(<IconLogout />)}
                   onClick={() => { closeMenu(); setShowLogoutConfirm(true) }}
                 />
               </MenuSection>
             </div>
+            )}
           </div>
         </>
       )}
@@ -1267,6 +1387,10 @@ export default function CashierScreen({
               : 0
           }
           cashDiscountRule={cashDiscountRule}
+          products={products}
+          cartLines={cart}
+          onAddBag={addBag}
+          onRemoveBag={removeBag}
           onConfirm={handleConfirmSale}
           onFiado={activeOrder ? undefined : handleOpenFiado}
           onClose={() => setShowPaymentModal(false)}

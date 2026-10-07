@@ -40,7 +40,7 @@ import { parseCashDiscountSchedule, parseHoursSchedule } from '@carniceria/share
 // Schemas de validación Zod
 // ---------------------------------------------------------------------------
 
-const categoryEnum = z.enum(['beef_cut', 'poultry', 'pork', 'other'])
+const categoryEnum = z.enum(['beef_cut', 'poultry', 'pork', 'other', 'bags'])
 const unitEnum = z.enum(['kg', 'unit'])
 
 const createProductSchema = z.object({
@@ -102,11 +102,20 @@ const CATEGORY_LABELS: Record<z.infer<typeof categoryEnum>, string> = {
   poultry: 'aves',
   pork: 'cerdo',
   other: 'otros',
+  bags: 'bolsas',
 }
 
 const UNIT_LABELS: Record<z.infer<typeof unitEnum>, string> = {
   kg: 'kg',
   unit: 'unidad',
+}
+
+/** Las bolsas se venden por unidad. Si llega kg, se corrige acá (no queda solo en la UI). */
+function resolveCatalogUnit(
+  category: z.infer<typeof categoryEnum>,
+  unit: z.infer<typeof unitEnum>,
+): z.infer<typeof unitEnum> {
+  return category === 'bags' ? 'unit' : unit
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +564,11 @@ export function registerCatalogAdminHandlers(): void {
 
     try {
       const db = getDb()
-      const { name, category, unit, pluNumber, purchasePackLabel, purchasePackContents } = parsed.data
+      const { name, category, pluNumber, purchasePackLabel, purchasePackContents } = parsed.data
+      const unit = resolveCatalogUnit(category, parsed.data.unit)
+      if (category === 'bags' && parsed.data.unit !== 'unit') {
+        log.warn('[ipc:create-product] Bolsas no se venden por kilo; unidad corregida a unidad')
+      }
 
       // PLU único solo entre productos activos (los eliminados liberan el número).
       if (pluNumber !== null) {
@@ -666,7 +679,17 @@ export function registerCatalogAdminHandlers(): void {
         }
       }
 
+      const nextCategory = fields.category ?? existing.category
+      const requestedUnit = fields.unit ?? existing.unit
+      const nextUnit = resolveCatalogUnit(nextCategory, requestedUnit)
+
       const updateData: Record<string, unknown> = { ...fields, updatedAt: new Date().toISOString() }
+      if (nextCategory === 'bags' && (requestedUnit !== 'unit' || existing.unit !== 'unit')) {
+        updateData['unit'] = 'unit'
+        if (requestedUnit !== 'unit') {
+          log.warn('[ipc:update-product] Bolsas no se venden por kilo; unidad corregida a unidad', { id })
+        }
+      }
       if (pluNumber !== undefined) {
         updateData['pluNumber'] = pluNumber ?? null
       }
@@ -686,7 +709,7 @@ export function registerCatalogAdminHandlers(): void {
         {
           name: fields.name,
           category: fields.category,
-          unit: fields.unit,
+          unit: fields.unit !== undefined || nextUnit !== existing.unit ? nextUnit : undefined,
           pluNumber,
         },
       )

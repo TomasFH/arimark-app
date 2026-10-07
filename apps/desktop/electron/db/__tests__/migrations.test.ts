@@ -193,7 +193,7 @@ describe('migrations', () => {
       ]))
     })
 
-    it('tiene cebo_entries (migración 0041)', async () => {
+    it('tiene cebo_entries (migración 0041) y sale_id (migración 0048)', async () => {
       const { sqlite } = await createInMemoryDb()
       const cols = sqlite.prepare('PRAGMA table_info(cebo_entries)').all() as { name: string }[]
       expect(cols.map(c => c.name)).toEqual(expect.arrayContaining([
@@ -207,6 +207,7 @@ describe('migrations', () => {
         'updated_by',
         'updated_at',
         'synced_at',
+        'sale_id',
       ]))
     })
 
@@ -284,6 +285,12 @@ describe('migrations', () => {
       expect(priceCols.map(c => c.name)).toEqual(expect.arrayContaining([
         'provider_id', 'product_key', 'unit_cost',
       ]))
+    })
+
+    it('tiene discount_exception en sales (migración 0049)', async () => {
+      const { sqlite } = await createInMemoryDb()
+      const cols = sqlite.prepare('PRAGMA table_info(sales)').all() as { name: string }[]
+      expect(cols.map(c => c.name)).toContain('discount_exception')
     })
 
     it('tiene intake_kind en providers (migración 0047)', async () => {

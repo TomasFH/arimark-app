@@ -146,6 +146,7 @@ describe('saleSync', () => {
           ],
           discountAmount: 0,
           discountPercent: 0,
+          discountException: false,
         }),
         { merge: true },
       )
@@ -182,6 +183,39 @@ describe('saleSync', () => {
           total: 90000,
           discountAmount: 10000,
           discountPercent: 10,
+          discountException: false,
+        }),
+        { merge: true },
+      )
+    })
+
+    it('incluye discountException cuando el descuento fue aparte', async () => {
+      const now = new Date().toISOString()
+      db.insert(sales).values({
+        id: 'sale-apart',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        total: 36000,
+        isDebt: false,
+        status: 'confirmed',
+        manualEntry: false,
+        discountAmount: 4000,
+        discountPercent: 10,
+        discountException: true,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: null,
+      }).run()
+
+      await pushUnsyncedSales(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'sale-apart',
+          discountException: true,
+          discountPercent: 10,
+          discountAmount: 4000,
         }),
         { merge: true },
       )

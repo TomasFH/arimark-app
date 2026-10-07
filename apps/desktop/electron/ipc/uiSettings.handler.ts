@@ -4,7 +4,7 @@
  * También expone funciones para que main.ts pueda aplicar el zoom inicial
  * y hookear los atajos de teclado Ctrl+=/Ctrl+-.
  */
-import { ipcMain, app, BrowserWindow, type WebContents } from 'electron'
+import { ipcMain, app, BrowserWindow, nativeTheme, type WebContents } from 'electron'
 import { z } from 'zod'
 import fs from 'fs'
 import path from 'path'
@@ -69,6 +69,24 @@ function applyZoomToAll(factor: number): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.setZoomFactor(factor)
   }
+}
+
+const WINDOW_BACKGROUND: Record<ColorScheme, string> = {
+  light: '#f4f5f7',
+  dark: '#171412',
+}
+
+/** La barra de título de Windows sigue este tema. El fondo evita un flash blanco. */
+export function applyWindowChrome(scheme: ColorScheme): void {
+  nativeTheme.themeSource = scheme
+  const background = WINDOW_BACKGROUND[scheme]
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.setBackgroundColor(background)
+  }
+}
+
+export function windowBackgroundForScheme(scheme: ColorScheme): string {
+  return WINDOW_BACKGROUND[scheme]
 }
 
 /** Aplica el zoom guardado a todas las ventanas abiertas. Llamar tras ready-to-show. */
@@ -136,6 +154,7 @@ export function registerUiSettingsHandlers(): void {
     }
     writeSettings(parsed.data)
     applyZoomToAll(parsed.data.zoomFactor)
+    applyWindowChrome(parsed.data.colorScheme)
     notifyRenderer(IPC.UI_SETTINGS_CHANGED, parsed.data)
     return { ok: true, data: parsed.data }
   })

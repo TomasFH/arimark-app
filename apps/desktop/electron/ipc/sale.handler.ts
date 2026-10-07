@@ -56,6 +56,10 @@ const createSaleSchema = z
      * sale.total = itemTotal − depositCredit. Los pagos cubren ese neto.
      */
     depositCredit: z.number().min(0).optional(),
+    /** Solo esta venta. No escribe la regla del local. */
+    discountPercent: z.number().int().min(0).max(100).optional(),
+    /** Tilde de descuento excepcional: aplica el % aunque no haya mínimo ni efectivo. */
+    discountException: z.boolean().optional(),
   })
   .refine(
     data => {
@@ -98,10 +102,46 @@ export function registerSaleHandlers(): void {
       }
     }
 
-    const { items, payments, customerId, isDebt, manualEntry, notes, orderId, depositCredit } = parsed.data
+    const {
+      items,
+      payments,
+      customerId,
+      isDebt,
+      manualEntry,
+      notes,
+      orderId,
+      depositCredit,
+      discountPercent: saleDiscountPercent,
+      discountException: saleDiscountException,
+    } = parsed.data
     const itemTotal = Math.round(items.reduce((sum, i) => sum + i.subtotal, 0) * 100) / 100
     const depositAmount = Math.round(depositCredit ?? 0)
     const db = getDb()
+
+    try {
+      const ids = [...new Set(items.map(item => item.productId))]
+      const found = db
+        .select({ id: products.id })
+        .from(products)
+        .where(inArray(products.id, ids))
+        .all()
+      const foundIds = new Set(found.map(row => row.id))
+      const missing = ids.filter(id => !foundIds.has(id))
+      if (missing.length > 0) {
+        log.error('[ipc:create-sale] Producto fuera del catálogo', {
+          missing,
+          found: [...foundIds],
+        })
+        return {
+          ok: false,
+          error: 'Hay un ítem sin producto del catálogo. Asignalo antes de cobrar.',
+          code: 'PRODUCT_NOT_FOUND',
+        }
+      }
+    } catch (err) {
+      log.error('[ipc:create-sale] No se pudo verificar el catálogo', err)
+      return { ok: false, error: 'No se pudo verificar el catálogo.', code: 'DB_ERROR' }
+    }
 
     let rule = normalizeCashDiscountRule(0, 0)
     let depositDigitalAmount = 0
@@ -149,6 +189,11 @@ export function registerSaleHandlers(): void {
       log.error('[ipc:create-sale] No se pudo leer local/seña para descuento', err)
     }
 
+    if (saleDiscountPercent !== undefined) {
+      rule = normalizeCashDiscountRule(rule.minAmount, saleDiscountPercent)
+    }
+
+    const discountException = saleDiscountException === true && isDebt !== true
     const quote = quoteCashDiscount({
       rule,
       itemTotal,
@@ -156,6 +201,7 @@ export function registerSaleHandlers(): void {
       depositAmount,
       depositDigitalAmount,
       remainderIncludesCash: remainderIncludesCash(payments),
+      force: discountException,
     })
 
     if (!isDebt) {
@@ -201,6 +247,7 @@ export function registerSaleHandlers(): void {
             notes: notes ?? null,
             discountAmount,
             discountPercent,
+            discountException,
             createdAt: now,
             createdBy: session.userId,
           })
@@ -304,6 +351,8 @@ export function registerSaleHandlers(): void {
           total: sales.total,
           status: sales.status,
           manualEntry: sales.manualEntry,
+          discountException: sales.discountException,
+          discountPercent: sales.discountPercent,
           createdAt: sales.createdAt,
         })
         .from(sales)
@@ -382,6 +431,8 @@ export function registerSaleHandlers(): void {
           digitalAmount,
           paymentMethods: pays.map(p => p.paymentMethod),
           manualEntry: s.manualEntry,
+          discountException: s.discountException,
+          discountPercent: s.discountPercent,
           items: itemsBySale.get(s.id) ?? [],
         }
       })

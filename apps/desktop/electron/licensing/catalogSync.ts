@@ -133,7 +133,7 @@ function applyRemoteIdentity(tx: DbTx, p: CatalogProduct, now: string): void {
     .values({
       id: p.productId,
       name: p.name,
-      category: p.category as 'beef_cut' | 'poultry' | 'pork' | 'other',
+      category: p.category as 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags',
       unit: p.unit as 'kg' | 'unit',
       pluNumber: p.pluNumber,
       active: true,
@@ -145,7 +145,7 @@ function applyRemoteIdentity(tx: DbTx, p: CatalogProduct, now: string): void {
       set: {
         name: p.name,
         pluNumber: p.pluNumber,
-        category: p.category as 'beef_cut' | 'poultry' | 'pork' | 'other',
+        category: p.category as 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags',
         unit: p.unit as 'kg' | 'unit',
         active: true,
         updatedAt: p.updatedAt ?? now,

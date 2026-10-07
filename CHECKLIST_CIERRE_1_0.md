@@ -4,7 +4,7 @@ Convención: `[ ]` pendiente · `[x]` OK · `[!]` se rompió (anotá qué).
 
 Esto **no** es un recuento de colores, tipografías ni copys. Es para confirmar que, después de todas las oleadas, **cada rol todavía puede operar** y que lo que escribe uno lo ve el otro.
 
-Cuando esta checklist esté completa (sin `[!]` de función), **1.0 se da por cerrada**. Durante la pasada podés anotar mejoras de UI al final: no bloquean el cierre. El ícono de la app (la A) está en `apps/desktop/build-resources/` y entra en el instalador 0.5.0.
+Cuando esta checklist esté completa (sin `[!]` de función), **1.0 se da por cerrada**. Durante la pasada podés anotar mejoras de UI al final: no bloquean el cierre. El ícono de la app (la A) está en `apps/desktop/build-resources/` y entra desde el instalador 0.5.0. El instalador vigente es el 0.6.0.
 
 ---
 

@@ -82,6 +82,7 @@ export interface MobileSaleImport {
   total: number
   discountAmount?: number
   discountPercent?: number
+  discountException?: boolean
   items: MobileSaleItemImport[]
   payments: MobileSalePaymentImport[]
   notes: string | null
@@ -350,6 +351,7 @@ function insertSaleRow(
     notes: sale.notes,
     discountAmount: Math.max(0, Math.round(sale.discountAmount ?? 0)),
     discountPercent: Math.max(0, Math.round(sale.discountPercent ?? 0)),
+    discountException: sale.discountException === true,
     createdAt: sale.createdAt,
     createdBy: sale.createdBy,
   }).run()

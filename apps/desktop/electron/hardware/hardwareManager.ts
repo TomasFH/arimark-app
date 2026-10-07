@@ -5,6 +5,8 @@
  * - Elegir drivers correctos según APP_ENV (mocks en sandbox, reales en producción).
  * - Gestionar el ciclo de vida: connect al arrancar, disconnect al cerrar.
  * - Reconexión automática con backoff exponencial si un driver se desconecta.
+ * - Con la app abierta (instalador), notar un COM nuevo o un enlace caído,
+ *   sondear R30 y guardar el puerto que responde.
  * - Actualizar el estado visible (setHardwareStatus) en cada cambio.
  *
  * La balanza KRETZ se usa exclusivamente para gestión de PLUs (admins). No emite
@@ -20,13 +22,24 @@ import type { KretzDriver, SendPluArgs, PluRow } from './kretz/kretzDriver.inter
 export interface HardwareManagerOptions {
   /**
    * Sin puerto configurado, sondear los COM al arrancar.
-   * Lo activa `pnpm dev:hw` (`KRETZ_AUTOPROBE=1`). No aplica al mock de `pnpm dev`.
+   * Lo activa `pnpm dev:hw` (`KRETZ_AUTOPROBE=1`) y el instalador si no hay
+   * puerto guardado. No aplica al mock de `pnpm dev`.
    */
   autoprobe?: boolean
+  /**
+   * Con la app abierta, lista los COM. Si aparece uno nuevo o se pierde el
+   * enlace, sondea R30 y adopta el que responde. Producción y dev con driver
+   * real. El mock de `pnpm dev` (sin puerto) no lo activa.
+   */
+  watchHotplug?: boolean
 }
 
 const MIN_RECONNECT_MS = 5_000
 const MAX_RECONNECT_MS = 30_000
+/** Cada cuánto se miran los COM para notar un enchufe con la app abierta. */
+export const KRETZ_PORT_WATCH_MS = 2_000
+/** Reintentos de un COM recién aparecido antes de darlo por no-balanza. */
+const MAX_NEW_PORT_PROBES = 3
 
 export class HardwareManager {
   private _kretzReconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -35,13 +48,27 @@ export class HardwareManager {
   private _kretzPort: string | null = null
   /** `pnpm dev:hw` sin puerto guardado: sondear en vez de caer al mock. */
   private _autoprobe = false
+  /** Instalador (y dev con driver real): notar un COM nuevo con la app abierta. */
+  private _watchHotplug = false
   /** Evita sondeos anidados mientras un sondeo ya está en curso. */
   private _probing = false
+  /** Se resuelve cuando termina el sondeo en curso. */
+  private _probeDone: Promise<void> = Promise.resolve()
   /**
    * El driver real emite `connected` al abrir el COM, antes del test R30.
    * Mientras esto es true, ese evento no marca la balanza como conectada.
    */
   private _suppressConnected = false
+  /** True solo después de un enlace R30 OK. Abrir el COM no alcanza. */
+  private _linkOk = false
+  private _portWatchTimer: ReturnType<typeof setInterval> | null = null
+  /** null hasta el primer listado: ese listado no cuenta como enchufe. */
+  private _knownPortPaths: Set<string> | null = null
+  /** COM nuevos que todavía no respondieron, para no sondearlos para siempre. */
+  private _newPortMisses = new Map<string, number>()
+  /** El sondeo de un enchufe puede tardar más que el intervalo. */
+  private _pollInFlight = false
+  private _stopped = false
 
   constructor(
     private kretz: KretzDriver,
@@ -50,16 +77,22 @@ export class HardwareManager {
   ) {
     this._kretzPort = kretzPort
     this._autoprobe = options?.autoprobe === true
+    this._watchHotplug = options?.watchHotplug === true
     this._wireKretzEvents()
   }
 
   /** Inicia conexión con la balanza. Llamar al arrancar la app. */
   async start(): Promise<void> {
     await this._connectKretz()
+    if (!this._watchHotplug || this._stopped) return
+    await this._snapshotPorts()
+    this._armPortWatch()
   }
 
   /** Cierra conexión limpiamente. Llamar al cerrar la app. */
   async stop(): Promise<void> {
+    this._stopped = true
+    this._clearPortWatch()
     this._clearReconnect('kretz')
     // Sin listeners, el 'disconnected' del cierre no programa otra reconexión.
     this.kretz.removeAllListeners()
@@ -96,10 +129,12 @@ export class HardwareManager {
   // ---------------------------------------------------------------------------
 
   private async _connectKretz(): Promise<boolean> {
-    // Sin COM pedido pero con autodetección (`pnpm dev:hw`): no usar el mock.
+    // Sin COM pedido pero con autodetección: no usar el mock.
     if (this._autoprobe && !this._kretzPort) {
       const found = await this._probeAndAdopt()
-      if (found) return true
+      if (found || this._linkOk) return true
+      // Otro sondeo sigue en curso: ese se encarga del resultado.
+      if (this._probing) return false
       log.info('[hardware] No se encontró la balanza en ningún COM')
       setHardwareStatus({ scale: 'error' })
       this._scheduleReconnect()
@@ -123,6 +158,7 @@ export class HardwareManager {
       return true
     } catch (err) {
       this._suppressConnected = false
+      this._linkOk = false
       const msg = err instanceof Error ? err.message : String(err)
       // "Puerto serial no configurado" es el estado normal cuando la balanza
       // todavía no está enchufada o no fue configurada. No es un error crítico.
@@ -139,8 +175,9 @@ export class HardwareManager {
       // No aplica al mock (`pnpm dev` sin puerto) ni a un sondeo ya en curso.
       if (!this._probing && this._kretzPort) {
         const found = await this._probeAndAdopt()
-        if (found) return true
+        if (found || this._linkOk) return true
       }
+      if (this._probing) return false
 
       setHardwareStatus({ scale: 'error' })
       this._scheduleReconnect()
@@ -192,13 +229,21 @@ export class HardwareManager {
    * persiste el puerto y lo devuelve; si no, reanuda la reconexión y devuelve null.
    */
   async detectAndConnectKretz(): Promise<string | null> {
-    const port = await this._probeAndAdopt()
-    if (!port) {
-      setHardwareStatus({ scale: 'error' })
-      this._scheduleReconnect()
-      return null
+    if (this._probing) {
+      await this._probeDone
+      if (this._stopped) return null
+      if (this._linkOk && this._kretzPort) return this._kretzPort
     }
-    return port
+    const port = await this._probeAndAdopt()
+    if (port) return port
+    if (this._probing) {
+      await this._probeDone
+      if (this._linkOk && this._kretzPort) return this._kretzPort
+    }
+    if (this._stopped) return null
+    setHardwareStatus({ scale: 'error' })
+    this._scheduleReconnect()
+    return null
   }
 
   /**
@@ -206,8 +251,12 @@ export class HardwareManager {
    * R30, lo adopta y lo guarda. Devuelve null si ninguno responde.
    */
   private async _probeAndAdopt(): Promise<string | null> {
-    if (this._probing) return null
+    if (this._probing || this._stopped) return null
     this._probing = true
+    let finishProbe: () => void = () => {}
+    this._probeDone = new Promise<void>(resolve => {
+      finishProbe = resolve
+    })
     let released = false
     try {
       this._clearReconnect('kretz')
@@ -217,6 +266,7 @@ export class HardwareManager {
 
       this.kretz.removeAllListeners()
       released = true
+      this._linkOk = false
       try {
         await this.kretz.disconnect()
       } catch (err) {
@@ -253,6 +303,7 @@ export class HardwareManager {
       if (released && this.kretz.listenerCount('connected') === 0) {
         this._wireKretzEvents()
       }
+      finishProbe()
     }
   }
 
@@ -295,9 +346,165 @@ export class HardwareManager {
 
   private _markKretzLinked(): void {
     this._suppressConnected = false
+    this._linkOk = true
     log.info('[hardware] KRETZ conectada', { port: this._kretzPort })
     setHardwareStatus({ scale: 'connected' })
     this._clearReconnect('kretz')
+  }
+
+  // ---------------------------------------------------------------------------
+  // Enchufe en caliente (app abierta, sin DevTools)
+  // ---------------------------------------------------------------------------
+
+  private async _snapshotPorts(): Promise<void> {
+    try {
+      const { listSerialPorts } = await import('./kretz/portDetect')
+      const listed = await listSerialPorts()
+      this._knownPortPaths = new Set(listed.map(p => p.path))
+      log.info('[hardware] Vigilando enchufe de la balanza', {
+        ports: [...this._knownPortPaths],
+      })
+    } catch (err) {
+      log.warn('[hardware] No se pudo leer los COM al iniciar la vigilancia', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+      this._knownPortPaths = new Set()
+    }
+  }
+
+  private _armPortWatch(): void {
+    if (this._portWatchTimer) return
+    const timer = setInterval(() => {
+      void this._pollNewPorts()
+    }, KRETZ_PORT_WATCH_MS)
+    if (typeof timer.unref === 'function') timer.unref()
+    this._portWatchTimer = timer
+  }
+
+  private _clearPortWatch(): void {
+    if (!this._portWatchTimer) return
+    clearInterval(this._portWatchTimer)
+    this._portWatchTimer = null
+  }
+
+  /** Un COM que no estaba en el listado anterior: puede ser la balanza. */
+  private async _pollNewPorts(): Promise<void> {
+    if (this._stopped || !this._watchHotplug || this._probing || this._pollInFlight) return
+    this._pollInFlight = true
+    try {
+      await this._pollNewPortsOnce()
+    } finally {
+      this._pollInFlight = false
+    }
+  }
+
+  private async _pollNewPortsOnce(): Promise<void> {
+    let paths: string[]
+    try {
+      const { listSerialPorts } = await import('./kretz/portDetect')
+      const listed = await listSerialPorts()
+      paths = listed.map(p => p.path)
+    } catch (err) {
+      log.warn('[hardware] No se pudieron listar los COM', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+      return
+    }
+
+    if (this._stopped) return
+
+    if (this._knownPortPaths === null) {
+      this._knownPortPaths = new Set(paths)
+      return
+    }
+
+    const known = this._knownPortPaths
+    for (const path of [...known]) {
+      if (!paths.includes(path)) {
+        known.delete(path)
+        this._newPortMisses.delete(path)
+      }
+    }
+
+    const appeared = paths.filter(path => !known.has(path))
+    if (appeared.length === 0) return
+
+    log.info('[hardware] Apareció un puerto COM', { ports: appeared })
+
+    let adopted = false
+    if (this._linkOk) {
+      adopted = await this._adoptIfNewPortResponds(appeared)
+    } else {
+      const found = await this._probeAndAdopt()
+      adopted = Boolean(found)
+      if (!adopted && !this._probing && !this._linkOk && !this._stopped) {
+        log.info('[hardware] Ningún COM respondió al enlace R30')
+        setHardwareStatus({ scale: 'error' })
+        this._scheduleReconnect()
+      }
+    }
+
+    if (this._stopped || this._probing) return
+
+    if (adopted) {
+      for (const path of paths) known.add(path)
+      this._newPortMisses.clear()
+      return
+    }
+
+    this._noteNewPortMisses(appeared, known)
+  }
+
+  /**
+   * Sondea solo los COM recién enchufados, sin soltar el enlace actual.
+   * Si uno responde R30, ese pasa a ser la balanza y se guarda el puerto.
+   */
+  private async _adoptIfNewPortResponds(paths: string[]): Promise<boolean> {
+    const { probeKretzPort } = await import('./kretz/portDetect')
+    for (const path of paths) {
+      if (this._stopped || this._probing) return false
+      let responds = false
+      try {
+        responds = await probeKretzPort(path)
+      } catch (err) {
+        log.warn('[hardware] No se pudo sondear el COM nuevo', {
+          port: path,
+          err: err instanceof Error ? err.message : String(err),
+        })
+        continue
+      }
+      if (!responds) continue
+      log.info('[hardware] La balanza respondió en el COM recién enchufado', { port: path })
+      const linked = await this._adoptPort(path)
+      if (!linked) return false
+      this._persistKretzPort(path)
+      return true
+    }
+    log.info('[hardware] Los COM nuevos no respondieron al enlace R30', { ports: paths })
+    return false
+  }
+
+  private _noteNewPortMisses(appeared: string[], known: Set<string>): void {
+    for (const path of appeared) {
+      const misses = (this._newPortMisses.get(path) ?? 0) + 1
+      if (misses >= MAX_NEW_PORT_PROBES) {
+        this._newPortMisses.delete(path)
+        known.add(path)
+        log.info('[hardware] El COM nuevo no es una balanza KRETZ', { port: path })
+      } else {
+        this._newPortMisses.set(path, misses)
+      }
+    }
+  }
+
+  /** El puerto en uso se cerró: buscar de nuevo en todos los COM. */
+  private async _onLinkLost(): Promise<void> {
+    if (this._stopped || this._probing) return
+    const found = await this._probeAndAdopt()
+    if (found || this._linkOk || this._probing || this._stopped) return
+    log.info('[hardware] Se perdió el enlace y ningún COM respondió')
+    setHardwareStatus({ scale: 'error' })
+    this._scheduleReconnect()
   }
 
   // ---------------------------------------------------------------------------
@@ -311,8 +518,15 @@ export class HardwareManager {
     })
 
     this.kretz.on('disconnected', () => {
-      log.warn('[hardware] KRETZ desconectada — reconectando...')
+      this._linkOk = false
+      log.warn('[hardware] KRETZ desconectada — se busca la balanza')
       setHardwareStatus({ scale: 'disconnected' })
+      if (this._probing || this._stopped) return
+      // Con la app abierta, no quedarse solo en el COM viejo.
+      if (this._watchHotplug || this._autoprobe) {
+        void this._onLinkLost()
+        return
+      }
       this._scheduleReconnect()
     })
 
@@ -339,13 +553,18 @@ export async function createHardwareManager(): Promise<HardwareManager> {
     if (kretzPort) {
       const { KretzRealDriver } = await import('./kretz/kretzDriver')
       log.info('[hardware] Modo dev — usando driver KRETZ real', { kretzPort })
-      return new HardwareManager(new KretzRealDriver(kretzPort), kretzPort)
+      return new HardwareManager(new KretzRealDriver(kretzPort), kretzPort, {
+        watchHotplug: true,
+      })
     }
 
     if (process.env['KRETZ_AUTOPROBE'] === '1') {
       const { KretzRealDriver } = await import('./kretz/kretzDriver')
       log.info('[hardware] Modo dev — sin puerto guardado, se detecta la balanza')
-      return new HardwareManager(new KretzRealDriver(''), null, { autoprobe: true })
+      return new HardwareManager(new KretzRealDriver(''), null, {
+        autoprobe: true,
+        watchHotplug: true,
+      })
     }
 
     const { KretzMockDriver } = await import('./kretz/__mocks__/kretzDriver')
@@ -353,11 +572,18 @@ export async function createHardwareManager(): Promise<HardwareManager> {
     return new HardwareManager(new KretzMockDriver())
   }
 
-  // Producción: leer config de secureStorage. Si el COM guardado no responde,
-  // el arranque sondea los demás (el número de COM cambia con el disco/USB).
-  const kretzPort = getSecret(SECRET_KEYS.KRETZ_PORT) ?? ''
+  // Producción: el COM guardado se prueba al arrancar. Con la app abierta,
+  // un enchufe nuevo o un enlace caído dispara otro sondeo R30.
+  const saved = (getSecret(SECRET_KEYS.KRETZ_PORT) ?? '').trim()
+  const port = saved || null
   const { KretzRealDriver } = await import('./kretz/kretzDriver')
-  return new HardwareManager(new KretzRealDriver(kretzPort), kretzPort || null)
+  log.info('[hardware] Modo producción — balanza KRETZ', {
+    port: port ?? 'sin puerto guardado',
+  })
+  return new HardwareManager(new KretzRealDriver(port ?? ''), port, {
+    watchHotplug: true,
+    autoprobe: port === null,
+  })
 }
 
 // ---------------------------------------------------------------------------

@@ -4,9 +4,10 @@ import {
   type CashDiscountRule,
 } from '@carniceria/shared'
 import NumericInput from './NumericInput'
+import BagsPanel from './BagsPanel'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
-import type { SalePaymentPayload } from '../types/hw-api'
+import type { ProductRow, SalePaymentPayload } from '../types/hw-api'
 import { Button, Modal } from './ui'
 
 type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
@@ -19,13 +20,28 @@ interface PaymentRow {
   installments?: number
 }
 
+interface CartLine {
+  productId: string | null
+  weightKg: number
+  unit: 'kg' | 'unit'
+}
+
 interface Props {
   /** Total de ítems (sin restar seña ni descuento). */
   itemTotal: number
   depositAmount?: number
   depositDigitalAmount?: number
   cashDiscountRule?: CashDiscountRule | null
-  onConfirm: (payments: SalePaymentPayload[], notes?: string) => void
+  products?: ProductRow[]
+  cartLines?: readonly CartLine[]
+  onAddBag?: (product: ProductRow, quantity: number) => void
+  onRemoveBag?: (productId: string, quantity: number) => void
+  onConfirm: (
+    payments: SalePaymentPayload[],
+    notes?: string,
+    discountPercent?: number,
+    discountException?: boolean,
+  ) => void
   /** Llamado cuando la cajera elige cobro diferido (fiado). */
   onFiado?: () => void
   onClose: () => void
@@ -63,6 +79,10 @@ export default function PaymentModal({
   depositAmount = 0,
   depositDigitalAmount = 0,
   cashDiscountRule,
+  products = [],
+  cartLines = [],
+  onAddBag,
+  onRemoveBag,
   onConfirm,
   onFiado,
   onClose,
@@ -80,27 +100,37 @@ export default function PaymentModal({
   ])
 
   const rule: CashDiscountRule = cashDiscountRule ?? { minAmount: 0, percent: 0 }
+  const [exceptionDiscount, setExceptionDiscount] = useState(false)
+  const [salePercentText, setSalePercentText] = useState(() => String(rule.percent))
+  const typedPercent = parseNumericInput(salePercentText)
+  const salePercent = typedPercent == null ? 0 : Math.min(100, typedPercent)
+  const quoteRule: CashDiscountRule = { ...rule, percent: salePercent }
   const splitHasCash = rows.some(r => r.method === 'cash' && (parseNumericInput(r.amount) ?? 0) > 0)
   const remainderCash =
     mode === 'cash-detail' || (mode === 'split' && splitHasCash)
+  const meetsMinimum = Math.round(itemTotal) >= rule.minAmount
+  const normalDiscountVisible = meetsMinimum && remainderCash
+  const showPercentField = exceptionDiscount || normalDiscountVisible
   const quote = quoteCashDiscount({
-    rule,
+    rule: quoteRule,
     itemTotal,
     depositAmount,
     depositDigitalAmount,
     remainderIncludesCash: remainderCash,
+    force: exceptionDiscount,
   })
   const cashPreview = quoteCashDiscount({
-    rule,
+    rule: quoteRule,
     itemTotal,
     depositAmount,
     depositDigitalAmount,
     remainderIncludesCash: true,
   })
   const chargeTotal = quote.amountDue
+  const appliedPrefix = exceptionDiscount ? 'Descuento' : 'Desc. efectivo'
   const discountLine = quote.eligible
-    ? `Desc. efectivo ${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
-    : cashPreview.eligible
+    ? `${appliedPrefix} ${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
+    : !exceptionDiscount && cashPreview.eligible
       ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(cashPreview.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(cashPreview.amountDue)}`
       : null
 
@@ -118,9 +148,32 @@ export default function PaymentModal({
     return () => window.removeEventListener('keydown', onKey)
   }, [mode, onClose])
 
+  function handleSalePercentChange(value: string) {
+    const parsed = parseNumericInput(value)
+    if (parsed != null && parsed > 100) {
+      setSalePercentText('100')
+      return
+    }
+    setSalePercentText(value)
+  }
+
+  function handleExceptionToggle(checked: boolean) {
+    if (!normalDiscountVisible) setSalePercentText(String(rule.percent))
+    setExceptionDiscount(checked)
+  }
+
   function confirmWithNotes(payments: SalePaymentPayload[]) {
     const trimmed = notes.trim()
-    onConfirm(payments, trimmed || undefined)
+    const note = trimmed || undefined
+    if (exceptionDiscount) {
+      onConfirm(payments, note, salePercent, true)
+      return
+    }
+    if (showPercentField) {
+      onConfirm(payments, note, salePercent)
+      return
+    }
+    onConfirm(payments, note)
   }
 
   function handleSingleMethod(method: PaymentMethod) {
@@ -309,8 +362,50 @@ export default function PaymentModal({
         </div>
       )}
     >
+      <label className="mb-2 flex cursor-pointer select-none items-center gap-2">
+        <input
+          type="checkbox"
+          checked={exceptionDiscount}
+          onChange={e => handleExceptionToggle(e.target.checked)}
+          className="h-3.5 w-3.5 shrink-0 rounded border-line bg-raised text-accent focus:ring-accent focus:ring-offset-panel"
+        />
+        <span className="min-w-0 truncate text-xs text-muted" title="Descuento en esta venta">
+          Descuento en esta venta
+        </span>
+      </label>
+      {showPercentField && (
+        <div className="mb-3 flex items-center gap-2 min-w-0">
+          <label
+            htmlFor="sale-discount-percent"
+            className="min-w-0 flex-1 truncate text-xs text-muted"
+            title="Descuento de esta venta"
+          >
+            Descuento de esta venta
+          </label>
+          <div className="flex shrink-0 items-center gap-1">
+            <NumericInput
+              id="sale-discount-percent"
+              value={salePercentText}
+              onChange={handleSalePercentChange}
+              aria-label="Descuento de esta venta"
+              className="w-14 rounded-md border border-line bg-input px-2 py-1 text-right text-xs text-ink focus:outline-none focus:border-line-accent"
+            />
+            <span className="text-xs text-muted">%</span>
+          </div>
+        </div>
+      )}
       {discountLine && (
         <p className="mb-3 truncate text-xs text-success" title={discountLine}>{discountLine}</p>
+      )}
+      {onAddBag && onRemoveBag && (
+        <div className="mb-4">
+          <BagsPanel
+            products={products}
+            lines={cartLines}
+            onAdd={onAddBag}
+            onRemove={onRemoveBag}
+          />
+        </div>
       )}
 
       <div className="mb-4">

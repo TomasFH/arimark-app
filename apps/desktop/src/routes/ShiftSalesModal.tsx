@@ -6,6 +6,7 @@
  * Cada venta confirmada tiene un botón para anularla (pide confirmación en un modal).
  */
 import { useEffect, useState } from 'react'
+import { exceptionalDiscountLabel } from '@carniceria/shared'
 import type { ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { summarizePaymentMethods } from '../lib/paymentMethod'
@@ -96,6 +97,30 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
           </p>
         </div>
       }
+      footer={
+        sales && confirmedSales.length > 0 ? (
+          <div className="-mx-5 -my-3 grid min-w-0 flex-1 grid-cols-3 gap-4 bg-raised px-6 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted">Total en efectivo</p>
+              <p className="truncate text-base font-semibold text-success" title={formatARS(totals.cash)}>
+                {formatARS(totals.cash)}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted">Total digital</p>
+              <p className="truncate text-base font-semibold text-ink" title={formatARS(totals.digital)}>
+                {formatARS(totals.digital)}
+              </p>
+            </div>
+            <div className="min-w-0 text-right">
+              <p className="text-xs text-muted">Total vendido</p>
+              <p className="truncate text-lg font-bold text-ink" title={formatARS(totals.total)}>
+                {formatARS(totals.total)}
+              </p>
+            </div>
+          </div>
+        ) : null
+      }
     >
 
         {cancelError && !confirmCancel && (
@@ -105,7 +130,7 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
         )}
 
         {/* Tabla */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="px-6 py-4">
           {error ? (
             <p className="text-danger text-sm">{error}</p>
           ) : !sales ? (
@@ -133,6 +158,9 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
                 {sales.map(s => {
                   const isCancelled = s.status === 'cancelled'
                   const isOpen = expanded.has(s.id)
+                  const apartLabel = s.discountException
+                    ? exceptionalDiscountLabel(s.discountPercent ?? 0)
+                    : null
 
                   return (
                     <>
@@ -166,6 +194,14 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
                                 <span className="ml-2 text-[10px] rounded bg-amber-900/50 px-1.5 py-0.5 text-amber-300">manual</span>
                               )}
                             </>
+                          )}
+                          {apartLabel && (
+                            <span
+                              className="ml-2 inline-block max-w-[9.5rem] truncate align-middle text-[10px] text-muted"
+                              title={apartLabel}
+                            >
+                              {apartLabel}
+                            </span>
                           )}
                         </td>
                         <td className={`py-2 pr-3 text-right ${isCancelled ? 'text-muted line-through' : 'text-success'}`}>
@@ -218,24 +254,6 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
             </table>
           )}
         </div>
-
-        {/* Totales al pie (solo ventas confirmadas) */}
-        {sales && confirmedSales.length > 0 && (
-          <div className="border-t border-line bg-raised px-6 py-3 grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-muted">Total en efectivo</p>
-              <p className="text-base font-semibold text-success">{formatARS(totals.cash)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Total digital</p>
-              <p className="text-base font-semibold text-ink">{formatARS(totals.digital)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-muted">Total vendido</p>
-              <p className="text-lg font-bold text-ink">{formatARS(totals.total)}</p>
-            </div>
-          </div>
-        )}
     </Modal>
 
     <Modal

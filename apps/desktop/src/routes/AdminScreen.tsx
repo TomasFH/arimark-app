@@ -29,6 +29,7 @@ const CATEGORIES: { value: AdminProductRow['category']; label: string }[] = [
   { value: 'poultry',  label: 'Aves' },
   { value: 'pork',     label: 'Cerdo' },
   { value: 'other',    label: 'Otros' },
+  { value: 'bags',     label: 'Bolsas' },
 ]
 
 const CATEGORY_LABELS: Record<AdminProductRow['category'], string> = {
@@ -36,6 +37,7 @@ const CATEGORY_LABELS: Record<AdminProductRow['category'], string> = {
   poultry:  'Aves',
   pork:     'Cerdo',
   other:    'Otros',
+  bags:     'Bolsas',
 }
 
 function fmtARS(n: number) {
@@ -670,9 +672,10 @@ function ProductHistoryDisclosure({ productId, storeId }: { productId: string; s
 
 export function ProductFormModal({ storeId, stores, product, onClose, onSaved, onRequestGlobalDelete, allowGlobalDelete }: ProductFormModalProps) {
   const isEdit = Boolean(product)
+  const initialCategory = product?.category ?? 'beef_cut'
   const [name, setName] = useState(product?.name ?? '')
-  const [category, setCategory] = useState<AdminProductRow['category']>(product?.category ?? 'beef_cut')
-  const [unit, setUnit] = useState<'kg' | 'unit'>(product?.unit ?? 'kg')
+  const [category, setCategory] = useState<AdminProductRow['category']>(initialCategory)
+  const [unit, setUnit] = useState<'kg' | 'unit'>(initialCategory === 'bags' ? 'unit' : (product?.unit ?? 'kg'))
   const [pluRaw, setPluRaw] = useState(product?.pluNumber != null ? String(product.pluNumber) : '')
   const [packLabel, setPackLabel] = useState(product?.purchasePackLabel ?? '')
   const [packContentsRaw, setPackContentsRaw] = useState(
@@ -829,7 +832,13 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Categoría">
-              <select value={category} onChange={e => setCategory(e.target.value as AdminProductRow['category'])}
+              <select
+                value={category}
+                onChange={e => {
+                  const next = e.target.value as AdminProductRow['category']
+                  setCategory(next)
+                  if (next === 'bags') setUnit('unit')
+                }}
                 className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40">
                 {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
@@ -837,6 +846,8 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
             <Field label="Unidad">
               <select
                 value={unit}
+                disabled={category === 'bags'}
+                title={category === 'bags' ? 'Las bolsas se venden por unidad' : undefined}
                 onChange={e => {
                   const next = e.target.value as 'kg' | 'unit'
                   setUnit(next)
@@ -845,8 +856,8 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
                     setPackContentsRaw('')
                   }
                 }}
-                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40">
-                <option value="kg">kg (pesable)</option>
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40 disabled:opacity-70">
+                {category !== 'bags' && <option value="kg">kg (pesable)</option>}
                 <option value="unit">Unidad</option>
               </select>
             </Field>

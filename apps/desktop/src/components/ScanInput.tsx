@@ -2,9 +2,10 @@
  * Panel de carga manual (botón Manual del POS).
  *
  * Ingreso por PLU o nombre.
- *   - Productos por kg: peso y precio total. Sin precio especial van atados
- *     (regla de tres). Con precio especial el total sigue saliendo del peso
- *     hasta que la cajera lo corrige; corregirlo no cambia el peso.
+ *   - Productos por kg, sin precio especial: el kilo es el de lista y no se
+ *     edita. El total sale de peso × ese precio (editar el total recalcula el peso).
+ *   - Productos por kg, con precio especial: Precio por kilo ($) editable,
+ *     arranca en el de lista, sin tope. El total de la línea es peso × ese precio.
  *   - Productos por unidad: cantidad entera. Precio = qty × catálogo, salvo
  *     precio especial (precio por unidad editable, arranca en el de lista).
  */
@@ -17,6 +18,7 @@ import {
   parseNumericInput,
   parseDecimalInput,
   formatDecimalInputValue,
+  formatNumericInputValue,
   stripNonDigits,
   formatIntegerWithDots,
 } from '../lib/numericInput'
@@ -45,10 +47,13 @@ function buildItemFromManual(
   weightKg: number,
   subtotal: number,
   product: ProductRow | undefined,
-  specialPrice: boolean
+  specialPrice: boolean,
+  unitPriceOverride?: number,
 ): SaleItemDraft {
   const unit = product?.unit ?? 'kg'
-  const unitPrice = product?.price ?? (weightKg > 0 ? subtotal / weightKg : subtotal)
+  const unitPrice = unitPriceOverride != null && unitPriceOverride > 0
+    ? unitPriceOverride
+    : (product?.price ?? (weightKg > 0 ? subtotal / weightKg : subtotal))
   return {
     pluNumber,
     productId: product?.id ?? null,
@@ -71,6 +76,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   poultry: 'Pollo',
   pork: 'Cerdo',
   other: 'Otros',
+  bags: 'Bolsas',
 }
 
 // ---------------------------------------------------------------------------
@@ -83,23 +89,43 @@ function kgTotalRaw(weight: string, unitPrice: number): string {
   return formatDecimalInputValue(String(Math.round(w * unitPrice)))
 }
 
+/** Línea por kg con precio especial: total = peso × precio por kilo. */
+function kgSpecialLine(
+  weight: string,
+  kiloRaw: string,
+): { weightKg: number; unitPrice: number; subtotal: number } | null {
+  const weightKg = parseDecimalInput(weight)
+  const unitPrice = parseNumericInput(kiloRaw)
+  if (weightKg == null || weightKg <= 0 || unitPrice == null || unitPrice <= 0) return null
+  const subtotal = Math.round(weightKg * unitPrice)
+  if (subtotal <= 0) return null
+  return { weightKg, unitPrice, subtotal }
+}
+
 export default function ScanInput({ onAddItem, products, specialPriceByProductId = {} }: Props) {
   const [pluRaw, setPluRaw] = useState('')
   const [weightRaw, setWeightRaw] = useState('')
   const [priceRaw, setPriceRaw] = useState('')
   const [specialPrice, setSpecialPrice] = useState(false)
-  /** La cajera escribió un total distinto al de lista. El peso deja de pisarlo. */
-  const [priceTouched, setPriceTouched] = useState(false)
   const [manualError, setManualError] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const pluInputRef = useRef<HTMLInputElement>(null)
   const weightInputRef = useRef<HTMLInputElement>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
+  const hideSuggestionsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => pluInputRef.current?.focus(), 50)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      if (hideSuggestionsTimer.current) clearTimeout(hideSuggestionsTimer.current)
+    }
   }, [])
+
+  function scheduleHideSuggestions() {
+    if (hideSuggestionsTimer.current) clearTimeout(hideSuggestionsTimer.current)
+    hideSuggestionsTimer.current = setTimeout(() => setShowSuggestions(false), 150)
+  }
 
   // ── PLU lookup ──────────────────────────────────────────────────────────
 
@@ -137,7 +163,6 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
-    setPriceTouched(false)
     setManualError('')
     setShowSuggestions(false)
   }
@@ -151,7 +176,6 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
-    setPriceTouched(false)
     setTimeout(() => weightInputRef.current?.focus(), 50)
   }
 
@@ -169,7 +193,6 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setWeightRaw('')
     setPriceRaw('')
     setSpecialPrice(false)
-    setPriceTouched(false)
   }
 
   // ── Manual: productos por kg (campos bidireccionales) ──────────────────
@@ -177,31 +200,28 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   function handleKgWeightChange(v: string) {
     setWeightRaw(v)
     setManualError('')
-    if (refPrice && refPrice > 0 && (!specialPrice || !priceTouched)) {
+    // El foco se queda en Peso, también con precio especial y coma decimal.
+    // Con precio especial el kilo no se recalcula: el total sale de peso × ese kilo.
+    if (specialPrice) return
+    if (refPrice && refPrice > 0) {
       setPriceRaw(kgTotalRaw(v, refPrice))
-      return
-    }
-    if (!specialPrice && (!refPrice || refPrice === 0)) {
-      const w = parseDecimalInput(v)
-      if (w !== null && w > 0) {
-        setTimeout(() => priceInputRef.current?.focus(), 0)
-      }
     }
   }
 
   function handleKgPriceChange(v: string) {
     setPriceRaw(v)
     setManualError('')
-    if (specialPrice) {
-      setPriceTouched(v.trim().length > 0)
-      return
-    }
     if (refPrice && refPrice > 0) {
       const p = parseDecimalInput(v)
       if (p !== null && p > 0) {
         setWeightRaw(toEsAR(p / refPrice, 3))
       }
     }
+  }
+
+  function handleKgKiloChange(v: string) {
+    setPriceRaw(v)
+    setManualError('')
   }
 
   // ── Manual: productos por unidad ───────────────────────────────────────
@@ -214,16 +234,18 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
   function handleSpecialPriceToggle(checked: boolean) {
     setSpecialPrice(checked)
-    setPriceTouched(false)
     if (!checked) {
-      if (!isUnit && refPrice && refPrice > 0) {
-        setPriceRaw(kgTotalRaw(weightRaw, refPrice))
+      if (!isUnit) {
+        setPriceRaw(refPrice && refPrice > 0 ? kgTotalRaw(weightRaw, refPrice) : '')
       }
       return
     }
-    if (isUnit && refPrice && refPrice > 0) {
-      setPriceRaw(formatDecimalInputValue(String(Math.round(refPrice))))
+    if (refPrice && refPrice > 0) {
+      const rounded = String(Math.round(refPrice))
+      setPriceRaw(isUnit ? formatDecimalInputValue(rounded) : formatNumericInputValue(rounded))
+      return
     }
+    if (!isUnit) setPriceRaw('')
   }
 
   // ── Manual: submit ─────────────────────────────────────────────────────
@@ -267,12 +289,31 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
         setManualError('Peso inválido. Ingresá el peso en kg.')
         return
       }
+      if (specialPrice) {
+        const line = kgSpecialLine(weightRaw, priceRaw)
+        if (!line) {
+          setManualError('Precio por kilo inválido.')
+          return
+        }
+        const item = buildItemFromManual(
+          plu,
+          line.weightKg,
+          line.subtotal,
+          matchedProduct,
+          true,
+          line.unitPrice,
+        )
+        onAddItem(item)
+        resetManual()
+        setTimeout(() => pluInputRef.current?.focus(), 50)
+        return
+      }
       const price = parseDecimalInput(priceRaw)
       if (price === null || price <= 0) {
         setManualError('Precio total inválido.')
         return
       }
-      const item = buildItemFromManual(plu, w, price, matchedProduct, specialPrice)
+      const item = buildItemFromManual(plu, w, price, matchedProduct, false)
       onAddItem(item)
       resetManual()
       setTimeout(() => pluInputRef.current?.focus(), 50)
@@ -290,6 +331,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
       if (specialPrice) return !!priceRaw.trim()
       return autoPrice !== null
     }
+    if (specialPrice) return kgSpecialLine(weightRaw, priceRaw) !== null
     return !!weightRaw.trim() && !!priceRaw.trim()
   })()
 
@@ -300,13 +342,14 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
         <form onSubmit={handleManualSubmit} className="space-y-2">
           {/* PLU con autocomplete — acepta número PLU o nombre del producto */}
           <div className="relative">
-            <label className="block text-[9px] text-muted mb-0.5">PLU o nombre</label>
+            <label htmlFor="manual-plu" className="block text-[9px] text-muted mb-0.5">PLU o nombre</label>
             <input
+              id="manual-plu"
               ref={pluInputRef}
               type="text"
               value={pluRaw}
               onChange={e => handlePluChange(e.target.value)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              onBlur={scheduleHideSuggestions}
               onFocus={() => pluRaw.trim() && setShowSuggestions(true)}
               placeholder=""
               autoComplete="off"
@@ -391,7 +434,6 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     value={priceRaw}
                     onChange={v => {
                       setPriceRaw(v)
-                      setPriceTouched(v.trim().length > 0)
                       setManualError('')
                     }}
                     placeholder=""
@@ -410,8 +452,9 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
             <div className="space-y-1.5">
               <div className="flex gap-2">
                 <div className="w-24 shrink-0">
-                  <label className="block text-[9px] text-muted mb-0.5">Peso (kg)</label>
+                  <label htmlFor="manual-kg-weight" className="block text-[9px] text-muted mb-0.5">Peso (kg)</label>
                   <DecimalInput
+                    id="manual-kg-weight"
                     value={weightRaw}
                     onChange={handleKgWeightChange}
                     maxDecimals={3}
@@ -421,55 +464,87 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                     className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
                   />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-[9px] text-muted mb-0.5">
-                    Precio total ($)
-                    {refPrice && !specialPrice && (
-                      <span className="ml-1 text-muted">· {formatARS(refPrice)}/kg</span>
-                    )}
-                  </label>
-                  <DecimalInput
-                    ref={priceInputRef}
-                    value={priceRaw}
-                    onChange={handleKgPriceChange}
-                    placeholder=""
-                    className={`w-full rounded-md border bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:outline-none ${
-                      specialPrice ? 'border-line-strong focus:border-line-accent' : 'border-line focus:border-line-accent'
-                    }`}
-                  />
-                </div>
+                {specialPrice ? (
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="manual-kg-kilo" className="block min-w-0 truncate text-[9px] text-muted mb-0.5" title={refPrice ? `Precio por kilo ($). Lista: ${formatARS(refPrice)}/kg` : 'Precio por kilo ($)'}>
+                      Precio por kilo ($)
+                      {refPrice ? (
+                        <span className="ml-1">· Lista: {formatARS(refPrice)}/kg</span>
+                      ) : null}
+                    </label>
+                    <NumericInput
+                      id="manual-kg-kilo"
+                      ref={priceInputRef}
+                      value={priceRaw}
+                      onChange={handleKgKiloChange}
+                      placeholder=""
+                      className="w-full rounded-md border border-line-strong bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
+                    />
+                  </div>
+                ) : (
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="manual-kg-price" className="block min-w-0 truncate text-[9px] text-muted mb-0.5" title={refPrice ? `Precio total ($). ${formatARS(refPrice)}/kg` : 'Precio total ($)'}>
+                      Precio total ($)
+                      {refPrice ? (
+                        <span className="ml-1">· {formatARS(refPrice)}/kg</span>
+                      ) : null}
+                    </label>
+                    <DecimalInput
+                      id="manual-kg-price"
+                      ref={priceInputRef}
+                      value={priceRaw}
+                      onChange={handleKgPriceChange}
+                      placeholder=""
+                      className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
-              {/* Aviso cuando el producto existe pero no tiene precio en el catálogo */}
-              {matchedProduct && !refPrice && !specialPrice && (
+              {specialPrice && (() => {
+                const line = kgSpecialLine(weightRaw, priceRaw)
+                if (!line) return null
+                const detail = `${formatKg(line.weightKg)} × ${formatARS(line.unitPrice)}/kg`
+                return (
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-raised px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm text-muted">Total</p>
+                      <p className="truncate text-xs text-muted" title={detail}>{detail}</p>
+                    </div>
+                    <p className="shrink-0 font-mono text-2xl font-bold tabular-nums text-ink">
+                      {formatARS(line.subtotal)}
+                    </p>
+                  </div>
+                )
+              })()}
+              {matchedProduct && !refPrice && (
                 <p className="text-[10px] text-muted leading-snug">
-                  Sin precio de lista — ingresá el precio total manualmente.
+                  {specialPrice
+                    ? 'Sin precio de lista — ingresá el precio por kilo.'
+                    : 'Sin precio de lista — ingresá el precio total manualmente.'}
                 </p>
               )}
             </div>
           )}
 
-          {/* Checkbox precio especial — visible cuando hay producto en catálogo */}
-          {matchedProduct && (
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-2 select-none">
-                <input
-                  type="checkbox"
-                  checked={specialPrice}
-                  onChange={e => handleSpecialPriceToggle(e.target.checked)}
-                  className="accent-accent h-3.5 w-3.5 shrink-0"
-                />
-                <span className="text-[10px] text-ink">Precio especial</span>
-                <span className="text-[9px] text-subtle">
-                  {isUnit ? 'precio por unidad distinto de lista' : 'podés corregir el total'}
-                </span>
-              </label>
-              {specialPrice && (
-                <p className="rounded bg-raised px-2 py-1.5 text-[10px] text-muted leading-snug">
-                  Precio fuera de lista. Confirmá que no es un error antes de agregar.
-                </p>
-              )}
-            </div>
-          )}
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 select-none">
+              <input
+                type="checkbox"
+                checked={specialPrice}
+                onChange={e => handleSpecialPriceToggle(e.target.checked)}
+                className="accent-accent h-3.5 w-3.5 shrink-0"
+              />
+              <span className="text-xs text-ink">Precio especial</span>
+              <span className="text-[10px] text-muted">
+                {isUnit ? 'precio por unidad distinto de lista' : 'precio por kilo distinto de lista'}
+              </span>
+            </label>
+            {specialPrice && (
+              <p className="rounded bg-raised px-2 py-1.5 text-[10px] text-muted leading-snug">
+                Precio fuera de lista. Confirmá que no es un error antes de agregar.
+              </p>
+            )}
+          </div>
 
           {/* Preview del cálculo (productos por kg, sin precio especial) */}
           {!isUnit && !specialPrice && (() => {

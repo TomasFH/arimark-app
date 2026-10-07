@@ -144,3 +144,76 @@ describe('ProductFormModal — historial plegado', () => {
     expect(window.hw.getProductPriceHistory).toHaveBeenCalledWith({ productId: 'p1', storeId: 's1' })
   })
 })
+
+describe('ProductFormModal — bolsas en unidad', () => {
+  beforeEach(() => {
+    mockHw()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function categorySelect() {
+    return screen.getAllByRole('combobox')[0] as HTMLSelectElement
+  }
+
+  function unitSelect() {
+    return screen.getAllByRole('combobox')[1] as HTMLSelectElement
+  }
+
+  it('al elegir Bolsas fija Unidad y no deja kg; al salir se puede elegir de nuevo', async () => {
+    const user = userEvent.setup()
+    render(
+      <ProductFormModal
+        storeId="s1"
+        stores={[{ id: 's1', name: 'Local A' }]}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+
+    expect(unitSelect()).toHaveValue('kg')
+    expect(unitSelect()).toBeEnabled()
+    expect(screen.getByRole('option', { name: 'kg (pesable)' })).toBeInTheDocument()
+
+    await user.selectOptions(categorySelect(), 'bags')
+
+    expect(unitSelect()).toHaveValue('unit')
+    expect(unitSelect()).toBeDisabled()
+    expect(screen.queryByRole('option', { name: 'kg (pesable)' })).not.toBeInTheDocument()
+
+    await user.selectOptions(categorySelect(), 'other')
+
+    expect(unitSelect()).toBeEnabled()
+    expect(unitSelect()).toHaveValue('unit')
+    expect(screen.getByRole('option', { name: 'kg (pesable)' })).toBeInTheDocument()
+    await user.selectOptions(unitSelect(), 'kg')
+    expect(unitSelect()).toHaveValue('kg')
+  })
+
+  it('el alta de bolsas envía unidad', async () => {
+    const user = userEvent.setup()
+    window.hw.createProduct = vi.fn().mockResolvedValue({ ok: true, data: { id: 'new-id' } })
+    const onSaved = vi.fn()
+    render(
+      <ProductFormModal
+        storeId="s1"
+        stores={[{ id: 's1', name: 'Local A' }]}
+        onClose={() => {}}
+        onSaved={onSaved}
+      />,
+    )
+
+    await user.type(screen.getByPlaceholderText('Nombre del producto'), 'Bolsa camiseta')
+    await user.selectOptions(categorySelect(), 'bags')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+
+    expect(window.hw.createProduct).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Bolsa camiseta',
+      category: 'bags',
+      unit: 'unit',
+    }))
+    expect(onSaved).toHaveBeenCalled()
+  })
+})

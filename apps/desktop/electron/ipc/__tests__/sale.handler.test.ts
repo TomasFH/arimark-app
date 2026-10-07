@@ -84,6 +84,7 @@ function makeMockDb() {
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
             get: vi.fn().mockReturnValue(storeRow),
+            all: vi.fn().mockReturnValue([{ id: 'prod-001' }, { id: 'p1' }]),
           }),
         }),
       }),
@@ -102,6 +103,21 @@ describe('sale.handler — CREATE_SALE', () => {
     vi.clearAllMocks()
     process.env['APP_ENV'] = 'dev'
     registerSaleHandlers()
+  })
+
+  it('rechaza un ítem sin productId', async () => {
+    const handler = getHandler('ipc:create-sale')
+    const result = await handler({}, {
+      items: [{ productId: '', quantity: 1, unitPrice: 100, subtotal: 100 }],
+      payments: [{ paymentMethod: 'cash', amount: 100 }],
+    })
+    expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+  })
+
+  it('rechaza un porcentaje de descuento fuera de rango', async () => {
+    const handler = getHandler('ipc:create-sale')
+    const result = await handler({}, { ...VALID_SALE, discountPercent: 101 })
+    expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
   })
 
   it('rechaza payload inválido (sin items)', async () => {

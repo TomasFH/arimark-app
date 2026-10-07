@@ -15,10 +15,10 @@ export const CATALOG_SEED_USER_ID = 'seed-system-user-production-0000001'
 export const FALLBACK_PRODUCT_ID = '00000000-0000-0000-0002-000000000099'
 export const MASTER_CATALOG_FILENAME = 'catalog-2026-08.json'
 
-const CATEGORIES = new Set(['beef_cut', 'poultry', 'pork', 'other'] as const)
+const CATEGORIES = new Set(['beef_cut', 'poultry', 'pork', 'other', 'bags'] as const)
 const UNITS = new Set(['kg', 'unit'] as const)
 
-type ProductCategory = 'beef_cut' | 'poultry' | 'pork' | 'other'
+type ProductCategory = 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags'
 type ProductUnit = 'kg' | 'unit'
 
 export interface MasterCatalogProduct {
@@ -124,6 +124,19 @@ export function ensureMasterCatalogProducts(params?: {
     const id = productIdForPlu(product.plu)
     const existing = db.select({ id: products.id }).from(products).where(eq(products.id, id)).get()
     if (existing) {
+      skipped += 1
+      continue
+    }
+    const pluOwner = db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.pluNumber, product.plu))
+      .get()
+    if (pluOwner && pluOwner.id !== id) {
+      log.warn('[seedStoreCatalog] PLU ya usado por otra ficha — no se inserta', {
+        plu: product.plu,
+        ownerId: pluOwner.id,
+      })
       skipped += 1
       continue
     }

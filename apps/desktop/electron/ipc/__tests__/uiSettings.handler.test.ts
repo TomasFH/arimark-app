@@ -6,6 +6,7 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
   app: { getPath: vi.fn(() => '/tmp/test-ui-settings') },
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  nativeTheme: { themeSource: 'system' },
 }))
 
 vi.mock('electron-log', () => ({

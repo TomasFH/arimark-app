@@ -28,7 +28,7 @@ import {
   type StoreDoc,
 } from '../../lib/adminFirestore'
 import { expenseNote, expenseTitle } from '../../lib/adminLedger'
-import { buildCashHandoverAudit, formatBillDenomination } from '@carniceria/shared'
+import { buildCashHandoverAudit, exceptionalDiscountLabel, formatBillDenomination } from '@carniceria/shared'
 import { formatDepositPaymentsLine } from '../../lib/orderMapping'
 import { todayLocalYmd, addDaysYmd } from '../../lib/week'
 import type { PaymentMethod } from '../../types/pos'
@@ -424,6 +424,9 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                         ...new Set(sale.payments.map(p => METHOD_LABEL[p.paymentMethod])),
                       ]
                       const itemNames = sale.items.map(i => i.productName).join(', ')
+                      const apartLabel = sale.discountException
+                        ? exceptionalDiscountLabel(sale.discountPercent ?? 0)
+                        : null
                       return (
                         <li
                           key={sale.id}
@@ -444,6 +447,11 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
                             {formatDateTime(sale.createdAt)}
                             {methods.length > 0 ? ` · ${methods.join(' · ')}` : ''}
                           </p>
+                          {apartLabel && (
+                            <p className="mt-0.5 truncate text-xs text-zinc-400" title={apartLabel}>
+                              {apartLabel}
+                            </p>
+                          )}
                         </li>
                       )
                     })}

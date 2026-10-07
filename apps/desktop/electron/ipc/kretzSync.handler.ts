@@ -3,8 +3,9 @@
  *
  * Flujo (cajera o admin, con balanza físicamente conectada a esta PC):
  *  Cajera: solo el local de su sesión. Admin: cualquier local.
- *  1. Verifica el enlace R30 con la balanza (0002). Si no responde, aborta sin
- *     enviar nada — cumple la regla "cargar sí y solo si hay balanza conectada".
+ *  1. Verifica el enlace R30 (0002). Si no hay enlace, sondea los COM y adopta
+ *     el que responde antes de enviar. Si ninguno responde, aborta sin enviar
+ *     nada — cumple la regla "cargar sí y solo si hay balanza conectada".
  *  2. Lee del catálogo SQLite todos los productos activos con PLU y precio
  *     vigente en el local seleccionado.
  *  3. Envía cada PLU secuencialmente (la cola serial del driver no admite
@@ -40,6 +41,37 @@ import type {
 
 /** Precio máximo cargable: 6 dígitos con 1 decimal implícito (raw ≤ 999999). */
 const MAX_PESOS = 99999
+
+const NO_SCALE_ERROR =
+  'No hay ninguna balanza conectada. Enchufala por USB y cerrá iTegra si está abierto. No se cargó el catálogo.'
+
+/**
+ * Hay enlace R30, o se encuentra uno sondeando los COM.
+ * Si no hay balanza, no hay que seguir: el catálogo no se envía.
+ */
+async function ensureScaleLink(manager: HardwareManager): Promise<boolean> {
+  try {
+    if (await manager.kretzTestLink()) return true
+  } catch (err) {
+    log.warn('[ipc:kretz-sync-catalog] El enlace actual no respondió', {
+      err: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  log.info('[ipc:kretz-sync-catalog] Sin enlace: se buscan los COM antes de cargar')
+  try {
+    const port = await manager.detectAndConnectKretz()
+    if (!port) {
+      log.info('[ipc:kretz-sync-catalog] Ninguna balanza respondió; no se envía el catálogo')
+      return false
+    }
+    log.info('[ipc:kretz-sync-catalog] Balanza encontrada antes de cargar', { port })
+    return true
+  } catch (err) {
+    log.error('[ipc:kretz-sync-catalog] Error al buscar la balanza', err)
+    return false
+  }
+}
 
 interface CatalogPluRow {
   pluNumber: number
@@ -124,24 +156,10 @@ export function registerKretzSyncHandler(manager: HardwareManager): void {
         }
       }
 
-      // 1. Verificar enlace R30 antes de tocar nada.
-      let linked = false
-      try {
-        linked = await manager.kretzTestLink()
-      } catch (err) {
-        log.error('[ipc:kretz-sync-catalog] Error al verificar enlace', err)
-        return {
-          ok: false,
-          error: 'No se pudo comunicar con la balanza. Verificá que esté conectada por USB.',
-          code: 'NO_SCALE',
-        }
-      }
+      // 1. Enlace actual, o sondeo R30 si no hay. Sin balanza no se envía nada.
+      const linked = await ensureScaleLink(manager)
       if (!linked) {
-        return {
-          ok: false,
-          error: 'La balanza no respondió. Conectala por USB y cerrá iTegra u otro programa que use el puerto.',
-          code: 'NO_SCALE',
-        }
+        return { ok: false, error: NO_SCALE_ERROR, code: 'NO_SCALE' }
       }
 
       // 2. Leer catálogo del local.

@@ -264,10 +264,12 @@ export interface SaleItemDraft {
 // ---------------------------------------------------------------------------
 // Productos (catálogo local)
 // ---------------------------------------------------------------------------
+export type ProductCategory = 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags'
+
 export interface ProductRow {
   id: string
   name: string
-  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  category: ProductCategory
   unit: 'kg' | 'unit'
   pluNumber: number
   price: number | null
@@ -283,7 +285,7 @@ export interface ProductRow {
 export interface AdminProductRow {
   id: string
   name: string
-  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  category: ProductCategory
   unit: 'kg' | 'unit'
   pluNumber: number | null
   active: boolean
@@ -346,7 +348,7 @@ export interface StoreRow {
 
 export interface CreateProductPayload {
   name: string
-  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  category: ProductCategory
   unit: 'kg' | 'unit'
   pluNumber: number | null
   purchasePackLabel?: string | null
@@ -356,7 +358,7 @@ export interface CreateProductPayload {
 export interface UpdateProductPayload {
   id: string
   name?: string
-  category?: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  category?: ProductCategory
   unit?: 'kg' | 'unit'
   pluNumber?: number | null
   active?: boolean
@@ -414,6 +416,16 @@ export interface CreateSalePayload {
    * Los pagos deben cubrir ese neto. Si el neto es 0, payments puede estar vacío.
    */
   depositCredit?: number
+  /**
+   * Porcentaje de descuento efectivo solo de esta venta (0–100).
+   * No modifica la regla del local. Si se omite, se usa la regla vigente.
+   */
+  discountPercent?: number
+  /**
+   * Tilde de descuento excepcional de esta venta.
+   * Aplica el porcentaje aunque no se cumplan mínimo y efectivo.
+   */
+  discountException?: boolean
 }
 
 export interface SaleResult {
@@ -445,6 +457,9 @@ export interface ShiftSaleRow {
   /** Medios de pago usados en la venta (para el badge). */
   paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
   manualEntry: boolean
+  /** True solo si el tilde de excepción estuvo activo. El descuento de la regla no lo marca. */
+  discountException?: boolean
+  discountPercent?: number
   items: ShiftSaleItem[]
 }
 
@@ -1206,6 +1221,9 @@ export interface HistorySaleRow {
   manualEntry: boolean
   isDebt: boolean
   customerName: string | null
+  /** True solo si el tilde de excepción estuvo activo. El descuento de la regla no lo marca. */
+  discountException?: boolean
+  discountPercent?: number
   items: HistorySaleItem[]
 }
 
@@ -1688,9 +1706,22 @@ export interface HwApi {
     updatedByName: string | null
     updatedAt: string | null
     canEdit: boolean
+    amount: number | null
+    paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit' | null
   }>>>
-  registerCebo: (payload: { quantityKg: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
-  updateCebo: (payload: { id: string; quantityKg: number; notes?: string }) => Promise<IpcResult<{ id: string }>>
+  registerCebo: (payload: {
+    quantityKg: number
+    notes?: string
+    amount?: number
+    paymentMethod?: 'cash' | 'debit' | 'wallet' | 'credit'
+  }) => Promise<IpcResult<{ id: string }>>
+  updateCebo: (payload: {
+    id: string
+    quantityKg: number
+    notes?: string
+    amount?: number
+    paymentMethod?: 'cash' | 'debit' | 'wallet' | 'credit'
+  }) => Promise<IpcResult<{ id: string }>>
 
   listShiftMerch: (payload?: { weekOffset?: number }) => Promise<IpcResult<MerchandiseIntakeRow[]>>
   getMerchVisitDraft: () => Promise<IpcResult<{

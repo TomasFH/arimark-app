@@ -125,6 +125,7 @@ export {
   addDiscountBlock,
   cashDiscountPreconditions,
   emptyDiscountBlock,
+  exceptionalDiscountLabel,
   normalizeCashDiscountRule,
   parseCashDiscountSchedule,
   quoteCashDiscount,

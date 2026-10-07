@@ -4,7 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import log from 'electron-log'
 import { registerAllHandlers } from './ipc/index'
-import { applyInitialZoom, hookZoomShortcuts } from './ipc/uiSettings.handler'
+import { applyInitialZoom, applyWindowChrome, hookZoomShortcuts, readSettings, windowBackgroundForScheme } from './ipc/uiSettings.handler'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 import { loadBusinessConfig } from './businessConfig'
 import { getDbPath, getDb } from './db/client'
@@ -37,12 +37,15 @@ function windowIconPath(): string | undefined {
 }
 
 function createWindow(): BrowserWindow {
+  const scheme = readSettings().colorScheme
+  applyWindowChrome(scheme)
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 640,
     icon: windowIconPath(),
+    backgroundColor: windowBackgroundForScheme(scheme),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -52,8 +55,10 @@ function createWindow(): BrowserWindow {
     show: false,
     titleBarStyle: 'default',
   })
+  win.maximize()
 
   win.once('ready-to-show', () => {
+    if (!win.isMaximized()) win.maximize()
     win.show()
     applyInitialZoom()
   })

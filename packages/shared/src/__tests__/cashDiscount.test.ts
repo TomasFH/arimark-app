@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  exceptionalDiscountLabel,
   quoteCashDiscount,
   remainderIncludesCash,
   removeDiscountBlock,
@@ -90,6 +91,79 @@ describe('quoteCashDiscount — ejemplo acordado', () => {
     })
     expect(quote.eligible).toBe(true)
     expect(quote.amountDue).toBe(90000)
+  })
+})
+
+describe('quoteCashDiscount — descuento forzado', () => {
+  it('aplica el % sin mínimo ni efectivo', () => {
+    const quote = quoteCashDiscount({
+      rule: RULE,
+      itemTotal: 40000,
+      remainderIncludesCash: false,
+      force: true,
+    })
+    expect(quote.eligible).toBe(true)
+    expect(quote.discountAmount).toBe(4000)
+    expect(quote.discountPercent).toBe(10)
+    expect(quote.discountedTotal).toBe(36000)
+    expect(quote.amountDue).toBe(36000)
+    expect(saleTotalFromQuote(quote, 40000, 0)).toBe(36000)
+  })
+
+  it('aplica aunque la seña sea digital', () => {
+    const quote = quoteCashDiscount({
+      rule: RULE,
+      itemTotal: 100000,
+      depositAmount: 20000,
+      depositDigitalAmount: 20000,
+      remainderIncludesCash: false,
+      force: true,
+    })
+    expect(quote.eligible).toBe(true)
+    expect(quote.discountAmount).toBe(10000)
+    expect(quote.amountDue).toBe(70000)
+    expect(saleTotalFromQuote(quote, 100000, 20000)).toBe(90000)
+  })
+
+  it('sin force sigue exigiendo mínimo y efectivo', () => {
+    const quote = quoteCashDiscount({
+      rule: RULE,
+      itemTotal: 40000,
+      remainderIncludesCash: false,
+    })
+    expect(quote.eligible).toBe(false)
+    expect(quote.amountDue).toBe(40000)
+  })
+
+  it('force con 0% no descuenta', () => {
+    const quote = quoteCashDiscount({
+      rule: { minAmount: 0, percent: 0 },
+      itemTotal: 100000,
+      remainderIncludesCash: false,
+      force: true,
+    })
+    expect(quote.eligible).toBe(false)
+    expect(quote.discountAmount).toBe(0)
+    expect(quote.amountDue).toBe(100000)
+  })
+
+  it('force no aplica en fiado', () => {
+    const quote = quoteCashDiscount({
+      rule: RULE,
+      itemTotal: 100000,
+      isDebt: true,
+      remainderIncludesCash: true,
+      force: true,
+    })
+    expect(quote.eligible).toBe(false)
+    expect(quote.amountDue).toBe(100000)
+  })
+})
+
+describe('exceptionalDiscountLabel', () => {
+  it('arma la marca corta con el porcentaje', () => {
+    expect(exceptionalDiscountLabel(10)).toBe('descuento aparte 10%')
+    expect(exceptionalDiscountLabel(0)).toBe('descuento aparte 0%')
   })
 })
 

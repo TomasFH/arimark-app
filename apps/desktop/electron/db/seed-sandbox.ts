@@ -51,7 +51,7 @@ function productIdForPlu(plu: number): string {
 interface CatalogProduct {
   plu: number
   name: string
-  category: 'beef_cut' | 'poultry' | 'pork' | 'other'
+  category: 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags'
   unit: 'kg' | 'unit'
   price: number | null
 }

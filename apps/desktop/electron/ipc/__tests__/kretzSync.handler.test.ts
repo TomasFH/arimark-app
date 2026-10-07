@@ -85,6 +85,7 @@ function makeManager(overrides: Partial<HardwareManager> = {}): HardwareManager 
   return {
     kretzTestLink: vi.fn().mockResolvedValue(true),
     kretzSendPlu: vi.fn().mockResolvedValue(undefined),
+    detectAndConnectKretz: vi.fn().mockResolvedValue(null),
     ...overrides,
   } as unknown as HardwareManager
 }
@@ -102,15 +103,60 @@ describe('kretzSync.handler — KRETZ_SYNC_CATALOG', () => {
   })
 
   it('rechaza storeId inválido', async () => {
-    registerKretzSyncHandler(makeManager())
+    const manager = makeManager()
+    registerKretzSyncHandler(manager)
     const { event } = makeEvent()
     const result = await getHandler('ipc:kretz-sync-catalog')(event, '') as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('VALIDATION_ERROR')
+    expect(manager.kretzTestLink).not.toHaveBeenCalled()
+    expect(manager.detectAndConnectKretz).not.toHaveBeenCalled()
   })
 
-  it('aborta con NO_SCALE si la balanza no responde al enlace', async () => {
+  it('rechaza un payload que no es texto', async () => {
+    const manager = makeManager()
+    registerKretzSyncHandler(manager)
+    const { event } = makeEvent()
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, 12) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('VALIDATION_ERROR')
+    expect(manager.detectAndConnectKretz).not.toHaveBeenCalled()
+  })
+
+  it('aborta con NO_SCALE si la balanza no responde y el sondeo no encuentra otra', async () => {
     const manager = makeManager({ kretzTestLink: vi.fn().mockResolvedValue(false) })
+    registerKretzSyncHandler(manager)
+    const { event } = makeEvent()
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as {
+      ok: boolean
+      code: string
+      error: string
+    }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NO_SCALE')
+    expect(result.error).toContain('No se cargó el catálogo')
+    expect(manager.detectAndConnectKretz).toHaveBeenCalledTimes(1)
+    expect(manager.kretzSendPlu).not.toHaveBeenCalled()
+  })
+
+  it('aborta con NO_SCALE si testLink lanza y el sondeo no encuentra balanza', async () => {
+    const manager = makeManager({
+      kretzTestLink: vi.fn().mockRejectedValue(new Error('puerto ocupado')),
+    })
+    registerKretzSyncHandler(manager)
+    const { event } = makeEvent()
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as { ok: boolean; code: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NO_SCALE')
+    expect(manager.detectAndConnectKretz).toHaveBeenCalledTimes(1)
+    expect(manager.kretzSendPlu).not.toHaveBeenCalled()
+  })
+
+  it('si el sondeo lanza, no envía el catálogo', async () => {
+    const manager = makeManager({
+      kretzTestLink: vi.fn().mockResolvedValue(false),
+      detectAndConnectKretz: vi.fn().mockRejectedValue(new Error('sin puertos')),
+    })
     registerKretzSyncHandler(manager)
     const { event } = makeEvent()
     const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as { ok: boolean; code: string }
@@ -119,13 +165,33 @@ describe('kretzSync.handler — KRETZ_SYNC_CATALOG', () => {
     expect(manager.kretzSendPlu).not.toHaveBeenCalled()
   })
 
-  it('aborta con NO_SCALE si testLink lanza excepción', async () => {
-    const manager = makeManager({ kretzTestLink: vi.fn().mockRejectedValue(new Error('puerto ocupado')) })
+  it('si no hay enlace, sondea y carga cuando una balanza responde', async () => {
+    const order: string[] = []
+    const manager = makeManager({
+      kretzTestLink: vi.fn(async () => {
+        order.push('link')
+        return false
+      }),
+      detectAndConnectKretz: vi.fn(async () => {
+        order.push('detect')
+        return 'COM11'
+      }),
+      kretzSendPlu: vi.fn(async () => {
+        order.push('send')
+      }),
+    })
+    vi.mocked(getDb).mockReturnValue(makeDb(
+      [{ id: 'p1', name: 'Asado', unit: 'kg', pluNumber: 1 }],
+      [{ productId: 'p1', price: 18000, validFrom: '2026-01-01T00:00:00.000Z' }],
+    ))
     registerKretzSyncHandler(manager)
     const { event } = makeEvent()
-    const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as { ok: boolean; code: string }
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe('NO_SCALE')
+
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as { ok: boolean }
+
+    expect(result.ok).toBe(true)
+    expect(order).toEqual(['link', 'detect', 'send'])
+    expect(manager.kretzSendPlu).toHaveBeenCalledTimes(1)
   })
 
   it('envía los productos con precio y omite los que no corresponden', async () => {
@@ -140,6 +206,7 @@ describe('kretzSync.handler — KRETZ_SYNC_CATALOG', () => {
     }
 
     expect(result.ok).toBe(true)
+    expect(manager.detectAndConnectKretz).not.toHaveBeenCalled()
     // p1 y p2 se envían; p3 (sin precio) y p4 (precio alto) se omiten
     expect(result.data.total).toBe(2)
     expect(result.data.succeeded).toBe(2)

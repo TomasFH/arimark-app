@@ -6,7 +6,7 @@
  *     El total se descuenta del salario semanal.
  *   - Adelanto en efectivo: retiro simple de efectivo del sueldo (sin productos).
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { isVisibleForVales, namesMatch, valeVisitorCandidates, searchProductsByQuery } from '@carniceria/shared'
 import DecimalInput from '../components/DecimalInput'
 import NumericInput from '../components/NumericInput'
@@ -18,6 +18,8 @@ import {
   weekStartMondayLocalYmd,
 } from '../lib/datetime'
 import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
+import { valeLineFromBarcode } from '../lib/barcodeItem'
+import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
 import { Button, Modal } from '../components/ui'
@@ -200,6 +202,32 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
   const productSuggestions: ProductRow[] = searchProductsByQuery(products, productQuery, {
     nameOf: p => p.name,
     pluOf: p => p.pluNumber,
+  })
+
+  const handleValeScan = useCallback((digits: string) => {
+    const line = valeLineFromBarcode(digits, products)
+    if (!line.ok) {
+      setAddError(line.error)
+      return
+    }
+    const id = String(nextDraftId.current++)
+    setDraftItems(prev => [...prev, {
+      id,
+      product: line.product,
+      quantityText: line.quantityText,
+      priceText: line.priceText,
+    }])
+    setAddError(null)
+    setProductQuery('')
+    setSelectedProductId('')
+    setQuantityText('')
+    setPriceText('')
+    setShowProductSuggestions(false)
+  }, [products])
+
+  useBarcodeScanner({
+    onScan: handleValeScan,
+    disabled: mode !== 'products' || saving,
   })
 
   function handleAddItem() {

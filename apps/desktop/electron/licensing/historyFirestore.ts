@@ -78,6 +78,8 @@ interface FsSale {
   isDebt: boolean
   manualEntry: boolean
   createdAt: string
+  discountException?: boolean
+  discountPercent?: number
   items?: FsSaleItem[]
   payments?: FsSalePayment[]
 }
@@ -159,6 +161,10 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
     paymentMethods: methods,
     manualEntry: s.manualEntry ?? false,
     isDebt: s.isDebt ?? false,
+    discountException: s.discountException === true,
+    discountPercent: typeof s.discountPercent === 'number' && Number.isFinite(s.discountPercent)
+      ? Math.min(100, Math.max(0, Math.round(s.discountPercent)))
+      : 0,
     customerName: null,
     items: (s.items ?? []).map(i => ({
       productName: i.productName ?? '(producto)',
@@ -338,6 +344,81 @@ export function historyShiftDetailIsEmpty(detail: HistoryShiftDetail): boolean {
     && detail.debts.length === 0
     && detail.vales.length === 0
   )
+}
+
+function unionById<T extends { id: string; createdAt: string }>(remote: T[], local: T[]): T[] {
+  const byId = new Map<string, T>()
+  for (const row of remote) byId.set(row.id, row)
+  for (const row of local) byId.set(row.id, row)
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+/**
+ * La PC del admin no tiene el SQLite del local. Si acá hay un fiado o el cierre
+ * y en la nube están las ventas y los gastos, se muestran los dos lados.
+ * El mismo id no se duplica: gana el de esta PC.
+ */
+export function mergeHistoryShiftDetails(
+  local: HistoryShiftDetail,
+  remote: HistoryShiftDetail,
+): HistoryShiftDetail {
+  const sales = unionById(remote.sales, local.sales)
+  const expenses = unionById(remote.expenses, local.expenses)
+  const debts = unionById(remote.debts, local.debts)
+  const deposits = unionById(remote.deposits, local.deposits)
+  const vales = unionById(remote.vales, local.vales)
+  const shift = local.shift.closedAt
+    ? local.shift
+    : remote.shift.closedAt
+      ? remote.shift
+      : local.shift
+
+  const confirmed = sales.filter(s => s.status === 'confirmed')
+  const totalRevenue = confirmed.reduce((a, s) => a + s.total, 0)
+  const totalCashSales = confirmed.reduce((a, s) => a + s.cashAmount, 0)
+  const totalDebitSales = confirmed.reduce((a, s) => a + (s.paymentMethods.includes('debit') ? s.digitalAmount : 0), 0)
+  const totalWalletSales = confirmed.reduce((a, s) => a + (s.paymentMethods.includes('wallet') ? s.digitalAmount : 0), 0)
+  const totalCreditSales = confirmed.reduce((a, s) => a + (s.paymentMethods.includes('credit') ? s.digitalAmount : 0), 0)
+  const totalExpenses = expenses.filter(e => e.kind !== 'inject').reduce((a, e) => a + e.amount, 0)
+  const totalCashInjects = expenses.filter(e => e.kind === 'inject').reduce((a, e) => a + e.amount, 0)
+  const cashDeposits = deposits.reduce((a, d) => a + cashAmountFromDeposit({
+    depositAmount: d.depositAmount,
+    depositMethod: d.depositMethod,
+    depositPayments: depositPaymentsToJson(d.depositPayments),
+  }), 0)
+  const digitalDeposits = deposits.reduce((a, d) => a + digitalAmountFromDeposit({
+    depositAmount: d.depositAmount,
+    depositMethod: d.depositMethod,
+    depositPayments: depositPaymentsToJson(d.depositPayments),
+  }), 0)
+  const cashDebtPayments = debts
+    .filter(d => d.eventType === 'partial_payment' || d.eventType === 'paid')
+    .reduce((a, d) => a + Math.abs(d.amount), 0)
+
+  return {
+    shift,
+    cashHandover: local.cashHandover ?? remote.cashHandover,
+    sales,
+    expenses,
+    debts,
+    deposits,
+    vales,
+    summary: {
+      salesCount: confirmed.length,
+      totalRevenue,
+      totalCashSales,
+      totalDebitSales,
+      totalWalletSales,
+      totalCreditSales,
+      totalExpenses,
+      totalCashInjects,
+      cashDeposits,
+      digitalDeposits,
+      cashInHand: shift.openingCash + totalCashSales + cashDeposits + cashDebtPayments + totalCashInjects - totalExpenses,
+      debtsCount: debts.length,
+      totalDebts: debts.reduce((a, d) => a + d.amount, 0),
+    },
+  }
 }
 
 /**

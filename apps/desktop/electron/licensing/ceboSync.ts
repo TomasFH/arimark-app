@@ -30,6 +30,7 @@ export async function pushUnsyncedCebo(tenantId: string): Promise<void> {
         shiftId: row.shiftId,
         quantityKg: row.quantityKg,
         notes: row.notes ?? null,
+        saleId: row.saleId ?? null,
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         updatedBy: row.updatedBy ?? null,
@@ -92,6 +93,9 @@ export async function pullCeboForStoreWeek(
     if (existing && existing.syncedAt === null) continue
 
     const now = new Date().toISOString()
+    const linkedSaleId = typeof data['saleId'] === 'string' && data['saleId'].length > 0
+      ? data['saleId']
+      : null
     db.insert(ceboEntries).values({
       id,
       storeId,
@@ -103,6 +107,7 @@ export async function pullCeboForStoreWeek(
       updatedBy: typeof data['updatedBy'] === 'string' ? data['updatedBy'] : null,
       updatedAt: typeof data['updatedAt'] === 'string' ? data['updatedAt'] : null,
       syncedAt: now,
+      saleId: linkedSaleId,
     }).onConflictDoUpdate({
       target: ceboEntries.id,
       set: {
@@ -111,6 +116,7 @@ export async function pullCeboForStoreWeek(
         updatedBy: typeof data['updatedBy'] === 'string' ? data['updatedBy'] : null,
         updatedAt: typeof data['updatedAt'] === 'string' ? data['updatedAt'] : null,
         syncedAt: now,
+        ...(linkedSaleId ? { saleId: linkedSaleId } : {}),
       },
     }).run()
     upserted += 1

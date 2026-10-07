@@ -117,7 +117,7 @@ export default function KretzSyncModal({ storeId, store, onClose }: Props) {
           <p className="text-sm text-muted">
             {progress
               ? `PLU ${progress.pluNumber} — ${progress.name} (${progress.current} de ${progress.total})`
-              : 'Verificando conexión con la balanza…'}
+              : 'Buscando la balanza…'}
           </p>
           <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-raised">
             <div

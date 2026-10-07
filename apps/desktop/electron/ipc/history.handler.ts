@@ -17,8 +17,8 @@ import {
   fetchHistoryShiftDetailFromFirestore,
   fetchEmployeeValesFromFirestore,
   mergeHistoryShiftRows,
+  mergeHistoryShiftDetails,
   sortHistoryShiftRowsNewestFirst,
-  historyShiftDetailIsEmpty,
 } from '../licensing/historyFirestore'
 import type {
   IpcResult,
@@ -300,6 +300,8 @@ export function registerHistoryHandlers(): void {
           status: sales.status,
           manualEntry: sales.manualEntry,
           isDebt: sales.isDebt,
+          discountException: sales.discountException,
+          discountPercent: sales.discountPercent,
           customerId: sales.customerId,
         })
         .from(sales)
@@ -378,6 +380,8 @@ export function registerHistoryHandlers(): void {
           paymentMethods: pay.methods,
           manualEntry: s.manualEntry,
           isDebt: s.isDebt,
+          discountException: s.discountException,
+          discountPercent: s.discountPercent,
           customerName: null as string | null,
           items: itemsMap.get(s.id) ?? [],
         }
@@ -643,12 +647,14 @@ export function registerHistoryHandlers(): void {
         },
       }
 
-      // SQLite remoto a menudo tiene el turno (reconcile) pero no las ventas.
-      // Si no hay movimientos locales, el detalle sale de Firestore.
-      if (isFirebaseAvailable() && historyShiftDetailIsEmpty(localDetail)) {
+      // Esta PC no es el local. Lo que falta en SQLite se completa desde Firestore
+      // (ventas, gastos, fiados, señas y vales). Un dato local no tapa al resto.
+      if (isFirebaseAvailable()) {
         try {
           const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId)
-          if (remoteDetail) return { ok: true, data: remoteDetail }
+          if (remoteDetail) {
+            return { ok: true, data: mergeHistoryShiftDetails(localDetail, remoteDetail) }
+          }
         } catch (fbErr) {
           log.warn('[ipc:get-history-shift-detail] Firestore no disponible; se usa detalle local', fbErr)
         }

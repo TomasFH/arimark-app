@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
 import { ScreenHeader } from '../components/ui'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
-import { injectHistoryLabel } from '@carniceria/shared'
+import { exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
 import StoreFilter from '../components/StoreFilter'
 
@@ -344,7 +344,11 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
       {activeTab === 'sales' && (
         <div className="space-y-2">
           {sales.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin ventas en este turno.</p>}
-          {sales.map(sale => (
+          {sales.map(sale => {
+            const apartLabel = sale.discountException
+              ? exceptionalDiscountLabel(sale.discountPercent ?? 0)
+              : null
+            return (
             <div
               key={sale.id}
               className={`rounded-lg border p-3 text-sm ${
@@ -362,6 +366,11 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
                     )}
                     {sale.isDebt && <span className="text-[10px] text-muted font-medium">Fiado</span>}
                     {sale.manualEntry && <span className="text-[10px] text-muted font-medium">Manual</span>}
+                    {apartLabel && (
+                      <span className="max-w-[11rem] truncate text-[10px] font-medium text-muted" title={apartLabel}>
+                        {apartLabel}
+                      </span>
+                    )}
                   </div>
                   <div className="flex gap-1 mt-0.5 flex-wrap">
                     {sale.paymentMethods.map(m => (
@@ -388,7 +397,8 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

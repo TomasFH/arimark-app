@@ -227,6 +227,38 @@ describe('catalogAdmin.handler', () => {
       expect(result.code).toBe('VALIDATION_ERROR')
     })
 
+    it('bolsas con unidad kg se guarda como unidad y no pisa el pack', () => {
+      const result = getHandler('ipc:create-product')({}, {
+        name: 'Bolsa camiseta',
+        category: 'bags',
+        unit: 'kg',
+        pluNumber: 40,
+        purchasePackLabel: 'Paquete',
+        purchasePackContents: 50,
+      }) as { ok: boolean; data: { id: string } }
+      expect(result.ok).toBe(true)
+
+      const row = db.select().from(products).where(eq(products.id, result.data.id)).get()
+      expect(row?.category).toBe('bags')
+      expect(row?.unit).toBe('unit')
+      expect(row?.purchasePackLabel).toBe('Paquete')
+      expect(row?.purchasePackContents).toBe(50)
+    })
+
+    it('bolsas con unidad unit se guarda como unidad', () => {
+      const result = getHandler('ipc:create-product')({}, {
+        name: 'Bolsa residuo',
+        category: 'bags',
+        unit: 'unit',
+        pluNumber: null,
+      }) as { ok: boolean; data: { id: string } }
+      expect(result.ok).toBe(true)
+
+      const row = db.select().from(products).where(eq(products.id, result.data.id)).get()
+      expect(row?.category).toBe('bags')
+      expect(row?.unit).toBe('unit')
+    })
+
     it('rechaza PLU duplicado', () => {
       const result = getHandler('ipc:create-product')({}, {
         name: 'Producto X', category: 'other', unit: 'unit', pluNumber: 1,
@@ -273,6 +305,48 @@ describe('catalogAdmin.handler', () => {
       const result = getHandler('ipc:update-product')({}, { id: '', name: 'X' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('al pasar un producto a bolsas corrige kg a unidad', () => {
+      const result = getHandler('ipc:update-product')({}, {
+        id: PRODUCT_ID, category: 'bags',
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const row = db.select().from(products).where(eq(products.id, PRODUCT_ID)).get()
+      expect(row?.category).toBe('bags')
+      expect(row?.unit).toBe('unit')
+
+      const audits = db.select().from(catalogAuditEvents).all()
+      expect(audits).toHaveLength(1)
+      expect(audits[0]?.summary).toMatch(/Categoría: vacuno → bolsas/)
+      expect(audits[0]?.summary).toMatch(/Unidad: kg → unidad/)
+    })
+
+    it('si el producto sigue en bolsas, un kg pedido no se persiste', () => {
+      db.update(products).set({ category: 'bags', unit: 'unit' }).where(eq(products.id, PRODUCT_ID)).run()
+
+      const result = getHandler('ipc:update-product')({}, {
+        id: PRODUCT_ID, unit: 'kg',
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const row = db.select().from(products).where(eq(products.id, PRODUCT_ID)).get()
+      expect(row?.category).toBe('bags')
+      expect(row?.unit).toBe('unit')
+    })
+
+    it('al salir de bolsas permite volver a kg', () => {
+      db.update(products).set({ category: 'bags', unit: 'unit' }).where(eq(products.id, PRODUCT_ID)).run()
+
+      const result = getHandler('ipc:update-product')({}, {
+        id: PRODUCT_ID, category: 'other', unit: 'kg',
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const row = db.select().from(products).where(eq(products.id, PRODUCT_ID)).get()
+      expect(row?.category).toBe('other')
+      expect(row?.unit).toBe('kg')
     })
 
     it('retorna NOT_FOUND si el producto no existe', () => {

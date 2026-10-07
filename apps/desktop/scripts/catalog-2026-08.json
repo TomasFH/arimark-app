@@ -1,6 +1,6 @@
 {
   "pricesValidFrom": "2026-08-03T12:00:00.000Z",
-  "note": "Lista de PLU del local. Precios de ago 2026 donde están. PLU 500–518 y 550–555 se agregaron en el local en oct 2026 (capturas de la app): sin precio acá porque las capturas no lo traían; no inventar uno.",
+  "note": "Lista de PLU del local. Precios de ago 2026 donde están. PLU 500–518 y 550–555 se agregaron en el local en oct 2026 (capturas de la app): sin precio acá porque las capturas no lo traían; no inventar uno. PLU 999 Otros no tiene precio de lista a propósito.",
   "products": [
     {
       "plu": 1,
@@ -1025,6 +1025,14 @@
       "unit": "unit",
       "price": null,
       "section": "Almacén"
+    },
+    {
+      "plu": 999,
+      "name": "Otros",
+      "category": "other",
+      "unit": "kg",
+      "price": null,
+      "section": "Otros"
     }
   ]
 }

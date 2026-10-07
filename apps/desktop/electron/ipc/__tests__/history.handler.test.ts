@@ -426,6 +426,99 @@ describe('history.handler', () => {
       expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID)
     })
 
+    it('completa las ventas desde Firestore si el turno local solo tiene un fiado', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const now = '2026-07-01T11:00:00.000Z'
+      db.insert(customers).values({
+        id: 'cust-1',
+        storeId: STORE_ID,
+        name: 'Juan',
+        active: true,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+      db.insert(debtEvents).values({
+        id: 'debt-1',
+        customerId: 'cust-1',
+        storeId: STORE_ID,
+        eventType: 'created',
+        amount: 1000,
+        shiftId: SHIFT_ID,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+
+      const remoteDetail: HistoryShiftDetail = {
+        shift: {
+          id: SHIFT_ID,
+          shiftType: 'morning',
+          startedAt: '2026-07-01T08:00:00.000Z',
+          closedAt: null,
+          cashierName: 'Admin Prueba',
+          openingCash: 1000,
+          closingCash: null,
+          deliveredAmount: null,
+          deliveredTo: null,
+          notes: null,
+        },
+        sales: [{
+          id: 'sale-remote-2',
+          createdAt: '2026-07-01T12:00:00.000Z',
+          total: 20000,
+          status: 'confirmed',
+          cashAmount: 20000,
+          digitalAmount: 0,
+          paymentMethods: ['cash'],
+          manualEntry: false,
+          isDebt: false,
+          customerName: null,
+          items: [{ productName: 'Asado', quantity: 1, unit: 'kg', unitPrice: 20000, subtotal: 20000 }],
+        }],
+        expenses: [{
+          id: 'exp-remote-1',
+          createdAt: '2026-07-01T13:00:00.000Z',
+          concept: 'Hielo',
+          amount: 4000,
+          notes: null,
+          createdBy: 'Admin',
+          kind: 'expense',
+        }],
+        debts: [],
+        deposits: [],
+        vales: [],
+        summary: {
+          salesCount: 1,
+          totalRevenue: 20000,
+          totalCashSales: 20000,
+          totalDebitSales: 0,
+          totalWalletSales: 0,
+          totalCreditSales: 0,
+          totalExpenses: 0,
+          totalCashInjects: 0,
+          cashDeposits: 0,
+          digitalDeposits: 0,
+          cashInHand: 21000,
+          debtsCount: 0,
+          totalDebts: 0,
+        },
+      }
+      vi.mocked(fetchHistoryShiftDetailFromFirestore).mockResolvedValue(remoteDetail)
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: HistoryShiftDetail
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.sales).toHaveLength(1)
+      expect(res.data.sales[0].items[0].productName).toBe('Asado')
+      expect(res.data.expenses).toHaveLength(1)
+      expect(res.data.expenses[0].concept).toBe('Hielo')
+      expect(res.data.summary.totalExpenses).toBe(4000)
+      expect(res.data.debts.length).toBeGreaterThan(0)
+      expect(res.data.shift.closedAt).toBe('2026-07-01T16:00:00.000Z')
+    })
+
     it('no pisa el detalle local si hay ventas en SQLite', async () => {
       vi.mocked(isFirebaseAvailable).mockReturnValue(true)
       const now = '2026-07-01T10:00:00.000Z'
@@ -459,7 +552,7 @@ describe('history.handler', () => {
       expect(res.data.sales).toHaveLength(1)
       expect(res.data.sales[0].total).toBe(5000)
       expect(res.data.summary.totalRevenue).toBe(5000)
-      expect(fetchHistoryShiftDetailFromFirestore).not.toHaveBeenCalled()
+      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID)
     })
 
     it('retorna el detalle de un turno de otro local (cross-store)', async () => {

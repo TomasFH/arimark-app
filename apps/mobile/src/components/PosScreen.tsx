@@ -744,7 +744,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
             onClick={() => setShowCebo(true)}
             className="rounded-xl bg-gray-800 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
           >
-            Cebo
+            Sebo
           </button>
           <button
             type="button"

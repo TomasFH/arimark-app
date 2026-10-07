@@ -118,6 +118,31 @@ describe('seedCatalogOntoStore', () => {
     expect(db.select().from(products).where(eq(products.id, productIdForPlu(1))).get()?.name).toBe('Asado editado')
   })
 
+  it('inserta un PLU sin precio y no pisa un PLU ya usado', () => {
+    const now = '2026-09-07T03:00:00.000Z'
+    const filePath = path.join(tmpDir, 'catalog-null.json')
+    db.insert(products).values({
+      id: 'local-999',
+      name: 'Ya existe',
+      category: 'other',
+      unit: 'kg',
+      pluNumber: 999,
+      active: true,
+      createdAt: now,
+    }).run()
+    fs.writeFileSync(filePath, JSON.stringify({
+      products: [
+        { plu: 999, name: 'Otros', category: 'other', unit: 'kg', price: null },
+        { plu: 8, name: 'Sin precio', category: 'other', unit: 'kg', price: null },
+      ],
+    }))
+    const result = ensureMasterCatalogProducts({ now, filePath })
+    expect(result.inserted).toBe(2)
+    expect(db.select().from(products).where(eq(products.pluNumber, 999)).get()?.name).toBe('Ya existe')
+    expect(db.select().from(products).where(eq(products.pluNumber, 8)).get()?.name).toBe('Sin precio')
+    expect(db.select().from(productPrices).all()).toHaveLength(0)
+  })
+
   it('no asocia el producto fallback al local al sembrar precios', () => {
     const now = '2026-09-07T03:00:00.000Z'
     db.insert(stores).values({ id: 'store-new', name: 'Nuevo', createdAt: now }).run()

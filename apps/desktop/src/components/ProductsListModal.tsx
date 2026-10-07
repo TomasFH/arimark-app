@@ -22,6 +22,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   poultry:  'Pollo/Aves',
   pork:     'Cerdo',
   other:    'Otros',
+  bags:     'Bolsas',
 }
 
 const UNIT_LABELS: Record<string, string> = {

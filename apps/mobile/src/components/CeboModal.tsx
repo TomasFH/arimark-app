@@ -1,5 +1,5 @@
 /**
- * Registro de cebo del turno (kg + nota). No mueve caja.
+ * Registro de sebo del turno (kg + nota). No mueve caja.
  */
 import { useEffect, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
@@ -111,7 +111,7 @@ export function CeboModal({ shift, viewerRole, viewerName, onClose }: Props) {
         console.error('[cebo] Error al disparar sync', err)
       })
     } catch {
-      setError('No se pudo guardar el cebo.')
+      setError('No se pudo guardar el sebo.')
     } finally {
       setSaving(false)
     }
@@ -124,7 +124,7 @@ export function CeboModal({ shift, viewerRole, viewerName, onClose }: Props) {
     >
       <div className="max-h-[90vh] w-full space-y-4 overflow-y-auto rounded-t-2xl bg-gray-900 p-5">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="min-w-0 flex-1 truncate text-lg font-bold text-white" title="Cebo">Cebo</h2>
+          <h2 className="min-w-0 flex-1 truncate text-lg font-bold text-white" title="Sebo">Sebo</h2>
           <button type="button" onClick={onClose} className="shrink-0 text-2xl leading-none text-gray-400 hover:text-white">
             ×
           </button>
@@ -155,7 +155,7 @@ export function CeboModal({ shift, viewerRole, viewerName, onClose }: Props) {
 
         <ul className="max-h-40 space-y-2 overflow-y-auto">
           {rows.length === 0 && (
-            <li className="py-2 text-center text-sm text-gray-500">Sin cebo esta semana.</li>
+            <li className="py-2 text-center text-sm text-gray-500">Sin sebo esta semana.</li>
           )}
           {rows.map(row => {
             const loaded = `Cargó ${row.createdByName || 'cajera'} · ${toLocalTime(row.createdAt)}`
@@ -216,7 +216,7 @@ export function CeboModal({ shift, viewerRole, viewerName, onClose }: Props) {
             </div>
           </>
         ) : (
-          <p className="text-center text-xs text-gray-500">Para cargar cebo, volvé a la semana actual.</p>
+          <p className="text-center text-xs text-gray-500">Para anotar sebo, volvé a la semana actual.</p>
         )}
 
         {error && <p className="text-center text-sm font-medium text-orange-400">{error}</p>}

@@ -71,7 +71,7 @@ export const adminDevices = sqliteTable('admin_devices', {
 export const products = sqliteTable('products', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  category: text('category', { enum: ['beef_cut', 'poultry', 'pork', 'other'] }).notNull(),
+  category: text('category', { enum: ['beef_cut', 'poultry', 'pork', 'other', 'bags'] }).notNull(),
   unit: text('unit', { enum: ['kg', 'unit'] }).notNull(),
   /**
    * Número de PLU en la balanza KRETZ (1–999). Único por local.
@@ -312,6 +312,8 @@ export const sales = sqliteTable(
     discountAmount: integer('discount_amount').notNull().default(0),
     /** % aplicado al persistir. 0 si no aplicó. */
     discountPercent: integer('discount_percent').notNull().default(0),
+    /** True solo si el tilde de descuento excepcional estuvo activo en el cobro. */
+    discountException: integer('discount_exception', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -807,7 +809,9 @@ export const cashDiscountAudits = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Cebo del turno (kg + nota). No mueve caja ni stock.
+// Cebo del turno (kg + nota). En pantalla se dice sebo.
+// sale_id apunta a la venta si hubo cobro. Sin FK: el id puede llegar por
+// sync antes que la fila de sales. Sin importe, sale_id queda null y no mueve caja.
 // ---------------------------------------------------------------------------
 export const ceboEntries = sqliteTable(
   'cebo_entries',
@@ -828,6 +832,7 @@ export const ceboEntries = sqliteTable(
     updatedBy: text('updated_by').references(() => users.id),
     updatedAt: text('updated_at'),
     syncedAt: text('synced_at'),
+    saleId: text('sale_id'),
   },
   table => [
     index('idx_cebo_shift').on(table.shiftId, table.createdAt),

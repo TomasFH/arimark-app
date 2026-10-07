@@ -337,6 +337,20 @@
       "when": 1789741327276,
       "tag": "0047_provider_intake_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1791069983490,
+      "tag": "0048_cebo_sale",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1791092502400,
+      "tag": "0049_sale_discount_exception",
+      "breakpoints": true
     }
   ]
 }

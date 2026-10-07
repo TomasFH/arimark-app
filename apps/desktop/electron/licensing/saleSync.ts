@@ -81,9 +81,10 @@ export async function pushUnsyncedSales(tenantId: string): Promise<void> {
         manualEntry: sale.manualEntry,
         manualApprovedBy: sale.manualApprovedBy ?? null,
         manualApprovedAt: sale.manualApprovedAt ?? null,
-            notes: sale.notes ?? null,
-            discountAmount: sale.discountAmount ?? 0,
-            discountPercent: sale.discountPercent ?? 0,
+        notes: sale.notes ?? null,
+        discountAmount: sale.discountAmount ?? 0,
+        discountPercent: sale.discountPercent ?? 0,
+        discountException: sale.discountException === true,
         createdAt: sale.createdAt,
         createdBy: sale.createdBy,
         items: itemRows.map(i => ({
