@@ -38,8 +38,12 @@ const MIN_RECONNECT_MS = 5_000
 const MAX_RECONNECT_MS = 30_000
 /** Cada cuánto se miran los COM para notar un enchufe con la app abierta. */
 export const KRETZ_PORT_WATCH_MS = 2_000
-/** Reintentos de un COM recién aparecido antes de darlo por no-balanza. */
-const MAX_NEW_PORT_PROBES = 3
+/**
+ * Reintentos de un COM nuevo mientras ya hay otra balanza en enlace.
+ * Una REPORT NX recién enchufada no contesta los primeros sondeos; con 3
+ * (unos 6 s) se la daba por perdida y no se volvía a mirar.
+ */
+const MAX_NEW_PORT_PROBES = 15
 
 export class HardwareManager {
   private _kretzReconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -327,6 +331,14 @@ export class HardwareManager {
     this._kretzPort = portPath
     this._kretzReconnectDelay = MIN_RECONNECT_MS
     this._wireKretzEvents()
+    if (await this._connectKretz()) return true
+    if (this._stopped) return false
+    // El sondeo acaba de cerrar este mismo COM. Windows a veces rechaza
+    // reabrirlo en el acto; un intento más después de soltarlo.
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, 400)
+    })
+    if (this._stopped) return false
     return this._connectKretz()
   }
 
@@ -426,6 +438,16 @@ export class HardwareManager {
       }
     }
 
+    // El COM guardado se fue (otra balanza, otro número). Hay que soltar el
+    // enlace viejo aunque el driver no haya avisado el cierre.
+    if (this._kretzPort && !paths.includes(this._kretzPort)) {
+      log.info('[hardware] El COM de la balanza ya no está', { port: this._kretzPort })
+      this._linkOk = false
+      this._knownPortPaths = null
+      await this._onLinkLost()
+      return
+    }
+
     const appeared = paths.filter(path => !known.has(path))
     if (appeared.length === 0) return
 
@@ -485,6 +507,9 @@ export class HardwareManager {
   }
 
   private _noteNewPortMisses(appeared: string[], known: Set<string>): void {
+    // Sin enlace no se archiva ningún COM: el que acaba de aparecer puede ser
+    // la balanza y todavía no contesta. Se sigue sondeando en cada pasada.
+    if (!this._linkOk) return
     for (const path of appeared) {
       const misses = (this._newPortMisses.get(path) ?? 0) + 1
       if (misses >= MAX_NEW_PORT_PROBES) {
@@ -533,6 +558,13 @@ export class HardwareManager {
     this.kretz.on('error', (err: Error) => {
       log.error('[hardware] Error en KRETZ', err)
       setHardwareStatus({ scale: 'error' })
+      if (this._probing || this._stopped) return
+      // En Windows, desenchufar a veces avisa error y no cierre. Sin esto el
+      // enlace queda "ok" y un COM nuevo se ignora después de unos sondeos.
+      if (this._watchHotplug || this._autoprobe) {
+        this._linkOk = false
+        void this._onLinkLost()
+      }
     })
   }
 }

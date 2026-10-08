@@ -103,15 +103,54 @@ export class KretzRealDriver extends EventEmitter implements KretzDriver {
   }
 
   async disconnect(): Promise<void> {
-    if (!this._port) return
-    return new Promise(resolve => {
-      this._rejectPending(new Error('Desconexión solicitada'))
-      this._port!.close(() => {
-        this._connected = false
-        this._port = null
+    const port = this._port
+    if (!port) {
+      this._connected = false
+      return
+    }
+    this._rejectPending(new Error('Desconexión solicitada'))
+    await new Promise<void>(resolve => {
+      let settled = false
+      const done = (): void => {
+        if (settled) return
+        settled = true
         resolve()
-      })
+      }
+      const timer = setTimeout(() => {
+        log.warn('[kretz] El cierre del puerto no respondió; se fuerza', { port: this.portPath })
+        try {
+          const destroy = (port as { destroy?: () => void }).destroy
+          if (typeof destroy === 'function') destroy.call(port)
+        } catch (err) {
+          log.debug(
+            '[kretz] No se pudo destruir el puerto',
+            err instanceof Error ? err.message : String(err)
+          )
+        }
+        done()
+      }, 1_500)
+      try {
+        const isOpen = (port as { isOpen?: boolean }).isOpen
+        if (isOpen === false) {
+          clearTimeout(timer)
+          done()
+          return
+        }
+        port.close(() => {
+          clearTimeout(timer)
+          done()
+        })
+      } catch (err) {
+        clearTimeout(timer)
+        log.debug(
+          '[kretz] Error al cerrar el puerto',
+          err instanceof Error ? err.message : String(err)
+        )
+        done()
+      }
     })
+    this._connected = false
+    this._port = null
   }
 
   isConnected(): boolean {

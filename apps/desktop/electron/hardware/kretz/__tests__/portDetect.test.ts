@@ -3,8 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Estado compartido con el mock de serialport. Debe crearse con vi.hoisted porque
 // vi.mock se eleva por encima de las declaraciones normales del módulo.
 const state = vi.hoisted(() => ({
-  behaviors: {} as Record<string, 'ok' | 'noresponse' | 'busy' | 'garbage'>,
+  behaviors: {} as Record<string, 'ok' | 'noresponse' | 'busy' | 'garbage' | 'late-open'>,
   listResult: [] as Array<{ path: string; manufacturer?: string; pnpId?: string }>,
+  lastPort: null as {
+    path: string
+    isOpen: boolean
+    close: (cb: () => void) => void
+  } | null,
 }))
 
 /** Construye una respuesta R30 válida con el código dado (checksum correcto). */
@@ -29,6 +34,7 @@ vi.mock('serialport', () => {
 
     constructor(opts: { path: string }) {
       this.path = opts.path
+      state.lastPort = this
     }
 
     on(event: string, handler: (arg?: unknown) => void): this {
@@ -40,6 +46,13 @@ vi.mock('serialport', () => {
       const behavior = state.behaviors[this.path]
       if (behavior === 'busy') {
         cb(new Error('Access denied (puerto ocupado)'))
+        return
+      }
+      if (behavior === 'late-open') {
+        setTimeout(() => {
+          this.isOpen = true
+          cb(null)
+        }, 80)
         return
       }
       this.isOpen = true
@@ -76,6 +89,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   state.behaviors = {}
   state.listResult = []
+  state.lastPort = null
 })
 
 describe('portDetect — listSerialPorts', () => {
@@ -110,6 +124,13 @@ describe('portDetect — probeKretzPort', () => {
   it('devuelve false ante una respuesta corrupta', async () => {
     state.behaviors = { COM8: 'garbage' }
     await expect(probeKretzPort('COM8', 200)).resolves.toBe(false)
+  })
+
+  it('cierra el COM si el open termina después del plazo', async () => {
+    state.behaviors = { COM8: 'late-open' }
+    await expect(probeKretzPort('COM8', 20)).resolves.toBe(false)
+    await new Promise(resolve => setTimeout(resolve, 120))
+    expect(state.lastPort?.isOpen).toBe(false)
   })
 })
 

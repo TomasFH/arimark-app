@@ -15,7 +15,14 @@ import log from 'electron-log'
 import { encodeFrame, takeResponseFrame, parseResponse } from './r30Protocol'
 
 const BAUD_RATE = 115200
-const DEFAULT_PROBE_TIMEOUT_MS = 1_200
+/**
+ * Una REPORT NX recién enchufada tarda en abrir el COM. 1,2 s cortaba el
+ * sondeo con el puerto todavía cerrándose y el siguiente intento lo encontraba
+ * ocupado por nosotros mismos.
+ */
+const DEFAULT_PROBE_TIMEOUT_MS = 2_500
+/** Windows no suelta el COM en el mismo tick en que close() vuelve. */
+const RELEASE_AFTER_CLOSE_MS = 150
 
 export interface SerialPortInfo {
   path: string
@@ -58,24 +65,39 @@ export function probeKretzPort(
 
     const port = new SerialPort({ path, baudRate: BAUD_RATE, autoOpen: false })
 
+    const resolveWhenReleased = (result: boolean): void => {
+      setTimeout(() => resolve(result), RELEASE_AFTER_CLOSE_MS)
+    }
+
+    const closePort = (): void => {
+      try {
+        if (port.isOpen) {
+          port.close(() => {})
+        }
+      } catch {
+        // El cierre es para no dejar el COM tomado. Si falla, el sondeo ya terminó.
+      }
+    }
+
     const finish = (result: boolean): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       try {
         if (port.isOpen) {
-          port.close(() => resolve(result))
+          port.close(() => resolveWhenReleased(result))
           return
         }
       } catch {
         // Ignorar errores de cierre — igual resolvemos.
       }
-      resolve(result)
+      resolveWhenReleased(result)
     }
 
     const timer = setTimeout(() => finish(false), timeoutMs)
 
     port.on('data', (chunk: Buffer) => {
+      if (settled) return
       rx = Buffer.concat([rx, chunk])
       const taken = takeResponseFrame(rx)
       if (!taken) return
@@ -90,6 +112,12 @@ export function probeKretzPort(
     port.on('error', () => finish(false))
 
     port.open(err => {
+      // El plazo venció con el open todavía en curso. Hay que cerrar: si no,
+      // este handle queda abierto y la balanza queda "ocupada" hasta salir de la app.
+      if (settled) {
+        if (!err) closePort()
+        return
+      }
       if (err) {
         log.debug('[kretz] Puerto no disponible para sondeo', { path, err: err.message })
         finish(false)

@@ -124,6 +124,32 @@ describe('KretzRealDriver — connect() exitoso', () => {
     await driver.disconnect()
   })
 
+  it('disconnect resuelve si el puerto no confirma el cierre', async () => {
+    vi.useFakeTimers()
+    try {
+      const { SerialPort } = await import('serialport')
+      vi.mocked(SerialPort).mockImplementationOnce(
+        () =>
+          ({
+            ...createMockPort({}),
+            isOpen: true,
+            close: vi.fn(() => {
+              /* el driver de Windows a veces no llama al callback */
+            }),
+          }) as unknown as InstanceType<typeof SerialPort>
+      )
+
+      const driver = new KretzRealDriver('COM3')
+      await driver.connect()
+      const closed = driver.disconnect()
+      await vi.advanceTimersByTimeAsync(1_500)
+      await closed
+      expect(driver.isConnected()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('connect es idempotente si ya está conectado', async () => {
     const { SerialPort } = await import('serialport')
     vi.mocked(SerialPort).mockImplementationOnce(

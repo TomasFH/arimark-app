@@ -330,6 +330,48 @@ describe('HardwareManager — enchufe en caliente', () => {
     await manager.stop()
   })
 
+  it('si el COM en uso desaparece del listado, suelta ese enlace y adopta el que responde', async () => {
+    vi.useFakeTimers()
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(true)
+    portsQueAparecen(['COM4'], ['COM11'])
+    detectKretzPortMock.mockResolvedValue('COM11')
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+
+    await manager.start()
+    expect(manager.getKretzPort()).toBe('COM4')
+
+    await vi.advanceTimersByTimeAsync(KRETZ_PORT_WATCH_MS)
+
+    expect(detectKretzPortMock).toHaveBeenCalled()
+    expect(manager.getKretzPort()).toBe('COM11')
+    expect(setSecretMock).toHaveBeenCalledWith('kretz-port', 'COM11')
+    await manager.stop()
+  })
+
+  it('sin enlace, sigue sondeando un COM nuevo aunque los primeros intentos fallen', async () => {
+    vi.useFakeTimers()
+    const initial = makeStubDriver()
+    initial.testLink.mockResolvedValue(false)
+    portsQueAparecen(['COM4'], ['COM4', 'COM11'])
+    let sondeos = 0
+    detectKretzPortMock.mockImplementation(async () => {
+      sondeos += 1
+      return sondeos >= 5 ? 'COM11' : null
+    })
+    const manager = new HardwareManager(asDriver(initial), 'COM4', { watchHotplug: true })
+
+    await manager.start()
+    expect(manager.getKretzPort()).toBe('COM4')
+
+    await vi.advanceTimersByTimeAsync(KRETZ_PORT_WATCH_MS * 6)
+
+    expect(sondeos).toBeGreaterThanOrEqual(5)
+    expect(manager.getKretzPort()).toBe('COM11')
+    expect(setSecretMock).toHaveBeenCalledWith('kretz-port', 'COM11')
+    await manager.stop()
+  })
+
   it('si se pierde el enlace, sondea y adopta el COM que responde', async () => {
     const initial = makeStubDriver()
     initial.testLink.mockResolvedValue(true)

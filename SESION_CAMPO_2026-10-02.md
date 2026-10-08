@@ -1,5 +1,7 @@
 # Sesión de campo — 02/10/2026 — Disco nuevo, tres balanzas y PLU nuevos
 
+**08/10/2026.** La 0.6.1 ya miraba COM nuevos, pero un sondeo que se cortaba mientras `open()` seguía en curso dejaba el COM tomado, y un puerto nuevo se abandonaba a los 3 fallos. El arreglo (cerrar ese handle, esperar un poco antes de reabrir, tomar un COM que desaparece o un error de puerto como enlace perdido, y seguir sondeando mientras no hay enlace) está en `cursor/deteccion-balanza-13ec`. **Todavía hay que comprobarlo en la PC del local con las tres balanzas.** No está confirmado ahí.
+
 Día en la carnicería, en la PC del local con disco nuevo. La balanza KRETZ REPORT NX que antes conectaba dejó de verse. Había que instalar de nuevo el driver, volver a hablar con iTegra y cargar el catálogo en tres balanzas iguales. Al final del día se agregaron productos en la app oficial.
 
 Leer este documento para retomar. El detalle de protocolo R30 sigue en `SESION_CAMPO_2026-06-15_KRETZ_PLU.md`. La tarea de la app oficial que reconoce sola la balanza está anotada en `CHECKLIST_CIERRE_1_0.md` y en `PLAN.md`. No está codeada.
