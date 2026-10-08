@@ -20,6 +20,14 @@ export interface CashierStoreOption {
   hoursSchedule?: StoreHoursBlock[] | null
 }
 
+function hasCache(): boolean {
+  try {
+    return localStorage.getItem(CACHE_KEY) != null
+  } catch {
+    return false
+  }
+}
+
 function readCache(): CashierStoreOption[] {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
@@ -73,16 +81,14 @@ export async function loadCashierStoreOptions(
     const active = all
       .filter(s => !s.archivedAt)
       .map(toStoreOption)
-    if (active.length > 0) {
-      writeCache(active)
-      return active
-    }
+    // Aunque no quede ninguno: la nube dijo que no hay activos. No reusar la lista vieja.
+    writeCache(active)
+    return active
   } catch {
     /* sin internet o reglas — usar cache */
   }
 
-  const cached = readCache()
-  if (cached.length > 0) return cached
+  if (hasCache()) return readCache()
 
   return authorizedFallback.map(id => ({ id, name: id }))
 }
@@ -121,15 +127,13 @@ export async function loadAuthorizedStoreOptions(
     const active = all
       .filter(s => !s.archivedAt)
       .map(toStoreOption)
-    if (active.length > 0) writeCache(active)
-    const matched = filterAuthorized(active, wanted)
-    if (matched.length > 0) return matched
+    writeCache(active)
+    return filterAuthorized(active, wanted)
   } catch {
     /* sin internet o reglas — usar cache */
   }
 
-  const cached = peekAuthorizedStoreOptions(authorizedIds)
-  if (cached.length > 0) return cached
+  if (hasCache()) return peekAuthorizedStoreOptions(authorizedIds)
 
   throw new Error('No se pudieron cargar los locales.')
 }

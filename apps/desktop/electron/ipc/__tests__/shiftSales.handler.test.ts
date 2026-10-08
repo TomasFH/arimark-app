@@ -20,6 +20,14 @@ vi.mock('../../activeSession', () => ({
   getActiveSession: vi.fn(),
 }))
 
+vi.mock('../../businessConfig', () => ({
+  getBusinessConfig: vi.fn(() => ({ tenant_id: 'test-tenant' })),
+}))
+
+vi.mock('../../licensing/saleSync', () => ({
+  pushUnsyncedSales: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('../auth.handler', () => ({
   getStoredAdminSession: vi.fn().mockReturnValue(null),
   registerAuthHandlers: vi.fn(),
@@ -33,6 +41,7 @@ import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { registerSaleHandlers } from '../sale.handler'
+import { pushUnsyncedSales } from '../../licensing/saleSync'
 import type { ShiftSaleRow } from '../../../src/types/hw-api'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
@@ -197,6 +206,8 @@ describe('sale.handler — CANCEL_SALE', () => {
     const result = getHandler('ipc:cancel-sale')(null, saleId) as { ok: boolean }
     expect(result.ok).toBe(true)
     expect(db.select().from(sales).where(eq(sales.id, saleId)).get()?.status).toBe('cancelled')
+    expect(db.select().from(sales).where(eq(sales.id, saleId)).get()?.syncedAt).toBeNull()
+    expect(pushUnsyncedSales).toHaveBeenCalled()
   })
 
   it('no cancela dos veces la misma venta', () => {

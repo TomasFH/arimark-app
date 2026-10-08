@@ -29,6 +29,21 @@ describe('loadCashierStoreOptions', () => {
     expect(stores[0]?.name).toBe('Local A')
   })
 
+  it('no revive locales del cache si Firestore ya no tiene activos', async () => {
+    vi.mocked(fetchAllStores).mockResolvedValueOnce([
+      { id: 'a', name: 'San Martín', address: null, archivedAt: null, createdAt: '' },
+      { id: 'b', name: 'Nombre del negocio', address: null, archivedAt: null, createdAt: '' },
+    ])
+    await loadCashierStoreOptions([])
+
+    vi.mocked(fetchAllStores).mockResolvedValueOnce([
+      { id: 'a', name: 'San Martín', address: null, archivedAt: '2026-10-02', createdAt: '' },
+      { id: 'b', name: 'Nombre del negocio', address: null, archivedAt: '2026-10-01', createdAt: '' },
+    ])
+    const stores = await loadCashierStoreOptions(['a', 'b'])
+    expect(stores).toEqual([])
+  })
+
   it('cae a authorizedStores si Firestore falla y no hay cache', async () => {
     vi.mocked(fetchAllStores).mockRejectedValue(new Error('offline'))
     const stores = await loadCashierStoreOptions(['local1', 'local2'])

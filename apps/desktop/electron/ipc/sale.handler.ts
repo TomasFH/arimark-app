@@ -479,8 +479,18 @@ export function registerSaleHandlers(): void {
         return { ok: false, error: 'Solo se pueden cancelar ventas confirmadas.', code: 'INVALID_STATUS' }
       }
 
-      db.update(sales).set({ status: 'cancelled' }).where(eq(sales.id, parsed.data)).run()
+      db.update(sales).set({ status: 'cancelled', syncedAt: null }).where(eq(sales.id, parsed.data)).run()
       log.info('[ipc:cancel-sale] Venta cancelada', { saleId: parsed.data })
+
+      try {
+        const config = getBusinessConfig()
+        pushUnsyncedSales(config.tenant_id).catch(err =>
+          log.warn('[ipc:cancel-sale] push de anulación falló (no bloqueante)', err),
+        )
+      } catch (err) {
+        log.warn('[ipc:cancel-sale] no se pudo encolar la anulación', err)
+      }
+
       return { ok: true, data: undefined }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

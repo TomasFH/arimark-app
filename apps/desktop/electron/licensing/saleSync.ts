@@ -7,19 +7,20 @@
  * El documento incluye items y payments embebidos (arrays) para minimizar lecturas
  * cuando el admin audita desde otro dispositivo.
  *
- * Solo pushea ventas con syncedAt=null y status='confirmed'.
+ * Pushea ventas con syncedAt=null que ya están confirmadas o anuladas.
+ * Un borrador en curso no sale de la PC.
  * No-op completo cuando isFirebaseAvailable() === false (entorno dev).
  */
 
 import { getFirestore, doc, setDoc } from 'firebase/firestore'
 import log from 'electron-log'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { sales, saleItems, salePayments, products } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 
 /**
- * Busca ventas locales confirmadas con syncedAt=null, construye el documento
+ * Busca ventas locales confirmadas o anuladas con syncedAt=null, construye el documento
  * completo (sale + items + payments) y lo sube a Firestore.
  * Marca syncedAt en la tabla `sales` tras cada push exitoso.
  */
@@ -30,7 +31,10 @@ export async function pushUnsyncedSales(tenantId: string): Promise<void> {
   const pending = db
     .select()
     .from(sales)
-    .where(and(isNull(sales.syncedAt), eq(sales.status, 'confirmed')))
+    .where(and(
+      isNull(sales.syncedAt),
+      or(eq(sales.status, 'confirmed'), eq(sales.status, 'cancelled')),
+    ))
     .all()
 
   if (pending.length === 0) return

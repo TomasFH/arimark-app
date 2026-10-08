@@ -221,6 +221,30 @@ describe('saleSync', () => {
       )
     })
 
+    it('pushea una venta anulada pendiente para que las otras PCs la vean', async () => {
+      const now = new Date().toISOString()
+      db.insert(sales).values({
+        id: 'sale-cancelled',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        total: 3000,
+        isDebt: false,
+        status: 'cancelled',
+        manualEntry: false,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: null,
+      }).run()
+
+      await pushUnsyncedSales(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: 'sale-cancelled', status: 'cancelled' }),
+        { merge: true },
+      )
+    })
+
     it('no pushea ventas que no están confirmed', async () => {
       const now = new Date().toISOString()
       db.insert(sales).values({
