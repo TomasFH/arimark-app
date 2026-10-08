@@ -53,6 +53,7 @@ import {
   pullStoresFromFirestore,
   ensureStoresSynced,
 } from '../storeSync'
+import { STORE_SYNC_BOOTSTRAP, STORE_SYNC_UNARCHIVE } from '../storeSyncMarkers'
 
 const TENANT = 'test-tenant'
 
@@ -296,6 +297,197 @@ describe('storeSync', () => {
       expect(mockSetDoc).toHaveBeenCalled()
       expect(mockGetDocs).toHaveBeenCalled()
       expect(mockOnSnapshot).toHaveBeenCalled()
+    })
+
+    it('no republica el placeholder si Firestore ya lo tiene eliminado', async () => {
+      const createdAt = '2026-01-01T00:00:00.000Z'
+      const archivedAt = '2026-10-01T00:00:00.000Z'
+      db.insert(stores).values({
+        id: 'store-default',
+        name: 'Nombre del negocio',
+        createdAt,
+        syncedAt: STORE_SYNC_BOOTSTRAP,
+      }).run()
+      db.insert(stores).values({
+        id: 'store-real',
+        name: 'San Martín',
+        createdAt,
+        syncedAt: createdAt,
+      }).run()
+
+      mockGetDocs.mockResolvedValueOnce({
+        size: 2,
+        docs: [
+          {
+            id: 'store-default',
+            data: () => ({
+              id: 'store-default',
+              name: 'Nombre del negocio',
+              createdAt,
+              archivedAt,
+            }),
+          },
+          {
+            id: 'store-real',
+            data: () => ({
+              id: 'store-real',
+              name: 'San Martín',
+              createdAt,
+              archivedAt: null,
+            }),
+          },
+        ],
+      })
+
+      await ensureStoresSynced(TENANT)
+
+      const placeholder = db.select().from(stores).all().find(s => s.id === 'store-default')
+      expect(placeholder!.archivedAt).toBe(archivedAt)
+      expect(mockSetDoc).not.toHaveBeenCalled()
+    })
+
+    it('aplica la baja remota sobre una copia local activa que nunca se sincronizó', async () => {
+      const createdAt = '2026-01-01T00:00:00.000Z'
+      const archivedAt = '2026-10-01T00:00:00.000Z'
+      db.insert(stores).values({
+        id: 'store-default',
+        name: 'Nombre del negocio',
+        createdAt,
+        syncedAt: null,
+      }).run()
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [
+          {
+            id: 'store-default',
+            data: () => ({
+              id: 'store-default',
+              name: 'Nombre del negocio',
+              createdAt,
+              archivedAt,
+            }),
+          },
+        ],
+      })
+
+      await ensureStoresSynced(TENANT)
+
+      const row = db.select().from(stores).all().find(s => s.id === 'store-default')
+      expect(row!.archivedAt).toBe(archivedAt)
+      expect(mockSetDoc).not.toHaveBeenCalled()
+    })
+
+    it('vuelve a empujar la baja local si el remoto la muestra activa sin restauración', async () => {
+      const createdAt = '2026-01-01T00:00:00.000Z'
+      const archivedAt = '2026-10-01T00:00:00.000Z'
+      db.insert(stores).values({
+        id: 'store-default',
+        name: 'Nombre del negocio',
+        createdAt,
+        archivedAt,
+        syncedAt: createdAt,
+      }).run()
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [
+          {
+            id: 'store-default',
+            data: () => ({
+              id: 'store-default',
+              name: 'Nombre del negocio',
+              createdAt,
+              archivedAt: null,
+            }),
+          },
+        ],
+      })
+
+      await ensureStoresSynced(TENANT)
+
+      const row = db.select().from(stores).all().find(s => s.id === 'store-default')
+      expect(row!.archivedAt).toBe(archivedAt)
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: 'store-default', archivedAt }),
+        { merge: true },
+      )
+    })
+
+    it('acepta una restauración explícita más nueva que la baja local', async () => {
+      const createdAt = '2026-01-01T00:00:00.000Z'
+      const archivedAt = '2026-10-01T00:00:00.000Z'
+      const reactivatedAt = '2026-10-02T00:00:00.000Z'
+      db.insert(stores).values({
+        id: 'store-default',
+        name: 'Nombre del negocio',
+        createdAt,
+        archivedAt,
+        syncedAt: createdAt,
+      }).run()
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [
+          {
+            id: 'store-default',
+            data: () => ({
+              id: 'store-default',
+              name: 'Nombre del negocio',
+              createdAt,
+              archivedAt: null,
+              reactivatedAt,
+            }),
+          },
+        ],
+      })
+
+      await ensureStoresSynced(TENANT)
+
+      const row = db.select().from(stores).all().find(s => s.id === 'store-default')
+      expect(row!.archivedAt).toBeNull()
+      expect(mockSetDoc).not.toHaveBeenCalled()
+    })
+
+    it('publica el placeholder solo si Firestore no tiene ese local', async () => {
+      db.insert(stores).values({
+        id: 'store-default',
+        name: 'Nombre del negocio',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        syncedAt: STORE_SYNC_BOOTSTRAP,
+      }).run()
+      mockGetDocs.mockResolvedValueOnce({ size: 0, docs: [] })
+
+      await ensureStoresSynced(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: 'store-default', archivedAt: null }),
+        { merge: true },
+      )
+    })
+  })
+
+  describe('restauración explícita', () => {
+    it('incluye reactivatedAt al empujar un unarchive', async () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({
+        id: 'store-back',
+        name: 'Local',
+        createdAt: now,
+        archivedAt: null,
+        syncedAt: STORE_SYNC_UNARCHIVE,
+      }).run()
+
+      await pushUnsyncedStores(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'store-back',
+          archivedAt: null,
+          reactivatedAt: expect.any(String),
+        }),
+        { merge: true },
+      )
     })
   })
 })

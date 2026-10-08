@@ -5,8 +5,8 @@
  *   licenses/{tenantId}/stores/{storeId}
  *
  * Responsabilidades:
- *   1. pushUnsyncedStores     — envía filas locales con syncedAt=null a Firestore
- *   2. pullStoresFromFirestore  — getDocs una vez (bloqueante) para cache fresco
+ *   1. pullStoresFromFirestore  — getDocs una vez; la baja remota pisa un placeholder local
+ *   2. pushUnsyncedStores     — envía filas locales pendientes (no el placeholder de arranque)
  *   3. startStoreSyncListener — onSnapshot → upsert SQLite (cambios en vivo)
  *   4. stopStoreSyncListener  — cancela los listeners activos
  *
@@ -23,12 +23,13 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import log from 'electron-log'
-import { isNull, eq, desc } from 'drizzle-orm'
+import { isNull, eq, desc, or } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { cashDiscountAudits, stores } from '../db/schema'
 import { ensureCatalogSeedUser, seedCatalogOntoStore } from '../db/seedStoreCatalog'
 import { publishCatalog } from './catalogPublish'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
+import { STORE_SYNC_BOOTSTRAP, STORE_SYNC_UNARCHIVE } from './storeSyncMarkers'
 import { normalizeCashDiscountRule, parseCashDiscountSchedule, parseHoursSchedule, serializeCashDiscountSchedule, serializeHoursSchedule } from '@carniceria/shared'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -40,6 +41,8 @@ interface RemoteStoreDoc {
   address?: string | null
   createdAt: string
   archivedAt?: string | null
+  /** ISO de una restauración explícita. Sin esto, un alta local no revive un local eliminado. */
+  reactivatedAt?: string | null
   morningStart?: string | null
   morningEnd?: string | null
   afternoonStart?: string | null
@@ -133,21 +136,38 @@ function auditsForPush(storeId: string): RemoteCashDiscountAudit[] {
     }))
 }
 
-function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string, tenantId: string): void {
+/**
+ * true si el local quedó archivado y hay que volver a empujar esa baja
+ * (otro dispositivo había republicado el placeholder como activo).
+ */
+function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string, tenantId: string): boolean {
   const db = getDb()
   const now = new Date().toISOString()
   const id = data.id || docId
   const hoursSchedule = hoursScheduleForSqlite(data.hoursSchedule)
   const discount = normalizeCashDiscountRule(data.cashDiscountMinAmount, data.cashDiscountPercent)
   const cashDiscountSchedule = serializeCashDiscountSchedule(parseCashDiscountSchedule(data.cashDiscountSchedule))
+  const remoteArchived = data.archivedAt ?? null
+  const reactivatedAt = typeof data.reactivatedAt === 'string' ? data.reactivatedAt : null
 
   const existing = db
-    .select({ syncedAt: stores.syncedAt })
+    .select({ syncedAt: stores.syncedAt, archivedAt: stores.archivedAt })
     .from(stores)
     .where(eq(stores.id, id))
     .get()
-  // Outbox local pendiente: no pisar con un snapshot viejo (ej. archivar y luego pull).
-  if (existing && existing.syncedAt === null) return
+
+  if (existing?.archivedAt && !remoteArchived) {
+    const restoreWins = reactivatedAt != null && reactivatedAt > existing.archivedAt
+    if (!restoreWins) {
+      if (existing.syncedAt !== null && existing.syncedAt !== STORE_SYNC_UNARCHIVE) {
+        db.update(stores).set({ syncedAt: null }).where(eq(stores.id, id)).run()
+        return true
+      }
+      return false
+    }
+  } else if (existing && keepLocalStoreEdit(existing, remoteArchived)) {
+    return false
+  }
   const isNew = !existing
 
   db.insert(stores).values({
@@ -196,6 +216,24 @@ function upsertStoreFromRemote(data: RemoteStoreDoc, docId: string, tenantId: st
       )
     }
   }
+  return false
+}
+
+/**
+ * Una edición local todavía no empujada no se pisa con un snapshot activo viejo.
+ * Si el remoto está eliminado y el local sigue activo, gana la baja compartida:
+ * el placeholder que cada PC crea al arrancar no es una restauración.
+ */
+function keepLocalStoreEdit(
+  existing: { syncedAt: string | null; archivedAt: string | null },
+  remoteArchived: string | null,
+): boolean {
+  if (existing.syncedAt === STORE_SYNC_UNARCHIVE) return true
+  if (existing.syncedAt !== null) return false
+  if (existing.archivedAt && !remoteArchived) return true
+  if (!existing.archivedAt && !remoteArchived) return true
+  if (!existing.archivedAt && remoteArchived) return false
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +247,9 @@ export async function pushUnsyncedStores(tenantId: string): Promise<void> {
   if (!isFirebaseAvailable()) return
 
   const db = getDb()
-  const pending = db.select().from(stores).where(isNull(stores.syncedAt)).all()
+  const pending = db.select().from(stores).where(
+    or(isNull(stores.syncedAt), eq(stores.syncedAt, STORE_SYNC_UNARCHIVE)),
+  ).all()
 
   if (pending.length === 0) return
 
@@ -220,7 +260,7 @@ export async function pushUnsyncedStores(tenantId: string): Promise<void> {
   for (const s of pending) {
     try {
       const ref = doc(firestore, 'licenses', tenantId, 'stores', s.id)
-      await setDoc(ref, {
+      const payload: RemoteStoreDoc = {
         id: s.id,
         name: s.name,
         address: s.address ?? null,
@@ -235,7 +275,11 @@ export async function pushUnsyncedStores(tenantId: string): Promise<void> {
         cashDiscountPercent: s.cashDiscountPercent ?? 0,
         cashDiscountSchedule: parseCashDiscountSchedule(s.cashDiscountSchedule),
         cashDiscountAudits: auditsForPush(s.id),
-      }, { merge: true })
+      }
+      if (s.syncedAt === STORE_SYNC_UNARCHIVE) {
+        payload.reactivatedAt = new Date().toISOString()
+      }
+      await setDoc(ref, payload, { merge: true })
 
       db.update(stores)
         .set({ syncedAt: now })
@@ -257,16 +301,18 @@ export async function pushUnsyncedStores(tenantId: string): Promise<void> {
  * Trae todos los locales del tenant y los upsertea en SQLite.
  * Usar en login (await) para que getStores() vea nombres/datos actualizados.
  */
-export async function pullStoresFromFirestore(tenantId: string): Promise<void> {
-  if (!isFirebaseAvailable()) return
+export async function pullStoresFromFirestore(tenantId: string): Promise<{ ok: boolean; ids: string[] }> {
+  if (!isFirebaseAvailable()) return { ok: false, ids: [] }
 
   try {
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const col = collection(firestore, 'licenses', tenantId, 'stores')
     const snap = await getDocs(col)
+    const ids: string[] = []
 
     for (const d of snap.docs) {
+      ids.push(d.id)
       try {
         const data = d.data() as RemoteStoreDoc
         if (!data.name || !data.createdAt) {
@@ -280,18 +326,38 @@ export async function pullStoresFromFirestore(tenantId: string): Promise<void> {
     }
 
     log.info('[storeSync] Stores bajados de Firestore', { count: snap.size })
+    return { ok: true, ids }
   } catch (err) {
     log.error('[storeSync] Error en pullStoresFromFirestore', err)
+    return { ok: false, ids: [] }
   }
 }
 
 /**
- * Push pendientes → pull fresco → listener en vivo.
+ * El placeholder de arranque solo se publica si Firestore todavía no tiene ese id.
+ * Si el remoto ya lo conoce (aunque esté eliminado), el pull ya lo aplicó.
+ */
+function promoteBootstrapsMissingFromRemote(remoteIds: string[]): void {
+  const known = new Set(remoteIds)
+  const db = getDb()
+  const bootstraps = db.select({ id: stores.id })
+    .from(stores)
+    .where(eq(stores.syncedAt, STORE_SYNC_BOOTSTRAP))
+    .all()
+  for (const row of bootstraps) {
+    if (known.has(row.id)) continue
+    db.update(stores).set({ syncedAt: null }).where(eq(stores.id, row.id)).run()
+  }
+}
+
+/**
+ * Pull primero, después push. Así un placeholder local no pisa una baja ya compartida.
  * Debe await-earse en login antes de que el renderer llame getStores().
  */
 export async function ensureStoresSynced(tenantId: string): Promise<void> {
+  const pulled = await pullStoresFromFirestore(tenantId)
+  if (pulled.ok) promoteBootstrapsMissingFromRemote(pulled.ids)
   await pushUnsyncedStores(tenantId)
-  await pullStoresFromFirestore(tenantId)
   startStoreSyncListener(tenantId)
 }
 
@@ -327,7 +393,9 @@ export function startStoreSyncListener(tenantId: string): void {
         try {
           const data = change.doc.data() as RemoteStoreDoc
           if (!data.name || !data.createdAt) continue
-          upsertStoreFromRemote(data, change.doc.id, tenantId)
+          if (upsertStoreFromRemote(data, change.doc.id, tenantId)) {
+            void pushUnsyncedStores(tenantId)
+          }
         } catch (err) {
           log.error('[storeSync] Error al upsertear store desde snapshot', {
             id: change.doc.id,

@@ -81,7 +81,7 @@ export function applyWindowChrome(scheme: ColorScheme): void {
   nativeTheme.themeSource = scheme
   const background = WINDOW_BACKGROUND[scheme]
   for (const win of BrowserWindow.getAllWindows()) {
-    win.setBackgroundColor(background)
+    if (typeof win.setBackgroundColor === 'function') win.setBackgroundColor(background)
   }
 }
 

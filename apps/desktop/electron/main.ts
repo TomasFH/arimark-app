@@ -18,6 +18,7 @@ import {
 } from './db/seedStoreCatalog'
 import { signInAnon } from './licensing/installation'
 import { publishCatalog } from './licensing/catalogPublish'
+import { STORE_SYNC_BOOTSTRAP } from './licensing/storeSyncMarkers'
 import { setInitStatus } from './ipc/initStatus.handler'
 import type { InitStatus } from '../src/types/hw-api'
 
@@ -121,8 +122,8 @@ async function computeInitStatus(): Promise<InitStatus> {
 
 /**
  * Crea el local por defecto en SQLite si no existe. Idempotente.
- * El nombre del local usa el nombre del negocio como placeholder hasta que
- * el panel de administración (Fase 4) permita gestionarlo.
+ * syncedAt = bootstrap: no es una edición del usuario. Si Firestore ya tiene
+ * ese local (aunque esté eliminado), el pull lo pisa y no se vuelve a publicar.
  */
 function ensureDefaultStore(storeId: string, businessName: string, tenantId: string): void {
   try {
@@ -132,7 +133,13 @@ function ensureDefaultStore(storeId: string, businessName: string, tenantId: str
 
     const now = new Date().toISOString()
     db.insert(stores)
-      .values({ id: storeId, name: businessName, address: null, createdAt: now })
+      .values({
+        id: storeId,
+        name: businessName,
+        address: null,
+        createdAt: now,
+        syncedAt: STORE_SYNC_BOOTSTRAP,
+      })
       .run()
     log.info('[main] Local por defecto creado en SQLite', { storeId })
 

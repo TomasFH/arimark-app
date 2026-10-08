@@ -18,6 +18,7 @@ import {
   pushUnsyncedStores,
   ensureStoresSynced,
 } from '../licensing/storeSync'
+import { STORE_SYNC_UNARCHIVE } from '../licensing/storeSyncMarkers'
 import { pushUnsyncedEmployeeOps, ensureEmployeesSynced } from '../licensing/employeeSync'
 import { ensureOrdersSynced, pushUnsyncedOrders } from '../licensing/orderSync'
 import { ensureCustomerDebtsSynced, pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
@@ -626,7 +627,7 @@ export function registerStoresHandlers(): void {
       if (!existing) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
       if (!existing.archivedAt) return { ok: false, error: 'El local no está eliminado.', code: 'CONFLICT' }
 
-      db.update(stores).set({ archivedAt: null, syncedAt: null }).where(eq(stores.id, id)).run()
+      db.update(stores).set({ archivedAt: null, syncedAt: STORE_SYNC_UNARCHIVE }).where(eq(stores.id, id)).run()
 
       try {
         const config = getBusinessConfig()
