@@ -82,7 +82,7 @@ El script ejecuta, en orden:
 2. `vite build` — compila el renderer React (`dist/`)
 3. `electron-builder` — genera el instalador NSIS con `APP_ENV=production`
 
-**Salida:** `apps/desktop/release/Carniceria App Setup X.X.X.exe`
+**Salida:** `apps/desktop/release/Arimark App Setup X.X.X.exe`
 
 El hook `afterPack` verifica que el build no contenga artefactos de desarrollo (mocks, tokens de Cloudflare Tunnel, etc.). Si encuentra alguno, **el build falla**.
 
@@ -125,7 +125,7 @@ Los mensajes `debug` y `warn` (p. ej. reconexión de balanza sin puerto configur
 
 | Qué | ¿Editable sin recompilar? | Dónde |
 |---|---|---|
-| `inactivityThresholdHours` | Sí — editar `resources/business.json` y reiniciar la app | `{Program Files}/Carniceria App/resources/business.json` |
+| `inactivityThresholdHours` | Sí — editar `resources/business.json` y reiniciar la app | `{Program Files}/Arimark App/resources/business.json` |
 | Credenciales Firebase | **No** — requiere recompilar con `.env.production` actualizado | — |
 | Puerto serial KRETZ | Sí — desde el panel admin de la app | Guardado en `safeStorage` |
 | Datos operativos (ventas, turnos) | Sí — son locales en SQLite | `%APPDATA%/…/app.sqlite` |

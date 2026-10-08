@@ -1,10 +1,11 @@
 const path = require('path')
 const fs = require('fs')
+const { createRequire } = require('module')
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
   appId: 'com.carniceria-app.desktop',
-  productName: 'Carniceria App',
+  productName: 'Arimark App',
   directories: {
     output: 'release',
     buildResources: 'build-resources',
@@ -18,6 +19,7 @@ module.exports = {
   ],
   // Fuera del asar: business.json, catálogo maestro y env de Firebase (proceso main).
   extraResources: [
+    { from: 'build-resources/icon.ico', to: 'icon.ico' },
     { from: 'config/business.json', to: 'business.json' },
     { from: 'scripts/catalog-2026-08.json', to: 'catalog-2026-08.json' },
     { from: '.env.production', to: '.env.production' },
@@ -25,6 +27,10 @@ module.exports = {
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     icon: 'build-resources/icon.ico',
+    // false evita bajar winCodeSign: en Windows sin privilegio de symlinks
+    // esa descarga falla y corta el build. El ícono del .exe lo graba
+    // embedWindowsIcon en afterPack. La firma sigue omitida
+    // (CSC_IDENTITY_AUTO_DISCOVERY=false).
     signAndEditExecutable: false,
   },
   nsis: {
@@ -38,7 +44,83 @@ module.exports = {
   publish: null,
   afterPack: async context => {
     await verifyProductionBuild(context)
+    await embedWindowsIcon(context)
   },
+}
+
+/**
+ * Graba el ícono y el nombre en el .exe ya empaquetado.
+ * Hay que hacerlo después del hash de integridad del asar, y reescribir
+ * la tabla de recursos completa para no perder ese hash.
+ */
+async function embedWindowsIcon(context) {
+  if (context.electronPlatformName !== 'win32') return
+
+  const requireFromBuilder = createRequire(require.resolve('electron-builder/package.json'))
+  const resedit = requireFromBuilder('resedit')
+  const productName = context.packager.appInfo.productName
+  const exeName = `${context.packager.appInfo.productFilename}.exe`
+  const exePath = path.join(context.appOutDir, exeName)
+  const iconPath = path.join(__dirname, 'build-resources', 'icon.ico')
+
+  if (!fs.existsSync(iconPath)) {
+    throw new Error(`[afterPack] Falta el ícono: ${iconPath}`)
+  }
+
+  const exe = resedit.NtExecutable.from(fs.readFileSync(exePath))
+  const resources = resedit.NtExecutableResource.from(exe)
+  const integrityBefore = integrityPayloads(resources.entries)
+  if (integrityBefore.length === 0) {
+    throw new Error('[afterPack] El .exe no tiene el recurso de integridad del asar')
+  }
+
+  const iconFile = resedit.Data.IconFile.from(fs.readFileSync(iconPath))
+  const icons = iconFile.icons.map(item => item.data)
+  const groups = resedit.Resource.IconGroupEntry.fromEntries(resources.entries)
+  if (groups.length === 0) {
+    resedit.Resource.IconGroupEntry.replaceIconsForResource(resources.entries, 1, 1033, icons)
+  } else {
+    for (const group of groups) {
+      resedit.Resource.IconGroupEntry.replaceIconsForResource(
+        resources.entries,
+        group.id,
+        group.lang,
+        icons,
+      )
+    }
+  }
+
+  const versionInfo = resedit.Resource.VersionInfo.fromEntries(resources.entries)[0]
+  if (versionInfo) {
+    const language = versionInfo.getAllLanguagesForStringValues()[0] ?? { lang: 1033, codepage: 1200 }
+    versionInfo.setStringValues(language, {
+      ProductName: productName,
+      FileDescription: productName,
+      InternalName: productName,
+      OriginalFilename: exeName,
+      CompanyName: 'Arimark',
+    })
+    versionInfo.removeStringValue(language, 'LegalCopyright')
+    const [major, minor, patch] = String(context.packager.appInfo.version).split('.').map(part => Number(part) || 0)
+    versionInfo.setFileVersion(major, minor, patch, 0, language.lang)
+    versionInfo.setProductVersion(major, minor, patch, 0, language.lang)
+    versionInfo.outputToResourceEntries(resources.entries)
+  }
+
+  const integrityAfter = integrityPayloads(resources.entries)
+  if (integrityAfter.join('\n') !== integrityBefore.join('\n')) {
+    throw new Error('[afterPack] Se alteró la integridad del asar al grabar el ícono')
+  }
+
+  resources.outputResource(exe)
+  fs.writeFileSync(exePath, Buffer.from(exe.generate()))
+  console.log(`[afterPack] Ícono y nombre aplicados en ${exePath}`)
+}
+
+function integrityPayloads(entries) {
+  return entries
+    .filter(entry => String(entry.type).toUpperCase() === 'INTEGRITY')
+    .map(entry => Buffer.from(entry.bin).toString('utf8'))
 }
 
 /**
