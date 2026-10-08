@@ -133,6 +133,14 @@ function mapUserDoc(
   }
 }
 
+/** Misma lista de locales, sin importar el orden. */
+export function sameStoreIdSet(current: readonly string[], next: readonly string[]): boolean {
+  if (current.length !== next.length) return false
+  const left = [...current].sort()
+  const right = [...next].sort()
+  return left.every((id, index) => id === right[index])
+}
+
 function pickButcherProfile(users: TenantUserRef[]): TenantUserRef | null {
   const butchers = users.filter(u => u.role === 'butcher')
   if (butchers.length === 0) return null
@@ -194,4 +202,40 @@ export async function reactivateTenantUser(opts: {
       code: 'FIRESTORE_ERROR',
     }
   }
+}
+
+/**
+ * La cuenta del carnicero guarda los locales que había en la nube al dar el acceso.
+ * Un local creado después no entra solo. Esta función deja la lista igual a los locales activos.
+ */
+export async function syncButcherAuthorizedStores(
+  licenseKey: string,
+  activeStoreIds: string[],
+): Promise<number> {
+  const next = [...new Set(activeStoreIds.map(id => id.trim()).filter(id => id.length > 0))].sort()
+  if (next.length === 0) return 0
+
+  const { getFirestore, collection, query, where, getDocs, doc, updateDoc } = await import('firebase/firestore')
+  const db = getFirestore(getFirebaseApp())
+  const snap = await getDocs(
+    query(collection(db, 'licenses', licenseKey, 'users'), where('role', '==', 'butcher')),
+  )
+
+  let updated = 0
+  for (const userDoc of snap.docs) {
+    const data = userDoc.data() as Record<string, unknown>
+    if (data['active'] === false || data['deleted'] === true) continue
+    const current = Array.isArray(data['authorizedStores'])
+      ? data['authorizedStores'].filter((id): id is string => typeof id === 'string')
+      : []
+    if (sameStoreIdSet(current, next)) continue
+    await updateDoc(doc(db, 'licenses', licenseKey, 'users', userDoc.id), {
+      authorizedStores: next,
+    })
+    updated += 1
+  }
+  if (updated > 0) {
+    log.info('[tenantAuth] Locales del carnicero actualizados', { updated, stores: next.length })
+  }
+  return updated
 }

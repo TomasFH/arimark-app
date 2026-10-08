@@ -1,9 +1,10 @@
 /**
  * Shell móvil del carnicero.
  *
- * - Selector de local: hay que confirmar al abrir el proceso (si hay más de
- *   un local). El último se preselecciona. Si la app estuvo en segundo plano
- *   ≥ 2 h o cambió el día, vuelve a preguntar.
+ * - Selector de local: todos los locales activos, no la lista congelada
+ *   del alta. Hay que confirmar al abrir el proceso (si hay más de un local).
+ *   El último se preselecciona. Si la app estuvo en segundo plano ≥ 2 h
+ *   o cambió el día, vuelve a preguntar.
  * - Tab "Pedidos": pendientes (trabajo), listos y entregados recientes (auditoría).
  *   "Listo" pide confirmación; después hay un aviso para deshacer.
  * - Tab "Mi semana": sueldo + vales de la semana en curso (sin historial).
@@ -33,8 +34,8 @@ import {
 import { buildWeeklyPayroll, type PayrollVale, type PayrollPayment, type PayrollEmployee } from '../../lib/payroll'
 import { isOnline, useOnlineStatus } from '../../lib/connectivity'
 import {
-  loadAuthorizedStoreOptions,
-  peekAuthorizedStoreOptions,
+  loadCashierStoreOptions,
+  peekActiveStoreOptions,
   type CashierStoreOption,
 } from '../../lib/cashierStores'
 import {
@@ -43,6 +44,7 @@ import {
   clearPersistedStore,
   markStoreSessionConfirmed,
   clearStoreSessionConfirmed,
+  isStoreSessionConfirmed,
   shouldReconfirmStore,
   initialButcherStore,
   displayStoreName,
@@ -94,60 +96,57 @@ interface ButcherAppProps {
 export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
   const online = useOnlineStatus()
 
-  const authorizedIds = profile.authorizedStores.filter(id => id.trim().length > 0)
-  const authorizedKey = authorizedIds.join('\u0001')
+  const bootStores = peekActiveStoreOptions()
+  const bootChoice = initialButcherStore({
+    authorizedStores: bootStores.map(store => store.id),
+    persistedId: readPersistedStore(),
+    todayYmd: todayLocalYmd(),
+  })
 
-  const [storeOptions, setStoreOptions] = useState<CashierStoreOption[]>(() =>
-    peekAuthorizedStoreOptions(authorizedIds),
-  )
-  const [storesLoading, setStoresLoading] = useState(
-    () => peekAuthorizedStoreOptions(authorizedIds).length === 0,
-  )
+  const [storeOptions, setStoreOptions] = useState<CashierStoreOption[]>(bootStores)
+  const [storesLoading, setStoresLoading] = useState(bootStores.length === 0)
   const [storesError, setStoresError] = useState<string | null>(null)
 
   const reloadStores = useCallback(() => {
-    const ids = authorizedKey.split('\u0001').filter(Boolean)
     setStoresError(null)
-    setStoresLoading(peekAuthorizedStoreOptions(ids).length === 0)
-    return loadAuthorizedStoreOptions(ids)
+    setStoresLoading(peekActiveStoreOptions().length === 0)
+    return loadCashierStoreOptions(profile.authorizedStores)
       .then(opts => {
         setStoreOptions(opts)
-        setStoresError(opts.length === 0
-          ? 'No hay locales asignados a tu cuenta. Contactá al administrador.'
-          : null)
+        setStoresError(opts.length === 0 ? 'No hay locales activos.' : null)
       })
       .catch(() => {
         setStoreOptions(prev => (prev.length > 0 ? prev : []))
         setStoresError('No se pudieron cargar los locales.')
       })
       .finally(() => setStoresLoading(false))
-  }, [authorizedKey])
+  }, [profile.authorizedStores])
 
   useEffect(() => {
     void reloadStores()
   }, [reloadStores])
 
-  const [storeId, setStoreId] = useState(() =>
-    initialButcherStore({
-      authorizedStores: authorizedIds,
+  const [storeId, setStoreId] = useState(bootChoice.storeId)
+  const [showStorePicker, setShowStorePicker] = useState(bootChoice.showPicker)
+  const [pickerRequired, setPickerRequired] = useState(bootChoice.showPicker)
+
+  useEffect(() => {
+    if (storesLoading || storeOptions.length === 0) return
+    const next = initialButcherStore({
+      authorizedStores: storeOptions.map(store => store.id),
       persistedId: readPersistedStore(),
       todayYmd: todayLocalYmd(),
-    }).storeId,
-  )
-  const [showStorePicker, setShowStorePicker] = useState(() =>
-    initialButcherStore({
-      authorizedStores: authorizedIds,
-      persistedId: readPersistedStore(),
-      todayYmd: todayLocalYmd(),
-    }).showPicker,
-  )
-  const [pickerRequired, setPickerRequired] = useState(() =>
-    initialButcherStore({
-      authorizedStores: authorizedIds,
-      persistedId: readPersistedStore(),
-      todayYmd: todayLocalYmd(),
-    }).showPicker,
-  )
+    })
+    if (next.showPicker) {
+      setPickerRequired(true)
+      setShowStorePicker(true)
+      if (!isStoreSessionConfirmed(todayLocalYmd())) setStoreId('')
+      return
+    }
+    setStoreId(next.storeId)
+    setShowStorePicker(false)
+    setPickerRequired(false)
+  }, [storesLoading, storeOptions])
 
   const [tab, setTab] = useState<Tab>('orders')
   const [ordersListKind, setOrdersListKind] = useState<OrdersListKind>('pending')
@@ -380,7 +379,7 @@ export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
   }
 
   useEffect(() => {
-    if (authorizedIds.length <= 1) return undefined
+    if (storeOptions.length <= 1) return undefined
     let lastHiddenAt: number | null = null
 
     function onHidden(): void {
@@ -392,7 +391,7 @@ export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
       const hiddenForMs = Date.now() - lastHiddenAt
       lastHiddenAt = null
       if (shouldReconfirmStore({
-        authorizedCount: authorizedIds.length,
+        authorizedCount: storeOptions.length,
         todayYmd: todayLocalYmd(),
         hiddenForMs,
       })) {
@@ -425,7 +424,7 @@ export function ButcherApp({ profile, onLogout }: ButcherAppProps) {
       window.removeEventListener('pageshow', onVisible)
       removeCap?.()
     }
-  }, [authorizedIds.length])
+  }, [storeOptions.length])
 
   // ---------------------------------------------------------------------------
   // Store picker modal

@@ -23,6 +23,8 @@ import {
   findTenantUserByEmployeeId,
   findTenantUserByEmail,
   reactivateTenantUser,
+  sameStoreIdSet,
+  syncButcherAuthorizedStores,
 } from '../tenantAuth'
 
 function snap(docs: Array<{ id: string; data: Record<string, unknown> }>) {
@@ -73,6 +75,35 @@ describe('tenantAuth — reactivar acceso', () => {
         employeeId: 'emp-1',
         displayName: 'Juan',
       }),
+    )
+  })
+})
+
+describe('syncButcherAuthorizedStores', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('trata la misma lista en otro orden como igual', () => {
+    expect(sameStoreIdSet(['b', 'a'], ['a', 'b'])).toBe(true)
+    expect(sameStoreIdSet(['a'], ['a', 'b'])).toBe(false)
+  })
+
+  it('agrega el local nuevo a la cuenta del carnicero y no toca una lista ya completa', async () => {
+    vi.mocked(updateDoc).mockResolvedValue(undefined as never)
+    vi.mocked(getDocs).mockResolvedValue(snap([
+      { id: 'uid-viejo', data: { role: 'butcher', active: true, authorizedStores: ['san-martin'] } },
+      { id: 'uid-al-dia', data: { role: 'butcher', active: true, authorizedStores: ['camarones', 'san-martin'] } },
+      { id: 'uid-off', data: { role: 'butcher', active: false, authorizedStores: ['san-martin'] } },
+    ]) as never)
+
+    const updated = await syncButcherAuthorizedStores('lic', ['camarones', 'san-martin'])
+
+    expect(updated).toBe(1)
+    expect(updateDoc).toHaveBeenCalledTimes(1)
+    expect(updateDoc).toHaveBeenCalledWith(
+      undefined,
+      { authorizedStores: ['camarones', 'san-martin'] },
     )
   })
 })

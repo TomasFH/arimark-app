@@ -23,6 +23,7 @@ import {
 import {
   stopStoreSyncListener,
   ensureStoresSynced,
+  publishButcherStoreList,
 } from '../licensing/storeSync'
 import { pushUnsyncedEmployeeOps, ensureEmployeesSynced, stopEmployeeSyncListener } from '../licensing/employeeSync'
 import { ensureOrdersSynced, stopOrderSyncListener } from '../licensing/orderSync'
@@ -187,6 +188,11 @@ export function registerAuthHandlers(): void {
             await ensureStoresSynced(adminConfig.tenant_id)
           } catch (err) {
             log.warn('[ipc:login] ensureStoresSynced (admin) falló (no bloqueante)', err)
+          }
+          try {
+            await publishButcherStoreList(adminConfig.tenant_id)
+          } catch (err) {
+            log.warn('[ipc:login] publishButcherStoreList (admin) falló (no bloqueante)', err)
           }
           try {
             await ensureEmployeesSynced(adminConfig.tenant_id)

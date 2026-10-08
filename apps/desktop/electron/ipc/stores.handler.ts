@@ -17,6 +17,7 @@ import {
 import {
   pushUnsyncedStores,
   ensureStoresSynced,
+  publishButcherStoreList,
 } from '../licensing/storeSync'
 import { STORE_SYNC_UNARCHIVE } from '../licensing/storeSyncMarkers'
 import { pushUnsyncedEmployeeOps, ensureEmployeesSynced } from '../licensing/employeeSync'
@@ -196,6 +197,15 @@ function storeHasData(db: ReturnType<typeof getDb>, storeId: string): boolean {
   if (hasOrders) return true
   const hasProducts = db.select({ storeId: storeProducts.storeId }).from(storeProducts).where(eq(storeProducts.storeId, storeId)).all().length > 0
   return hasProducts
+}
+
+async function publishButcherStores(reason: string): Promise<void> {
+  try {
+    const config = getBusinessConfig()
+    await publishButcherStoreList(config.tenant_id)
+  } catch (err) {
+    log.warn(`[ipc:${reason}] publishButcherStoreList falló (no bloqueante)`, err)
+  }
 }
 
 export function registerStoresHandlers(): void {
@@ -417,6 +427,7 @@ export function registerStoresHandlers(): void {
           log.warn('[ipc:create-store] publishCatalog falló (no bloqueante)', err)
         )
       }
+      void publishButcherStores('create-store')
 
       log.info('[ipc:create-store] Local creado', { id, name })
       return {
@@ -595,6 +606,7 @@ export function registerStoresHandlers(): void {
       } catch (err) {
         log.warn('[ipc:archive-store] pushUnsyncedStores falló (no bloqueante)', err)
       }
+      await publishButcherStores('archive-store')
 
       log.info('[ipc:archive-store] Local archivado', { id, name: existing.name })
       return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt } }
@@ -635,6 +647,7 @@ export function registerStoresHandlers(): void {
       } catch (err) {
         log.warn('[ipc:unarchive-store] pushUnsyncedStores falló (no bloqueante)', err)
       }
+      await publishButcherStores('unarchive-store')
 
       log.info('[ipc:unarchive-store] Local desarchivado', { id, name: existing.name })
       return { ok: true, data: { id, name: existing.name, address: existing.address, archivedAt: null } }
