@@ -1,6 +1,6 @@
 {
   "name": "@carniceria/desktop",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "description": "App de gestión para carnicerías — offline-first, Electron + React",
   "main": "dist-electron/electron/main.js",

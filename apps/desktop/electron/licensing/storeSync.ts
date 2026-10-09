@@ -361,6 +361,22 @@ export async function ensureStoresSynced(tenantId: string): Promise<void> {
   startStoreSyncListener(tenantId)
 }
 
+/**
+ * Copia los locales activos de SQLite a cada cuenta de carnicero.
+ * El celu viejo solo muestra `authorizedStores` del perfil, no el local habitual.
+ */
+export async function publishButcherStoreList(tenantId: string): Promise<void> {
+  if (!isFirebaseAvailable()) return
+  const ids = getDb()
+    .select({ id: stores.id })
+    .from(stores)
+    .where(isNull(stores.archivedAt))
+    .all()
+    .map(row => row.id)
+  const { syncButcherAuthorizedStores } = await import('./tenantAuth')
+  await syncButcherAuthorizedStores(tenantId, ids)
+}
+
 // ---------------------------------------------------------------------------
 // Listener: Firestore → cache local
 // ---------------------------------------------------------------------------

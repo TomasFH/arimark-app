@@ -9,7 +9,7 @@ import log from 'electron-log'
 import { IPC } from './channels'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
-import { ensureStoresSynced } from '../licensing/storeSync'
+import { ensureStoresSynced, publishButcherStoreList } from '../licensing/storeSync'
 import { reconcileStoreShifts } from '../licensing/shiftSync'
 import { ensureEmployeesSynced, pushUnsyncedEmployeeOps } from '../licensing/employeeSync'
 import { syncCatalogWithFirestore, syncAllStoreCatalogs, startCatalogSyncListener } from '../licensing/catalogSync'
@@ -58,6 +58,11 @@ export function registerRefreshHandlers(): void {
       }
 
       if (session.role === 'admin') {
+        try {
+          await publishButcherStoreList(config.tenant_id)
+        } catch (err) {
+          log.warn('[ipc:refresh-remote-data] publishButcherStoreList falló (no bloqueante)', err)
+        }
         try {
           await syncAllStoreCatalogs(config.tenant_id)
         } catch (err) {
