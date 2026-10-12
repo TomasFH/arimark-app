@@ -440,6 +440,23 @@ function asFiniteNumber(value: unknown): number | null {
   return null
 }
 
+/**
+ * Precio unitario de compra en pesos, con centavos.
+ * Math.round(n * 100) / 100 antes de persistir o multiplicar, para no guardar basura binaria.
+ * En montos ≥ 0, el .5 se aleja de cero (4800.505 → 4800.51). No reescala: 9000 sigue siendo 9000.
+ */
+export function roundPurchaseUnitCost(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return Number.NaN
+  return Math.round(n * 100) / 100
+}
+
+function purchaseUnitCostOrZero(value: unknown): number {
+  const n = asFiniteNumber(value)
+  if (n == null || n < 0) return 0
+  const rounded = roundPurchaseUnitCost(n)
+  return Number.isFinite(rounded) ? rounded : 0
+}
+
 export function parseMerchLineSnapshot(raw: unknown, index: number, intakeId: string): MerchIntakeLineSnapshot | null {
   if (!raw || typeof raw !== 'object') return null
   const data = raw as Record<string, unknown>
@@ -487,7 +504,7 @@ export function parseMerchLineSnapshot(raw: unknown, index: number, intakeId: st
     costUnit: data['costUnit'] === 'kg' || data['costUnit'] === 'unit' || data['costUnit'] === 'pack'
       ? data['costUnit']
       : null,
-    unitCost: Math.max(0, Math.round(asFiniteNumber(data['unitCost']) ?? 0)),
+    unitCost: purchaseUnitCostOrZero(data['unitCost']),
     costTotal: Math.max(0, Math.round(asFiniteNumber(data['costTotal']) ?? 0)),
     packCount: (() => {
       const n = asFiniteNumber(data['packCount'])

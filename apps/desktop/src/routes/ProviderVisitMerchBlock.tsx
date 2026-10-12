@@ -8,6 +8,8 @@ import { parseNumericInput } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
 import {
   emptyMerchVisitFormLine,
+  formatPurchaseUnitCostInput,
+  matchVisitMerchProducts,
   merchFormLineToDraft,
   merchProductKey,
   resolveMerchVisitLine,
@@ -42,7 +44,7 @@ export function formLineFromProduct(product: ProductRow, lastCost: number | unde
     purchasePackLabel: product.purchasePackLabel,
     purchasePackContents: product.purchasePackContents,
     weighPieces: false,
-    unitCostRaw: lastCost != null ? String(lastCost) : '',
+    unitCostRaw: lastCost != null ? formatPurchaseUnitCostInput(lastCost) : '',
     weightRaws: [],
     packCountRaw: pack ? '' : '',
   })
@@ -58,13 +60,10 @@ export default function ProviderVisitMerchBlock({ products, lastPrices, lines, o
   const [focusKey, setFocusKey] = useState<string | null>(null)
   const queryRef = useRef<HTMLInputElement>(null)
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return products.slice(0, 8)
-    return products.filter(p =>
-      p.name.toLowerCase().includes(q) || String(p.pluNumber).includes(q),
-    ).slice(0, 8)
-  }, [products, query])
+  const matches = useMemo(
+    () => matchVisitMerchProducts(products, query),
+    [products, query],
+  )
 
   const runningTotal = useMemo(() => {
     const r = visitLinesFromForm(lines)
@@ -234,7 +233,7 @@ function VisitLineEditor({
         <span className="text-xs text-muted">
           Precio de compra {pack ? `($/${(line.purchasePackLabel || 'cajón').toLowerCase()})` : isUnit ? '($/u)' : '($/kg)'}
         </span>
-        <NumericInput value={line.unitCostRaw} onChange={v => onChange({ unitCostRaw: v })} className={fieldClass} />
+        <DecimalInput value={line.unitCostRaw} onChange={v => onChange({ unitCostRaw: v })} maxDecimals={2} className={fieldClass} />
       </label>
       {resolved && (
         <p className="text-xs text-muted">

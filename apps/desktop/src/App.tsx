@@ -23,6 +23,7 @@ import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
+import { resetOrderCreateDraft } from './lib/orderCreateDraft'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
@@ -409,6 +410,7 @@ export default function App() {
     } else {
       // Un solo local disponible: no tiene sentido volver al picker, ir al login
       await window.hw.logout({ role: session.role, storeId: session.storeId })
+      resetOrderCreateDraft()
       setState({ screen: 'login', initStatus })
     }
   }
@@ -417,6 +419,7 @@ export default function App() {
     const session = 'session' in state ? state.session : null
     if (!session) return
     await window.hw.logout({ role: session.role, storeId: session.storeId })
+    resetOrderCreateDraft()
     const initStatus = 'initStatus' in state ? state.initStatus : null
     if (initStatus) setState({ screen: 'login', initStatus })
   }

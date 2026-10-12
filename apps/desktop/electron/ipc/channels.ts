@@ -101,6 +101,8 @@ export const IPC = {
 
   // Deudas / cuenta corriente (Fase 6)
   CREATE_DEBT: 'ipc:create-debt',
+  /** Alta de cliente fiado con saldo inicial, sin venta. No reemplaza CREATE_DEBT. */
+  CREATE_CUSTOMER_WITH_INITIAL_DEBT: 'ipc:create-customer-with-initial-debt',
   GET_DEBTS: 'ipc:get-debts',
   GET_CUSTOMER_BALANCE: 'ipc:get-customer-balance',
   ADD_DEBT_PAYMENT: 'ipc:add-debt-payment',

@@ -21,6 +21,7 @@ export {
   normalizeCatalogSearch,
   filterAndRankByName,
   searchProductsByQuery,
+  matchVisitMerchProducts,
 } from './catalogSearch'
 export {
   formatKgQty,
@@ -64,6 +65,7 @@ export {
   merchNameKey,
   parseMerchLinesFromUnknown,
   parseMerchLineSnapshot,
+  roundPurchaseUnitCost,
   parseMerchWeightsJson,
   resolveMerchLineFacts,
   serializeMerchWeightsJson,
@@ -97,6 +99,8 @@ export {
   emptyMediaResFormLine,
   emptyMerchVisitFormLine,
   formatMerchCostUnit,
+  formatPurchaseUnitCost,
+  formatPurchaseUnitCostInput,
   formatMerchVisitQty,
   formatPackCountLabel,
   lineCostTotal,

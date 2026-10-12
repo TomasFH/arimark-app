@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest'
+import fs from 'fs'
+import path from 'path'
 import { createInMemoryDb } from './helpers/inMemoryDb'
 import { sql } from 'drizzle-orm'
+import {
+  stores,
+  users,
+  shifts,
+  expenses,
+  providerDebtEvents,
+  merchandiseIntakes,
+  merchandiseIntakeLines,
+  providers,
+  providerPurchasePrices,
+} from '../schema'
 
 describe('migrations', () => {
   it('aplica todas las migraciones sin error', async () => {
@@ -298,6 +311,256 @@ describe('migrations', () => {
       const cols = sqlite.prepare('PRAGMA table_info(providers)').all() as { name: string }[]
       expect(cols.map(c => c.name)).toContain('intake_kind')
     })
+
+  it('suma la deuda vieja pagada al gasto y no toca pay-from-shift (migración 0050)', async () => {
+    const { db, sqlite } = await createInMemoryDb()
+    const now = '2026-10-11T12:00:00.000Z'
+    db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+    db.insert(users).values({ id: 'user-001', name: 'Cajera', storeId: 'store-001', createdAt: now }).run()
+    db.insert(shifts).values({
+      id: 'shift-001',
+      storeId: 'store-001',
+      userId: 'user-001',
+      shiftType: 'morning',
+      startedAt: now,
+      openingCash: 10_040_001,
+      source: 'desktop',
+    }).run()
+
+    db.insert(expenses).values([
+      {
+        id: 'exp-visit',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        amount: 100_000,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'exp-pay-shift',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        amount: 350_000,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: '2026-02-01T00:00:00.000Z',
+      },
+      {
+        id: 'exp-intake',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        amount: 5_000,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: '2026-03-01T00:00:00.000Z',
+      },
+      {
+        id: 'exp-with-debt',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        amount: 20_000,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: '2026-04-01T00:00:00.000Z',
+      },
+      {
+        id: 'exp-plain',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        amount: 1_000,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: '2026-05-01T00:00:00.000Z',
+      },
+    ]).run()
+
+    db.insert(providerDebtEvents).values([
+      {
+        id: 'pay-visit',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'payment',
+        amount: 2_634_642,
+        expenseId: 'exp-visit',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      },
+      {
+        id: 'pay-shift-a',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'payment',
+        amount: 50_000,
+        expenseId: 'exp-pay-shift',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      },
+      {
+        id: 'pay-shift-b',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'payment',
+        amount: 300_000,
+        expenseId: 'exp-pay-shift',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      },
+      {
+        id: 'pay-intake',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'payment',
+        amount: 5_000,
+        expenseId: 'exp-intake',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      },
+      {
+        id: 'debt-with',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'debt',
+        amount: 5_000,
+        expenseId: 'exp-with-debt',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      },
+      {
+        id: 'pay-with-debt',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'payment',
+        amount: 20_000,
+        expenseId: 'exp-with-debt',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      },
+    ]).run()
+
+    db.insert(merchandiseIntakes).values({
+      id: 'intake-1',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      paymentKind: 'paid_now',
+      paidAmount: 5_000,
+      debtAmount: 0,
+      expenseId: 'exp-intake',
+      status: 'confirmed',
+      createdBy: 'user-001',
+      createdAt: now,
+    }).run()
+
+    const migrationSql = fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/0050_expense_old_debt_cash.sql'),
+      'utf8',
+    )
+    sqlite.exec(migrationSql)
+
+    const rows = sqlite.prepare(
+      'SELECT id, amount, synced_at AS syncedAt FROM expenses ORDER BY id',
+    ).all() as Array<{ id: string; amount: number; syncedAt: string | null }>
+    const byId = new Map(rows.map(row => [row.id, row]))
+
+    expect(byId.get('exp-visit')).toMatchObject({ amount: 2_734_642, syncedAt: null })
+    expect(byId.get('exp-pay-shift')).toMatchObject({
+      amount: 350_000,
+      syncedAt: '2026-02-01T00:00:00.000Z',
+    })
+    expect(byId.get('exp-intake')).toMatchObject({ amount: 10_000, syncedAt: null })
+    expect(byId.get('exp-with-debt')).toMatchObject({ amount: 40_000, syncedAt: null })
+    expect(byId.get('exp-plain')).toMatchObject({
+      amount: 1_000,
+      syncedAt: '2026-05-01T00:00:00.000Z',
+    })
+  })
+
+  it('pasa unit_cost de compra a REAL sin reescalar (migración 0051)', async () => {
+    const { db, sqlite } = await createInMemoryDb()
+    const now = '2026-10-11T12:00:00.000Z'
+    db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+    db.insert(users).values({ id: 'user-001', name: 'Cajera', storeId: 'store-001', createdAt: now }).run()
+    db.insert(shifts).values({
+      id: 'shift-001',
+      storeId: 'store-001',
+      userId: 'user-001',
+      shiftType: 'morning',
+      startedAt: now,
+      openingCash: 0,
+      source: 'desktop',
+    }).run()
+    db.insert(merchandiseIntakes).values({
+      id: 'intake-1',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      paymentKind: 'paid_now',
+      paidAmount: 9_000,
+      debtAmount: 0,
+      status: 'confirmed',
+      createdBy: 'user-001',
+      createdAt: now,
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-1',
+      intakeId: 'intake-1',
+      rubroId: 'rubro_bondiola',
+      rubroName: 'Bondiola',
+      template: 'weight',
+      sortOrder: 0,
+      count: 1,
+      hasIce: false,
+      unitCost: 9000,
+      costTotal: 9000,
+    }).run()
+    db.insert(providers).values({
+      id: 'prov-1',
+      name: 'Oso',
+      nameKey: 'oso',
+      createdAt: now,
+      createdBy: 'user-001',
+    }).run()
+    db.insert(providerPurchasePrices).values({
+      providerId: 'prov-1',
+      productKey: 'p:bondiola',
+      name: 'Bondiola',
+      costUnit: 'kg',
+      unitCost: 4800.5,
+      updatedAt: now,
+    }).run()
+
+    const migrationSql = fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/0051_purchase_unit_cost_cents.sql'),
+      'utf8',
+    ).replaceAll('--> statement-breakpoint', '')
+    expect(migrationSql).not.toMatch(/unit_cost\s*[*\/]\s*100/)
+    sqlite.exec(migrationSql)
+
+    const lineCols = sqlite.prepare('PRAGMA table_info(merchandise_intake_lines)').all() as Array<{ name: string; type: string }>
+    expect(lineCols.find(c => c.name === 'unit_cost')?.type.toUpperCase()).toBe('REAL')
+    expect(lineCols.find(c => c.name === 'cost_total')?.type.toUpperCase()).toBe('INTEGER')
+    const priceCols = sqlite.prepare('PRAGMA table_info(provider_purchase_prices)').all() as Array<{ name: string; type: string }>
+    expect(priceCols.find(c => c.name === 'unit_cost')?.type.toUpperCase()).toBe('REAL')
+    const intakeCols = sqlite.prepare('PRAGMA table_info(merchandise_intakes)').all() as Array<{ name: string; type: string }>
+    expect(intakeCols.find(c => c.name === 'paid_amount')?.type.toUpperCase()).toBe('INTEGER')
+    expect(intakeCols.find(c => c.name === 'debt_amount')?.type.toUpperCase()).toBe('INTEGER')
+
+    const line = sqlite.prepare('SELECT unit_cost AS unitCost, cost_total AS costTotal FROM merchandise_intake_lines').get() as {
+      unitCost: number
+      costTotal: number
+    }
+    expect(line.unitCost).toBe(9000)
+    expect(line.costTotal).toBe(9000)
+    const price = sqlite.prepare('SELECT unit_cost AS unitCost FROM provider_purchase_prices').get() as { unitCost: number }
+    expect(price.unitCost).toBe(4800.5)
+    const intake = sqlite.prepare('SELECT paid_amount AS paidAmount FROM merchandise_intakes').get() as { paidAmount: number }
+    expect(intake.paidAmount).toBe(9000)
+  })
 
   it('tiene el índice idx_debt_events_customer', async () => {
     const { db } = await createInMemoryDb()

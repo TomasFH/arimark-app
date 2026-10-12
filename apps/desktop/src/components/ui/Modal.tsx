@@ -59,8 +59,10 @@ export function Modal({
 }: ModalProps) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
   const suggestLayerRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
+  const overlayPointerDownRef = useRef(false)
   onCloseRef.current = onClose
 
   useEffect(() => {
@@ -81,6 +83,40 @@ export function Modal({
     }
   }, [open, closeOnEscape])
 
+  // Cerrar el overlay solo si el puntero se apretó y se soltó ahí.
+  // Un arrastre que empieza adentro del panel y termina afuera no cierra.
+  // No cerrar en pointerdown: el cierre es el pointerup.
+  useEffect(() => {
+    if (!open || !closeOnOverlay) return
+
+    function onPointerDown(event: PointerEvent) {
+      const overlay = overlayRef.current
+      const primary = event.button === 0 || event.button === undefined
+      overlayPointerDownRef.current = overlay != null && primary && event.target === overlay
+    }
+
+    function onPointerUp(event: PointerEvent) {
+      const startedOnOverlay = overlayPointerDownRef.current
+      overlayPointerDownRef.current = false
+      if (!startedOnOverlay) return
+      if (event.target === overlayRef.current) onCloseRef.current()
+    }
+
+    function onPointerCancel() {
+      overlayPointerDownRef.current = false
+    }
+
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('pointerup', onPointerUp, true)
+    document.addEventListener('pointercancel', onPointerCancel, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointerup', onPointerUp, true)
+      document.removeEventListener('pointercancel', onPointerCancel, true)
+      overlayPointerDownRef.current = false
+    }
+  }, [open, closeOnOverlay])
+
   if (!open) return null
 
   const heading = header ?? (
@@ -97,15 +133,17 @@ export function Modal({
       role="presentation"
     >
       <div
+        ref={overlayRef}
+        data-modal-overlay=""
         className={cx('absolute inset-0 bg-overlay', !closeOnOverlay && 'pointer-events-none')}
-        onClick={closeOnOverlay ? onClose : undefined}
       />
       <ModalSuggestLayerContext.Provider value={suggestLayerRef}>
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title != null && header == null ? titleId : undefined}
+        aria-labelledby={header == null && title != null && title !== '' ? titleId : undefined}
+        aria-label={header != null && typeof title === 'string' ? title : undefined}
         tabIndex={-1}
         className={cx(
           'relative z-10 flex min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-2xl bg-panel',

@@ -132,7 +132,11 @@ export default function ExpenseListModal({ onClose }: Props) {
                 const isExpanded = expandedId === e.id
                 const label = e.provider ?? e.concept ?? '—'
                 const hasDebtDetail = e.newDebtAmount || e.paysOldDebt
-                const totalVisit = e.newDebtAmount ? e.amount + e.newDebtAmount : null
+                // amount ya incluye paysOldDebt. La visita es lo que no fue deuda vieja.
+                const paidThisVisit = Math.max(0, e.amount - (e.paysOldDebt ?? 0))
+                const totalVisit = e.newDebtAmount
+                  ? paidThisVisit + e.newDebtAmount
+                  : (e.paysOldDebt && paidThisVisit > 0 ? paidThisVisit : null)
 
                 // Estado actual de la deuda (puede haber sido saldada después de este turno)
                 const debtStatus = e.providerId ? providerStatuses[e.providerId] : undefined
@@ -212,7 +216,9 @@ export default function ExpenseListModal({ onClose }: Props) {
                             <span className="text-muted text-xs">
                               {totalVisit !== null ? 'Pagado en esta visita' : 'Monto pagado'}
                             </span>
-                            <span className="text-ink font-semibold">{formatARS(e.amount)}</span>
+                            <span className="text-ink font-semibold">
+                              {formatARS(totalVisit !== null ? paidThisVisit : e.amount)}
+                            </span>
                           </div>
                           {e.newDebtAmount && (
                             debtWasPaid ? (

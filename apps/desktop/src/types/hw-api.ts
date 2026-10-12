@@ -214,11 +214,16 @@ export interface ExpenseRow {
   provider?: string
   /** ID del proveedor (para consultar deuda). */
   providerId?: string
-  /** Monto efectivamente pagado (lo que salió de caja). */
+  /**
+   * Toda la plata que salió de la caja en este gasto.
+   * Ya incluye `paysOldDebt`. La porción de la visita es `amount - paysOldDebt`.
+   */
   amount: number
-  /** Deuda nueva generada en esta visita (total - pagado). Undefined si no hubo. */
+  /** Deuda nueva de esta visita. No salió de caja. Undefined si no hubo. */
   newDebtAmount?: number
-  /** Deuda anterior del proveedor que se pagó en esta visita. Undefined si no hubo. */
+  /**
+   * Deuda anterior (o exceso) imputada en el ledger. Ya está incluida en `amount`.
+   */
   paysOldDebt?: number
   notes?: string
   createdAt: string
@@ -621,6 +626,22 @@ export interface CustomerDebtSummary {
   events: DebtEventRow[]
 }
 
+/** Alta de cliente fiado con saldo inicial. No asocia una venta ni un cliente existente. */
+export interface CreateCustomerWithInitialDebtPayload {
+  name: string
+  dni?: string
+  phone?: string
+  /** Pesos enteros. 0 u omitido: solo crea el cliente. */
+  initialDebt?: number
+  /** Admin: local que está viendo. Si se omite, queda el de la sesión. La cajera no elige. */
+  storeId?: string
+}
+
+export interface CreateCustomerWithInitialDebtResult {
+  customer: CustomerRow
+  debtEvent: DebtEventRow | null
+}
+
 export interface CreateDebtPayload {
   saleId: string
   customerId?: string
@@ -838,11 +859,14 @@ export interface RegisterExpensePayload {
   providerId?: string
   /** Nombre de proveedor nuevo (se crea implícitamente). */
   provider?: string
+  /** Porción de la visita o del concepto. La caja persiste amount + paysOldDebt. */
   amount: number
   notes?: string
   /** Monto que NO se pagó ahora y queda como deuda para la próxima visita */
   newDebtAmount?: number
-  /** Monto de deuda anterior que se paga en este gasto */
+  /**
+   * Exceso sobre la visita que también salió de caja. El ledger suma este número.
+   */
   paysOldDebt?: number
   /**
    * Local al que se imputa la deuda con el proveedor.
@@ -850,6 +874,11 @@ export interface RegisterExpensePayload {
    * Permite pagar deuda de otro local desde la caja actual.
    */
   debtStoreId?: string
+  /**
+   * Parte de paysOldDebt que va a debtStoreId (otro local).
+   * El resto se imputa al local de la sesión.
+   */
+  crossStorePayment?: number
 }
 
 /** Payload para actualizar un gasto existente del turno activo. */
@@ -1748,6 +1777,7 @@ export interface HwApi {
     newDebtAmount?: number
     paysOldDebt?: number
     debtStoreId?: string
+    crossStorePayment?: number
     acceptPriceUpdates: boolean
     visitKind?: ProviderIntakeKind
   }) => Promise<IpcResult<{ id: string; expenseId: string | null }>>
@@ -1875,6 +1905,10 @@ export interface HwApi {
   // ---- Deudas / cuenta corriente (Fase 6) ----
   /** Marca una venta como deuda y la asocia a un cliente (existente o nuevo) */
   createDebt: (payload: CreateDebtPayload) => Promise<IpcResult<DebtEventRow>>
+  /** Crea un cliente fiado y, si el saldo es mayor a 0, el evento `created` sin venta. */
+  createCustomerWithInitialDebt: (
+    payload: CreateCustomerWithInitialDebtPayload,
+  ) => Promise<IpcResult<CreateCustomerWithInitialDebtResult>>
   /** Lista deudas activas con saldo algebraico por cliente */
   getDebts: (payload?: { storeIdFilter?: string }) => Promise<IpcResult<CustomerDebtSummary[]>>
   /** Saldo y ledger completo de un cliente */

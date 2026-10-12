@@ -25,12 +25,14 @@ vi.mock('../../businessConfig', () => ({
 
 vi.mock('../../licensing/customerDebtSync', () => ({
   pushUnsyncedCustomerDebtOps: vi.fn().mockResolvedValue(undefined),
+  pushUnsyncedCustomers: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { registerDebtHandlers } from '../debts.handler'
+import { pushUnsyncedCustomerDebtOps } from '../../licensing/customerDebtSync'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
 
@@ -154,6 +156,136 @@ describe('debts.handler', () => {
       const result = handler(null, { saleId: 'invalid-id' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // CREATE_CUSTOMER_WITH_INITIAL_DEBT
+  // ---------------------------------------------------------------------------
+
+  describe('CREATE_CUSTOMER_WITH_INITIAL_DEBT (ipc:create-customer-with-initial-debt)', () => {
+    const channel = 'ipc:create-customer-with-initial-debt'
+
+    it('la cajera crea el cliente y la deuda inicial en el local de la sesión', () => {
+      const handler = getHandler(channel)
+      const result = handler(null, {
+        name: '  Juan García  ',
+        phone: '11-1234-5678',
+        dni: '12345678',
+        initialDebt: 15000,
+        storeId: 'store-002',
+      }) as {
+        ok: boolean
+        data: {
+          customer: { id: string; name: string; storeId: string; phone: string | null; dni: string | null }
+          debtEvent: { eventType: string; amount: number; saleId: string | null; storeId: string } | null
+        }
+      }
+
+      expect(result.ok).toBe(true)
+      expect(result.data.customer.name).toBe('Juan García')
+      expect(result.data.customer.storeId).toBe('store-001')
+      expect(result.data.customer.phone).toBe('11-1234-5678')
+      expect(result.data.customer.dni).toBe('12345678')
+      expect(result.data.debtEvent?.eventType).toBe('created')
+      expect(result.data.debtEvent?.amount).toBe(15000)
+      expect(result.data.debtEvent?.saleId).toBeNull()
+      expect(result.data.debtEvent?.storeId).toBe('store-001')
+
+      const events = db.select().from(debtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        customerId: result.data.customer.id,
+        saleId: null,
+        storeId: 'store-001',
+        eventType: 'created',
+        amount: 15000,
+        shiftId: null,
+        syncedAt: null,
+        createdBy: 'user-001',
+      })
+      expect(db.select().from(sales).all()).toHaveLength(1)
+      expect(pushUnsyncedCustomerDebtOps).toHaveBeenCalled()
+    })
+
+    it('rechaza payload malformado', () => {
+      const handler = getHandler(channel)
+      const missingName = handler(null, { initialDebt: 1000 }) as { ok: boolean; code: string }
+      expect(missingName.ok).toBe(false)
+      expect(missingName.code).toBe('VALIDATION_ERROR')
+
+      const existingCustomer = handler(null, {
+        name: 'Ana',
+        customerId: CUST_ID,
+        initialDebt: 1000,
+      }) as { ok: boolean; code: string }
+      expect(existingCustomer.ok).toBe(false)
+      expect(existingCustomer.code).toBe('VALIDATION_ERROR')
+      expect(db.select().from(customers).all()).toHaveLength(0)
+      expect(db.select().from(debtEvents).all()).toHaveLength(0)
+    })
+
+    it('deuda 0 no escribe evento', () => {
+      const handler = getHandler(channel)
+      const zero = handler(null, { name: 'Sin saldo', initialDebt: 0 }) as { ok: boolean }
+      expect(zero.ok).toBe(true)
+      expect(db.select().from(customers).all()).toHaveLength(1)
+      expect(db.select().from(debtEvents).all()).toHaveLength(0)
+
+      const omitted = handler(null, { name: 'Tampoco' }) as { ok: boolean; data: { debtEvent: unknown } }
+      expect(omitted.ok).toBe(true)
+      expect(omitted.data.debtEvent).toBeNull()
+      expect(db.select().from(debtEvents).all()).toHaveLength(0)
+      expect(db.select().from(customers).all()).toHaveLength(2)
+    })
+
+    it('sin sesión falla', () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const handler = getHandler(channel)
+      const result = handler(null, { name: 'Ana', initialDebt: 500 }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('NO_SESSION')
+      expect(db.select().from(customers).all()).toHaveLength(0)
+      expect(db.select().from(debtEvents).all()).toHaveLength(0)
+    })
+
+    it('rechaza monto no entero o negativo', () => {
+      const handler = getHandler(channel)
+      const fraction = handler(null, { name: 'Ana', initialDebt: 10.5 }) as { ok: boolean; code: string }
+      expect(fraction.ok).toBe(false)
+      expect(fraction.code).toBe('VALIDATION_ERROR')
+
+      const negative = handler(null, { name: 'Ana', initialDebt: -100 }) as { ok: boolean; code: string }
+      expect(negative.ok).toBe(false)
+      expect(negative.code).toBe('VALIDATION_ERROR')
+      expect(db.select().from(customers).all()).toHaveLength(0)
+      expect(db.select().from(debtEvents).all()).toHaveLength(0)
+    })
+
+    it('el admin imputa el alta en el local que está viendo', () => {
+      const now = new Date().toISOString()
+      db.insert(stores).values({ id: 'store-002', name: 'Otro local', createdAt: now }).run()
+      vi.mocked(getActiveSession).mockReturnValue({
+        userId: 'user-001',
+        storeId: 'store-001',
+        role: 'admin',
+        shiftId: null,
+      })
+
+      const handler = getHandler(channel)
+      const result = handler(null, {
+        name: 'Cliente del otro local',
+        initialDebt: 800,
+        storeId: 'store-002',
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const customer = db.select().from(customers).all()[0]
+      const event = db.select().from(debtEvents).all()[0]
+      expect(customer?.storeId).toBe('store-002')
+      expect(event?.storeId).toBe('store-002')
+      expect(event?.saleId).toBeNull()
+      expect(event?.amount).toBe(800)
     })
   })
 

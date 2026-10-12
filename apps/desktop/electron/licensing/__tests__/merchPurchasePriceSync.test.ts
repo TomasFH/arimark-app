@@ -77,4 +77,38 @@ describe('merchPurchasePriceSync', () => {
     })
     expect(localPurchasePrices('prov-oso')[0]?.unitCost).toBe(11000)
   })
+
+  it('guarda centavos del unitario y no reescala un entero', () => {
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{ productKey: 'p:bondiola', name: 'Bondiola', costUnit: 'kg', unitCost: 4800.5 }],
+      acceptPriceUpdates: true,
+      now: '2026-10-11T10:00:00.000Z',
+    })
+    expect(localPurchasePrices('prov-oso').find(r => r.productKey === 'p:bondiola')?.unitCost).toBe(4800.5)
+
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{ productKey: 'p:bondiola', name: 'Bondiola', costUnit: 'kg', unitCost: 4800.5 + 1e-10 }],
+      acceptPriceUpdates: false,
+      now: '2026-10-11T11:00:00.000Z',
+    })
+    expect(localPurchasePrices('prov-oso').find(r => r.productKey === 'p:bondiola')?.unitCost).toBe(4800.5)
+
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{ productKey: 'p:maple', name: 'Maple', costUnit: 'pack', unitCost: 9000 }],
+      acceptPriceUpdates: true,
+      now: '2026-10-11T12:00:00.000Z',
+    })
+    expect(localPurchasePrices('prov-oso').find(r => r.productKey === 'p:maple')?.unitCost).toBe(9000)
+
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{ productKey: 'p:maple', name: 'Maple', costUnit: 'pack', unitCost: 9000.405 }],
+      acceptPriceUpdates: true,
+      now: '2026-10-11T13:00:00.000Z',
+    })
+    expect(localPurchasePrices('prov-oso').find(r => r.productKey === 'p:maple')?.unitCost).toBe(9000.41)
+  })
 })

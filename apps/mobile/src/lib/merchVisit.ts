@@ -5,6 +5,7 @@ import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore'
 import { v4 as uuidv4 } from 'uuid'
 import {
   merchProductKey,
+  roundPurchaseUnitCost,
   type MerchCostUnit,
   type MerchIntakeLineSnapshot,
   type MerchVisitFormLine,
@@ -56,9 +57,10 @@ export async function getProviderPurchasePriceMap(providerId: string): Promise<P
             if (!raw || typeof raw !== 'object') continue
             const row = raw as Record<string, unknown>
             const costUnit = row['costUnit']
-            const unitCost = typeof row['unitCost'] === 'number' ? Math.round(row['unitCost']) : null
+            const rawCost = row['unitCost']
+            const unitCost = typeof rawCost === 'number' ? roundPurchaseUnitCost(rawCost) : Number.NaN
             const name = typeof row['name'] === 'string' ? row['name'] : ''
-            if ((costUnit !== 'kg' && costUnit !== 'unit' && costUnit !== 'pack') || unitCost == null || unitCost < 0 || !name) continue
+            if ((costUnit !== 'kg' && costUnit !== 'unit' && costUnit !== 'pack') || !Number.isFinite(unitCost) || unitCost < 0 || !name) continue
             items[key] = {
               name,
               costUnit,
@@ -94,13 +96,15 @@ export async function applyMobilePurchasePrices(opts: {
   const existing = await db.providerPurchasePrices.get(opts.providerId)
   const items = { ...(existing?.items ?? {}) }
   for (const line of opts.lines) {
-    if (!line.costUnit || line.unitCost <= 0) continue
+    const unitCost = roundPurchaseUnitCost(line.unitCost)
+    if (!line.costUnit || !Number.isFinite(unitCost) || unitCost <= 0) continue
     const prev = items[line.productKey]
-    if (prev && prev.unitCost !== line.unitCost && !opts.acceptPriceUpdates) continue
+    const previous = prev ? roundPurchaseUnitCost(prev.unitCost) : null
+    if (previous != null && previous !== unitCost && !opts.acceptPriceUpdates) continue
     items[line.productKey] = {
       name: line.name.slice(0, 80),
       costUnit: line.costUnit,
-      unitCost: line.unitCost,
+      unitCost,
       updatedAt: now,
     }
   }

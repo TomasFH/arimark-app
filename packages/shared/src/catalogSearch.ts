@@ -54,3 +54,25 @@ export function searchProductsByQuery<T>(
   }
   return filterAndRankByName(items, raw, opts.nameOf)
 }
+
+const VISIT_MERCH_MATCH_LIMIT = 8
+
+/**
+ * Sugerencias de mercadería en la visita: coincidencia parcial y tope de 8.
+ * Sin texto muestra los primeros 8, en el orden recibido.
+ * El PLU se compara como substring del texto tipeado.
+ */
+export function matchVisitMerchProducts<T extends { name: string; pluNumber: number | string }>(
+  products: readonly T[],
+  query: string,
+): T[] {
+  const pluQuery = query.trim()
+  if (!pluQuery) return products.slice(0, VISIT_MERCH_MATCH_LIMIT)
+  const nameQuery = normalizeCatalogSearch(pluQuery)
+  return products
+    .filter(product =>
+      (nameQuery.length > 0 && normalizeCatalogSearch(product.name).includes(nameQuery))
+      || String(product.pluNumber).includes(pluQuery),
+    )
+    .slice(0, VISIT_MERCH_MATCH_LIMIT)
+}

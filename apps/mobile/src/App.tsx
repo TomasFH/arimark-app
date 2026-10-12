@@ -16,6 +16,8 @@ import { StoreSelector } from './components/StoreSelector'
 import { OpenShiftScreen } from './components/OpenShiftScreen'
 import { PosScreen } from './components/PosScreen'
 import { AdminDashboard } from './components/AdminDashboard'
+import { DebtsScreen } from './components/admin/DebtsScreen'
+import type { StoreDoc } from './lib/adminFirestore'
 import { ButcherApp } from './components/butcher/ButcherApp'
 import { signIn, signOut, restoreSession, revalidateProfileAccess, subscribeUserAccess, ACCESS_REVOKED_MESSAGE, sendPasswordReset, PASSWORD_RESET_SENT_MESSAGE } from './lib/auth'
 import { syncCatalog, getCatalog, startCatalogLiveListener, stopCatalogLiveListener } from './lib/catalog'
@@ -54,6 +56,7 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null)
   const [cashierStores, setCashierStores] = useState<CashierStoreOption[]>([])
   const [exitConfirm, setExitConfirm] = useState(false)
+  const [showCashierFiados, setShowCashierFiados] = useState(false)
   const exitConfirmRef = useRef(false)
 
   const online = useOnlineStatus()
@@ -65,6 +68,10 @@ export default function App() {
   useEffect(() => {
     exitConfirmRef.current = exitConfirm
   }, [exitConfirm])
+
+  useEffect(() => {
+    if (screen !== 'pos') setShowCashierFiados(false)
+  }, [screen])
 
   useEffect(() => {
     setEmptyBackHandler(() => {
@@ -411,16 +418,38 @@ export default function App() {
     }
 
     if (screen === 'pos' && session && activeShift) {
+      const cashierStore: StoreDoc = {
+        id: session.storeId,
+        name: storeName,
+        address: null,
+        archivedAt: null,
+        createdAt: '',
+      }
       return (
-        <PosScreen
-          shift={activeShift}
-          catalog={catalog}
-          storeName={storeName}
-          viewerRole={session.profile.role as 'admin' | 'cashier'}
-          viewerName={session.profile.displayName}
-          onCloseShift={handleCloseShift}
-          onReturnToAdmin={session.profile.role === 'admin' ? returnToAdminHub : undefined}
-        />
+        <div className="relative h-full min-h-0">
+          <div className={showCashierFiados ? 'hidden' : 'h-full min-h-0'}>
+            <PosScreen
+              shift={activeShift}
+              catalog={catalog}
+              storeName={storeName}
+              viewerRole={session.profile.role as 'admin' | 'cashier'}
+              viewerName={session.profile.displayName}
+              onCloseShift={handleCloseShift}
+              onReturnToAdmin={session.profile.role === 'admin' ? returnToAdminHub : undefined}
+              onOpenFiados={() => setShowCashierFiados(true)}
+            />
+          </div>
+          {showCashierFiados && (
+            <div className="absolute inset-0 z-30 flex min-h-0 flex-col bg-zinc-950">
+              <DebtsScreen
+                onBack={() => setShowCashierFiados(false)}
+                stores={[cashierStore]}
+                profile={session.profile}
+                fixedStoreId={session.storeId}
+              />
+            </div>
+          )}
+        </div>
       )
     }
 

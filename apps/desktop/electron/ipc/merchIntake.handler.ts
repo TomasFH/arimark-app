@@ -38,6 +38,7 @@ import {
 import { pushUnsyncedExpenses } from '../licensing/expenseSync'
 import { pushUnsyncedProviders, pushUnsyncedDebtEvents } from '../licensing/providerSync'
 import { providerIdFromName, providerNameKey } from './providerUtils'
+import { crossStorePaymentFits, expenseCashAmount, splitOldDebtPayments } from './expenseCash'
 import {
   MERCH_INTAKE_MAX_LINES,
   MERCH_INTAKE_MAX_WEIGHTS,
@@ -71,7 +72,7 @@ const visitLineDraftSchema = z.object({
   packCount: z.number().int().positive().max(MERCH_INTAKE_QUANTITY_MAX).nullable(),
   count: z.number().int().positive().max(MERCH_INTAKE_QUANTITY_MAX).nullable(),
   weightsKg: z.array(z.number().positive().max(MERCH_INTAKE_QUANTITY_MAX)).max(MERCH_INTAKE_MAX_WEIGHTS),
-  unitCost: z.number().int().nonnegative(),
+  unitCost: z.number().finite().nonnegative(),
   costUnit: z.enum(['kg', 'unit', 'pack']).nullable().optional(),
 })
 
@@ -108,9 +109,14 @@ const confirmSchema = z.object({
   newDebtAmount: z.number().min(0).optional(),
   paysOldDebt: z.number().min(0).optional(),
   debtStoreId: z.string().min(1).optional(),
+  /**
+   * Parte de paysOldDebt que se imputa a debtStoreId cuando es otro local.
+   * El resto del exceso queda en el local de la sesión.
+   */
+  crossStorePayment: z.number().min(0).optional(),
   acceptPriceUpdates: z.boolean(),
   visitKind: z.enum(MERCH_VISIT_KINDS).optional(),
-})
+}).refine(crossStorePaymentFits, { message: 'El pago de otro local no puede superar la deuda vieja pagada.' })
 
 const getPricesSchema = z.object({
   providerId: z.string().min(1),
@@ -549,9 +555,11 @@ export function registerMerchIntakeHandlers(): void {
       const lines = computed.lines.map(line => ({ ...line, id: uuidv4() }))
       const visitTotal = merchVisitTotal(lines)
       const factsOnly = visitKind === 'media_res'
+      // paidAmount es la porción de ESTA visita. La deuda vieja no entra acá.
       const paidAmount = factsOnly ? 0 : (parsed.data.amount ?? 0)
       const debtAmount = factsOnly ? 0 : (parsed.data.newDebtAmount ?? 0)
       const paysOldDebt = factsOnly ? 0 : (parsed.data.paysOldDebt ?? 0)
+      const cashAmount = expenseCashAmount(paidAmount, paysOldDebt)
       const paymentKind = factsOnly
         ? 'none'
         : (paidAmount > 0 ? 'paid_now' : (debtAmount > 0 ? 'on_account' : 'none'))
@@ -574,7 +582,7 @@ export function registerMerchIntakeHandlers(): void {
             kind: 'expense',
             concept,
             providerId: resolved.id,
-            amount: paidAmount,
+            amount: cashAmount,
             notes,
             createdAt: now,
             createdBy: session.userId,
@@ -595,14 +603,19 @@ export function registerMerchIntakeHandlers(): void {
               syncedAt: null,
             }).run()
           }
-          if (paysOldDebt > 0) {
+          for (const slice of splitOldDebtPayments({
+            paysOldDebt,
+            sessionStoreId: session.storeId,
+            debtStoreId: parsed.data.debtStoreId,
+            crossStorePayment: parsed.data.crossStorePayment,
+          })) {
             tx.insert(providerDebtEvents).values({
               id: uuidv4(),
-              storeId: effectiveDebtStoreId,
+              storeId: slice.storeId,
               providerId: resolved.id,
               provider: resolved.name,
               type: 'payment',
-              amount: paysOldDebt,
+              amount: slice.amount,
               expenseId,
               shiftId: session.shiftId!,
               createdAt: now,

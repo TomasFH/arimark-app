@@ -8,7 +8,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { providerPurchasePrices } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
-import { coerceMerchCostUnit, type MerchCostUnit } from '@carniceria/shared'
+import { coerceMerchCostUnit, roundPurchaseUnitCost, type MerchCostUnit } from '@carniceria/shared'
 
 export interface PurchasePriceRow {
   providerId: string
@@ -37,9 +37,10 @@ export async function pullProviderPurchasePrices(
     if (!raw || typeof raw !== 'object') continue
     const row = raw as Record<string, unknown>
     const costUnit = coerceMerchCostUnit(row['costUnit'])
-    const unitCost = typeof row['unitCost'] === 'number' ? Math.round(row['unitCost']) : null
+    const rawCost = row['unitCost']
+    const unitCost = typeof rawCost === 'number' ? roundPurchaseUnitCost(rawCost) : Number.NaN
     const name = typeof row['name'] === 'string' ? row['name'].trim() : ''
-    if (!costUnit || unitCost == null || unitCost < 0 || !name) continue
+    if (!costUnit || !Number.isFinite(unitCost) || unitCost < 0 || !name) continue
     const updatedAt = typeof row['updatedAt'] === 'string' ? row['updatedAt'] : now
     const existing = db.select().from(providerPurchasePrices).where(and(
       eq(providerPurchasePrices.providerId, providerId),
@@ -132,18 +133,20 @@ export function applyPurchasePrices(
   },
 ): void {
   for (const line of opts.lines) {
-    if (!line.costUnit || line.unitCost <= 0) continue
+    const unitCost = roundPurchaseUnitCost(line.unitCost)
+    if (!line.costUnit || !Number.isFinite(unitCost) || unitCost <= 0) continue
     const existing = tx.select().from(providerPurchasePrices).where(and(
       eq(providerPurchasePrices.providerId, opts.providerId),
       eq(providerPurchasePrices.productKey, line.productKey),
     )).get()
-    if (existing && existing.unitCost !== line.unitCost && !opts.acceptPriceUpdates) continue
+    const previous = existing ? roundPurchaseUnitCost(existing.unitCost) : null
+    if (previous != null && previous !== unitCost && !opts.acceptPriceUpdates) continue
     tx.insert(providerPurchasePrices).values({
       providerId: opts.providerId,
       productKey: line.productKey,
       name: line.name.slice(0, 80),
       costUnit: line.costUnit,
-      unitCost: line.unitCost,
+      unitCost,
       updatedAt: opts.now,
       syncedAt: null,
     }).onConflictDoUpdate({
@@ -151,7 +154,7 @@ export function applyPurchasePrices(
       set: {
         name: line.name.slice(0, 80),
         costUnit: line.costUnit,
-        unitCost: line.unitCost,
+        unitCost,
         updatedAt: opts.now,
         syncedAt: null,
       },

@@ -10,6 +10,7 @@ import {
   computeMerchLineFacts,
   formatKg3,
   merchNameKey,
+  roundPurchaseUnitCost,
   snapshotFromFacts,
   type MerchIntakeLineSnapshot,
 } from './merchIntake'
@@ -109,11 +110,14 @@ export function merchProductKey(productId: string | null | undefined, name: stri
 }
 
 export function lineCostTotal(costUnit: MerchCostUnit, unitCost: number, qty: number): number {
-  const cost = Math.round(unitCost)
+  // El unitario de compra es la excepción a los montos enteros (centavos de la boleta).
+  // Se redondea a 2 decimales antes de multiplicar; el total de la línea vuelve al peso.
+  // Math.round en positivos: el .5 se aleja de cero (24002.5 → 24003).
+  const cost = roundPurchaseUnitCost(unitCost)
   if (!Number.isFinite(cost) || cost < 0) return 0
   if (!Number.isFinite(qty) || qty <= 0) return 0
   if (costUnit === 'kg') return Math.round(qty * cost)
-  return Math.round(qty) * cost
+  return Math.round(Math.round(qty) * cost)
 }
 
 export function resizeWeightInputs(count: number, existing: string[]): string[] {
@@ -164,12 +168,14 @@ export function purchasePriceChanges(
     seen.add(line.productKey)
     const previous = lastByKey[line.productKey]
     if (previous == null) continue
-    if (previous === line.unitCost) continue
+    const prevCost = roundPurchaseUnitCost(previous)
+    const nextCost = roundPurchaseUnitCost(line.unitCost)
+    if (!Number.isFinite(prevCost) || !Number.isFinite(nextCost) || prevCost === nextCost) continue
     out.push({
       productKey: line.productKey,
       name: line.name,
-      previous,
-      next: line.unitCost,
+      previous: prevCost,
+      next: nextCost,
     })
   }
   return out
@@ -192,7 +198,7 @@ export function resolveMerchVisitLine(
   if (name.length > MERCH_INTAKE_NAME_MAX) {
     return { ok: false, error: `El nombre no puede superar ${MERCH_INTAKE_NAME_MAX} caracteres.` }
   }
-  const unitCost = Math.round(draft.unitCost)
+  const unitCost = roundPurchaseUnitCost(draft.unitCost)
   if (!Number.isFinite(unitCost) || unitCost < 0) {
     return { ok: false, error: `Precio inválido en ${name}.` }
   }
@@ -441,9 +447,29 @@ export function emptyChickenFormLine(lastCost?: number): MerchVisitFormLine {
     weighPieces: true,
     packCountRaw: '',
     weightRaws: [],
-    unitCostRaw: lastCost != null && lastCost > 0 ? String(lastCost) : '',
+    unitCostRaw: lastCost != null && lastCost > 0 ? formatPurchaseUnitCostInput(lastCost) : '',
     costUnit: 'pack',
   })
+}
+
+/** Texto es-AR del DecimalInput de precio de compra, siempre con 2 decimales. */
+export function formatPurchaseUnitCostInput(amount: number): string {
+  const rounded = roundPurchaseUnitCost(amount)
+  if (!Number.isFinite(rounded)) return ''
+  const [intRaw, dec] = rounded.toFixed(2).split('.')
+  const withDots = (intRaw ?? '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `${withDots},${dec ?? '00'}`
+}
+
+/** Precio unitario de compra para leer en pantalla (2 decimales). Los totales siguen en pesos enteros. */
+export function formatPurchaseUnitCost(amount: number): string {
+  const rounded = roundPurchaseUnitCost(amount)
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(rounded) ? rounded : 0)
 }
 
 function parsePesosRaw(raw: string): number | null {
@@ -451,6 +477,18 @@ function parsePesosRaw(raw: string): number | null {
   if (!digits) return null
   const n = Number.parseInt(digits, 10)
   return Number.isFinite(n) ? n : null
+}
+
+/** Precio de compra es-AR (4.800,50). Sin coma, los puntos son miles: 9.000 → 9000, no 9. */
+function parsePurchaseUnitCostRaw(raw: string): number | null {
+  const t = raw.trim()
+  if (!t || t === ',') return null
+  const normalized = t.includes(',')
+    ? t.replace(/\./g, '').replace(',', '.')
+    : t.replace(/\./g, '')
+  const n = Number(normalized)
+  const rounded = roundPurchaseUnitCost(n)
+  return Number.isFinite(rounded) ? rounded : null
 }
 
 function parseKgRaw(raw: string): number | null {
@@ -468,7 +506,7 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
   const name = line.name.trim()
   if (!name) return { error: 'Indicá el producto.' }
   const costUnit = coerceMerchCostUnit(line.costUnit)
-  const parsedCost = parsePesosRaw(line.unitCostRaw)
+  const parsedCost = parsePurchaseUnitCostRaw(line.unitCostRaw)
   const allowZeroCost = costUnit !== 'pack' && line.weighPieces && !line.productId
   if (!allowZeroCost && (parsedCost == null || parsedCost <= 0)) {
     return {

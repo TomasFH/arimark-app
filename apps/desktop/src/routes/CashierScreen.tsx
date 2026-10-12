@@ -16,6 +16,8 @@ import ValesModal from './ValesModal'
 import SalaryPaymentModal from './SalaryPaymentModal'
 import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
+import OrderFormModal from '../components/OrderFormModal'
+import { seedOrderCreateDraft } from '../lib/orderCreateDraft'
 import DebtModal from '../components/DebtModal'
 import ChangePasswordModal from '../components/ChangePasswordModal'
 import { BrandMark, Button, ListRow, Modal, ScreenHeader, cx } from '../components/ui'
@@ -422,6 +424,7 @@ export default function CashierScreen({
   const [showStockCountModal, setShowStockCountModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
+  const [showOrderForm, setShowOrderForm] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showCashInjectModal, setShowCashInjectModal] = useState(false)
   const [showCeboModal, setShowCeboModal] = useState(false)
@@ -666,9 +669,13 @@ export default function CashierScreen({
   }, [specialPriceByProductId])
 
   const railPanelOpen = showValesModal || showExpenseModal || showSalesModal
-  const anyModalOpen = showPaymentModal || showProductsModal
+  const anyModalOpen = showPaymentModal || showProductsModal || showOrderForm
     || showCashInjectModal || showCeboModal || showCashDiscountModal
     || railPanelOpen
+
+  useEffect(() => {
+    if (!isActive) setShowOrderForm(false)
+  }, [isActive])
 
   const handleGlobalScan = useCallback((digits: string) => {
     const parsed = parseKretzBarcode(digits)
@@ -1200,17 +1207,29 @@ export default function CashierScreen({
                     </div>
                   )}
 
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    fullWidth
-                    loading={loading}
-                    disabled={cart.length === 0 || pendingCatalog}
-                    onClick={openPaymentModal}
-                    className="!h-14 text-lg"
-                  >
-                    Cobrar
-                  </Button>
+                  <div className="flex items-stretch gap-2">
+                    <Button
+                      variant="secondary"
+                      size="lg"
+                      className="!h-14 shrink-0 px-3 text-sm"
+                      onClick={() => {
+                        seedOrderCreateDraft(session.storeId ?? '')
+                        setShowOrderForm(true)
+                      }}
+                    >
+                      Tomar pedido
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      loading={loading}
+                      disabled={cart.length === 0 || pendingCatalog}
+                      onClick={openPaymentModal}
+                      className="!h-14 min-w-0 flex-1 text-lg"
+                    >
+                      Cobrar
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -1497,6 +1516,18 @@ export default function CashierScreen({
 
       {showChangePassword && (
         <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
+
+      {isActive && showOrderForm && (
+        <OrderFormModal
+          open
+          mode="create"
+          onClose={() => setShowOrderForm(false)}
+          onSaved={() => setShowOrderForm(false)}
+          showStoreFilter={false}
+          hoursStoreId={session.storeId ?? ''}
+          defaultStoreId={session.storeId ?? ''}
+        />
       )}
 
       <Modal

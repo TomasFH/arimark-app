@@ -8,6 +8,8 @@ import { parseNumericInput } from '../lib/numericInput'
 import { formatMoney } from '../lib/adminFirestore'
 import {
   emptyMerchVisitFormLine,
+  formatPurchaseUnitCostInput,
+  matchVisitMerchProducts,
   merchFormLineToDraft,
   merchProductKey,
   resolveMerchVisitLine,
@@ -33,7 +35,7 @@ export function formLineFromProduct(product: CatalogProduct, lastCost: number | 
     catalogUnit: product.unit,
     purchasePackLabel: product.purchasePackLabel ?? null,
     purchasePackContents: product.purchasePackContents ?? null,
-    unitCostRaw: lastCost != null ? String(lastCost) : '',
+    unitCostRaw: lastCost != null ? formatPurchaseUnitCostInput(lastCost) : '',
     packCountRaw: pack ? '' : '',
   })
 }
@@ -47,13 +49,10 @@ export function ProviderVisitMerchBlock({ products, lastPrices, lines, onChange,
   const [query, setQuery] = useState('')
   const [focusKey, setFocusKey] = useState<string | null>(null)
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return products.slice(0, 8)
-    return products.filter(p =>
-      p.name.toLowerCase().includes(q) || String(p.pluNumber).includes(q),
-    ).slice(0, 8)
-  }, [products, query])
+  const matches = useMemo(
+    () => matchVisitMerchProducts(products, query),
+    [products, query],
+  )
 
   const runningTotal = useMemo(() => {
     const r = visitLinesFromForm(lines)
@@ -197,7 +196,7 @@ function VisitLineEditor({
         <span className="text-xs text-gray-400">
           Precio de compra {pack ? `($/${(line.purchasePackLabel || 'cajón').toLowerCase()})` : isUnit ? '($/u)' : '($/kg)'}
         </span>
-        <NumericInput value={line.unitCostRaw} onChange={v => onChange({ unitCostRaw: v })} className={fieldClass} />
+        <DecimalInput value={line.unitCostRaw} onChange={v => onChange({ unitCostRaw: v })} maxDecimals={2} className={fieldClass} />
       </label>
       {resolved && (
         <p className="text-xs text-gray-400">

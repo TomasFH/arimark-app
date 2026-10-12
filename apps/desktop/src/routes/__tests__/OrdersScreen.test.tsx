@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrdersScreen from '../OrdersScreen'
+import { resetOrderCreateDraft } from '../../lib/orderCreateDraft'
 import type { OrderRow } from '../../types/hw-api'
 
 function order(overrides: Partial<OrderRow> & Pick<OrderRow, 'id' | 'pickupDate' | 'status' | 'customerName'>): OrderRow {
@@ -37,6 +38,7 @@ function order(overrides: Partial<OrderRow> & Pick<OrderRow, 'id' | 'pickupDate'
 
 describe('OrdersScreen — lista Listos / Pendientes', () => {
   beforeEach(() => {
+    resetOrderCreateDraft()
     window.hw = {
       listOrders: vi.fn().mockResolvedValue({
         ok: true,
@@ -135,4 +137,43 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(await screen.findByText(/Listo por/)).toBeInTheDocument()
     expect(screen.getByText('Juan')).toBeInTheDocument()
   })
+
+  it('el alta nueva comparte el borrador y editar no lo pisa', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />,
+    )
+    expect(await screen.findByText('Update 4')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo pedido' }))
+    await user.type(await screen.findByPlaceholderText('Ej: Restaurante El Sol'), 'Borrador Ana')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    unmount()
+    render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 4')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo pedido' }))
+    expect(await screen.findByPlaceholderText('Ej: Restaurante El Sol')).toHaveValue('Borrador Ana')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    await user.click(screen.getByText('Update 4'))
+    const card = document.getElementById('order-pend-1')
+    if (!card) throw new Error('No está la tarjeta del pedido pendiente')
+    await user.click(menuButton(card))
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar' }))
+    expect(screen.getByRole('dialog', { name: 'Editar pedido' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Ej: Restaurante El Sol')).toHaveValue('Update 4')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo pedido' }))
+    expect(await screen.findByPlaceholderText('Ej: Restaurante El Sol')).toHaveValue('Borrador Ana')
+  })
 })
+
+function menuButton(card: HTMLElement): HTMLElement {
+  const button = card.querySelector('button[aria-label="Más acciones"]')
+  if (!(button instanceof HTMLElement)) throw new Error('No está el menú del pedido')
+  return button
+}

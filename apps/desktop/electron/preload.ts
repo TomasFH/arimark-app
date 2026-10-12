@@ -230,6 +230,7 @@ const hw: HwApi = {
 
   // Deudas / cuenta corriente (Fase 6)
   createDebt: payload => ipcRenderer.invoke(IPC.CREATE_DEBT, payload),
+  createCustomerWithInitialDebt: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER_WITH_INITIAL_DEBT, payload),
   getDebts: payload => ipcRenderer.invoke(IPC.GET_DEBTS, payload),
   getCustomerBalance: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_BALANCE, payload),
   addDebtPayment: payload => ipcRenderer.invoke(IPC.ADD_DEBT_PAYMENT, payload),

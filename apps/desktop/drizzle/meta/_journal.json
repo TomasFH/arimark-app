@@ -351,6 +351,20 @@
       "when": 1791092502400,
       "tag": "0049_sale_discount_exception",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1791703370672,
+      "tag": "0050_expense_old_debt_cash",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1791704558433,
+      "tag": "0051_purchase_unit_cost_cents",
+      "breakpoints": true
     }
   ]
 }

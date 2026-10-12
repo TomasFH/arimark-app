@@ -58,6 +58,8 @@ interface Props {
   viewerName: string
   onCloseShift: () => void
   onReturnToAdmin?: () => void
+  /** Abre fiados del local de la sesión, sin el hub admin. */
+  onOpenFiados?: () => void
 }
 
 function beep(ok: boolean) {
@@ -81,7 +83,7 @@ function formatARS(n: number): string {
   }).format(n)
 }
 
-export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, onCloseShift, onReturnToAdmin }: Props) {
+export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, onCloseShift, onReturnToAdmin, onOpenFiados }: Props) {
   const [items, setItems] = useState<SaleItemDraft[]>([])
   const [showScanner, setShowScanner] = useState(false)
   const [showManual, setShowManual] = useState(false)
@@ -465,7 +467,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           expenseId,
           lines: payload.merchLines,
           notes: payload.notes,
-          paidAmount: factsOnly ? 0 : payload.amount,
+          paidAmount: factsOnly ? 0 : Math.max(0, payload.amount - payload.paysOldDebt),
           debtAmount: factsOnly ? 0 : payload.newDebtAmount,
           providerId: payload.providerId,
           providerName: payload.providerName,
@@ -590,6 +592,15 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
           <p className="truncate text-xs text-gray-400" title={storeName}>{storeName} · POS móvil</p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          {onOpenFiados && (
+            <button
+              type="button"
+              onClick={onOpenFiados}
+              className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:border-zinc-500 hover:text-white"
+            >
+              Fiados
+            </button>
+          )}
           {onReturnToAdmin && (
             <button
               type="button"

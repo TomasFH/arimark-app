@@ -22,6 +22,7 @@ import type { ExpenseRow, ProductRow, ProviderDebtRow, ProviderRow, StoreRow } f
 import ProviderVisitMerchBlock, { type PurchasePriceMap } from './ProviderVisitMerchBlock'
 import { ChickenVisitForm, MediaResVisitForm, ProviderIntakeKindPicker } from './ProviderVisitKindUi'
 import {
+  formatPurchaseUnitCost,
   merchProductKey,
   merchVisitReceiptItems,
   purchasePriceChanges,
@@ -105,17 +106,21 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [crossStoreDebt, setCrossStoreDebt] = useState<ProviderDebtRow | null>(null)
   const [loadingCrossDebt, setLoadingCrossDebt] = useState(false)
 
+  // expenses.amount ya incluye paysOldDebt (toda la plata que salió de caja).
+  // La visita es amount − paysOldDebt; Entregado es amount. No volver a sumar.
+  const editingPaysOld = editingExpense?.paysOldDebt ?? 0
+  const editingCashOut = editingExpense?.amount ?? 0
+  const editingVisitTotal = editingExpense
+    ? Math.max(0, editingCashOut - editingPaysOld) + (editingExpense.newDebtAmount ?? 0)
+    : 0
+
   // --- Montos ---
-  const [totalRaw, setTotalRaw] = useState(() => {
-    if (!editingExpense) return ''
-    const total = editingExpense.amount + (editingExpense.newDebtAmount ?? 0)
-    return total > 0 ? String(total) : ''
-  })
-  const [amountRaw, setAmountRaw] = useState(() => {
-    if (!editingExpense) return ''
-    const paid = editingExpense.amount + (editingExpense.paysOldDebt ?? 0)
-    return paid > 0 ? String(paid) : ''
-  })
+  const [totalRaw, setTotalRaw] = useState(() => (
+    editingVisitTotal > 0 ? String(editingVisitTotal) : ''
+  ))
+  const [amountRaw, setAmountRaw] = useState(() => (
+    editingCashOut > 0 ? String(editingCashOut) : ''
+  ))
   const [notes, setNotes] = useState(editingExpense?.notes ?? '')
   const [merchLines, setMerchLines] = useState<MerchVisitFormLine[]>([])
   const [intakeKind, setIntakeKind] = useState<ProviderIntakeKind | null>(null)
@@ -426,12 +431,22 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     onCancel()
   }
 
+  function visitLedgerPayload() {
+    const amountForVisit = Math.min(entregadoParsed, totalParsed ?? 0)
+    const paysForeignDebt = crossLocalDebt && crossStoreBalance > 0
+    return {
+      amount: amountForVisit,
+      newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
+      paysOldDebt: excessOverVisit > 0 ? excessOverVisit : undefined,
+      debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
+      // El otro local solo recibe su parte. El exceso de este local entra en
+      // paysOldDebt (sale de caja) pero el handler lo imputa a la sesión.
+      crossStorePayment: paysForeignDebt && excessOverVisit > 0 ? appliedToCrossDebt : undefined,
+    }
+  }
+
   async function confirmVisit(acceptPriceUpdates: boolean) {
     if (!merchResolved?.ok || !totalParsed) return
-    const amountForVisit = Math.min(entregadoParsed, totalParsed)
-    const totalPaysOldDebt = crossLocalDebt && crossStoreBalance > 0
-      ? appliedToCrossDebt
-      : excessOverVisit
     setSaving(true)
     clearError()
     const r = await window.hw.confirmMerchVisit({
@@ -439,10 +454,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       notes: notes.trim() || undefined,
       providerId: selectedProviderId ?? undefined,
       provider: selectedProviderId ? undefined : providerInput.trim(),
-      amount: amountForVisit,
-      newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
-      paysOldDebt: totalPaysOldDebt > 0 ? totalPaysOldDebt : undefined,
-      debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
+      ...visitLedgerPayload(),
       acceptPriceUpdates,
       visitKind: intakeKind === 'chicken' || intakeKind === 'media_res' ? intakeKind : 'catalog',
     })
@@ -562,22 +574,12 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
 
     // Entregado 0 / vacío es válido: el proveedor dejó mercadería y no se le pagó nada.
 
-    const amountForVisit = Math.min(entregadoParsed, totalParsed)
-    // En modo cross-local, paysOldDebt incluye lo aplicado a la deuda del otro local
-    // En modo normal, incluye lo que cancela la deuda del local actual + saldo a favor
-    const totalPaysOldDebt = crossLocalDebt && crossStoreBalance > 0
-      ? appliedToCrossDebt   // el backend registra como payment event en el otro local
-      : excessOverVisit      // en modo normal: cancela deuda local o genera saldo a favor
-
     setSaving(true)
     clearError()
 
     const payload: Parameters<typeof window.hw.registerExpense>[0] = {
-      amount: amountForVisit,
+      ...visitLedgerPayload(),
       notes: notes.trim() || undefined,
-      newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
-      paysOldDebt: totalPaysOldDebt > 0 ? totalPaysOldDebt : undefined,
-      debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
       concept: intakeKind === 'insumos' ? concept.trim() : undefined,
     }
 
@@ -728,7 +730,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           {priceChanges.map(c => (
             <li key={c.productKey} className="flex items-center justify-between gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate" title={c.name}>{c.name}</span>
-              <span className="shrink-0 tabular-nums text-muted">{formatARS(c.previous)} → {formatARS(c.next)}</span>
+              <span className="shrink-0 tabular-nums text-muted">{formatPurchaseUnitCost(c.previous)} → {formatPurchaseUnitCost(c.next)}</span>
             </li>
           ))}
         </ul>

@@ -19,8 +19,10 @@ import { providerIdFromName } from '../lib/adminLedger'
 import type { CachedProvider, CatalogProduct } from '../types/pos'
 import {
   formatKg3,
+  formatPurchaseUnitCost,
   merchIntakeExpenseConcept,
   merchProductKey,
+  normalizeCatalogSearch,
   purchasePriceChanges,
   resolveMerchVisitLine,
   type MerchIntakeLineSnapshot,
@@ -151,9 +153,10 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
   }, [matchedProviderId, providers])
 
   const filteredProviders = filterProviders(providers, providerInput)
-  const filteredConcepts = concept.trim().length === 0
+  const conceptQuery = normalizeCatalogSearch(concept)
+  const filteredConcepts = conceptQuery.length === 0
     ? DEFAULT_CONCEPTS
-    : DEFAULT_CONCEPTS.filter(s => s.toLowerCase().includes(concept.toLowerCase()))
+    : DEFAULT_CONCEPTS.filter(s => normalizeCatalogSearch(s).includes(conceptQuery))
 
   const hasProviderName = providerInput.trim().length > 0
   const showVisitFields = kind === 'provider' && hasProviderName
@@ -245,7 +248,7 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
     const providerName = providerInput.trim().slice(0, 100)
     onConfirm({
       concept: merchIntakeExpenseConcept(snapshots.map(l => l.rubroName)),
-      amount: resolved.amountForVisit,
+      amount: resolved.cashOut,
       notes: notes.trim() ? notes.trim().slice(0, 200) : null,
       providerId: selectedProviderId ?? providerIdFromName(providerName),
       providerName,
@@ -347,7 +350,7 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
     void discardMerchVisitDraft(shiftId).then(() => onDraftChanged?.())
     onConfirm({
       concept: intakeKind === 'insumos' ? concept.trim().slice(0, 80) : null,
-      amount: resolved.amountForVisit,
+      amount: resolved.cashOut,
       notes: notes.trim() ? notes.trim().slice(0, 200) : null,
       providerId: selectedProviderId ?? providerIdFromName(providerName),
       providerName,
@@ -366,7 +369,7 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
             {priceChanges.map(c => (
               <li key={c.productKey} className="flex items-center justify-between gap-2 text-sm text-white">
                 <span className="min-w-0 flex-1 truncate" title={c.name}>{c.name}</span>
-                <span className="shrink-0 tabular-nums text-gray-400">{formatMoney(c.previous)} → {formatMoney(c.next)}</span>
+                <span className="shrink-0 tabular-nums text-gray-400">{formatPurchaseUnitCost(c.previous)} → {formatPurchaseUnitCost(c.next)}</span>
               </li>
             ))}
           </ul>
@@ -680,7 +683,7 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
                 )}
                 <div className="flex justify-between gap-2 text-white">
                   <span>Sale de caja</span>
-                  <span className="font-semibold">{formatMoney(visit.amountForVisit)}</span>
+                  <span className="font-semibold">{formatMoney(visit.cashOut)}</span>
                 </div>
               </div>
             )}

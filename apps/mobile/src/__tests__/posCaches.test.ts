@@ -38,4 +38,13 @@ describe('posCaches parsers', () => {
     expect(filterProviders(list, 'oso')).toHaveLength(1)
     expect(filterProviders(list, '')).toHaveLength(2)
   })
+
+  it('filterProviders ignora tildes: carbon encuentra Carbón', () => {
+    const list = [
+      { id: '1', name: 'Carbón', archivedAt: null, updatedAt: '', intakeKind: null },
+      { id: '2', name: 'Oso', archivedAt: null, updatedAt: '', intakeKind: null },
+    ]
+    expect(filterProviders(list, 'carbon').map(p => p.name)).toEqual(['Carbón'])
+    expect(filterProviders(list, 'CARBON').map(p => p.name)).toEqual(['Carbón'])
+  })
 })

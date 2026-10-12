@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+  cashDiscountPreconditions,
   quoteCashDiscount,
   type CashDiscountRule,
 } from '@carniceria/shared'
@@ -74,6 +75,17 @@ const presetIdle =
 const presetActive =
   'rounded-lg border border-line-accent bg-accent-soft py-2.5 text-sm font-semibold text-accent transition-colors'
 
+function clampPercentText(value: string): string {
+  const parsed = parseNumericInput(value)
+  if (parsed != null && parsed > 100) return '100'
+  return value
+}
+
+function percentFromText(text: string): number {
+  const parsed = parseNumericInput(text)
+  return parsed == null ? 0 : Math.min(100, parsed)
+}
+
 export default function PaymentModal({
   itemTotal,
   depositAmount = 0,
@@ -100,37 +112,68 @@ export default function PaymentModal({
   ])
 
   const rule: CashDiscountRule = cashDiscountRule ?? { minAmount: 0, percent: 0 }
+  /** Prende o apaga la regla en un cobro que ya es elegible. No es la excepción. */
+  const [applyDiscount, setApplyDiscount] = useState(true)
   const [exceptionDiscount, setExceptionDiscount] = useState(false)
-  const [salePercentText, setSalePercentText] = useState(() => String(rule.percent))
-  const typedPercent = parseNumericInput(salePercentText)
-  const salePercent = typedPercent == null ? 0 : Math.min(100, typedPercent)
-  const quoteRule: CashDiscountRule = { ...rule, percent: salePercent }
-  const splitHasCash = rows.some(r => r.method === 'cash' && (parseNumericInput(r.amount) ?? 0) > 0)
-  const remainderCash =
-    mode === 'cash-detail' || (mode === 'split' && splitHasCash)
-  const meetsMinimum = Math.round(itemTotal) >= rule.minAmount
-  const normalDiscountVisible = meetsMinimum && remainderCash
-  const showPercentField = exceptionDiscount || normalDiscountVisible
-  const quote = quoteCashDiscount({
-    rule: quoteRule,
+  const [applyPercentText, setApplyPercentText] = useState(() => String(rule.percent))
+  const [exceptionPercentText, setExceptionPercentText] = useState(() => String(rule.percent))
+
+  const preconditionsOk = cashDiscountPreconditions({
+    rule,
     itemTotal,
+    isDebt: false,
     depositAmount,
     depositDigitalAmount,
-    remainderIncludesCash: remainderCash,
-    force: exceptionDiscount,
   })
+  const splitHasCashPayment = rows.some(
+    r => r.method === 'cash' && (parseNumericInput(r.amount) ?? 0) > 0,
+  )
+  const remainderCash = mode === 'cash-detail' || (mode === 'split' && splitHasCashPayment)
+  const splitHasCashRow = mode === 'split' && rows.some(r => r.method === 'cash')
+  const showApplyControl = preconditionsOk && (mode === 'cash-detail' || splitHasCashRow)
+  const showExceptionControl = !showApplyControl && !(mode === 'single' && preconditionsOk)
+  const showPercentField =
+    (showApplyControl && applyDiscount) || (showExceptionControl && exceptionDiscount)
+  const applyPercent = percentFromText(applyPercentText)
+  const exceptionPercent = percentFromText(exceptionPercentText)
+
+  const quote = showApplyControl && applyDiscount && remainderCash
+    ? quoteCashDiscount({
+        rule: { ...rule, percent: applyPercent },
+        itemTotal,
+        depositAmount,
+        depositDigitalAmount,
+        remainderIncludesCash: true,
+      })
+    : showExceptionControl && exceptionDiscount
+      ? quoteCashDiscount({
+          rule: { ...rule, percent: exceptionPercent },
+          itemTotal,
+          depositAmount,
+          depositDigitalAmount,
+          remainderIncludesCash: false,
+          force: true,
+        })
+      : quoteCashDiscount({
+          rule,
+          itemTotal,
+          depositAmount,
+          depositDigitalAmount,
+          remainderIncludesCash: false,
+        })
   const cashPreview = quoteCashDiscount({
-    rule: quoteRule,
+    rule,
     itemTotal,
     depositAmount,
     depositDigitalAmount,
     remainderIncludesCash: true,
   })
   const chargeTotal = quote.amountDue
-  const appliedPrefix = exceptionDiscount ? 'Descuento' : 'Desc. efectivo'
+  const appliedPrefix = showApplyControl ? 'Desc. efectivo' : 'Descuento'
+  const discountDetail = `${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
   const discountLine = quote.eligible
-    ? `${appliedPrefix} ${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
-    : !exceptionDiscount && cashPreview.eligible
+    ? `${appliedPrefix} ${discountDetail}`
+    : !showApplyControl && !(showExceptionControl && exceptionDiscount) && cashPreview.eligible
       ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(cashPreview.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(cashPreview.amountDue)}`
       : null
 
@@ -149,28 +192,29 @@ export default function PaymentModal({
   }, [mode, onClose])
 
   function handleSalePercentChange(value: string) {
-    const parsed = parseNumericInput(value)
-    if (parsed != null && parsed > 100) {
-      setSalePercentText('100')
-      return
-    }
-    setSalePercentText(value)
+    const next = clampPercentText(value)
+    if (showApplyControl) setApplyPercentText(next)
+    else setExceptionPercentText(next)
   }
 
   function handleExceptionToggle(checked: boolean) {
-    if (!normalDiscountVisible) setSalePercentText(String(rule.percent))
+    if (checked) setExceptionPercentText(String(rule.percent))
     setExceptionDiscount(checked)
   }
 
   function confirmWithNotes(payments: SalePaymentPayload[]) {
     const trimmed = notes.trim()
     const note = trimmed || undefined
-    if (exceptionDiscount) {
-      onConfirm(payments, note, salePercent, true)
+    if (showApplyControl && remainderCash && applyDiscount) {
+      onConfirm(payments, note, applyPercent)
       return
     }
-    if (showPercentField) {
-      onConfirm(payments, note, salePercent)
+    if (showApplyControl && remainderCash && !applyDiscount) {
+      onConfirm(payments, note, 0)
+      return
+    }
+    if (showExceptionControl && exceptionDiscount) {
+      onConfirm(payments, note, exceptionPercent, true)
       return
     }
     onConfirm(payments, note)
@@ -362,17 +406,25 @@ export default function PaymentModal({
         </div>
       )}
     >
-      <label className="mb-2 flex cursor-pointer select-none items-center gap-2">
-        <input
-          type="checkbox"
-          checked={exceptionDiscount}
-          onChange={e => handleExceptionToggle(e.target.checked)}
-          className="h-3.5 w-3.5 shrink-0 rounded border-line bg-raised text-accent focus:ring-accent focus:ring-offset-panel"
-        />
-        <span className="min-w-0 truncate text-xs text-muted" title="Descuento en esta venta">
-          Descuento en esta venta
-        </span>
-      </label>
+      {(showApplyControl || showExceptionControl) && (
+        <label className="mb-2 flex cursor-pointer select-none items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showApplyControl ? applyDiscount : exceptionDiscount}
+            onChange={e => {
+              if (showApplyControl) setApplyDiscount(e.target.checked)
+              else handleExceptionToggle(e.target.checked)
+            }}
+            className="h-3.5 w-3.5 shrink-0 rounded border-line bg-raised text-accent focus:ring-accent focus:ring-offset-panel"
+          />
+          <span
+            className="min-w-0 truncate text-xs text-muted"
+            title={showApplyControl ? 'Aplicar descuento' : 'Descuento en esta venta'}
+          >
+            {showApplyControl ? 'Aplicar descuento' : 'Descuento en esta venta'}
+          </span>
+        </label>
+      )}
       {showPercentField && (
         <div className="mb-3 flex items-center gap-2 min-w-0">
           <label
@@ -385,7 +437,7 @@ export default function PaymentModal({
           <div className="flex shrink-0 items-center gap-1">
             <NumericInput
               id="sale-discount-percent"
-              value={salePercentText}
+              value={showApplyControl ? applyPercentText : exceptionPercentText}
               onChange={handleSalePercentChange}
               aria-label="Descuento de esta venta"
               className="w-14 rounded-md border border-line bg-input px-2 py-1 text-right text-xs text-ink focus:outline-none focus:border-line-accent"

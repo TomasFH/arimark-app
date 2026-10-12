@@ -2,9 +2,10 @@
  * Cálculo de una visita a proveedor (misma regla que ExpenseModal de PC,
  * sin deuda cross-local).
  *
- * `amount` que sale de caja = min(entregado, total visita).
- * El exceso sobre la visita va al ledger como `paysOldDebt` (cancela deuda
- * o genera saldo a favor). La diferencia visita − entregado es deuda nueva.
+ * `cashOut` es la plata que sale de caja: el entregado (porción de la visita
+ * más el exceso). `paysOldDebt` sigue siendo solo el exceso sobre la visita
+ * y va al ledger. `amountForVisit` es lo aplicado a esta visita, no la caja.
+ * La diferencia visita − entregado es deuda nueva.
  */
 
 export interface ProviderVisitInput {
@@ -15,8 +16,12 @@ export interface ProviderVisitInput {
 }
 
 export interface ProviderVisitResult {
+  /** Porción aplicada a esta visita. No incluye deuda vieja. */
   amountForVisit: number
+  /** Plata que salió de caja: entregado = amountForVisit + paysOldDebt. */
+  cashOut: number
   newDebtAmount: number
+  /** Exceso sobre la visita. Solo ledger; ya está incluido en cashOut. */
   paysOldDebt: number
   previousDebt: number
   previousCredit: number
@@ -39,10 +44,12 @@ export function computeProviderVisit(input: ProviderVisitInput): ProviderVisitRe
   const displayedNewDebt = Math.max(0, newDebtAmount - creditAppliedToVisit)
   const excessOverVisit = Math.max(0, delivered - visitTotal)
   const paysOldDebt = excessOverVisit
+  const cashOut = amountForVisit + paysOldDebt
   const finalBalance = previousBalance + visitTotal - delivered
 
   return {
     amountForVisit,
+    cashOut,
     newDebtAmount,
     paysOldDebt,
     previousDebt,

@@ -148,6 +148,33 @@ describe('merchIntake.handler visita', () => {
     expect(result.ok).toBe(false)
   })
 
+  it('guarda centavos en el unitario y redondea el total de la línea', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{
+        productId: 'prod-bondiola',
+        name: 'Bondiola',
+        catalogUnit: 'kg',
+        purchasePackLabel: null,
+        purchasePackContents: null,
+        kg: 5,
+        packCount: null,
+        count: null,
+        weightsKg: [],
+        unitCost: 4800.5,
+      }],
+      provider: 'Oso',
+      amount: 24_003,
+      acceptPriceUpdates: true,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    const line = db.select().from(merchandiseIntakeLines).all()[0]
+    expect(line?.unitCost).toBe(4800.5)
+    expect(line?.costTotal).toBe(24_003)
+    expect(db.select().from(providerPurchasePrices).all()[0]?.unitCost).toBe(4800.5)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(24_003)
+    expect(db.select().from(merchandiseIntakes).all()[0]?.paidAmount).toBe(24_003)
+  })
+
   it('confirma maple: cajones, gasto y deuda', () => {
     const result = getHandler('ipc:confirm-merch-visit')(null, {
       lines: [MAPLE_LINE],
@@ -378,7 +405,7 @@ describe('merchIntake.handler visita', () => {
     expect(result.code).toBe('INVALID_LINE')
   })
 
-  it('confirma con pago de deuda anterior', () => {
+  it('confirma con pago de deuda anterior sin sumarla al paidAmount', () => {
     const result = getHandler('ipc:confirm-merch-visit')(null, {
       lines: [MAPLE_LINE],
       provider: 'Oso',
@@ -388,8 +415,48 @@ describe('merchIntake.handler visita', () => {
       acceptPriceUpdates: true,
     }) as { ok: boolean }
     expect(result.ok).toBe(true)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(22_000)
+    expect(db.select().from(merchandiseIntakes).all()[0]?.paidAmount).toBe(20_000)
     const events = db.select().from(providerDebtEvents).all()
-    expect(events.some(e => e.type === 'payment' && e.amount === 2_000)).toBe(true)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.type).toBe('payment')
+    expect(events[0]?.amount).toBe(2_000)
+  })
+
+  it('visita con deuda vieja: la caja suma y el intake queda en la visita', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{ ...MAPLE_LINE, packCount: 1, unitCost: 100_000 }],
+      provider: 'Guido',
+      amount: 100_000,
+      paysOldDebt: 2_634_642,
+      acceptPriceUpdates: true,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(2_734_642)
+    expect(db.select().from(merchandiseIntakes).all()[0]?.paidAmount).toBe(100_000)
+    const payment = db.select().from(providerDebtEvents).all()[0]
+    expect(payment?.type).toBe('payment')
+    expect(payment?.amount).toBe(2_634_642)
+  })
+
+  it('el exceso local de una visita cross no va al local ajeno', () => {
+    const now = new Date().toISOString()
+    db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: now }).run()
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [MAPLE_LINE],
+      provider: 'Oso',
+      amount: 18_000,
+      paysOldDebt: 5_000,
+      debtStoreId: 'store-002',
+      crossStorePayment: 2_000,
+      acceptPriceUpdates: true,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(23_000)
+    expect(db.select().from(merchandiseIntakes).all()[0]?.paidAmount).toBe(18_000)
+    const payments = db.select().from(providerDebtEvents).all()
+    expect(payments.find(e => e.storeId === 'store-002')?.amount).toBe(2_000)
+    expect(payments.find(e => e.storeId === 'store-001')?.amount).toBe(3_000)
   })
 
   it('rechaza proveedorId inexistente y visita sin sesión', () => {
