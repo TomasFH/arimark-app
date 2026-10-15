@@ -343,6 +343,10 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
 // Shift detail
 // ---------------------------------------------------------------------------
 
+function saleCountLabel(count: number): string {
+  return count === 1 ? '1 venta' : `${count} ventas`
+}
+
 function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   const { shift, sales, expenses, debts, deposits, summary } = detail
   const vales = detail.vales ?? []
@@ -351,64 +355,65 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   const shiftLabel = SHIFT_TYPE_LABEL[shift.shiftType]
   const start = toLocalDateTime(shift.startedAt)
   const end = shift.closedAt ? toLocalDateTime(shift.closedAt) : '—'
+  const collections = collectionFacts(summary)
+  const drawer = drawerFacts(summary, shift)
 
   return (
     <div className="p-4 space-y-4">
       {/* Resumen financiero */}
       <div className="bg-panel rounded-xl border border-line p-4 space-y-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">
-              {toLocalDate(shift.startedAt)} — Turno {shiftLabel}
+        <div className="flex items-start gap-4 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="min-w-0 truncate text-sm font-semibold text-ink" title={`${toLocalDate(shift.startedAt)} — Turno ${shiftLabel}`}>
+                {toLocalDate(shift.startedAt)} — Turno {shiftLabel}
+              </h2>
               {!shift.closedAt && (
-                <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-accent-soft text-success border border-line-accent align-middle">
+                <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-accent-soft text-success border border-line-accent">
                   Abierto
                 </span>
               )}
               {shift.source === 'mobile' && (
-                <span className="ml-2 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent align-middle">
+                <span className="shrink-0 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
                   Móvil
                 </span>
               )}
-            </h2>
-            <p className="text-xs text-muted mt-0.5">Cajera: {shift.cashierName}</p>
-            <p className="text-xs text-muted">{start} → {end}</p>
-          </div>
-          {shift.closingCash != null && (
-            <div className="text-right shrink-0">
-              <p className="text-[10px] text-muted">Efectivo al cerrar</p>
-              <p className="text-sm font-semibold text-ink">{formatARS(shift.closingCash)}</p>
             </div>
-          )}
+            <p className="mt-0.5 truncate text-xs text-muted" title={shift.cashierName}>Cajera: {shift.cashierName}</p>
+            <p className="truncate text-xs text-muted" title={`${start} → ${end}`}>{start} → {end}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-2xl font-semibold leading-none tabular-nums tracking-tight text-ink">{formatARS(summary.totalRevenue)}</p>
+            <p className="mt-1 text-xs text-muted">Total vendido · {saleCountLabel(summary.salesCount)}</p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-line">
-          <SummaryStat label="Ventas" value={String(summary.salesCount)} />
-          <SummaryStat label="Total vendido" value={formatARS(summary.totalRevenue)} />
-          <SummaryStat label="Efectivo ventas" value={formatARS(summary.totalCashSales)} />
-          {summary.totalDebitSales > 0 && <SummaryStat label="Débito" value={formatARS(summary.totalDebitSales)} />}
-          {summary.totalWalletSales > 0 && <SummaryStat label="Billetera Virtual" value={formatARS(summary.totalWalletSales)} />}
-          {summary.totalCreditSales > 0 && <SummaryStat label="Crédito" value={formatARS(summary.totalCreditSales)} />}
-          {summary.totalExpenses > 0 && <SummaryStat label="Gastos" value={`- ${formatARS(summary.totalExpenses)}`} negative />}
-          {summary.totalCashInjects > 0 && <SummaryStat label="Ingresos" value={formatARS(summary.totalCashInjects)} />}
-          {summary.cashDeposits > 0 && <SummaryStat label="Señas efectivo" value={formatARS(summary.cashDeposits)} />}
-          {summary.digitalDeposits > 0 && <SummaryStat label="Señas digital" value={formatARS(summary.digitalDeposits)} />}
-          {summary.debtsCount > 0 && <SummaryStat label={`Fiados (${summary.debtsCount})`} value={formatARS(summary.totalDebts)} />}
-          <SummaryStat label="Efectivo esperado" value={formatARS(summary.cashInHand)} highlight />
+        {collections.length > 0 && (
+          <div className="border-t border-line pt-3">
+            <p className="text-xs text-muted">Cómo se cobró</p>
+            <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+              {collections.map(item => (
+                <Fact key={item.label} label={item.label} value={item.value} />
+              ))}
+            </dl>
+          </div>
+        )}
+
+        <div className="border-t border-line pt-3">
+          <p className="text-xs text-muted">Caja</p>
+          <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+            {drawer.map(item => (
+              <Fact key={item.label} label={item.label} value={item.value} tone={item.tone} />
+            ))}
+          </dl>
         </div>
 
         {shift.notes && (
-          <p className="text-xs text-muted pt-1">Notas: <span className="text-ink">{shift.notes}</span></p>
-        )}
-          {shift.deliveredAmount != null && shift.deliveredAmount > 0 && (
-          <p className="text-xs text-muted">
-            Entregó {formatARS(shift.deliveredAmount)}
-            {shift.deliveredTo ? ` a ${shift.deliveredTo}` : ''}
-          </p>
+          <p className="text-xs text-muted">Notas: <span className="text-ink">{shift.notes}</span></p>
         )}
       </div>
 
-      {detail.cashHandover && <CashHandoverAuditCard audit={detail.cashHandover} />}
+      {detail.cashHandover && <CashHandoverAuditCard key={shift.id} audit={detail.cashHandover} />}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-line">
@@ -611,13 +616,44 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   )
 }
 
-function SummaryStat({ label, value, highlight, negative }: { label: string; value: string; highlight?: boolean; negative?: boolean }) {
+function collectionFacts(summary: HistoryShiftDetail['summary']): FactItem[] {
+  const items: FactItem[] = []
+  if (summary.totalCashSales > 0) items.push({ label: 'Efectivo', value: formatARS(summary.totalCashSales) })
+  if (summary.totalDebitSales > 0) items.push({ label: 'Débito', value: formatARS(summary.totalDebitSales) })
+  if (summary.totalWalletSales > 0) items.push({ label: 'Billetera virtual', value: formatARS(summary.totalWalletSales) })
+  if (summary.totalCreditSales > 0) items.push({ label: 'Crédito', value: formatARS(summary.totalCreditSales) })
+  if (summary.debtsCount > 0) items.push({ label: `Fiados (${summary.debtsCount})`, value: formatARS(summary.totalDebts) })
+  return items
+}
+
+function drawerFacts(summary: HistoryShiftDetail['summary'], shift: HistoryShiftDetail['shift']): FactItem[] {
+  const items: FactItem[] = []
+  if (summary.totalExpenses > 0) items.push({ label: 'Gastos', value: `- ${formatARS(summary.totalExpenses)}`, tone: 'muted' })
+  if (summary.totalCashInjects > 0) items.push({ label: 'Ingresos', value: formatARS(summary.totalCashInjects) })
+  if (summary.cashDeposits > 0) items.push({ label: 'Señas en efectivo', value: formatARS(summary.cashDeposits) })
+  if (summary.digitalDeposits > 0) items.push({ label: 'Señas digitales', value: formatARS(summary.digitalDeposits) })
+  items.push({ label: 'Efectivo esperado', value: formatARS(summary.cashInHand) })
+  if (shift.deliveredAmount != null && shift.deliveredAmount > 0) {
+    const who = shift.deliveredTo?.trim()
+    items.push({ label: who ? `Entregó a ${who}` : 'Entregó', value: formatARS(shift.deliveredAmount) })
+  }
+  if (shift.closingCash != null && shift.closingCash !== shift.deliveredAmount) {
+    items.push({ label: 'Efectivo al cerrar', value: formatARS(shift.closingCash) })
+  }
+  return items
+}
+
+interface FactItem {
+  label: string
+  value: string
+  tone?: 'ink' | 'muted'
+}
+
+function Fact({ label, value, tone = 'ink' }: FactItem) {
   return (
-    <div className="space-y-0.5">
-      <p className="text-[10px] text-muted">{label}</p>
-      <p className={`text-sm font-semibold font-mono ${highlight ? 'text-success' : negative ? 'text-muted' : 'text-ink'}`}>
-        {value}
-      </p>
+    <div className="flex min-w-0 max-w-full items-baseline gap-2">
+      <dt className="min-w-0 truncate text-xs text-muted" title={label}>{label}</dt>
+      <dd className={`shrink-0 text-sm font-semibold tabular-nums ${tone === 'muted' ? 'text-muted' : 'text-ink'}`}>{value}</dd>
     </div>
   )
 }
