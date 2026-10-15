@@ -33,6 +33,8 @@ function mockHw() {
     onCatalogSyncUpdated: vi.fn(() => () => {}),
     listCatalogAudit: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     getProductPriceHistory: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    getUiSettings: vi.fn().mockResolvedValue({ ok: true, data: { zoomFactor: 1, colorScheme: 'light' } }),
+    onUiSettingsChanged: vi.fn(() => () => {}),
   } as unknown as typeof window.hw
 }
 

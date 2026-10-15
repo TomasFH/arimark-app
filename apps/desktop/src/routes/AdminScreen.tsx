@@ -10,7 +10,8 @@ import { catalogPendingGap, catalogPendingLabel, compareWithCatalogPending } fro
 import NumericInput from '../components/NumericInput'
 import KretzSyncModal from '../components/KretzSyncModal'
 import CatalogToggle from '../components/CatalogToggle'
-import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, Modal } from '../components/ui'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { useAvailabilityToggle } from '../lib/useAvailabilityToggle'
 import type {
@@ -262,13 +263,11 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
 
   return (
     <div className="flex flex-col h-screen bg-app text-ink">
-      <ScreenHeader
+      <AdminSectionHeader
         title={isAdmin ? 'Administración — Productos' : 'Catálogo'}
         subtitle={stores.length === 1 ? stores[0]?.name : undefined}
         onBack={onReturnToHub}
-        actions={
-          <Button variant="ghost" size="sm" onClick={onLogout}>Cerrar sesión</Button>
-        }
+        onLogout={onLogout}
       />
 
       <div className="flex shrink-0 items-center gap-2 px-6 pt-4 pb-3">

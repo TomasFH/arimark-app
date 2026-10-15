@@ -587,6 +587,7 @@ export default function App() {
         <Page>
           <DebtsScreen
             isAdmin={state.session.role === 'admin'}
+            onLogout={handleLogout}
             onBack={() => {
               if (state.fromCashier) {
                 setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
@@ -602,6 +603,7 @@ export default function App() {
         <Page>
           <SpecialCustomersScreen
             isAdmin={state.session.role === 'admin'}
+            onLogout={handleLogout}
             onBack={() => {
               if (state.fromCashier) {
                 setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
@@ -617,6 +619,7 @@ export default function App() {
         <Page>
           <OrdersScreen
             isAdmin={state.session.role === 'admin'}
+            onLogout={handleLogout}
             currentShiftId={state.fromCashier?.id ?? null}
             sessionStoreId={state.session.storeId}
             onBack={() => {
@@ -636,19 +639,19 @@ export default function App() {
 
       {state.screen === 'history' && (
         <Page>
-          <HistoryScreen onBack={handleReturnToAdminHub} />
+          <HistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 
       {state.screen === 'providers' && (
         <Page>
-          <ProvidersScreen onBack={handleReturnToAdminHub} />
+          <ProvidersScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 
       {state.screen === 'stock-counts' && (
         <Page>
-          <StockCountHistoryScreen onBack={handleReturnToAdminHub} />
+          <StockCountHistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 

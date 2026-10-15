@@ -18,7 +18,7 @@
  * validar con los dueños antes de implementar.
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import BackButton from '../components/BackButton'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type {
   SpecialCustomerRow,
@@ -32,6 +32,7 @@ import { ModalCloseButton, ModalLayer } from '../components/ui'
 
 interface Props {
   onBack?: () => void
+  onLogout?: () => void
   isAdmin?: boolean
 }
 
@@ -372,7 +373,7 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
 // Pantalla principal
 // ---------------------------------------------------------------------------
 
-export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Props) {
+export default function SpecialCustomersScreen({ onBack, onLogout, isAdmin = false }: Props) {
   const [customers, setCustomers] = useState<SpecialCustomerRow[]>([])
   const [allPrices, setAllPrices] = useState<Record<string, SpecialCustomerPriceRow[]>>({})
   const [products, setProducts] = useState<ProductRow[]>([])
@@ -554,23 +555,21 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   return (
     <div className="flex flex-col flex-1 h-full bg-app text-ink">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-line px-6 py-3 shrink-0">
-        {onBack && <BackButton onClick={onBack} />}
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-ink">Clientes especiales</h1>
-          <p className="text-[10px] text-muted">
-            Precios de referencia · {isAdmin ? 'modo admin' : 'solo lectura'}
-          </p>
-        </div>
-        {isAdmin && (
+      <AdminSectionHeader
+        title="Clientes especiales"
+        subtitle={`Precios de referencia · ${isAdmin ? 'modo admin' : 'solo lectura'}`}
+        onBack={onBack}
+        onLogout={onLogout}
+        actions={isAdmin ? (
           <button
+            type="button"
             onClick={openCreate}
-            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg hover:bg-accent transition-colors"
+            className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-[color-mix(in_srgb,var(--accent)_86%,black)]"
           >
             + Nuevo cliente
           </button>
-        )}
-      </header>
+        ) : undefined}
+      />
 
       {/* Info banner */}
       <div className="mx-6 mt-4 rounded-lg border border-line bg-raised px-4 py-2.5">

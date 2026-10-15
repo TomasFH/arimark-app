@@ -6,13 +6,13 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
-import { ScreenHeader } from '../components/ui'
+import HistoryStoreSelect from '../components/HistoryStoreSelect'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
 import { clampHistoryRange, planHistoryFetch, type HistorySpan } from '../lib/historyRange'
 import { exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
-import StoreFilter from '../components/StoreFilter'
 
 const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
 
@@ -37,9 +37,10 @@ function depositBreakdown(dep: HistoryOrderRow): string | null {
 
 interface Props {
   onBack: () => void
+  onLogout: () => void
 }
 
-export default function HistoryScreen({ onBack }: Props) {
+export default function HistoryScreen({ onBack, onLogout }: Props) {
   const [shifts, setShifts] = useState<HistoryShiftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -171,27 +172,34 @@ export default function HistoryScreen({ onBack }: Props) {
 
   return (
     <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
-      <ScreenHeader
+      <AdminSectionHeader
         title="Historial de turnos"
+        subtitle="Lo vendido, cómo se cobró y el cierre de cada turno"
         onBack={onBack}
-        actions={availableStores.length > 0 ? (
-          <StoreFilter
-            stores={availableStores}
-            value={storeIdFilter}
-            onChange={v => { setStoreIdFilter(v); setSelectedShiftId(null); setDetail(null) }}
-          />
-        ) : undefined}
+        onLogout={onLogout}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Panel izquierdo — lista de turnos */}
-        <div className="w-full sm:w-80 shrink-0 flex flex-col border-r border-line bg-panel overflow-hidden">
-          <div className="px-3 py-2 border-b border-line space-y-2">
-            <p className="text-xs text-muted">Filtrar por fecha</p>
+        {/* Panel izquierdo — filtros y lista. El detalle de cada turno no se toca. */}
+        <div className="flex w-full sm:w-80 shrink-0 flex-col overflow-hidden border-r border-line bg-panel">
+          <div className="relative z-10 shrink-0 space-y-3 border-b border-line bg-app px-3 py-3">
+            <p className="text-sm font-medium text-ink">Filtros</p>
+            {availableStores.length > 0 && (
+              <div>
+                <label className="mb-1 block text-xs text-muted" htmlFor="history-store">Local</label>
+                <HistoryStoreSelect
+                  id="history-store"
+                  stores={availableStores}
+                  value={storeIdFilter}
+                  onChange={storeId => { setStoreIdFilter(storeId); setSelectedShiftId(null); setDetail(null) }}
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] text-subtle">Desde</label>
+                <label className="mb-1 block text-xs text-muted" htmlFor="history-from">Desde</label>
                 <input
+                  id="history-from"
                   type="date"
                   value={fromDate}
                   max={todayLocalYmd()}
@@ -201,12 +209,13 @@ export default function HistoryScreen({ onBack }: Props) {
                     setFromDate(next)
                     if (next > toDate) setToDate(next)
                   }}
-                  className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
+                  className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink focus:border-line-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-subtle">Hasta</label>
+                <label className="mb-1 block text-xs text-muted" htmlFor="history-to">Hasta</label>
                 <input
+                  id="history-to"
                   type="date"
                   value={toDate}
                   max={todayLocalYmd()}
@@ -216,7 +225,7 @@ export default function HistoryScreen({ onBack }: Props) {
                     setToDate(next)
                     if (fromDate > next) setFromDate(next)
                   }}
-                  className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
+                  className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink focus:border-line-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 />
               </div>
             </div>
@@ -227,7 +236,7 @@ export default function HistoryScreen({ onBack }: Props) {
                 setFromDate(addDaysYmd(today, -7))
                 setToDate(today)
               }}
-              className="text-xs text-muted hover:text-ink transition-colors"
+              className="text-xs font-medium text-muted hover:text-ink"
             >
               Últimos 7 días
             </button>

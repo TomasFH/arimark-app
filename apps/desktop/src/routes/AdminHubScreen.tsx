@@ -3,12 +3,11 @@
  * Grid de 2 columnas con accesos directos a cada módulo.
  */
 import { useState, useEffect, useRef, type ReactNode } from 'react'
-import type { SessionInfo, InitStatus, UiSettings, ColorScheme } from '../types/hw-api'
-import { applyColorScheme } from '../lib/theme'
+import type { SessionInfo, InitStatus } from '../types/hw-api'
 import AttendanceModal from './AttendanceModal'
 import StockCountModal from './StockCountModal'
-import ChangePasswordModal from '../components/ChangePasswordModal'
-import { ActionMenu, BrandMark, Button, Modal, SectionLabel } from '../components/ui'
+import { AdminAccountMenu, GearIcon } from '../components/AdminSectionHeader'
+import { BrandMark, SectionLabel } from '../components/ui'
 
 /** Asistencia pausada: reactivar con `true`. No borrar AttendanceModal. */
 const SHOW_ATTENDANCE_UI = false
@@ -34,19 +33,6 @@ function IconWell({ children }: { children: ReactNode }) {
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
       {children}
     </div>
-  )
-}
-
-function GearIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden>
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-      />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
   )
 }
 
@@ -240,65 +226,10 @@ export default function AdminHubScreen({
 }: Props) {
   const [showAttendance, setShowAttendance] = useState(false)
   const [showStockCount, setShowStockCount] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<'stock' | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showChangePassword, setShowChangePassword] = useState(false)
-  const [logoutConfirm, setLogoutConfirm] = useState<{ openShift: boolean } | null>(null)
-  const [uiSettings, setUiSettings] = useState<UiSettings>({ zoomFactor: 1.0, colorScheme: 'light' })
-
-  useEffect(() => {
-    void window.hw.getUiSettings().then(r => {
-      if (r.ok) {
-        setUiSettings(r.data)
-        applyColorScheme(r.data.colorScheme)
-      }
-    })
-    return window.hw.onUiSettingsChanged(settings => {
-      setUiSettings(settings)
-      applyColorScheme(settings.colorScheme)
-    })
-  }, [])
-
-  async function persistUi(patch: Partial<UiSettings>): Promise<void> {
-    const r = await window.hw.setUiSettings({ ...uiSettings, ...patch })
-    if (r.ok) {
-      setUiSettings(r.data)
-      applyColorScheme(r.data.colorScheme)
-    }
-  }
-
-  async function handleSetZoom(factor: number): Promise<void> {
-    const clamped = Math.max(0.6, Math.min(2.0, Math.round(factor * 100) / 100))
-    await persistUi({ zoomFactor: clamped })
-  }
-
-  async function handleSetScheme(scheme: ColorScheme): Promise<void> {
-    await persistUi({ colorScheme: scheme })
-  }
 
   function toggleGroup(g: 'stock') {
     setExpandedGroup(v => (v === g ? null : g))
-  }
-
-  async function handleRefreshRemote(): Promise<void> {
-    if (refreshing) return
-    setRefreshing(true)
-    try {
-      await window.hw.refreshRemoteData()
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
-  async function requestLogout(): Promise<void> {
-    try {
-      const result = await window.hw.getUserOpenShift()
-      setLogoutConfirm({ openShift: result.ok && result.data != null })
-    } catch (err) {
-      console.error('[AdminHubScreen] no se pudo consultar el turno abierto', err)
-      setLogoutConfirm({ openShift: false })
-    }
   }
 
   return (
@@ -313,123 +244,7 @@ export default function AdminHubScreen({
             <p className="truncate text-xs text-muted">Administrador</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <ActionMenu
-            label="Configuración"
-            trigger={<GearIcon className="h-5 w-5 text-ink" />}
-            items={[
-              {
-                id: 'settings',
-                label: 'Ajustes',
-                onSelect: () => setShowSettings(true),
-              },
-              {
-                id: 'refresh',
-                label: refreshing ? 'Actualizando…' : 'Actualizar datos',
-                disabled: refreshing,
-                onSelect: () => { void handleRefreshRemote() },
-              },
-              {
-                id: 'password',
-                label: 'Cambiar contraseña',
-                onSelect: () => setShowChangePassword(true),
-              },
-              {
-                id: 'logout',
-                label: 'Cerrar sesión',
-                danger: true,
-                onSelect: () => { void requestLogout() },
-              },
-            ]}
-          />
-        </div>
-
-        {showSettings && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowSettings(false)}
-            />
-            <div className="absolute right-4 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-2xl bg-panel shadow-[0_12px_40px_rgba(28,28,30,0.16)] ring-1 ring-line">
-              <div className="border-b border-line px-4 py-3">
-                <p className="text-sm font-semibold text-ink">Ajustes de la aplicación</p>
-                <p className="mt-0.5 text-[10px] text-muted">Las preferencias se guardan automáticamente</p>
-              </div>
-
-              <div className="space-y-4 p-4">
-                <div>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-ink">Tamaño de pantalla</p>
-                      <p className="mt-0.5 text-[10px] text-muted">También: Ctrl+= / Ctrl+−</p>
-                    </div>
-                    <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-ink">
-                      {Math.round(uiSettings.zoomFactor * 100)}%
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleSetZoom(uiSettings.zoomFactor - 0.1)}
-                      disabled={uiSettings.zoomFactor <= 0.6}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-30"
-                      title="Reducir tamaño"
-                    >
-                      −
-                    </button>
-                    <div className="relative h-1.5 flex-1 rounded-full bg-raised">
-                      <div
-                        className="absolute inset-y-0 left-0 rounded-full bg-accent transition-all duration-150"
-                        style={{ width: `${((uiSettings.zoomFactor - 0.6) / (2.0 - 0.6)) * 100}%` }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleSetZoom(uiSettings.zoomFactor + 0.1)}
-                      disabled={uiSettings.zoomFactor >= 2.0}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-30"
-                      title="Aumentar tamaño"
-                    >
-                      +
-                    </button>
-                  </div>
-                  {uiSettings.zoomFactor !== 1.0 && (
-                    <button
-                      type="button"
-                      onClick={() => void handleSetZoom(1.0)}
-                      className="mt-2 text-[10px] text-muted transition-colors hover:text-ink"
-                    >
-                      Restablecer al 100% (Ctrl+0)
-                    </button>
-                  )}
-                </div>
-
-                <div className="border-t border-line pt-3">
-                  <p className="mb-2 text-xs font-medium text-ink">Apariencia</p>
-                  <div className="grid grid-cols-2 gap-1 rounded-xl bg-raised p-1">
-                    {([
-                      { id: 'light' as const, label: 'Claro' },
-                      { id: 'dark' as const, label: 'Oscuro' },
-                    ]).map(opt => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => void handleSetScheme(opt.id)}
-                        className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                          uiSettings.colorScheme === opt.id
-                            ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(28,28,30,0.12)]'
-                            : 'text-muted hover:text-ink'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+        <AdminAccountMenu onLogout={onLogout} />
       </header>
 
       <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
@@ -499,39 +314,6 @@ export default function AdminHubScreen({
       {showStockCount && (
         <StockCountModal onClose={() => setShowStockCount(false)} />
       )}
-      {showChangePassword && (
-        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
-      )}
-      <Modal
-        open={logoutConfirm != null}
-        onClose={() => setLogoutConfirm(null)}
-        size="sm"
-        title="Cerrar sesión"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setLogoutConfirm(null)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                setLogoutConfirm(null)
-                onLogout()
-              }}
-            >
-              {logoutConfirm?.openShift ? 'Cerrar sesión igual' : 'Cerrar sesión'}
-            </Button>
-          </>
-        }
-      >
-        {logoutConfirm?.openShift ? (
-          <p className="text-sm text-ink">
-            La caja sigue abierta. La próxima cajera no va a poder abrir la suya hasta que esta se cierre.
-          </p>
-        ) : (
-          <p className="text-sm text-ink">¿Seguro que querés cerrar sesión?</p>
-        )}
-      </Modal>
     </div>
   )
 }

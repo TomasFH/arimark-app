@@ -81,11 +81,11 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(screen.queryByText('Activos')).not.toBeInTheDocument()
     expect(screen.queryByText('Últimos 30 días')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /Entregados y cancelados/ }))
+    await user.click(screen.getByRole('tab', { name: 'Entregados y cancelados' }))
     expect(await screen.findByText('Cliente reclamo')).toBeInTheDocument()
     expect(screen.queryByText('Update 3')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /Entregados y cancelados/ }))
+    await user.click(screen.getByRole('tab', { name: 'Listos y pendientes' }))
     expect(await screen.findByText('Update 3')).toBeInTheDocument()
 
     await user.type(

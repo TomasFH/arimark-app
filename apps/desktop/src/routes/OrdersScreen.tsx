@@ -6,12 +6,13 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import NumericInput from '../components/NumericInput'
-import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer } from '../components/ui'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import DecimalInput from '../components/DecimalInput'
 import OrderFormModal from '../components/OrderFormModal'
 import { parseNumericInput, parseDecimalInput } from '../lib/numericInput'
 import { addDaysYmd, formatARS, todayLocalYmd, toLocalDateTime } from '../lib/datetime'
-import StoreFilter from '../components/StoreFilter'
+import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import {
   DEPOSIT_METHOD_LABELS,
   TIME_SLOT_LABELS,
@@ -47,7 +48,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 }
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
-  pending: 'bg-amber-950/50 text-amber-400/80 border-amber-900/40',
+  pending: 'bg-accent-soft text-ink border-line',
   ready: 'bg-raised text-ink border-line',
   delivered: 'bg-accent-soft text-success border-line-accent',
   cancelled: 'bg-raised text-muted border-line',
@@ -77,6 +78,7 @@ interface Props {
   /** Local de la sesión (cajera o admin con local elegido). */
   sessionStoreId?: string
   /** Callback para inyectar el carrito del pedido en el POS (solo cuando hay turno activo) */
+  onLogout?: () => void
   onInjectOrderCart?: (cart: {
     orderId: string
     customerName: string
@@ -118,7 +120,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-acc
   )
 }
 
-export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionStoreId, onInjectOrderCart }: Props) {
+export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionStoreId, onLogout, onInjectOrderCart }: Props) {
   const [ordersList, setOrdersList] = useState<OrderRow[]>([])
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
@@ -405,7 +407,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
 
   return (
     <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
-      <ScreenHeader
+      <AdminSectionHeader
         title="Pedidos"
         subtitle={
           [urgentTodayCount > 0 ? `${urgentTodayCount} para hoy` : '', urgentTomorrowCount > 0 ? `${urgentTomorrowCount} para mañana` : '']
@@ -413,44 +415,57 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
             .join(' · ') || undefined
         }
         onBack={onBack}
+        onLogout={onLogout}
         actions={
           <>
             {showStoreFilter && availableStores.length > 0 && (
-              <StoreFilter
-                stores={availableStores}
-                value={storeIdFilter}
-                onChange={v => setStoreIdFilter(v)}
-              />
-            )}
-            {!search.trim() && (
-              <Button
-                type="button"
-                variant={showClosed ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setShowClosed(v => !v)}
-                title={showClosed ? 'Volver a listos y pendientes' : 'Ver cobrados y cancelados'}
-              >
-                Entregados y cancelados
-              </Button>
+              <div className="w-52 shrink-0">
+                <HistoryStoreSelect
+                  stores={availableStores}
+                  value={storeIdFilter}
+                  onChange={v => setStoreIdFilter(v)}
+                />
+              </div>
             )}
             <Button size="sm" onClick={openCreate}>+ Nuevo pedido</Button>
           </>
         }
       />
 
-      {/* Filters */}
-      <div className="px-4 py-2 border-b border-line shrink-0">
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar cliente, teléfono o producto (incluye entregados)"
-          className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
-        />
-      </div>
-
-      {/* List */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar cliente, teléfono o producto (incluye entregados)"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
+          />
+          <div className="inline-flex shrink-0 rounded-lg border border-line-accent bg-accent-soft p-1" role="tablist" aria-label="Qué pedidos ver">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!showClosed}
+              onClick={() => setShowClosed(false)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
+                !showClosed ? 'bg-accent text-accent-fg shadow-[0_1px_2px_rgba(28,28,30,0.18)]' : 'text-ink hover:bg-panel'
+              }`}
+            >
+              Listos y pendientes
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={showClosed}
+              onClick={() => setShowClosed(true)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
+                showClosed ? 'bg-accent text-accent-fg shadow-[0_1px_2px_rgba(28,28,30,0.18)]' : 'text-ink hover:bg-panel'
+              }`}
+            >
+              Entregados y cancelados
+            </button>
+          </div>
+        </div>
         {loading && <p className="text-muted text-sm text-center py-8 animate-pulse">Cargando pedidos…</p>}
         {error && <p className="text-danger text-sm text-center py-8">{error}</p>}
         {!loading && !error && ordersView.mode === 'search' && (
@@ -780,7 +795,7 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
   const surface = order.status === 'cancelled'
     ? 'border-line bg-panel opacity-60'
     : overdue
-      ? 'border-danger/50 bg-panel'
+      ? 'border-line-strong bg-panel'
       : today || order.priority
         ? 'border-line-strong bg-panel'
         : 'border-line bg-panel'
@@ -806,19 +821,19 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
               {STATUS_LABELS[order.status]}
             </span>
             {overdue && order.status !== 'cancelled' && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/30">Vencido</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-raised text-danger border border-line-strong">Vencido</span>
             )}
             {!overdue && today && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">Hoy</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-raised text-ink border border-line-strong">Hoy</span>
             )}
             {!overdue && tomorrow && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-app text-muted border border-line">Mañana</span>
             )}
             {dueSoon && (order.status === 'pending' || order.status === 'ready') && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-950/60 text-orange-300 border border-orange-900/40">Retiro próximo</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-raised text-ink border border-line">Retiro próximo</span>
             )}
             {outsideHours && (order.status === 'pending' || order.status === 'ready') && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/30" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-raised text-danger border border-line-strong" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
             )}
             <span className="text-sm text-ink">{formattedDate}</span>
             {timeSlotLabel() && <span className="text-xs text-muted">{timeSlotLabel()}</span>}

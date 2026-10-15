@@ -7,11 +7,12 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { formatARS, formatRelativeDate } from '../lib/datetime'
-import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, Modal } from '../components/ui'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import type { CustomerDebtSummary, DebtEventRow, StoreRow } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
-import StoreFilter from '../components/StoreFilter'
+import HistoryStoreSelect from '../components/HistoryStoreSelect'
 
 const PAYMENT_METHOD_LABELS: Record<NonNullable<DebtEventRow['paymentMethod']>, string> = {
   cash: 'Efectivo',
@@ -95,7 +96,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
   const isDue = nextDueDate && new Date(nextDueDate) <= new Date()
 
   return (
-    <div className={`overflow-hidden rounded-2xl border ${isDue ? 'border-danger/40 bg-danger/5' : 'border-line bg-panel'}`}>
+    <div className="overflow-hidden rounded-2xl border border-line-strong bg-panel">
       <button
         type="button"
         onClick={() => setExpanded(p => !p)}
@@ -107,7 +108,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate text-sm font-semibold text-ink" title={summary.customerName}>{summary.customerName}</span>
             {isDue && (
-              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-danger ring-1 ring-danger/30">
+              <span className="shrink-0 rounded border border-line-strong bg-raised px-1.5 py-0.5 text-[10px] text-danger">
                 Vencida
               </span>
             )}
@@ -400,10 +401,11 @@ function CreateCustomerModal({
 
 interface Props {
   onBack?: () => void
+  onLogout?: () => void
   isAdmin?: boolean
 }
 
-export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
+export default function DebtsScreen({ onBack, onLogout, isAdmin = false }: Props) {
   const [debts, setDebts] = useState<CustomerDebtSummary[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
@@ -505,24 +507,24 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
 
   return (
     <div className="flex h-full flex-1 flex-col bg-app text-ink">
-      <ScreenHeader
+      <AdminSectionHeader
         title="Fiados / Cuentas corrientes"
         subtitle={debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
         onBack={onBack}
+        onLogout={onLogout}
         actions={
           <>
             {isAdmin && availableStores.length > 0 && (
-              <StoreFilter
-                stores={availableStores}
-                value={storeIdFilter}
-                onChange={v => setStoreIdFilter(v)}
-              />
+              <div className="w-52 shrink-0">
+                <HistoryStoreSelect
+                  stores={availableStores}
+                  value={storeIdFilter}
+                  onChange={v => setStoreIdFilter(v)}
+                />
+              </div>
             )}
             <Button size="sm" onClick={() => { setShowCreate(true); setNotice(null) }}>
               Nuevo cliente
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => void loadDebts()} disabled={loadingList}>
-              {loadingList ? '…' : 'Actualizar'}
             </Button>
           </>
         }

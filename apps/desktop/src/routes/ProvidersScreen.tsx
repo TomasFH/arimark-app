@@ -12,10 +12,12 @@ import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
 import type { ProviderWithDebtRow, ProviderRow, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
 import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
-import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer } from '../components/ui'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 
 interface Props {
   onBack: () => void
+  onLogout: () => void
 }
 
 type ModalMode =
@@ -69,7 +71,7 @@ function LedgerStoreSelect({
   )
 }
 
-export default function ProvidersScreen({ onBack }: Props) {
+export default function ProvidersScreen({ onBack, onLogout }: Props) {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<ProviderWithDebtRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -153,10 +155,11 @@ export default function ProvidersScreen({ onBack }: Props) {
 
   return (
     <div className="flex flex-col h-screen bg-app text-ink">
-      <ScreenHeader
+      <AdminSectionHeader
         title="Proveedores"
         subtitle={showArchived ? 'Eliminados — restaurar para volver a usarlos' : 'Deuda combinada entre todos los locales'}
         onBack={onBack}
+        onLogout={onLogout}
         actions={
           !showArchived ? (
             <Button size="sm" onClick={() => setModal({ type: 'create' })}>+ Nuevo</Button>
@@ -287,16 +290,16 @@ export default function ProvidersScreen({ onBack }: Props) {
                   </div>
 
                   <CollapseReveal open={isExpanded}>
-                    <div className="mx-3 mb-3 mt-3 rounded-lg bg-app px-3 pb-1 pt-3">
+                    <div className="mx-3 mb-3 mt-1 overflow-hidden rounded-lg bg-app">
                       {p.perStore.length === 0 && (
-                        <p className="pb-2 text-xs text-muted">Sin eventos de deuda registrados.</p>
+                        <p className="px-3 py-2.5 text-xs text-muted">Sin eventos de deuda registrados.</p>
                       )}
                       {p.perStore.map((s, index) => {
                         const display = storeBalanceDisplay(s.balance)
                         return (
                           <div
                             key={s.storeId}
-                            className={`flex items-center justify-between gap-2 py-2.5 ${index > 0 ? 'border-t border-line' : ''}`}
+                            className={`flex items-center justify-between gap-3 px-3 py-2.5 ${index > 0 ? 'border-t border-line' : ''}`}
                           >
                             <p className="min-w-0 flex-1 truncate text-sm text-ink" title={s.storeName}>{s.storeName}</p>
                             <p className={`shrink-0 text-sm font-semibold tabular-nums ${display.className}`}>
