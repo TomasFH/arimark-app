@@ -212,6 +212,17 @@ Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refier
 
 ---
 
+## Cursor Cloud specific instructions
+
+El modo de desarrollo de escritorio no necesita secretos ni `business.json`.
+
+- Instalar con `pnpm install --frozen-lockfile` en la raíz. El `postinstall` de desktop recompila `better-sqlite3` y `serialport` contra Electron; hace falta toolchain nativo (python3, build-essential), ya presente en la imagen.
+- Verificación principal: `pnpm test` (shared, mobile y desktop). No usa Firebase.
+- App de escritorio: `pnpm dev` desde la raíz (`APP_ENV=dev`, balanza mock, banner "MODO PRUEBAS", botón "Saltar login"). Abre una ventana Electron en el escritorio del agente. `DISPLAY` del escritorio ya está definido.
+- Catálogo de prueba: `pnpm seed:dev`. En Linux, ese script escribe en `~/AppData/Roaming/@carniceria/desktop/dev/app.sqlite`, pero Electron lee `~/.config/@carniceria/desktop/dev/app.sqlite`. Para ver los productos sembrados en la ventana, copiar el sqlite a la ruta de Electron antes de abrir la app (con la app cerrada).
+- La app móvil (`pnpm mobile:dev`) inicializa Firebase al cargar y necesita `apps/mobile/.env` (gitignored, ver `apps/mobile/.env.example`). El flujo de caja de escritorio en modo pruebas no lo usa.
+- `pnpm typecheck` y `pnpm lint` fallan hoy por deuda del repo, no por el entorno: `CustomerPricesModal.tsx` llama métodos que no están en `HwApi`, y `apps/desktop/eslint.config.js` importa `@eslint/js` sin declararlo como dependencia (pnpm no lo eleva).
+
 ## Checklist de cierre de fase
 
 Al terminar cada fase, antes de crear el tag de git, verificar:
