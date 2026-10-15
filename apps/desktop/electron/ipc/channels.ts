@@ -34,6 +34,8 @@ export const IPC = {
 
   // Productos (catálogo local)
   GET_PRODUCTS: 'ipc:get-products',
+  GET_PIECE_WEIGHTS: 'ipc:get-piece-weights',
+  SET_PIECE_WEIGHTS: 'ipc:set-piece-weights',
 
   // Catálogo admin — CRUD de productos y precios (solo admins)
   GET_ALL_PRODUCTS: 'ipc:get-all-products',

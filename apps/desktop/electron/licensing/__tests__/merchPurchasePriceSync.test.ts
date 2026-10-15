@@ -78,6 +78,54 @@ describe('merchPurchasePriceSync', () => {
     expect(localPurchasePrices('prov-oso')[0]?.unitCost).toBe(11000)
   })
 
+  it('recuerda equivalencia y pesada, y no las pisa si no se aceptan', () => {
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{
+        productKey: 'p:pollo',
+        name: 'Pollo',
+        costUnit: 'pack',
+        unitCost: 9000,
+        packContents: 1,
+        weighMode: 'each',
+      }],
+      acceptPriceUpdates: true,
+      now: '2026-10-12T10:00:00.000Z',
+    })
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{
+        productKey: 'p:pollo',
+        name: 'Pollo',
+        costUnit: 'pack',
+        unitCost: 9500,
+        packContents: null,
+        weighMode: 'total',
+      }],
+      acceptPriceUpdates: false,
+      now: '2026-10-12T11:00:00.000Z',
+    })
+    const kept = localPurchasePrices('prov-oso').find(r => r.productKey === 'p:pollo')
+    expect(kept?.unitCost).toBe(9000)
+    expect(kept?.weighMode).toBe('each')
+    applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
+      providerId: 'prov-oso',
+      lines: [{
+        productKey: 'p:pollo',
+        name: 'Pollo',
+        costUnit: 'pack',
+        unitCost: 9500,
+        packContents: null,
+        weighMode: 'total',
+      }],
+      acceptPriceUpdates: true,
+      now: '2026-10-12T12:00:00.000Z',
+    })
+    const next = localPurchasePrices('prov-oso').find(r => r.productKey === 'p:pollo')
+    expect(next?.unitCost).toBe(9500)
+    expect(next?.weighMode).toBe('total')
+  })
+
   it('guarda centavos del unitario y no reescala un entero', () => {
     applyPurchasePrices(db as unknown as ReturnType<typeof getDb>, {
       providerId: 'prov-oso',

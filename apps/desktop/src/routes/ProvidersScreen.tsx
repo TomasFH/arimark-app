@@ -12,7 +12,7 @@ import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
 import type { ProviderWithDebtRow, ProviderRow, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
 import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
-import { ActionMenu, Button, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer, ScreenHeader } from '../components/ui'
 
 interface Props {
   onBack: () => void
@@ -218,7 +218,7 @@ export default function ProvidersScreen({ onBack }: Props) {
             )}
 
             {sorted.length > 0 && (
-            <div className="overflow-hidden rounded-2xl border border-line bg-panel">
+            <div className="space-y-2">
             {sorted.map(p => {
               const isExpanded = expandedId === p.id
               const anyStoreHasDebt = p.perStore.some(s => s.balance > 0)
@@ -226,8 +226,8 @@ export default function ProvidersScreen({ onBack }: Props) {
               const money = rowMoney(p)
 
               return (
-                <div key={p.id} className="border-b border-line last:border-b-0">
-                  <div className="flex items-center gap-2 px-4 py-3">
+                <div key={p.id} className="overflow-hidden rounded-xl border border-line bg-panel">
+                  <div className={`flex items-center gap-2 px-4 py-3 ${isExpanded ? 'bg-hover' : 'hover:bg-hover'}`}>
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -286,25 +286,27 @@ export default function ProvidersScreen({ onBack }: Props) {
                     />
                   </div>
 
-                  {/* Desglose por local */}
-                  {isExpanded && (
-                    <div className="border-t border-line px-4 py-3 space-y-2">
+                  <CollapseReveal open={isExpanded}>
+                    <div className="mx-3 mb-3 mt-3 rounded-lg bg-app px-3 pb-1 pt-3">
                       {p.perStore.length === 0 && (
-                        <p className="text-xs text-muted">Sin eventos de deuda registrados.</p>
+                        <p className="pb-2 text-xs text-muted">Sin eventos de deuda registrados.</p>
                       )}
-                      {p.perStore.map(s => {
+                      {p.perStore.map((s, index) => {
                         const display = storeBalanceDisplay(s.balance)
                         return (
-                          <div key={s.storeId} className="flex items-center justify-between gap-2">
-                            <p className="text-sm text-ink min-w-0 truncate" title={s.storeName}>{s.storeName}</p>
-                            <p className={`text-sm font-semibold shrink-0 ${display.className}`}>
+                          <div
+                            key={s.storeId}
+                            className={`flex items-center justify-between gap-2 py-2.5 ${index > 0 ? 'border-t border-line' : ''}`}
+                          >
+                            <p className="min-w-0 flex-1 truncate text-sm text-ink" title={s.storeName}>{s.storeName}</p>
+                            <p className={`shrink-0 text-sm font-semibold tabular-nums ${display.className}`}>
                               {display.label}
                             </p>
                           </div>
                         )
                       })}
                     </div>
-                  )}
+                  </CollapseReveal>
                 </div>
               )
             })}
@@ -457,9 +459,12 @@ function ProviderFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+    <ModalLayer onClose={onCancel} className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-panel rounded-2xl border border-line w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold" title={title}>{title}</h2>
+          <ModalCloseButton onClick={onCancel} />
+        </div>
 
         <div className="space-y-1">
           <label className="text-sm text-muted">Nombre *</label>
@@ -538,7 +543,7 @@ function ProviderFormModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -654,7 +659,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
   const showTabs = storeList.length > 1
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <ModalLayer onClose={onClose} className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-panel rounded-t-2xl sm:rounded-2xl w-full sm:max-w-2xl shadow-xl flex flex-col max-h-[85vh] border border-line">
         {/* Header del modal */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-line shrink-0">
@@ -667,13 +672,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
             </h2>
             <p className="text-xs text-muted">Historial de movimientos</p>
           </div>
-          <button
-            onClick={onClose}
-            className="shrink-0 text-muted hover:text-ink transition-colors p-1 rounded-lg hover:bg-hover text-lg"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         {/* Pestañas de filtro por local (solo si hay más de 1 local en el historial) */}
@@ -911,7 +910,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
           onSaved={() => void refreshAfterChange()}
         />
       )}
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -984,14 +983,14 @@ function AdminSettleDebtOverlay({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+    <ModalLayer onClose={onClose} className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
       <div className="bg-panel rounded-2xl w-full max-w-lg shadow-xl border border-line p-5 space-y-4 max-h-[85vh] overflow-y-auto">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold">Saldar deuda</h2>
             <p className="text-xs text-muted truncate" title={providerName}>{providerName}</p>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink p-1" title="Cerrar">✕</button>
+          <ModalCloseButton onClick={onClose} />
         </div>
         {visible.length === 0 ? (
           <p className="text-sm text-muted">No hay deuda pendiente en {storeFilter ? 'este local' : 'ningún local'}.</p>
@@ -1039,7 +1038,7 @@ function AdminSettleDebtOverlay({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -1078,11 +1077,11 @@ function AdminRecordDebtOverlay({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+    <ModalLayer onClose={onClose} className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
       <div className="bg-panel rounded-2xl w-full max-w-lg shadow-xl border border-line p-5 space-y-4">
         <div className="flex items-start gap-2">
           <h2 className="flex-1 text-base font-semibold">Registrar deuda</h2>
-          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink p-1" title="Cerrar">✕</button>
+          <ModalCloseButton onClick={onClose} />
         </div>
         <p className="text-xs text-muted">Sin movimiento de caja. Solo suma deuda en el local elegido.</p>
         <LedgerStoreSelect stores={stores} value={storeId} onChange={id => { setStoreId(id); setError(null) }} />
@@ -1100,7 +1099,7 @@ function AdminRecordDebtOverlay({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -1146,11 +1145,11 @@ function AdminAdjustDebtOverlay({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+    <ModalLayer onClose={onClose} className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
       <div className="bg-panel rounded-2xl w-full max-w-lg shadow-xl border border-line p-5 space-y-4 max-h-[85vh] overflow-y-auto">
         <div className="flex items-start gap-2">
           <h2 className="flex-1 text-base font-semibold">Ajustar deuda</h2>
-          <button type="button" onClick={onClose} className="shrink-0 text-muted hover:text-ink p-1" title="Cerrar">✕</button>
+          <ModalCloseButton onClick={onClose} />
         </div>
         <p className="text-xs text-muted">
           Salida de emergencia: fijá el saldo que corresponde hoy, sin justificar los movimientos anteriores.
@@ -1206,7 +1205,7 @@ function AdminAdjustDebtOverlay({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -1226,11 +1225,14 @@ function CompensateConfirmModal({
   onCancel,
 }: CompensateConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+    <ModalLayer onClose={onCancel} enabled={!saving} className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-panel rounded-2xl border border-line w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h2 className="text-base font-semibold text-ink">
-          ¿Compensar entre locales?
-        </h2>
+        <div className="flex items-start gap-2 min-w-0">
+          <h2 className="min-w-0 flex-1 text-base font-semibold text-ink">
+            ¿Compensar entre locales?
+          </h2>
+          <ModalCloseButton onClick={onCancel} disabled={saving} />
+        </div>
         <p className="text-sm text-muted">
           El saldo a favor de un local se usa contra la deuda del otro en{' '}
           <span className="text-ink" title={providerName}>{providerName}</span>.
@@ -1255,7 +1257,7 @@ function CompensateConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -1282,15 +1284,18 @@ function RemoveProviderModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+    <ModalLayer onClose={onCancel} enabled={!saving} className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-panel rounded-2xl border border-line w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h2 className="text-base font-semibold text-ink min-w-0">
+        <div className="flex items-start gap-2 min-w-0">
+        <h2 className="min-w-0 flex-1 text-base font-semibold text-ink">
           ¿Estás seguro que querés eliminar{' '}
           <span className="truncate inline-block max-w-full align-bottom" title={providerName}>
             {providerName}
           </span>
           ?
         </h2>
+          <ModalCloseButton onClick={onCancel} disabled={saving} />
+        </div>
 
         {error && <p className="text-danger text-sm">{error}</p>}
 
@@ -1313,6 +1318,6 @@ function RemoveProviderModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }

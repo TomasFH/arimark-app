@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import type { ExpenseRow, ProviderDebtRow } from '../types/hw-api'
 import { formatARS } from '../lib/datetime'
 import ExpenseModal from './ExpenseModal'
-import { Button, Modal } from '../components/ui'
+import { Button, Modal, ModalCloseButton } from '../components/ui'
 
 interface Props {
   onClose: () => void
@@ -100,9 +100,12 @@ export default function ExpenseListModal({ onClose }: Props) {
                 : 'Cargando…'}
             </p>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => void handleRefresh()} disabled={refreshing} title="Actualizar estado de deudas">
-            {refreshing ? '…' : '↻'}
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={() => void handleRefresh()} disabled={refreshing} title="Actualizar estado de deudas">
+              {refreshing ? '…' : '↻'}
+            </Button>
+            <ModalCloseButton onClick={onClose} />
+          </div>
         </div>
       }
       footer={

@@ -18,6 +18,7 @@ import type {
   SalaryPaymentRow,
   WeeklyValeSummary,
 } from '../types/hw-api'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 import {
   getSalaryWeekRemoteCache,
   invalidateSalaryWeekRemoteCache,
@@ -245,11 +246,10 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
   }
 
   return createPortal(
-    <div
+    <ModalLayer
+      onClose={onClose}
+      enabled={!payingId}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-overlay p-4"
-      onClick={e => {
-        if (e.target === e.currentTarget && !payingId) onClose()
-      }}
     >
       <div className="flex flex-col bg-panel border border-line rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh]">
         <div className="flex items-center justify-between gap-2 min-w-0 border-b border-line px-5 py-3">
@@ -285,20 +285,7 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
             >
               Actualizar
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors"
-              aria-label="Cerrar"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
+            <ModalCloseButton onClick={onClose} />
           </div>
         </div>
 
@@ -516,11 +503,28 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
       </div>
 
       {paying && paying.summary && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
+        <ModalLayer
+          onClose={() => {
+            if (saving) return
+            setPayingId(null)
+            setPayError(null)
+          }}
+          enabled={!saving}
+          className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4"
+        >
           <div className="w-full max-w-sm rounded-xl border border-line bg-input p-4 space-y-3">
-            <p className="text-sm font-medium text-ink truncate" title={paying.employee.name}>
-              ¿Pagar a {paying.employee.name}?
-            </p>
+            <div className="flex items-start gap-2 min-w-0">
+              <p className="min-w-0 flex-1 text-sm font-medium text-ink truncate" title={paying.employee.name}>
+                ¿Pagar a {paying.employee.name}?
+              </p>
+              <ModalCloseButton
+                onClick={() => {
+                  setPayingId(null)
+                  setPayError(null)
+                }}
+                disabled={saving}
+              />
+            </div>
             <p className="text-xs text-muted">
               Sale {formatARS(paying.summary.netToPay)} en efectivo de esta caja.
               Sueldo {formatARS(paying.summary.weeklyWage)} − vales {formatARS(paying.summary.totalVales)}.
@@ -547,9 +551,9 @@ export default function SalaryPaymentModal({ onClose, onPaid }: Props) {
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
-    </div>,
+    </ModalLayer>,
     document.body,
   )
 }

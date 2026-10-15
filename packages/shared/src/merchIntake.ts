@@ -323,6 +323,11 @@ export interface MerchIntakeLineSnapshot {
   unitCost: number
   costTotal: number
   packCount: number | null
+  /** null en visitas viejas: un kilo por cajón, no un peso total. */
+  weighMode: 'each' | 'total' | null
+  /** payable entra al total. informed es costo anotado. none no tiene precio. */
+  moneyRole: 'payable' | 'informed' | 'none'
+  notForSale: boolean
 }
 
 export function resolveMerchLineFacts(
@@ -390,6 +395,9 @@ export function snapshotFromFacts(
     unitCost: 0,
     costTotal: 0,
     packCount: null,
+    weighMode: null,
+    moneyRole: 'payable',
+    notForSale: false,
   }
 }
 
@@ -510,6 +518,11 @@ export function parseMerchLineSnapshot(raw: unknown, index: number, intakeId: st
       const n = asFiniteNumber(data['packCount'])
       return n != null && n > 0 ? Math.round(n) : null
     })(),
+    weighMode: data['weighMode'] === 'each' || data['weighMode'] === 'total' ? data['weighMode'] : null,
+    moneyRole: data['moneyRole'] === 'informed' || data['moneyRole'] === 'none'
+      ? data['moneyRole']
+      : 'payable',
+    notForSale: data['notForSale'] === true,
   }
 }
 
@@ -559,6 +572,9 @@ export function merchLineToFirestore(line: MerchIntakeLineSnapshot): Record<stri
     unitCost: line.unitCost,
     costTotal: line.costTotal,
     packCount: line.packCount,
+    weighMode: line.weighMode,
+    moneyRole: line.moneyRole,
+    notForSale: line.notForSale,
   }
 }
 

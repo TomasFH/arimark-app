@@ -17,7 +17,7 @@ import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import type { CustomerRow, SalePaymentPayload } from '../types/hw-api'
 import { PAYMENT_LABELS } from '../lib/paymentMethod'
 import type { PaymentMethod } from '../lib/paymentMethod'
-import { Button, Modal } from './ui'
+import { Button, Modal, ModalCloseButton } from './ui'
 
 interface Props {
   total: number
@@ -172,6 +172,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
             </h2>
             <p className="text-2xl font-bold tabular-nums text-ink">{formatARS(total)}</p>
           </div>
+          <ModalCloseButton onClick={onClose} disabled={loading} />
         </div>
       )}
     >

@@ -514,7 +514,6 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       onClose={() => setShowEmptyConfirm(false)}
       title="¿Caja vacía?"
       size="sm"
-      closeOnOverlay={false}
       footer={
         <>
           <Button variant="secondary" onClick={() => setShowEmptyConfirm(false)}>
@@ -542,7 +541,6 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       onClose={() => setShowConfirm(false)}
       title="¿Cerrar el turno ahora?"
       size="sm"
-      closeOnOverlay={false}
       closeOnEscape={!saving}
       footer={
         <>
@@ -593,7 +591,6 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       onClose={onConfirmed}
       title="Caja cerrada"
       size="md"
-      closeOnOverlay={false}
       footer={
         <Button fullWidth onClick={onConfirmed}>
           Finalizar sesión

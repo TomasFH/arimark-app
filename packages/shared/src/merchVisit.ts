@@ -18,6 +18,17 @@ import {
 export const MERCH_COST_UNITS = ['kg', 'unit', 'pack'] as const
 export type MerchCostUnit = (typeof MERCH_COST_UNITS)[number]
 
+/** Cada cajón pide un kilo. Peso total es un solo kilo para todos los cajones. */
+export const MERCH_WEIGH_MODES = ['each', 'total'] as const
+export type MerchWeighMode = (typeof MERCH_WEIGH_MODES)[number]
+
+/** payable entra a caja y deuda. informed queda en el comprobante. none no tiene precio. */
+export const MERCH_MONEY_ROLES = ['payable', 'informed', 'none'] as const
+export type MerchMoneyRole = (typeof MERCH_MONEY_ROLES)[number]
+
+export const MERCH_PAYMENT_CHANNELS = ['cash', 'digital'] as const
+export type MerchPaymentChannel = (typeof MERCH_PAYMENT_CHANNELS)[number]
+
 export const PROVIDER_INTAKE_KINDS = ['catalog', 'media_res', 'chicken', 'insumos'] as const
 export type ProviderIntakeKind = (typeof PROVIDER_INTAKE_KINDS)[number]
 
@@ -41,6 +52,18 @@ export const DEFAULT_MAPLE_PACK_LABEL = 'Cajón'
 
 export function coerceMerchCostUnit(value: unknown): MerchCostUnit | null {
   return value === 'kg' || value === 'unit' || value === 'pack' ? value : null
+}
+
+export function coerceMerchWeighMode(value: unknown): MerchWeighMode | null {
+  return value === 'each' || value === 'total' ? value : null
+}
+
+export function coerceMerchMoneyRole(value: unknown): MerchMoneyRole | null {
+  return value === 'payable' || value === 'informed' || value === 'none' ? value : null
+}
+
+export function lineEntersVisitTotal(line: { moneyRole?: MerchMoneyRole | null }): boolean {
+  return line.moneyRole !== 'informed' && line.moneyRole !== 'none'
 }
 
 export function coerceProviderIntakeKind(value: unknown): ProviderIntakeKind | null {
@@ -71,6 +94,15 @@ export function formatPackCountLabel(count: number, packLabel: string | null | u
 export function formatMerchVisitQty(line: MerchIntakeLineSnapshot): string {
   if (line.costUnit === 'pack' && line.packCount != null && line.packCount > 0) {
     const parts = [formatPackCountLabel(line.packCount, line.packLabel)]
+    if (line.weighMode === 'total') {
+      if (line.netKg != null && line.netKg > 0) parts.push(`peso total ${formatKg3(line.netKg)}`)
+      return parts.join(' · ')
+    }
+    // Histórico y «cada cajón»: un kilo por cajón. No se muestra como un solo peso total.
+    if (line.weightsKg.length > 1 && line.weightsKg.length === line.packCount) {
+      parts.push(line.weightsKg.map(kg => formatKg3(kg)).join(' · '))
+      return parts.join(' · ')
+    }
     if (line.netKg != null && line.netKg > 0) parts.push(formatKg3(line.netKg))
     return parts.join(' · ')
   }
@@ -93,13 +125,17 @@ export function formatMerchVisitQty(line: MerchIntakeLineSnapshot): string {
 export interface MerchVisitReceiptItem {
   name: string
   qty: string
+  /** Costo informado: se ve en el comprobante y no entra al total. */
+  aside?: string
 }
 
 export function merchVisitReceiptItems(drafts: MerchVisitLineDraft[]): MerchVisitReceiptItem[] {
   return drafts.flatMap((d, i) => {
     const r = resolveMerchVisitLine(d, { id: `r${i}`, sortOrder: i })
     if (!r.ok) return []
-    return [{ name: r.line.rubroName, qty: formatMerchVisitQty(r.line) }]
+    const item: MerchVisitReceiptItem = { name: r.line.rubroName, qty: formatMerchVisitQty(r.line) }
+    if (r.line.moneyRole === 'informed') item.aside = 'Costo informado'
+    return [item]
   })
 }
 
@@ -141,6 +177,12 @@ export interface MerchVisitLineDraft {
   unitCost: number
   /** Si está, pisa la inferencia (pollo: pack + kilos por cajón). */
   costUnit?: MerchCostUnit | null
+  /** each = un kilo por cajón. total = un solo kilo. null = maple sin pesar, o histórico. */
+  weighMode?: MerchWeighMode | null
+  /** Por pieza con precio y sin rol: arranca como costo informado. */
+  moneyRole?: MerchMoneyRole | null
+  /** Suma al total y no crea producto ni PLU. */
+  notForSale?: boolean
 }
 
 export interface LastPurchasePrice {
@@ -155,6 +197,86 @@ export interface PurchasePriceChange {
   name: string
   previous: number
   next: number
+}
+
+/** Cómo se compra, además del precio. La cantidad no se recuerda. */
+export interface PurchaseMemory {
+  unitCost: number
+  costUnit: MerchCostUnit
+  packContents: number | null
+  weighMode: MerchWeighMode | null
+}
+
+export interface PurchaseRecallChange {
+  productKey: string
+  name: string
+  price: { previous: number; next: number } | null
+  costUnit: { previous: MerchCostUnit; next: MerchCostUnit } | null
+  packContents: { previous: number | null; next: number | null } | null
+  weighMode: { previous: MerchWeighMode | null; next: MerchWeighMode | null } | null
+  /** El mismo producto está más de una vez: el recuerdo guarda una sola forma. */
+  duplicate: boolean
+}
+
+export function purchaseRecallChanges(
+  lines: Array<{
+    productKey: string
+    name: string
+    unitCost: number
+    costUnit: MerchCostUnit | null
+    packContents: number | null
+    weighMode: MerchWeighMode | null
+  }>,
+  memory: Record<string, PurchaseMemory>,
+): PurchaseRecallChange[] {
+  const counts = new Map<string, number>()
+  for (const line of lines) counts.set(line.productKey, (counts.get(line.productKey) ?? 0) + 1)
+  const seen = new Set<string>()
+  const out: PurchaseRecallChange[] = []
+  for (const line of lines) {
+    if (seen.has(line.productKey)) continue
+    seen.add(line.productKey)
+    const previous = memory[line.productKey]
+    if (!previous) continue
+    const duplicate = (counts.get(line.productKey) ?? 0) > 1
+    const prevCost = roundPurchaseUnitCost(previous.unitCost)
+    const nextCost = roundPurchaseUnitCost(line.unitCost)
+    const price = Number.isFinite(prevCost) && Number.isFinite(nextCost) && prevCost !== nextCost && nextCost > 0
+      ? { previous: prevCost, next: nextCost }
+      : null
+    const costUnit = line.costUnit && line.costUnit !== previous.costUnit
+      ? { previous: previous.costUnit, next: line.costUnit }
+      : null
+    const prevPack = previous.packContents ?? null
+    const nextPack = line.packContents ?? null
+    const packContents = prevPack !== nextPack ? { previous: prevPack, next: nextPack } : null
+    const prevWeigh = previous.weighMode ?? null
+    const nextWeigh = line.weighMode ?? null
+    const weighMode = prevWeigh !== nextWeigh ? { previous: prevWeigh, next: nextWeigh } : null
+    if (!price && !costUnit && !packContents && !weighMode && !duplicate) continue
+    out.push({
+      productKey: line.productKey,
+      name: line.name,
+      price,
+      costUnit,
+      packContents,
+      weighMode,
+      duplicate,
+    })
+  }
+  return out
+}
+
+export function formatWeighMode(mode: MerchWeighMode | null): string {
+  if (mode === 'each') return 'cada cajón'
+  if (mode === 'total') return 'peso total'
+  return 'sin pesar'
+}
+
+export function formatRecallCostUnit(unit: MerchCostUnit): string {
+  if (unit === 'kg') return 'kilo'
+  if (unit === 'pack') return 'cajón'
+  return 'unidad'
 }
 
 export function purchasePriceChanges(
@@ -214,28 +336,102 @@ export function resolveMerchVisitLine(
   const packContents = draft.purchasePackContents
   const usePack = draft.catalogUnit === 'unit' && packContents != null && packContents > 0
   const costUnitHint = coerceMerchCostUnit(draft.costUnit)
+  const weighMode = coerceMerchWeighMode(draft.weighMode)
+  const notForSale = draft.notForSale === true
 
   if (costUnitHint === 'pack') {
     const packs = draft.packCount
     if (packs == null || !Number.isInteger(packs) || packs <= 0 || packs > MERCH_INTAKE_QUANTITY_MAX) {
       return { ok: false, error: `Indicá cuántos cajones de ${name}.` }
     }
-    if (weights.length !== packs) {
-      return { ok: false, error: 'Cada cajón necesita su kilo.' }
-    }
     if (unitCost <= 0) {
       return { ok: false, error: `Indicá el precio por cajón de ${name}.` }
     }
-    const factsOk = computeMerchLineFacts({ template: 'pieces_weight', weightsKg: weights })
-    if (!factsOk.ok) return factsOk
+    const packLabel = draft.purchasePackLabel || DEFAULT_MAPLE_PACK_LABEL
+    const costTotal = lineCostTotal('pack', unitCost, packs)
+    if (weighMode === 'total') {
+      if (weights.length !== 1) {
+        return { ok: false, error: 'Indicá el peso total.' }
+      }
+      const kg = roundKg(weights[0]!)
+      const factsOk = computeMerchLineFacts({ template: 'weight', kg })
+      if (!factsOk.ok) return factsOk
+      const line = snapshotFromFacts({
+        id: opts.id,
+        rubroId,
+        rubroName: name,
+        template: 'weight',
+        sortOrder: opts.sortOrder,
+        packLabel,
+      }, factsOk.facts)
+      return {
+        ok: true,
+        line: {
+          ...line,
+          count: packs,
+          productId,
+          nameKey,
+          costUnit: 'pack',
+          unitCost,
+          costTotal,
+          packCount: packs,
+          packContents: packContents != null && packContents > 0 ? packContents : null,
+          weightsKg: [kg],
+          weighMode: 'total',
+          moneyRole: 'payable',
+          notForSale,
+        },
+      }
+    }
+    if (weighMode === 'each' || weights.length > 0) {
+      if (weights.length !== packs) {
+        return { ok: false, error: 'Cada cajón necesita su kilo.' }
+      }
+      const factsOk = computeMerchLineFacts({ template: 'pieces_weight', weightsKg: weights })
+      if (!factsOk.ok) return factsOk
+      const line = snapshotFromFacts({
+        id: opts.id,
+        rubroId,
+        rubroName: name,
+        template: 'pieces_weight',
+        sortOrder: opts.sortOrder,
+        packLabel,
+      }, factsOk.facts)
+      return {
+        ok: true,
+        line: {
+          ...line,
+          productId,
+          nameKey,
+          costUnit: 'pack',
+          unitCost,
+          costTotal,
+          packCount: packs,
+          packContents: packContents != null && packContents > 0 ? packContents : null,
+          weighMode: 'each',
+          moneyRole: 'payable',
+          notForSale,
+        },
+      }
+    }
     const line = snapshotFromFacts({
       id: opts.id,
       rubroId,
       rubroName: name,
-      template: 'pieces_weight',
+      template: 'packs',
       sortOrder: opts.sortOrder,
-      packLabel: draft.purchasePackLabel || DEFAULT_MAPLE_PACK_LABEL,
-    }, factsOk.facts)
+      packLabel,
+    }, {
+      count: packs,
+      packContents: packContents != null && packContents > 0 ? packContents : null,
+      packTareKg: 0,
+      hasIce: false,
+      grossKg: null,
+      netKg: null,
+      unitCount: packContents != null && packContents > 0 ? packs * packContents : null,
+      kgPerUnit: null,
+      weightsKg: [],
+    })
     return {
       ok: true,
       line: {
@@ -244,8 +440,11 @@ export function resolveMerchVisitLine(
         nameKey,
         costUnit: 'pack',
         unitCost,
-        costTotal: lineCostTotal('pack', unitCost, packs),
+        costTotal,
         packCount: packs,
+        weighMode: null,
+        moneyRole: 'payable',
+        notForSale,
       },
     }
   }
@@ -284,6 +483,9 @@ export function resolveMerchVisitLine(
         unitCost,
         costTotal: lineCostTotal('pack', unitCost, packs),
         packCount: packs,
+        weighMode: null,
+        moneyRole: 'payable',
+        notForSale,
       },
     }
   }
@@ -299,16 +501,26 @@ export function resolveMerchVisitLine(
       sortOrder: opts.sortOrder,
       packLabel: null,
     }, factsOk.facts)
+    const explicitRole = coerceMerchMoneyRole(draft.moneyRole)
+    const moneyRole: MerchMoneyRole = explicitRole === 'payable'
+      ? 'payable'
+      : (unitCost > 0 ? 'informed' : 'none')
+    if (moneyRole === 'payable' && unitCost <= 0) {
+      return { ok: false, error: `Indicá el precio de ${name}.` }
+    }
     return {
       ok: true,
       line: {
         ...line,
         productId,
         nameKey,
-        costUnit: 'kg',
+        costUnit: unitCost > 0 ? 'kg' : null,
         unitCost,
-        costTotal: lineCostTotal('kg', unitCost, factsOk.facts.netKg ?? 0),
+        costTotal: moneyRole === 'none' ? 0 : lineCostTotal('kg', unitCost, factsOk.facts.netKg ?? 0),
         packCount: null,
+        weighMode: null,
+        moneyRole,
+        notForSale,
       },
     }
   }
@@ -338,6 +550,9 @@ export function resolveMerchVisitLine(
         unitCost,
         costTotal: lineCostTotal('kg', unitCost, factsOk.facts.netKg ?? 0),
         packCount: null,
+        weighMode: null,
+        moneyRole: 'payable',
+        notForSale,
       },
     }
   }
@@ -366,6 +581,9 @@ export function resolveMerchVisitLine(
       unitCost,
       costTotal: lineCostTotal('unit', unitCost, count),
       packCount: null,
+      weighMode: null,
+      moneyRole: 'payable',
+      notForSale,
     },
   }
 }
@@ -388,8 +606,10 @@ export function resolveMerchVisitLines(
   return { ok: true, lines }
 }
 
-export function merchVisitTotal(lines: Array<{ costTotal: number }>): number {
-  return lines.reduce((s, l) => s + Math.max(0, Math.round(l.costTotal)), 0)
+export function merchVisitTotal(lines: Array<{ costTotal: number; moneyRole?: MerchMoneyRole | null }>): number {
+  return lines.reduce((s, l) => (
+    lineEntersVisitTotal(l) ? s + Math.max(0, Math.round(l.costTotal)) : s
+  ), 0)
 }
 
 export interface MerchVisitFormLine {
@@ -406,6 +626,9 @@ export interface MerchVisitFormLine {
   unitCostRaw: string
   weighPieces: boolean
   costUnit: MerchCostUnit | null
+  weighMode: MerchWeighMode | null
+  moneyRole: MerchMoneyRole | null
+  notForSale: boolean
 }
 
 export function emptyMerchVisitFormLine(partial?: Partial<MerchVisitFormLine>): MerchVisitFormLine {
@@ -423,6 +646,9 @@ export function emptyMerchVisitFormLine(partial?: Partial<MerchVisitFormLine>): 
     unitCostRaw: '',
     weighPieces: false,
     costUnit: null,
+    weighMode: null,
+    moneyRole: null,
+    notForSale: false,
     ...partial,
   }
 }
@@ -506,9 +732,17 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
   const name = line.name.trim()
   if (!name) return { error: 'Indicá el producto.' }
   const costUnit = coerceMerchCostUnit(line.costUnit)
+  const moneyRole = coerceMerchMoneyRole(line.moneyRole)
+  // El pollo viejo marca weighPieces sin modalidad: sigue siendo un kilo por cajón.
+  const weighMode = coerceMerchWeighMode(line.weighMode)
+    ?? (line.weighPieces && costUnit === 'pack' ? 'each' : null)
   const parsedCost = parsePurchaseUnitCostRaw(line.unitCostRaw)
-  const allowZeroCost = costUnit !== 'pack' && line.weighPieces && !line.productId
-  if (!allowZeroCost && (parsedCost == null || parsedCost <= 0)) {
+  const isPieces = line.weighPieces && costUnit !== 'pack'
+  if (isPieces) {
+    if ((moneyRole === 'payable' || moneyRole === 'informed') && (parsedCost == null || parsedCost <= 0)) {
+      return { error: `Indicá el precio de ${name}.` }
+    }
+  } else if (parsedCost == null || parsedCost <= 0) {
     return {
       error: costUnit === 'pack'
         ? `Indicá el precio por cajón de ${name}.`
@@ -516,17 +750,21 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
     }
   }
   const unitCost = parsedCost ?? 0
-  const weightsKg = line.weighPieces || costUnit === 'pack'
+  const collectWeights = isPieces || (costUnit === 'pack' && (weighMode === 'each' || weighMode === 'total'))
+  const weightsKg = collectWeights
     ? line.weightRaws.map(raw => parseKgRaw(raw)).filter((n): n is number => n != null && n > 0)
     : []
-  const expectedPieces = costUnit === 'pack'
-    ? parsePesosRaw(line.packCountRaw)
-    : (line.weighPieces ? parsePesosRaw(line.countRaw) : null)
-  if (expectedPieces != null && expectedPieces > 0 && weightsKg.length !== expectedPieces) {
-    return {
-      error: costUnit === 'pack'
-        ? 'Cada cajón necesita su kilo.'
-        : 'Cargá el kilo de cada media res.',
+  if (costUnit === 'pack' && weighMode === 'total') {
+    if (weightsKg.length !== 1) return { error: 'Indicá el peso total.' }
+  } else if (costUnit === 'pack' && weighMode === 'each') {
+    const packs = parsePesosRaw(line.packCountRaw)
+    if (packs != null && packs > 0 && weightsKg.length !== packs) {
+      return { error: 'Cada cajón necesita su kilo.' }
+    }
+  } else if (isPieces) {
+    const pieces = parsePesosRaw(line.countRaw)
+    if (pieces != null && pieces > 0 && weightsKg.length !== pieces) {
+      return { error: 'Cargá el kilo de cada media res.' }
     }
   }
   return {
@@ -543,6 +781,9 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
     weightsKg,
     unitCost,
     costUnit,
+    weighMode,
+    moneyRole: isPieces ? (moneyRole ?? (unitCost > 0 ? 'informed' : 'none')) : (moneyRole ?? 'payable'),
+    notForSale: line.notForSale === true,
   }
 }
 
@@ -589,6 +830,9 @@ export function parseMerchVisitFormLines(raw: string | null | undefined): MerchV
         unitCostRaw: typeof r['unitCostRaw'] === 'string' ? r['unitCostRaw'] : '',
         weighPieces: r['weighPieces'] === true,
         costUnit: coerceMerchCostUnit(r['costUnit']),
+        weighMode: coerceMerchWeighMode(r['weighMode']),
+        moneyRole: coerceMerchMoneyRole(r['moneyRole']),
+        notForSale: r['notForSale'] === true,
       })
     }
     return lines.slice(0, MERCH_INTAKE_MAX_LINES)

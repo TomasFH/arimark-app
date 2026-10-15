@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   cashDiscountPreconditions,
   quoteCashDiscount,
@@ -9,7 +9,7 @@ import BagsPanel from './BagsPanel'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
 import type { ProductRow, SalePaymentPayload } from '../types/hw-api'
-import { Button, Modal } from './ui'
+import { Button, Modal, ModalCloseButton, useModalDismiss } from './ui'
 
 type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
 
@@ -177,19 +177,10 @@ export default function PaymentModal({
       ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(cashPreview.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(cashPreview.amountDue)}`
       : null
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        if (mode !== 'single') {
-          setMode('single')
-        } else {
-          onClose()
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [mode, onClose])
+  useModalDismiss(() => {
+    if (mode !== 'single') setMode('single')
+    else onClose()
+  }, { overlay: false })
 
   function handleSalePercentChange(value: string) {
     const next = clampPercentText(value)
@@ -403,6 +394,7 @@ export default function PaymentModal({
             </h2>
             <p className="text-2xl font-bold tabular-nums text-ink">{formatARS(chargeTotal)}</p>
           </div>
+          <ModalCloseButton onClick={onClose} />
         </div>
       )}
     >

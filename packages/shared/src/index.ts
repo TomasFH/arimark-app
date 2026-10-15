@@ -22,6 +22,9 @@ export {
   filterAndRankByName,
   searchProductsByQuery,
   matchVisitMerchProducts,
+  catalogPendingGap,
+  catalogPendingLabel,
+  compareWithCatalogPending,
 } from './catalogSearch'
 export {
   formatKgQty,
@@ -30,6 +33,18 @@ export {
   summarizeBudgetItems,
 } from './orderQty'
 export type { OrderQtyLine } from './orderQty'
+export {
+  roundPieceKg,
+  impliedPieceKg,
+  estimateKgFromPiece,
+  pieceWeightDecisions,
+} from './pieceWeight'
+export type {
+  PieceWeightLine,
+  PieceWeightUpdate,
+  PieceWeightChange,
+  PieceWeightDecisions,
+} from './pieceWeight'
 export {
   INJECT_REASONS,
   INJECT_REASON_LABELS,
@@ -89,12 +104,19 @@ export {
   DEFAULT_MAPLE_PACK_LABEL,
   MEDIA_RES_VISIT_NAME,
   MERCH_COST_UNITS,
+  MERCH_MONEY_ROLES,
+  MERCH_PAYMENT_CHANNELS,
   MERCH_VISIT_KINDS,
+  MERCH_WEIGH_MODES,
   PROVIDER_INTAKE_KINDS,
   PROVIDER_INTAKE_KIND_LABELS,
   coerceMerchCostUnit,
+  coerceMerchMoneyRole,
   coerceMerchVisitKind,
+  coerceMerchWeighMode,
   coerceProviderIntakeKind,
+  formatRecallCostUnit,
+  formatWeighMode,
   emptyChickenFormLine,
   emptyMediaResFormLine,
   emptyMerchVisitFormLine,
@@ -104,12 +126,14 @@ export {
   formatMerchVisitQty,
   formatPackCountLabel,
   lineCostTotal,
+  lineEntersVisitTotal,
   merchFormLineToDraft,
   merchProductKey,
   merchVisitReceiptItems,
   merchVisitTotal,
   parseMerchVisitFormLines,
   purchasePriceChanges,
+  purchaseRecallChanges,
   resizeWeightInputs,
   resolveMerchVisitLine,
   resolveMerchVisitLines,
@@ -118,12 +142,17 @@ export {
 export type {
   LastPurchasePrice,
   MerchCostUnit,
+  MerchMoneyRole,
+  MerchPaymentChannel,
   MerchVisitFormLine,
   MerchVisitKind,
   MerchVisitLineDraft,
   MerchVisitReceiptItem,
+  MerchWeighMode,
   ProviderIntakeKind,
+  PurchaseMemory,
   PurchasePriceChange,
+  PurchaseRecallChange,
 } from './merchVisit'
 export {
   addDiscountBlock,

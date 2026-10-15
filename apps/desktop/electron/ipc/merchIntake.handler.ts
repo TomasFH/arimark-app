@@ -10,10 +10,12 @@ import {
   merchandiseIntakeLines,
   merchandiseIntakeRubros,
   merchandiseIntakes,
+  products,
   providerDebtEvents,
   providers,
   stores,
   users,
+  catalogAuditEvents,
 } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
@@ -45,12 +47,15 @@ import {
   MERCH_INTAKE_NAME_MAX,
   MERCH_INTAKE_NOTES_MAX,
   MERCH_INTAKE_QUANTITY_MAX,
+  lineEntersVisitTotal,
   merchIntakeExpenseConcept,
+  merchNameKey,
   merchProductKey,
   merchVisitTotal,
   mondayWeekRange,
   parseMerchVisitFormLines,
   resolveMerchVisitLines,
+  type MerchIntakeLineSnapshot,
   type MerchVisitFormLine,
   type MerchVisitLineDraft,
   MERCH_VISIT_KINDS,
@@ -74,6 +79,9 @@ const visitLineDraftSchema = z.object({
   weightsKg: z.array(z.number().positive().max(MERCH_INTAKE_QUANTITY_MAX)).max(MERCH_INTAKE_MAX_WEIGHTS),
   unitCost: z.number().finite().nonnegative(),
   costUnit: z.enum(['kg', 'unit', 'pack']).nullable().optional(),
+  weighMode: z.enum(['each', 'total']).nullable().optional(),
+  moneyRole: z.enum(['payable', 'informed', 'none']).nullable().optional(),
+  notForSale: z.boolean().optional(),
 })
 
 const formLineSchema = z.object({
@@ -90,6 +98,9 @@ const formLineSchema = z.object({
   unitCostRaw: z.string().max(32),
   weighPieces: z.boolean(),
   costUnit: z.enum(['kg', 'unit', 'pack']).nullable().optional(),
+  weighMode: z.enum(['each', 'total']).nullable().optional(),
+  moneyRole: z.enum(['payable', 'informed', 'none']).nullable().optional(),
+  notForSale: z.boolean().optional(),
 })
 
 const saveDraftSchema = z.object({
@@ -116,6 +127,8 @@ const confirmSchema = z.object({
   crossStorePayment: z.number().min(0).optional(),
   acceptPriceUpdates: z.boolean(),
   visitKind: z.enum(MERCH_VISIT_KINDS).optional(),
+  clientRequestId: z.string().uuid().optional(),
+  paymentChannel: z.enum(['cash', 'digital']).optional(),
 }).refine(crossStorePaymentFits, { message: 'El pago de otro local no puede superar la deuda vieja pagada.' })
 
 const getPricesSchema = z.object({
@@ -163,6 +176,71 @@ function namesById(db: ReturnType<typeof getDb>, ids: string[]): Map<string, str
   const rows = db.select({ id: users.id, name: users.name }).from(users).all()
     .filter(u => unique.includes(u.id))
   return new Map(rows.map(u => [u.id, u.name]))
+}
+
+function saleUnitForLine(line: MerchIntakeLineSnapshot): 'kg' | 'unit' {
+  if (line.costUnit === 'unit' || line.costUnit === 'pack') return 'unit'
+  if (line.costUnit === 'kg' || line.template === 'weight' || line.template === 'pieces_weight') return 'kg'
+  return 'unit'
+}
+
+/**
+ * Crea el producto recién al confirmar, en la misma transacción.
+ * Sin PLU y sin precio de venta. «No se vende» no crea nada.
+ * La línea ya tiene su propia copia del nombre y del importe.
+ */
+function attachVisitProducts(
+  tx: Pick<ReturnType<typeof getDb>, 'insert' | 'select'>,
+  lines: MerchIntakeLineSnapshot[],
+  userId: string,
+  now: string,
+): void {
+  const active = tx.select({ id: products.id, name: products.name }).from(products)
+    .where(eq(products.active, true)).all()
+  const byName = new Map<string, string>()
+  for (const row of active) {
+    const key = merchNameKey(row.name)
+    if (!byName.has(key)) byName.set(key, row.id)
+  }
+  const byId = new Set(active.map(row => row.id))
+  for (const line of lines) {
+    if (line.notForSale) {
+      line.productId = null
+      continue
+    }
+    if (line.productId && byId.has(line.productId)) continue
+    const named = byName.get(line.nameKey || merchNameKey(line.rubroName))
+    if (named) {
+      line.productId = named
+      line.rubroId = named
+      continue
+    }
+    const id = uuidv4()
+    const name = line.rubroName.slice(0, 80)
+    tx.insert(products).values({
+      id,
+      name,
+      category: 'other',
+      unit: saleUnitForLine(line),
+      pluNumber: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    tx.insert(catalogAuditEvents).values({
+      id: uuidv4(),
+      productId: id,
+      storeId: null,
+      action: 'create',
+      actorUserId: userId,
+      summary: `Alta desde visita: ${name} (sin PLU)`.slice(0, 200),
+      createdAt: now,
+    }).run()
+    line.productId = id
+    line.rubroId = id
+    byName.set(line.nameKey || merchNameKey(name), id)
+    byId.add(id)
+  }
 }
 
 function reactivateArchivedProviderIfNeeded(
@@ -474,6 +552,8 @@ export function registerMerchIntakeHandlers(): void {
     name: string
     costUnit: 'kg' | 'unit' | 'pack'
     unitCost: number
+    packContents: number | null
+    weighMode: 'each' | 'total' | null
   }>>> => {
     const parsed = getPricesSchema.safeParse(payload)
     if (!parsed.success) {
@@ -495,6 +575,8 @@ export function registerMerchIntakeHandlers(): void {
           name: r.name,
           costUnit: r.costUnit,
           unitCost: r.unitCost,
+          packContents: r.packContents,
+          weighMode: r.weighMode,
         })),
       }
     } catch (err) {
@@ -517,6 +599,13 @@ export function registerMerchIntakeHandlers(): void {
     const notes = parsed.data.notes?.trim() || null
     try {
       const db = getDb()
+      if (parsed.data.clientRequestId) {
+        const prior = db.select().from(merchandiseIntakes)
+          .where(eq(merchandiseIntakes.clientRequestId, parsed.data.clientRequestId)).get()
+        if (prior?.status === 'confirmed') {
+          return { ok: true, data: { id: prior.id, expenseId: prior.expenseId } }
+        }
+      }
       if (parsed.data.debtStoreId) {
         const storeRow = db.select({ id: stores.id }).from(stores).where(eq(stores.id, parsed.data.debtStoreId)).get()
         if (!storeRow) {
@@ -549,17 +638,19 @@ export function registerMerchIntakeHandlers(): void {
         if (computed.lines.some(l => l.template !== 'pieces_weight' || (l.netKg ?? 0) <= 0 || (l.count ?? 0) <= 0)) {
           return { ok: false, error: 'Cargá el kilo de cada media res.', code: 'INVALID_LINE' }
         }
-      } else if (computed.lines.some(l => l.unitCost <= 0)) {
-        return { ok: false, error: 'Cada producto necesita el precio de compra.', code: 'INVALID_LINE' }
+      } else if (computed.lines.some(l => lineEntersVisitTotal(l) && l.unitCost <= 0)) {
+        return { ok: false, error: 'Cada producto que se paga necesita el precio de compra.', code: 'INVALID_LINE' }
       }
       const lines = computed.lines.map(line => ({ ...line, id: uuidv4() }))
       const visitTotal = merchVisitTotal(lines)
       const factsOnly = visitKind === 'media_res'
+      const paymentChannel = parsed.data.paymentChannel ?? 'cash'
       // paidAmount es la porción de ESTA visita. La deuda vieja no entra acá.
       const paidAmount = factsOnly ? 0 : (parsed.data.amount ?? 0)
       const debtAmount = factsOnly ? 0 : (parsed.data.newDebtAmount ?? 0)
       const paysOldDebt = factsOnly ? 0 : (parsed.data.paysOldDebt ?? 0)
-      const cashAmount = expenseCashAmount(paidAmount, paysOldDebt)
+      // Digital baja la deuda y no mueve la caja. El efectivo sigue sumando visita + deuda vieja.
+      const cashAmount = paymentChannel === 'digital' ? 0 : expenseCashAmount(paidAmount, paysOldDebt)
       const paymentKind = factsOnly
         ? 'none'
         : (paidAmount > 0 ? 'paid_now' : (debtAmount > 0 ? 'on_account' : 'none'))
@@ -574,6 +665,7 @@ export function registerMerchIntakeHandlers(): void {
       const effectiveDebtStoreId = parsed.data.debtStoreId ?? session.storeId
 
       db.transaction(tx => {
+        if (!factsOnly) attachVisitProducts(tx, lines, session.userId, now)
         if (!factsOnly && expenseId) {
           tx.insert(expenses).values({
             id: expenseId,
@@ -639,6 +731,8 @@ export function registerMerchIntakeHandlers(): void {
             updatedBy: session.userId,
             updatedAt: now,
             syncedAt: null,
+            clientRequestId: parsed.data.clientRequestId ?? null,
+            paymentChannel,
           }).where(eq(merchandiseIntakes.id, id)).run()
         } else {
           tx.insert(merchandiseIntakes).values({
@@ -657,18 +751,31 @@ export function registerMerchIntakeHandlers(): void {
             createdBy: session.userId,
             createdAt: now,
             syncedAt: null,
+            clientRequestId: parsed.data.clientRequestId ?? null,
+            paymentChannel,
           }).run()
         }
         replaceIntakeLines(tx, id, lines)
         if (!factsOnly) {
-          applyPurchasePrices(tx, {
-            providerId: resolved.id,
-            lines: lines.map(l => ({
-              productKey: merchProductKey(l.productId, l.rubroName),
+          const seenKeys = new Set<string>()
+          const memoryLines = []
+          for (const l of lines) {
+            if (l.notForSale || l.unitCost <= 0 || !l.costUnit) continue
+            const productKey = merchProductKey(l.productId, l.rubroName)
+            if (seenKeys.has(productKey)) continue
+            seenKeys.add(productKey)
+            memoryLines.push({
+              productKey,
               name: l.rubroName,
               costUnit: l.costUnit,
               unitCost: l.unitCost,
-            })),
+              packContents: l.costUnit === 'pack' ? l.packContents : null,
+              weighMode: l.weighMode,
+            })
+          }
+          applyPurchasePrices(tx, {
+            providerId: resolved.id,
+            lines: memoryLines,
             acceptPriceUpdates: parsed.data.acceptPriceUpdates,
             now,
           })
@@ -682,9 +789,20 @@ export function registerMerchIntakeHandlers(): void {
         hasExpense: !factsOnly,
         hasPrices: !factsOnly,
       })
-      log.info('[ipc:confirm-merch-visit] Visita confirmada', { id, expenseId, visitTotal, lineCount: lines.length, visitKind })
+      log.info('[ipc:confirm-merch-visit] Visita confirmada', { id, expenseId, visitTotal, lineCount: lines.length, visitKind, paymentChannel })
       return { ok: true, data: { id, expenseId } }
     } catch (err) {
+      if (parsed.data.clientRequestId) {
+        try {
+          const prior = getDb().select().from(merchandiseIntakes)
+            .where(eq(merchandiseIntakes.clientRequestId, parsed.data.clientRequestId)).get()
+          if (prior?.status === 'confirmed') {
+            return { ok: true, data: { id: prior.id, expenseId: prior.expenseId } }
+          }
+        } catch (lookupErr) {
+          log.error('[ipc:confirm-merch-visit] No se pudo releer la confirmación', lookupErr)
+        }
+      }
       log.error('[ipc:confirm-merch-visit] Error inesperado', err)
       return { ok: false, error: 'Error al confirmar la visita.' }
     }

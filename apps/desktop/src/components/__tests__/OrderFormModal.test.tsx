@@ -82,6 +82,8 @@ function installHw(): { createOrder: ReturnType<typeof vi.fn>; updateOrder: Retu
   const updateOrder = vi.fn().mockResolvedValue({ ok: true, data: sampleOrder() })
   window.hw = {
     getProducts: vi.fn().mockResolvedValue({ ok: true, data: [MORCILLA] }),
+    getPieceWeights: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    setPieceWeights: vi.fn().mockResolvedValue({ ok: true, data: { saved: 0 } }),
     getStores: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     createOrder,
     updateOrder,

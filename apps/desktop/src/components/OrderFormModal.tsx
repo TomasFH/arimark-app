@@ -5,11 +5,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import NumericInput from './NumericInput'
 import DecimalInput from './DecimalInput'
-import { Button, CollapseReveal, Modal, SuggestPopover } from './ui'
+import { Button, CollapseReveal, Modal, ModalCloseButton, SuggestPopover } from './ui'
 import { showAppToast } from './ui/AppToast'
-import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
+import { formatNumericInputValue, parseDecimalInput, parseNumericInput } from '../lib/numericInput'
 import { formatARS, formatYmd, todayLocalYmd } from '../lib/datetime'
 import { formatPhoneInput } from '../lib/phoneInput'
+import { estimateKgFromPiece, formatKgQty, pieceWeightDecisions, type PieceWeightChange } from '@carniceria/shared'
 import {
   blankOrderForm,
   clearOrderCreateDraft,
@@ -26,6 +27,7 @@ import {
   TIME_SLOT_LABELS,
   updateOrderCreateDraft,
   useOrderCreateDraft,
+  type BudgetCartDraft,
   type OrderFormState,
 } from '../lib/orderCreateDraft'
 import {
@@ -47,6 +49,20 @@ import type {
   StoreRow,
   UpdateOrderPayload,
 } from '../types/hw-api'
+
+function kgFieldValue(kg: number): string {
+  return String(kg).replace('.', ',')
+}
+
+function pieceDecisionsFor(cart: BudgetCartDraft[], stored: Record<string, number>) {
+  return pieceWeightDecisions(cart.flatMap(line => {
+    if (line.unit !== 'kg' || !line.productId) return []
+    const units = parseNumericInput(line.requestedUnitsRaw)
+    const totalKg = parseDecimalInput(line.qtyRaw)
+    if (units == null || units <= 0 || totalKg == null || totalKg <= 0) return []
+    return [{ productId: line.productId, name: line.name, totalKg, units }]
+  }), stored)
+}
 
 export interface OrderFormModalProps {
   open: boolean
@@ -83,6 +99,10 @@ export default function OrderFormModal({
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [showDepositConfirm, setShowDepositConfirm] = useState(false)
+  const [pieceWeights, setPieceWeights] = useState<Record<string, number>>({})
+  const [pieceChanges, setPieceChanges] = useState<PieceWeightChange[]>([])
+  const [showPiecePrompt, setShowPiecePrompt] = useState(false)
+  const pieceChoiceRef = useRef<'remember' | 'keep' | null>(null)
   const [catalog, setCatalog] = useState<ProductRow[]>([])
   const [fetchedStores, setFetchedStores] = useState<StoreRow[]>([])
   const [budgetSearch, setBudgetSearch] = useState('')
@@ -136,6 +156,14 @@ export default function OrderFormModal({
         if (cancelled) return
         console.error('[OrderFormModal] getProducts falló', err)
         setFormError(err instanceof Error ? err.message : 'No se pudo cargar el catálogo.')
+      })
+    window.hw.getPieceWeights()
+      .then(result => {
+        if (cancelled || !result.ok) return
+        setPieceWeights(Object.fromEntries(result.data.map(row => [row.productId, row.kgPerUnit])))
+      })
+      .catch(err => {
+        console.error('[OrderFormModal] getPieceWeights falló', err)
       })
     return () => { cancelled = true }
   }, [open])
@@ -266,6 +294,13 @@ export default function OrderFormModal({
       setFormError('Seleccioná el medio de pago de la seña.'); return
     }
 
+    const decisions = pieceDecisionsFor(form.budgetCart, pieceWeights)
+    if (decisions.changes.length > 0 && pieceChoiceRef.current == null) {
+      setPieceChanges(decisions.changes)
+      setShowPiecePrompt(true)
+      return
+    }
+
     if (total > 0) {
       setShowDepositConfirm(true)
       return
@@ -276,6 +311,26 @@ export default function OrderFormModal({
 
   async function doSave(): Promise<void> {
     setShowDepositConfirm(false)
+    const choice = pieceChoiceRef.current
+    pieceChoiceRef.current = null
+    const decisions = pieceDecisionsFor(form.budgetCart, pieceWeights)
+    const toStore = choice === 'remember'
+      ? [...decisions.first, ...decisions.changes]
+      : decisions.first
+    if (toStore.length > 0) {
+      const saved = await window.hw.setPieceWeights({
+        items: toStore.map(item => ({ productId: item.productId, kgPerUnit: item.kgPerUnit })),
+      })
+      if (!saved.ok) {
+        if (alive.current) setFormError(saved.error)
+        return
+      }
+      setPieceWeights(prev => {
+        const next = { ...prev }
+        for (const item of toStore) next[item.productId] = item.kgPerUnit
+        return next
+      })
+    }
     const customerName = form.customerName.trim()
     const pickupDate = form.pickupDate.trim()
     const total = depositTotal(form.depositPayments)
@@ -356,6 +411,7 @@ export default function OrderFormModal({
         unitPrice: product.price ?? 0,
         qtyRaw: '',
         requestedUnitsRaw: '',
+        pieceLinked: product.unit === 'kg' && pieceWeights[product.id] != null,
       }],
     }))
     setBudgetSearch('')
@@ -369,24 +425,14 @@ export default function OrderFormModal({
         onClose={requestClose}
         title={title}
         size="md"
-        closeOnOverlay={!saving && !showDepositConfirm}
-        closeOnEscape={!saving && !showDepositConfirm}
+        closeOnOverlay={!saving && !showDepositConfirm && !showPiecePrompt}
+        closeOnEscape={!saving && !showDepositConfirm && !showPiecePrompt}
         header={(
           <>
             <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">
               {title}
             </h2>
-            <button
-              type="button"
-              onClick={requestClose}
-              disabled={saving}
-              className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors disabled:opacity-40"
-              aria-label="Cerrar"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </button>
+            <ModalCloseButton onClick={requestClose} disabled={saving} />
           </>
         )}
         footer={(
@@ -498,6 +544,9 @@ export default function OrderFormModal({
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-ink truncate" title={line.name}>{line.name}</p>
                           <p className="text-[10px] text-muted">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                          {line.unit === 'kg' && line.productId && pieceWeights[line.productId] != null && (
+                            <p className="text-[10px] text-muted">Referencia {formatKgQty(pieceWeights[line.productId]!)} c/u</p>
+                          )}
                         </div>
                         <div className="shrink-0 w-20">
                           {line.unit === 'kg' ? (
@@ -506,7 +555,7 @@ export default function OrderFormModal({
                               value={line.qtyRaw}
                               onChange={value => patchForm(prev => ({
                                 ...prev,
-                                budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, qtyRaw: value } : item),
+                                budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, qtyRaw: value, pieceLinked: false } : item),
                               }))}
                               placeholder="kg"
                               maxDecimals={3}
@@ -540,7 +589,20 @@ export default function OrderFormModal({
                                 value={line.requestedUnitsRaw}
                                 onChange={value => patchForm(prev => ({
                                   ...prev,
-                                  budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, requestedUnitsRaw: value } : item),
+                                  budgetCart: prev.budgetCart.map((item, i) => {
+                                    if (i !== idx) return item
+                                    const units = parseNumericInput(value)
+                                    const piece = item.productId ? pieceWeights[item.productId] : undefined
+                                    const next = { ...item, requestedUnitsRaw: value }
+                                    if (piece != null && units != null && units > 0 && (item.pieceLinked || !item.qtyRaw.trim())) {
+                                      const kg = estimateKgFromPiece(units, piece)
+                                      if (kg != null) {
+                                        next.qtyRaw = kgFieldValue(kg)
+                                        next.pieceLinked = true
+                                      }
+                                    }
+                                    return next
+                                  }),
                                 }))}
                                 placeholder=""
                                 title="Unidades pedidas (opcional). Vacío = pidió kilos."
@@ -710,11 +772,37 @@ export default function OrderFormModal({
       </Modal>
 
       <Modal
+        open={open && showPiecePrompt}
+        onClose={() => { pieceChoiceRef.current = null; setShowPiecePrompt(false) }}
+        title="Peso por unidad"
+        size="sm"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => { pieceChoiceRef.current = 'keep'; setShowPiecePrompt(false); void handleSave() }}>
+              Usar ahora, no cambiar
+            </Button>
+            <Button onClick={() => { pieceChoiceRef.current = 'remember'; setShowPiecePrompt(false); void handleSave() }}>
+              Recordar los nuevos
+            </Button>
+          </>
+        )}
+      >
+        <p className="text-sm text-muted">Este peso por unidad es distinto al de la última vez. ¿Lo recordamos para el próximo pedido?</p>
+        <ul className="mt-3 space-y-2">
+          {pieceChanges.map(change => (
+            <li key={change.productId} className="flex items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate" title={change.name}>{change.name}</span>
+              <span className="shrink-0 tabular-nums text-muted">{formatKgQty(change.previous)} → {formatKgQty(change.kgPerUnit)}</span>
+            </li>
+          ))}
+        </ul>
+      </Modal>
+
+      <Modal
         open={open && showDepositConfirm}
         onClose={() => setShowDepositConfirm(false)}
         title={mode === 'edit' ? 'Confirmar cambios en el pedido' : 'Confirmar pedido con seña'}
         size="sm"
-        closeOnOverlay={false}
         footer={(
           <>
             <Button variant="secondary" onClick={() => setShowDepositConfirm(false)} disabled={saving}>

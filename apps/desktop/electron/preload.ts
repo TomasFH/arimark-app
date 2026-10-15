@@ -105,6 +105,10 @@ const hw: HwApi = {
 
   getProducts: () => ipcRenderer.invoke(IPC.GET_PRODUCTS),
 
+  getPieceWeights: () => ipcRenderer.invoke(IPC.GET_PIECE_WEIGHTS),
+
+  setPieceWeights: payload => ipcRenderer.invoke(IPC.SET_PIECE_WEIGHTS, payload),
+
   getAllProducts: (storeId) => ipcRenderer.invoke(IPC.GET_ALL_PRODUCTS, storeId),
 
   getStores: (payload?: { includeArchived?: boolean }) => ipcRenderer.invoke(IPC.GET_STORES, payload),

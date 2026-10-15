@@ -76,6 +76,12 @@ const IconMenu = () => (
   </svg>
 )
 
+const IconOrder = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12m-12 5.25h12m-12 5.25h7.5M3.75 6.75h.008v.008H3.75V6.75Zm0 5.25h.008v.008H3.75v-.008Zm0 5.25h.008v.008H3.75v-.008Z" />
+  </svg>
+)
+
 const IconCart = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
@@ -882,9 +888,11 @@ export default function CashierScreen({
     return () => document.removeEventListener('keydown', onKey)
   }, [showMenuPanel])
 
-  const railActive: 'menu' | 'venta' | 'vales' | 'gastos' | 'turno' = showMenuPanel
+  const railActive: 'menu' | 'venta' | 'pedido' | 'vales' | 'gastos' | 'turno' = showMenuPanel
     ? 'menu'
-    : showValesModal
+    : showOrderForm
+      ? 'pedido'
+      : showValesModal
       ? 'vales'
       : showExpenseModal
         ? 'gastos'
@@ -913,6 +921,16 @@ export default function CashierScreen({
           label="Venta"
           onClick={() => setShowMenuPanel(false)}
           active={railActive === 'venta'}
+        />
+        <SidebarBtn
+          icon={<IconOrder />}
+          label="Pedido"
+          onClick={() => {
+            setShowMenuPanel(false)
+            seedOrderCreateDraft(session.storeId ?? '')
+            setShowOrderForm(true)
+          }}
+          active={railActive === 'pedido'}
         />
         <SidebarBtn
           icon={<IconBanknote />}
@@ -1207,29 +1225,16 @@ export default function CashierScreen({
                     </div>
                   )}
 
-                  <div className="flex items-stretch gap-2">
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      className="!h-14 shrink-0 px-3 text-sm"
-                      onClick={() => {
-                        seedOrderCreateDraft(session.storeId ?? '')
-                        setShowOrderForm(true)
-                      }}
-                    >
-                      Tomar pedido
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      loading={loading}
-                      disabled={cart.length === 0 || pendingCatalog}
-                      onClick={openPaymentModal}
-                      className="!h-14 min-w-0 flex-1 text-lg"
-                    >
-                      Cobrar
-                    </Button>
-                  </div>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    loading={loading}
+                    disabled={cart.length === 0 || pendingCatalog}
+                    onClick={openPaymentModal}
+                    className="!h-14 w-full text-lg"
+                  >
+                    Cobrar
+                  </Button>
                 </div>
               </div>
 

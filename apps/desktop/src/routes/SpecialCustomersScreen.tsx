@@ -28,6 +28,7 @@ import type {
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 
 interface Props {
   onBack?: () => void
@@ -613,22 +614,17 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
       </div>
 
       {formOpen && isAdmin && (
-        <div
+        <ModalLayer
+          onClose={closeForm}
+          enabled={!formSaving}
           className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={e => { if (e.target === e.currentTarget && !formSaving) closeForm() }}
         >
           <div className="w-full sm:max-w-lg bg-raised rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-line flex items-center justify-between">
-              <h2 className="text-base font-semibold">
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between gap-2 min-w-0">
+              <h2 className="min-w-0 flex-1 truncate text-base font-semibold" title={editingCustomer ? 'Editar cliente especial' : 'Nuevo cliente especial'}>
                 {editingCustomer ? 'Editar cliente especial' : 'Nuevo cliente especial'}
               </h2>
-              <button
-                onClick={closeForm}
-                disabled={formSaving}
-                className="text-muted hover:text-ink text-xl disabled:opacity-40"
-              >
-                ×
-              </button>
+              <ModalCloseButton onClick={closeForm} disabled={formSaving} />
             </div>
 
             <div className="px-5 py-4 space-y-4">
@@ -682,7 +678,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
     </div>
   )

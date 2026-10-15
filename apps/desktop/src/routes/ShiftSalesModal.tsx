@@ -10,7 +10,7 @@ import { exceptionalDiscountLabel } from '@carniceria/shared'
 import type { ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
 import { summarizePaymentMethods } from '../lib/paymentMethod'
-import { Button, Modal } from '../components/ui'
+import { Button, Modal, ModalCloseButton } from '../components/ui'
 
 interface Props {
   onClose: () => void
@@ -88,6 +88,7 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
       size="xl"
       title="Ventas del turno"
       header={
+        <>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold text-ink">Ventas del turno</h2>
           <p className="text-xs text-muted">
@@ -96,6 +97,8 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
               : 'Cargando…'}
           </p>
         </div>
+        <ModalCloseButton onClick={onClose} />
+        </>
       }
       footer={
         sales && confirmedSales.length > 0 ? (

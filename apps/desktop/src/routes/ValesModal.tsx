@@ -22,7 +22,7 @@ import { valeLineFromBarcode } from '../lib/barcodeItem'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
-import { Button, Modal } from '../components/ui'
+import { Button, Modal, ModalCloseButton } from '../components/ui'
 
 type Mode = 'products' | 'advance'
 
@@ -345,12 +345,15 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
       size="lg"
       className="!max-w-3xl"
       header={(
+        <>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold tracking-tight text-ink" title="Vales / adelantos">Vales / adelantos</h2>
           <p className="mt-0.5 truncate text-[10px] text-muted" title={weekLabel}>
             Semana {weekLabel}
           </p>
         </div>
+        <ModalCloseButton onClick={onClose} disabled={saving} />
+        </>
       )}
       footer={(
         <>

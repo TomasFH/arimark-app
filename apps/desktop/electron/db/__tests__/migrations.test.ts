@@ -562,6 +562,28 @@ describe('migrations', () => {
     expect(intake.paidAmount).toBe(9000)
   })
 
+  it('agrega forma de compra e idempotencia (migración 0052)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const priceCols = sqlite.prepare('PRAGMA table_info(provider_purchase_prices)').all() as { name: string }[]
+    const lineCols = sqlite.prepare('PRAGMA table_info(merchandise_intake_lines)').all() as { name: string }[]
+    const intakeCols = sqlite.prepare('PRAGMA table_info(merchandise_intakes)').all() as { name: string }[]
+    expect(priceCols.map(c => c.name)).toEqual(expect.arrayContaining(['pack_contents', 'weigh_mode']))
+    expect(lineCols.map(c => c.name)).toEqual(expect.arrayContaining(['weigh_mode', 'money_role', 'not_for_sale']))
+    expect(intakeCols.map(c => c.name)).toEqual(expect.arrayContaining(['client_request_id', 'payment_channel']))
+  })
+
+  it('agrega el peso de referencia por unidad (migración 0053)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const cols = sqlite.prepare('PRAGMA table_info(product_piece_weights)').all() as { name: string }[]
+    expect(cols.map(c => c.name)).toEqual(expect.arrayContaining(['product_id', 'kg_per_unit', 'updated_at']))
+  })
+
+  it('agrega el concepto recordado de insumos (migración 0054)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const cols = sqlite.prepare('PRAGMA table_info(providers)').all() as { name: string }[]
+    expect(cols.map(c => c.name)).toContain('supply_concept')
+  })
+
   it('tiene el índice idx_debt_events_customer', async () => {
     const { db } = await createInMemoryDb()
     const indexes = db.all(

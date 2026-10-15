@@ -13,6 +13,7 @@ import { registerMerchIntakeHandlers } from './merchIntake.handler'
 import { registerKretzPluHandlers } from './kretzPlu.handler'
 import { registerKretzSyncHandler } from './kretzSync.handler'
 import { registerProductsHandlers } from './products.handler'
+import { registerPieceWeightHandlers } from './pieceWeight.handler'
 import { registerCatalogAdminHandlers } from './catalogAdmin.handler'
 import { registerCashiersHandlers } from './cashiers.handler'
 import { registerCustomerHandlers } from './customers.handler'
@@ -48,6 +49,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerKretzPluHandlers(manager)
   registerKretzSyncHandler(manager)
   registerProductsHandlers()
+  registerPieceWeightHandlers()
   registerCatalogAdminHandlers()
   registerCashiersHandlers()
   registerCustomerHandlers()

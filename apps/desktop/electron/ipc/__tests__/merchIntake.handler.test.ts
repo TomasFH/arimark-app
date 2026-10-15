@@ -7,6 +7,7 @@ import {
   merchandiseIntakes,
   merchandiseIntakeLines,
   expenses,
+  products,
   providerDebtEvents,
   providerPurchasePrices,
   providers,
@@ -576,5 +577,155 @@ describe('merchIntake.handler visita', () => {
     expect(list.ok).toBe(true)
     expect(list.data).toHaveLength(0)
     expect(vi.mocked(pullMerchandiseIntakesForStoreWeek)).toHaveBeenCalled()
+  })
+
+  it('rechaza un renglón que se paga sin precio', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{ ...MAPLE_LINE, unitCost: 0 }],
+      provider: 'Oso',
+      amount: 0,
+      acceptPriceUpdates: true,
+    }) as { ok: boolean; code?: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('INVALID_LINE')
+  })
+
+  it('no duplica la visita si la pantalla reintenta la misma confirmación', () => {
+    const clientRequestId = '6f1e8b2a-1c3d-4e5f-9a0b-1c2d3e4f5a6b'
+    const payload = {
+      lines: [MAPLE_LINE],
+      provider: 'Oso',
+      amount: 18_000,
+      acceptPriceUpdates: true,
+      clientRequestId,
+    }
+    const first = getHandler('ipc:confirm-merch-visit')(null, payload) as { ok: boolean; data: { id: string } }
+    const second = getHandler('ipc:confirm-merch-visit')(null, payload) as { ok: boolean; data: { id: string } }
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(second.data.id).toBe(first.data.id)
+    expect(db.select().from(merchandiseIntakes).all()).toHaveLength(1)
+    expect(db.select().from(expenses).all()).toHaveLength(1)
+  })
+
+  it('el pago digital baja la deuda y no mueve la caja', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [MAPLE_LINE],
+      provider: 'Oso',
+      amount: 18_000,
+      paysOldDebt: 2_000,
+      acceptPriceUpdates: true,
+      paymentChannel: 'digital',
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(0)
+    const payment = db.select().from(providerDebtEvents).all().find(e => e.type === 'payment')
+    expect(payment?.amount).toBe(2_000)
+    expect(db.select().from(merchandiseIntakes).all()[0]?.paymentChannel).toBe('digital')
+    expect(db.select().from(merchandiseIntakes).all()[0]?.paidAmount).toBe(18_000)
+  })
+
+  it('crea el producto al confirmar y descartar el borrador no lo crea', () => {
+    const discarded = getHandler('ipc:save-merch-visit-draft')(null, {
+      provider: 'Oso',
+      lines: [{
+        ...FORM_LINE,
+        productId: null,
+        name: 'Corte nuevo',
+        catalogUnit: 'kg',
+        kgRaw: '2',
+        packCountRaw: '',
+        unitCostRaw: '1.000,00',
+      }],
+    }) as { ok: boolean }
+    expect(discarded.ok).toBe(true)
+    expect(db.select().from(products).all()).toHaveLength(0)
+    getHandler('ipc:discard-merch-visit-draft')(null)
+    expect(db.select().from(products).all()).toHaveLength(0)
+
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{
+        productId: null,
+        name: 'Corte nuevo',
+        catalogUnit: 'kg',
+        purchasePackLabel: null,
+        purchasePackContents: null,
+        kg: 2,
+        packCount: null,
+        count: null,
+        weightsKg: [],
+        unitCost: 1000,
+      }],
+      provider: 'Oso',
+      amount: 2_000,
+      acceptPriceUpdates: true,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    const created = db.select().from(products).all()
+    expect(created).toHaveLength(1)
+    expect(created[0]?.pluNumber ?? null).toBeNull()
+    expect(created[0]?.name).toBe('Corte nuevo')
+    const line = db.select().from(merchandiseIntakeLines).all()[0]
+    expect(line?.rubroName).toBe('Corte nuevo')
+    expect(line?.costTotal).toBe(2_000)
+    db.update(products).set({ active: false }).run()
+    const after = db.select().from(merchandiseIntakeLines).all()[0]
+    expect(after?.rubroName).toBe('Corte nuevo')
+    expect(after?.costTotal).toBe(2_000)
+  })
+
+  it('el costo informado no entra a la caja ni a la deuda', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [
+        MAPLE_LINE,
+        {
+          productId: null,
+          name: 'Media res',
+          catalogUnit: null,
+          purchasePackLabel: null,
+          purchasePackContents: null,
+          kg: null,
+          packCount: null,
+          count: null,
+          weightsKg: [100],
+          unitCost: 2000,
+          moneyRole: 'informed',
+        },
+      ],
+      provider: 'Oso',
+      amount: 18_000,
+      acceptPriceUpdates: false,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(18_000)
+    expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
+    const media = db.select().from(merchandiseIntakeLines).all().find(l => l.rubroName === 'Media res')
+    expect(media?.moneyRole).toBe('informed')
+    expect(media?.costTotal).toBe(200_000)
+  })
+
+  it('no se vende suma y no crea producto', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{
+        productId: null,
+        name: 'Lavandina',
+        catalogUnit: 'unit',
+        purchasePackLabel: null,
+        purchasePackContents: null,
+        kg: null,
+        packCount: null,
+        count: 2,
+        weightsKg: [],
+        unitCost: 1500,
+        notForSale: true,
+      }],
+      provider: 'Oso',
+      amount: 3_000,
+      acceptPriceUpdates: true,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    expect(db.select().from(products).all()).toHaveLength(0)
+    expect(db.select().from(expenses).all()[0]?.amount).toBe(3_000)
+    expect(db.select().from(merchandiseIntakeLines).all()[0]?.notForSale).toBe(true)
   })
 })

@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import BackButton from '../components/BackButton'
 import { formatKg, toLocalDate, toLocalDateTime } from '../lib/datetime'
 import type { StockCountDetail, StockCountRow, StoreRow } from '../types/hw-api'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 import StockCountModal from './StockCountModal'
 
 interface Props {
@@ -263,11 +264,9 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
       </div>
 
       {(detail || detailLoading) && (
-        <div
+        <ModalLayer
+          onClose={() => setDetail(null)}
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4"
-          onClick={e => {
-            if (e.target === e.currentTarget) setDetail(null)
-          }}
         >
           <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-line bg-raised shadow-2xl">
             <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-line">
@@ -282,13 +281,7 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setDetail(null)}
-                className="shrink-0 text-muted hover:text-ink px-2"
-              >
-                ✕
-              </button>
+              <ModalCloseButton onClick={() => setDetail(null)} />
             </div>
             <div className="shrink-0 px-4 pt-3 pb-2 bg-raised border-b border-line">
               {!detailLoading && detail && (
@@ -357,7 +350,7 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
               </div>
             )}
           </div>
-        </div>
+        </ModalLayer>
       )}
 
       {showNew && (

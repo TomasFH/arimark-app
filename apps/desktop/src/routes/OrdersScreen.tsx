@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import NumericInput from '../components/NumericInput'
-import { ActionMenu, Button, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, ModalCloseButton, ModalLayer, ScreenHeader } from '../components/ui'
 import DecimalInput from '../components/DecimalInput'
 import OrderFormModal from '../components/OrderFormModal'
 import { parseNumericInput, parseDecimalInput } from '../lib/numericInput'
@@ -98,9 +98,12 @@ interface ConfirmModalProps {
 
 function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-accent hover:bg-accent', onConfirm, onCancel }: ConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+    <ModalLayer onClose={onCancel} className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-panel rounded-2xl border border-line w-full max-w-sm p-6 space-y-4 overflow-hidden animate-modal-enter">
-        <h2 className="text-base font-semibold text-ink break-words">{title}</h2>
+        <div className="flex items-start gap-2 min-w-0">
+          <h2 className="min-w-0 flex-1 text-base font-semibold text-ink break-words">{title}</h2>
+          <ModalCloseButton onClick={onCancel} />
+        </div>
         <div className="text-sm text-muted break-words">{message}</div>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2 rounded-xl border border-line text-ink hover:bg-hover transition-colors">
@@ -111,7 +114,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmClassName = 'bg-acc
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -518,7 +521,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       {/* Cobro de pedido (resto − seña) */}
       {/* Modal de cobro por POS (nuevo flujo) */}
       {chargeModalOrder && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-overlay-fade">
+        <ModalLayer onClose={() => setChargeModalOrder(null)} className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-overlay-fade">
           <div className="w-full sm:max-w-lg bg-panel rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
             <div className="px-5 py-4 border-b border-line flex items-center justify-between">
               <div>
@@ -530,7 +533,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                   )}
                 </p>
               </div>
-              <button onClick={() => setChargeModalOrder(null)} className="text-muted hover:text-ink text-xl shrink-0 ml-2">×</button>
+              <ModalCloseButton onClick={() => setChargeModalOrder(null)} />
             </div>
             <div className="px-5 py-4 space-y-3">
               {chargeCartLines.length > 0 ? (
@@ -610,7 +613,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
               </div>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
 
       {/* Modales de confirmación de estado */}

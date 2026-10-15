@@ -271,6 +271,11 @@ export interface SaleItemDraft {
 // ---------------------------------------------------------------------------
 export type ProductCategory = 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags'
 
+export interface PieceWeightRow {
+  productId: string
+  kgPerUnit: number
+}
+
 export interface ProductRow {
   id: string
   name: string
@@ -898,6 +903,8 @@ export interface ProviderRow {
   archivedAt?: string
   /** null = todavía no se eligió qué trae. UI: Productos / Media res / Pollo. */
   intakeKind: ProviderIntakeKind | null
+  /** Último texto de “Qué se pagó” cuando la visita fue solo insumos. */
+  supplyConcept?: string | null
 }
 
 export interface ProviderWithDebtRow {
@@ -1562,6 +1569,10 @@ export interface HwApi {
   /** Retorna todos los productos del catálogo con PLU asignado, ordenados por PLU asc */
   getProducts: () => Promise<IpcResult<ProductRow[]>>
 
+  /** Kilos de referencia por unidad, para estimar pedidos. No es el peso del ticket. */
+  getPieceWeights: () => Promise<IpcResult<PieceWeightRow[]>>
+  setPieceWeights: (payload: { items: Array<{ productId: string; kgPerUnit: number }> }) => Promise<IpcResult<{ saved: number }>>
+
   /** Retorna todos los productos (con y sin PLU) con precio y disponibilidad para el local dado — solo admin */
   getAllProducts: (storeId: string) => Promise<IpcResult<AdminProductRow[]>>
 
@@ -1780,12 +1791,16 @@ export interface HwApi {
     crossStorePayment?: number
     acceptPriceUpdates: boolean
     visitKind?: ProviderIntakeKind
+    clientRequestId?: string
+    paymentChannel?: 'cash' | 'digital'
   }) => Promise<IpcResult<{ id: string; expenseId: string | null }>>
   getProviderPurchasePrices: (payload: { providerId: string }) => Promise<IpcResult<Array<{
     productKey: string
     name: string
     costUnit: 'kg' | 'unit' | 'pack'
     unitCost: number
+    packContents: number | null
+    weighMode: 'each' | 'total' | null
   }>>>
   listMerchRubros: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<MerchRubroRow[]>>
   createMerchRubro: (payload: {
@@ -1820,6 +1835,8 @@ export interface HwApi {
     providerId?: string
     provider?: string
     intakeKind: ProviderIntakeKind
+    /** Solo se guarda cuando la visita es de insumos. */
+    supplyConcept?: string
   }) => Promise<IpcResult<ProviderRow>>
   /** Archiva un proveedor (lo oculta; conserva deuda e historial). */
   archiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>

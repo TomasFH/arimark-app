@@ -61,11 +61,17 @@ export async function getProviderPurchasePriceMap(providerId: string): Promise<P
             const unitCost = typeof rawCost === 'number' ? roundPurchaseUnitCost(rawCost) : Number.NaN
             const name = typeof row['name'] === 'string' ? row['name'] : ''
             if ((costUnit !== 'kg' && costUnit !== 'unit' && costUnit !== 'pack') || !Number.isFinite(unitCost) || unitCost < 0 || !name) continue
+            const packContents = typeof row['packContents'] === 'number' && Number.isInteger(row['packContents']) && row['packContents'] > 0
+              ? row['packContents']
+              : null
+            const weighMode = row['weighMode'] === 'each' || row['weighMode'] === 'total' ? row['weighMode'] : null
             items[key] = {
               name,
               costUnit,
               unitCost,
               updatedAt: typeof row['updatedAt'] === 'string' ? row['updatedAt'] : new Date().toISOString(),
+              packContents,
+              weighMode,
             }
           }
           await db.providerPurchasePrices.put({
@@ -102,6 +108,7 @@ export async function applyMobilePurchasePrices(opts: {
     const previous = prev ? roundPurchaseUnitCost(prev.unitCost) : null
     if (previous != null && previous !== unitCost && !opts.acceptPriceUpdates) continue
     items[line.productKey] = {
+      ...prev,
       name: line.name.slice(0, 80),
       costUnit: line.costUnit,
       unitCost,

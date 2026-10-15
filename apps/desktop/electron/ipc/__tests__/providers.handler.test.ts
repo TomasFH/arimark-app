@@ -170,9 +170,11 @@ describe('providers.handler', () => {
       const result = await (handler(null, {
         provider: 'Maxilimp',
         intakeKind: 'insumos',
-      }) as Promise<{ ok: boolean; data: { id: string; intakeKind: string | null } }>)
+        supplyConcept: 'Lavandina',
+      }) as Promise<{ ok: boolean; data: { id: string; intakeKind: string | null; supplyConcept?: string | null } }>)
       expect(result.ok).toBe(true)
       expect(result.data.intakeKind).toBe('insumos')
+      expect(result.data.supplyConcept).toBe('Lavandina')
     })
 
     it('rechaza payload sin tipo', async () => {

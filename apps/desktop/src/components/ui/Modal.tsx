@@ -1,6 +1,106 @@
-import { createContext, useContext, useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { cx } from './cx'
+
+const dismissStack: Array<{ close: () => void }> = []
+
+/** Cierre compartido: Escape (solo el modal de arriba) y clic que empieza y termina en el fondo. */
+export function useModalDismiss(
+  onClose: () => void,
+  opts?: { escape?: boolean; overlay?: boolean },
+) {
+  const escape = opts?.escape !== false
+  const overlay = opts?.overlay !== false
+  const onCloseRef = useRef(onClose)
+  const overlayDownRef = useRef(false)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    if (!escape) return
+    const entry = { close: () => onCloseRef.current() }
+    dismissStack.push(entry)
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      if (dismissStack[dismissStack.length - 1] !== entry) return
+      event.preventDefault()
+      event.stopPropagation()
+      entry.close()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      const index = dismissStack.indexOf(entry)
+      if (index >= 0) dismissStack.splice(index, 1)
+    }
+  }, [escape])
+
+  return {
+    onPointerDown(event: ReactPointerEvent) {
+      if (!overlay) return
+      overlayDownRef.current = event.button === 0 && event.target === event.currentTarget
+    },
+    onPointerUp(event: ReactPointerEvent) {
+      const started = overlayDownRef.current
+      overlayDownRef.current = false
+      if (!overlay || !started) return
+      if (event.target === event.currentTarget) onCloseRef.current()
+    },
+    onPointerCancel() {
+      overlayDownRef.current = false
+    },
+  }
+}
+
+const CLOSE_ICON = (
+  <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+  </svg>
+)
+
+export function ModalCloseButton({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink disabled:opacity-40"
+      aria-label="Cerrar"
+      title="Cerrar"
+    >
+      {CLOSE_ICON}
+    </button>
+  )
+}
+
+/** Fondo de un modal armado a mano: Escape y clic afuera, sin cerrar por arrastre. */
+export function ModalLayer({
+  onClose,
+  enabled = true,
+  escape = enabled,
+  overlay = enabled,
+  className,
+  children,
+}: {
+  onClose: () => void
+  enabled?: boolean
+  escape?: boolean
+  overlay?: boolean
+  className?: string
+  children: ReactNode
+}) {
+  const dismiss = useModalDismiss(onClose, { escape, overlay })
+  return (
+    <div className={className} {...(overlay ? dismiss : {})}>
+      {children}
+    </div>
+  )
+}
 
 const ModalSuggestLayerContext = createContext<RefObject<HTMLElement | null> | null>(null)
 
@@ -59,71 +159,31 @@ export function Modal({
 }: ModalProps) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
-  const overlayRef = useRef<HTMLDivElement>(null)
   const suggestLayerRef = useRef<HTMLElement | null>(null)
-  const onCloseRef = useRef(onClose)
-  const overlayPointerDownRef = useRef(false)
-  onCloseRef.current = onClose
+  const dismiss = useModalDismiss(onClose, {
+    escape: open && closeOnEscape,
+    overlay: open && closeOnOverlay,
+  })
 
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement
     panelRef.current?.focus()
-
-    function onKey(event: KeyboardEvent) {
-      if (event.key !== 'Escape' || !closeOnEscape) return
-      event.stopPropagation()
-      onCloseRef.current()
-    }
-
-    document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('keydown', onKey)
       if (previous instanceof HTMLElement) previous.focus()
     }
-  }, [open, closeOnEscape])
-
-  // Cerrar el overlay solo si el puntero se apretó y se soltó ahí.
-  // Un arrastre que empieza adentro del panel y termina afuera no cierra.
-  // No cerrar en pointerdown: el cierre es el pointerup.
-  useEffect(() => {
-    if (!open || !closeOnOverlay) return
-
-    function onPointerDown(event: PointerEvent) {
-      const overlay = overlayRef.current
-      const primary = event.button === 0 || event.button === undefined
-      overlayPointerDownRef.current = overlay != null && primary && event.target === overlay
-    }
-
-    function onPointerUp(event: PointerEvent) {
-      const startedOnOverlay = overlayPointerDownRef.current
-      overlayPointerDownRef.current = false
-      if (!startedOnOverlay) return
-      if (event.target === overlayRef.current) onCloseRef.current()
-    }
-
-    function onPointerCancel() {
-      overlayPointerDownRef.current = false
-    }
-
-    document.addEventListener('pointerdown', onPointerDown, true)
-    document.addEventListener('pointerup', onPointerUp, true)
-    document.addEventListener('pointercancel', onPointerCancel, true)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true)
-      document.removeEventListener('pointerup', onPointerUp, true)
-      document.removeEventListener('pointercancel', onPointerCancel, true)
-      overlayPointerDownRef.current = false
-    }
-  }, [open, closeOnOverlay])
+  }, [open])
 
   if (!open) return null
 
   const heading = header ?? (
     title != null && title !== '' ? (
-      <h2 id={titleId} className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink" title={typeof title === 'string' ? title : undefined}>
-        {title}
-      </h2>
+      <>
+        <h2 id={titleId} className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink" title={typeof title === 'string' ? title : undefined}>
+          {title}
+        </h2>
+        <ModalCloseButton onClick={onClose} />
+      </>
     ) : null
   )
 
@@ -133,9 +193,9 @@ export function Modal({
       role="presentation"
     >
       <div
-        ref={overlayRef}
         data-modal-overlay=""
         className={cx('absolute inset-0 bg-overlay', !closeOnOverlay && 'pointer-events-none')}
+        {...(closeOnOverlay ? dismiss : undefined)}
       />
       <ModalSuggestLayerContext.Provider value={suggestLayerRef}>
       <div

@@ -37,6 +37,8 @@ export interface BudgetCartDraft extends BudgetCartLine {
   qtyRaw: string
   /** Unidades pedidas (solo productos kg). Vacío = pidió kilos. */
   requestedUnitsRaw: string
+  /** El kg sigue a las unidades por la referencia. Un peso escrito a mano lo apaga. */
+  pieceLinked?: boolean
 }
 
 export interface OrderFormState {

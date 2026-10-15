@@ -384,7 +384,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
         onClose={() => setShowEmptyConfirm(false)}
         title="¿Caja vacía?"
         size="sm"
-        closeOnOverlay={false}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowEmptyConfirm(false)}>

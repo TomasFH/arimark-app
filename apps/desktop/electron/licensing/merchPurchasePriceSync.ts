@@ -8,7 +8,13 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { providerPurchasePrices } from '../db/schema'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
-import { coerceMerchCostUnit, roundPurchaseUnitCost, type MerchCostUnit } from '@carniceria/shared'
+import {
+  coerceMerchCostUnit,
+  coerceMerchWeighMode,
+  roundPurchaseUnitCost,
+  type MerchCostUnit,
+  type MerchWeighMode,
+} from '@carniceria/shared'
 
 export interface PurchasePriceRow {
   providerId: string
@@ -16,7 +22,14 @@ export interface PurchasePriceRow {
   name: string
   costUnit: MerchCostUnit
   unitCost: number
+  packContents: number | null
+  weighMode: MerchWeighMode | null
   updatedAt: string
+}
+
+function packContentsOf(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) return null
+  return value
 }
 
 export async function pullProviderPurchasePrices(
@@ -41,6 +54,8 @@ export async function pullProviderPurchasePrices(
     const unitCost = typeof rawCost === 'number' ? roundPurchaseUnitCost(rawCost) : Number.NaN
     const name = typeof row['name'] === 'string' ? row['name'].trim() : ''
     if (!costUnit || !Number.isFinite(unitCost) || unitCost < 0 || !name) continue
+    const packContents = packContentsOf(row['packContents'])
+    const weighMode = coerceMerchWeighMode(row['weighMode'])
     const updatedAt = typeof row['updatedAt'] === 'string' ? row['updatedAt'] : now
     const existing = db.select().from(providerPurchasePrices).where(and(
       eq(providerPurchasePrices.providerId, providerId),
@@ -53,11 +68,13 @@ export async function pullProviderPurchasePrices(
       name: name.slice(0, 80),
       costUnit,
       unitCost,
+      packContents,
+      weighMode,
       updatedAt,
       syncedAt: now,
     }).onConflictDoUpdate({
       target: [providerPurchasePrices.providerId, providerPurchasePrices.productKey],
-      set: { name: name.slice(0, 80), costUnit, unitCost, updatedAt, syncedAt: now },
+      set: { name: name.slice(0, 80), costUnit, unitCost, packContents, weighMode, updatedAt, syncedAt: now },
     }).run()
   }
 }
@@ -79,12 +96,21 @@ export async function pushUnsyncedProviderPurchasePrices(tenantId: string): Prom
   for (const [providerId, rows] of byProvider) {
     try {
       const all = db.select().from(providerPurchasePrices).where(eq(providerPurchasePrices.providerId, providerId)).all()
-      const items: Record<string, { name: string; costUnit: string; unitCost: number; updatedAt: string }> = {}
+      const items: Record<string, {
+        name: string
+        costUnit: string
+        unitCost: number
+        packContents: number | null
+        weighMode: string | null
+        updatedAt: string
+      }> = {}
       for (const row of all) {
         items[row.productKey] = {
           name: row.name,
           costUnit: row.costUnit,
           unitCost: row.unitCost,
+          packContents: row.packContents,
+          weighMode: row.weighMode,
           updatedAt: row.updatedAt,
         }
       }
@@ -119,6 +145,8 @@ export function localPurchasePrices(providerId: string): PurchasePriceRow[] {
       name: r.name,
       costUnit: r.costUnit,
       unitCost: r.unitCost,
+      packContents: r.packContents,
+      weighMode: coerceMerchWeighMode(r.weighMode),
       updatedAt: r.updatedAt,
     }))
 }
@@ -127,7 +155,14 @@ export function applyPurchasePrices(
   tx: Pick<ReturnType<typeof getDb>, 'insert' | 'select'>,
   opts: {
     providerId: string
-    lines: Array<{ productKey: string; name: string; costUnit: MerchCostUnit | null; unitCost: number }>
+    lines: Array<{
+      productKey: string
+      name: string
+      costUnit: MerchCostUnit | null
+      unitCost: number
+      packContents?: number | null
+      weighMode?: MerchWeighMode | null
+    }>
     acceptPriceUpdates: boolean
     now: string
   },
@@ -139,14 +174,24 @@ export function applyPurchasePrices(
       eq(providerPurchasePrices.providerId, opts.providerId),
       eq(providerPurchasePrices.productKey, line.productKey),
     )).get()
+    const packContents = line.packContents != null && line.packContents > 0 ? Math.round(line.packContents) : null
+    const weighMode = coerceMerchWeighMode(line.weighMode)
     const previous = existing ? roundPurchaseUnitCost(existing.unitCost) : null
-    if (previous != null && previous !== unitCost && !opts.acceptPriceUpdates) continue
+    const shapeChanged = existing != null && (
+      existing.costUnit !== line.costUnit
+      || (existing.packContents ?? null) !== packContents
+      || coerceMerchWeighMode(existing.weighMode) !== weighMode
+    )
+    const priceChanged = previous != null && previous !== unitCost
+    if (existing && (priceChanged || shapeChanged) && !opts.acceptPriceUpdates) continue
     tx.insert(providerPurchasePrices).values({
       providerId: opts.providerId,
       productKey: line.productKey,
       name: line.name.slice(0, 80),
       costUnit: line.costUnit,
       unitCost,
+      packContents,
+      weighMode,
       updatedAt: opts.now,
       syncedAt: null,
     }).onConflictDoUpdate({
@@ -155,6 +200,8 @@ export function applyPurchasePrices(
         name: line.name.slice(0, 80),
         costUnit: line.costUnit,
         unitCost,
+        packContents,
+        weighMode,
         updatedAt: opts.now,
         syncedAt: null,
       },
