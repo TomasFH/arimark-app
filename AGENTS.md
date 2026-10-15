@@ -216,7 +216,7 @@ Si el contexto del mensaje es ambiguo y no queda claro si "checkpoint" se refier
 
 El modo de desarrollo de escritorio no necesita secretos ni `business.json`.
 
-- Instalar con `pnpm install --frozen-lockfile` en la raíz. El `postinstall` de desktop recompila `better-sqlite3` y `serialport` contra Electron; hace falta toolchain nativo (python3, build-essential), ya presente en la imagen.
+- Instalar con `pnpm install --frozen-lockfile` en la raíz. El `postinstall` de desktop recompila `better-sqlite3` y `serialport` contra Electron (ABI 133), no contra el Node del PATH (ABI 127). Hace falta toolchain nativo (python3, build-essential), ya presente en la imagen. Los tests de DB usan sql.js y no cargan ese binario. Para usar `better-sqlite3` fuera de la ventana: `ELECTRON_RUN_AS_NODE=1 pnpm exec electron` desde `apps/desktop`.
 - Verificación principal: `pnpm test` (shared, mobile y desktop). No usa Firebase.
 - App de escritorio: `pnpm dev` desde la raíz (`APP_ENV=dev`, balanza mock, banner "MODO PRUEBAS", botón "Saltar login"). Abre una ventana Electron en el escritorio del agente. `DISPLAY` del escritorio ya está definido.
 - Catálogo de prueba: `pnpm seed:dev`. En Linux, ese script escribe en `~/AppData/Roaming/@carniceria/desktop/dev/app.sqlite`, pero Electron lee `~/.config/@carniceria/desktop/dev/app.sqlite`. Para ver los productos sembrados en la ventana, copiar el sqlite a la ruta de Electron antes de abrir la app (con la app cerrada).
