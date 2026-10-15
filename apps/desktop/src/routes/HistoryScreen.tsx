@@ -4,10 +4,12 @@
  * Panel izquierdo: lista de turnos (abiertos y cerrados) con filtro por rango de fechas.
  * Panel derecho: detalle completo del turno seleccionado.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
 import { ScreenHeader } from '../components/ui'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
+import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
+import { clampHistoryRange, planHistoryFetch, type HistorySpan } from '../lib/historyRange'
 import { exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
 import StoreFilter from '../components/StoreFilter'
@@ -46,11 +48,19 @@ export default function HistoryScreen({ onBack }: Props) {
   const [toDate, setToDate] = useState(() => todayLocalYmd())
   const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
   const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
+  const [loadedSpan, setLoadedSpan] = useState<HistorySpan | null>(null)
+  const listCache = useRef<{ store: string; span: HistorySpan | null; shifts: HistoryShiftRow[] }>({
+    store: 'all',
+    span: null,
+    shifts: [],
+  })
 
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null)
   const [detail, setDetail] = useState<HistoryShiftDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const detailRequest = useRef(0)
+  const listRequest = useRef(0)
 
   // Cargar locales al montar
   useEffect(() => {
@@ -59,30 +69,73 @@ export default function HistoryScreen({ onBack }: Props) {
     })
   }, [])
 
-  const loadShifts = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    const payload: GetHistoryShiftsPayload = {
-      fromDate: fromDate || undefined,
-      toDate: toDate || undefined,
-      storeIdFilter,
+  const loadShifts = useCallback(async (prefer: 'auto' | 'older' | 'newer' = 'auto') => {
+    const ticket = ++listRequest.current
+    const today = todayLocalYmd()
+    const range = clampHistoryRange(fromDate, toDate, today)
+    if (range.from !== fromDate) setFromDate(range.from)
+    if (range.to !== toDate) setToDate(range.to)
+
+    const cache = listCache.current
+    if (cache.store !== storeIdFilter) {
+      cache.store = storeIdFilter
+      cache.span = null
+      cache.shifts = []
     }
-    const r = await window.hw.getHistoryShifts(payload)
-    if (r.ok) {
-      setShifts([...r.data].sort((a, b) => {
+
+    const plan = planHistoryFetch(range.from, range.to, cache.span, prefer)
+    const show = (rows: HistoryShiftRow[]) => {
+      const visible = rows.filter(shift => {
+        const day = shift.startedAt.slice(0, 10)
+        return day >= range.from && day <= range.to && (!cache.span || (day >= cache.span.from && day <= cache.span.to))
+      })
+      setShifts([...visible].sort((a, b) => {
         const aOpen = a.closedAt ? 0 : 1
         const bOpen = b.closedAt ? 0 : 1
         if (aOpen !== bOpen) return bOpen - aOpen
         return b.startedAt.localeCompare(a.startedAt)
       }))
-    } else {
-      setError(r.error)
     }
+
+    if (plan.kind === 'none') {
+      if (ticket !== listRequest.current) return
+      show(cache.shifts)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    const payload: GetHistoryShiftsPayload = {
+      fromDate: plan.from,
+      toDate: plan.to,
+      storeIdFilter,
+      limit: 200,
+    }
+    const r = await window.hw.getHistoryShifts(payload)
+    if (ticket !== listRequest.current) return
+    if (!r.ok) {
+      setError(r.error)
+      setLoading(false)
+      return
+    }
+    const merged = plan.kind === 'replace'
+      ? r.data
+      : [...r.data, ...cache.shifts.filter(shift => !r.data.some(row => row.id === shift.id))]
+    cache.shifts = merged
+    cache.span = plan.kind === 'replace'
+      ? { from: plan.from, to: plan.to }
+      : {
+          from: cache.span && cache.span.from < plan.from ? cache.span.from : plan.from,
+          to: cache.span && cache.span.to > plan.to ? cache.span.to : plan.to,
+        }
+    setLoadedSpan(cache.span)
+    show(merged)
     setLoading(false)
   }, [fromDate, toDate, storeIdFilter])
 
   useEffect(() => {
-    void loadShifts()
+    void loadShifts('auto')
   }, [loadShifts])
 
   async function handleSelectShift(shiftId: string) {
@@ -91,13 +144,28 @@ export default function HistoryScreen({ onBack }: Props) {
       setDetail(null)
       return
     }
+    const cached = getCachedHistoryDetail(shiftId)
+    if (cached) {
+      detailRequest.current += 1
+      setSelectedShiftId(shiftId)
+      setDetail(cached)
+      setDetailError(null)
+      setDetailLoading(false)
+      return
+    }
+    const ticket = ++detailRequest.current
     setSelectedShiftId(shiftId)
     setDetail(null)
     setDetailError(null)
     setDetailLoading(true)
     const r = await window.hw.getHistoryShiftDetail({ shiftId })
-    if (r.ok) setDetail(r.data)
-    else setDetailError(r.error)
+    if (ticket !== detailRequest.current) return
+    if (r.ok) {
+      rememberHistoryDetail(r.data)
+      setDetail(r.data)
+    } else {
+      setDetailError(r.error)
+    }
     setDetailLoading(false)
   }
 
@@ -126,7 +194,13 @@ export default function HistoryScreen({ onBack }: Props) {
                 <input
                   type="date"
                   value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
+                  max={todayLocalYmd()}
+                  onChange={e => {
+                    const today = todayLocalYmd()
+                    const next = e.target.value > today ? today : e.target.value
+                    setFromDate(next)
+                    if (next > toDate) setToDate(next)
+                  }}
                   className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
                 />
               </div>
@@ -135,17 +209,36 @@ export default function HistoryScreen({ onBack }: Props) {
                 <input
                   type="date"
                   value={toDate}
-                  onChange={e => setToDate(e.target.value)}
+                  max={todayLocalYmd()}
+                  onChange={e => {
+                    const today = todayLocalYmd()
+                    const next = e.target.value > today ? today : e.target.value
+                    setToDate(next)
+                    if (fromDate > next) setFromDate(next)
+                  }}
                   className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
                 />
               </div>
             </div>
-            {(fromDate || toDate) && (
+            <button
+              type="button"
+              onClick={() => {
+                const today = todayLocalYmd()
+                setFromDate(addDaysYmd(today, -7))
+                setToDate(today)
+              }}
+              className="text-xs text-muted hover:text-ink transition-colors"
+            >
+              Últimos 7 días
+            </button>
+            {loadedSpan && fromDate < loadedSpan.from && (
               <button
-                onClick={() => { setFromDate(''); setToDate('') }}
-                className="text-xs text-muted hover:text-ink transition-colors"
+                type="button"
+                onClick={() => void loadShifts('older')}
+                disabled={loading}
+                className="block text-xs text-ink hover:text-accent transition-colors disabled:opacity-40"
               >
-                Limpiar filtro
+                Traer los días anteriores del filtro
               </button>
             )}
           </div>

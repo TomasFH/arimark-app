@@ -23,7 +23,7 @@ interface Props {
   total: number
   onConfirm: (payload: {
     customerId?: string
-    newCustomer?: { name: string; phone: string }
+    newCustomer?: { name: string; phone?: string }
     initialPayment: number
     paymentMethods: SalePaymentPayload[]
     dueDate?: string
@@ -48,7 +48,7 @@ const fieldClass =
 
 export default function DebtModal({ total, onConfirm, onClose, loading = false, error }: Props) {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
-  const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; phone: string } | null>(null)
+  const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; phone?: string } | null>(null)
   const [initialPaymentRaw, setInitialPaymentRaw] = useState('0')
   const [dueDate, setDueDate] = useState('')
   const [dueDateError, setDueDateError] = useState('')
@@ -82,7 +82,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
     setStep('confirm')
   }
 
-  function handleCreateNew(data: { name: string; phone: string }) {
+  function handleCreateNew(data: { name: string; phone?: string }) {
     setPendingNewCustomer(data)
     setSelectedCustomer(null)
     setStep('confirm')

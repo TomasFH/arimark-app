@@ -4,8 +4,8 @@
  * Flujo:
  * - Cajera escribe nombre o teléfono → se muestran sugerencias.
  * - Si elige una → onSelect con el cliente existente.
- * - Si escribe y confirma sin elegir → se pide el teléfono y
- *   se llama a onCreateNew. No hay botón "+ Crear nuevo" separado.
+ * - Si escribe y confirma sin elegir → puede anotar el teléfono (opcional)
+ *   y se llama a onCreateNew. No hay botón "+ Crear nuevo" separado.
  *
  * Anti-parpadeo: los resultados previos permanecen visibles mientras
  * llegan los nuevos. Nunca se alterna entre spinner y lista.
@@ -16,7 +16,7 @@ import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInpu
 
 interface Props {
   onSelect: (customer: CustomerRow) => void
-  onCreateNew: (data: { name: string; phone: string }) => void
+  onCreateNew: (data: { name: string; phone?: string }) => void
   autoFocus?: boolean
 }
 
@@ -109,6 +109,10 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
   }
 
   function handlePhoneConfirm() {
+    if (!phoneRaw) {
+      onCreateNew({ name: query.trim() })
+      return
+    }
     const clean = parsePhoneNumber(phoneRaw)
     if (!clean) {
       setPhoneError('Ingresá un número válido de 10 dígitos (ej. 11-4567-8901).')
@@ -218,7 +222,9 @@ export default function CustomerSearchCreate({ onSelect, onCreateNew, autoFocus 
       </div>
 
       <div>
-        <label className="block text-xs text-muted mb-1">Teléfono *</label>
+        <label className="block text-xs text-muted mb-1">
+          Teléfono <span className="text-subtle">opcional</span>
+        </label>
         <input
           ref={phoneRef}
           type="text"

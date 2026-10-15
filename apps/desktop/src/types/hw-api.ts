@@ -160,6 +160,13 @@ export interface ShiftSummary {
   totalWalletSales: number
   /** Total cobrado con crédito durante el turno */
   totalCreditSales: number
+  /** Ventas confirmadas que incluyeron efectivo. Una mezcla cuenta acá y en digital. */
+  cashSaleCount: number
+  /** Ventas confirmadas que incluyeron algún medio digital. */
+  digitalSaleCount: number
+  debitSaleCount: number
+  walletSaleCount: number
+  creditSaleCount: number
   /** Total gastado en efectivo durante el turno (no incluye aportes) */
   totalExpenses: number
   /** Ingresos de efectivo a caja durante el turno */
@@ -466,6 +473,10 @@ export interface ShiftSaleRow {
   digitalAmount: number
   /** Medios de pago usados en la venta (para el badge). */
   paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+  /** Monto de cada medio. Una venta fiado sin cobro queda vacía. */
+  payments: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
+  /** La venta quedó como fiado, aunque haya un pago parcial. */
+  isDebt: boolean
   manualEntry: boolean
   /** True solo si el tilde de excepción estuvo activo. El descuento de la regla no lo marca. */
   discountException?: boolean

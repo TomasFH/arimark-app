@@ -13,6 +13,14 @@ export function formatRecapMoney(n: number): string {
   return `$${n.toLocaleString('es-AR')}`
 }
 
+function ventaCount(count: number): string {
+  return count === 1 ? '1 venta' : `${count} ventas`
+}
+
+function methodLabel(name: string, count: number | undefined): string {
+  return count ? `${name} (${ventaCount(count)})` : name
+}
+
 export interface CloseRecapInput {
   shiftType: 'morning' | 'evening'
   salesCount: number
@@ -21,6 +29,11 @@ export interface CloseRecapInput {
   totalDebitSales: number
   totalWalletSales: number
   totalCreditSales: number
+  cashSaleCount?: number
+  digitalSaleCount?: number
+  debitSaleCount?: number
+  walletSaleCount?: number
+  creditSaleCount?: number
   totalExpenses: number
   totalCashInjects: number
   totalCashDebtPayments: number
@@ -45,17 +58,27 @@ export function buildCloseShiftRecapLines(input: CloseRecapInput): CloseRecapLin
     { label: 'Turno', value: input.shiftType === 'morning' ? 'Mañana' : 'Tarde' },
     { label: 'Ventas', value: String(input.salesCount) },
     { label: 'Total vendido', value: formatRecapMoney(input.totalRevenue) },
-    { label: 'Cobrado en efectivo', value: formatRecapMoney(input.totalCashSales) },
+    {
+      label: input.cashSaleCount ? `Cobrado en efectivo (${ventaCount(input.cashSaleCount)})` : 'Cobrado en efectivo',
+      value: formatRecapMoney(input.totalCashSales),
+    },
   ]
 
-  if (input.totalDebitSales > 0) {
-    lines.push({ label: 'Cobrado con Débito', value: formatRecapMoney(input.totalDebitSales) })
-  }
-  if (input.totalWalletSales > 0) {
-    lines.push({ label: 'Cobrado Billetera Virtual', value: formatRecapMoney(input.totalWalletSales) })
-  }
-  if (input.totalCreditSales > 0) {
-    lines.push({ label: 'Cobrado con Crédito', value: formatRecapMoney(input.totalCreditSales) })
+  const digitalTotal = input.totalDebitSales + input.totalWalletSales + input.totalCreditSales
+  if (digitalTotal > 0) {
+    lines.push({
+      label: input.digitalSaleCount ? `Cobrado digital (${ventaCount(input.digitalSaleCount)})` : 'Cobrado digital',
+      value: formatRecapMoney(digitalTotal),
+    })
+    if (input.totalDebitSales > 0) {
+      lines.push({ label: methodLabel('Débito', input.debitSaleCount), value: formatRecapMoney(input.totalDebitSales), indent: true })
+    }
+    if (input.totalWalletSales > 0) {
+      lines.push({ label: methodLabel('Billetera virtual', input.walletSaleCount), value: formatRecapMoney(input.totalWalletSales), indent: true })
+    }
+    if (input.totalCreditSales > 0) {
+      lines.push({ label: methodLabel('Crédito', input.creditSaleCount), value: formatRecapMoney(input.totalCreditSales), indent: true })
+    }
   }
   if (input.totalExpenses > 0) {
     lines.push({ label: 'Gastos', value: formatRecapMoney(input.totalExpenses) })

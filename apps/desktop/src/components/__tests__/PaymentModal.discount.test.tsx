@@ -163,6 +163,36 @@ describe('PaymentModal — descuento de esta venta', () => {
     ])
   })
 
+  it('en un split el tilde de excepción descuenta aunque el cobro sea solo débito', async () => {
+    const user = userEvent.setup()
+    const onConfirm = vi.fn()
+    render(
+      <PaymentModal
+        itemTotal={80000}
+        cashDiscountRule={RULE_10_FROM_40K}
+        onConfirm={onConfirm}
+        onClose={() => {}}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /Dividir en varios medios de pago/ }))
+    const amounts = screen.getAllByPlaceholderText('0')
+    await user.type(amounts[1], '80000')
+    expect(screen.getByRole('button', { name: /Confirmar cobro/ })).toHaveTextContent(/80\.000/)
+    expect(screen.getByText('Total cubierto')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Descuento en esta venta' }))
+    expect(screen.getByText(/Descuento 10%/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Confirmar cobro/ })).toHaveTextContent(/72\.000/)
+    expect(screen.getByText('Exceso')).toBeInTheDocument()
+    expect(screen.getByText(/8\.000/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Descuento en esta venta' }))
+    expect(screen.queryByText('Exceso')).not.toBeInTheDocument()
+    expect(screen.getByText('Total cubierto')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Confirmar cobro/ })).toHaveTextContent(/80\.000/)
+  })
+
   it('recalcula el descuento si cambia el total', async () => {
     const user = userEvent.setup()
     const { rerender } = render(
@@ -241,11 +271,12 @@ describe('PaymentModal — descuento de esta venta', () => {
     )
 
     await user.click(screen.getByRole('button', { name: /Dividir en varios medios de pago/ }))
-    expect(screen.getByRole('checkbox', { name: 'Aplicar descuento' })).toBeChecked()
-    expect(screen.queryByRole('checkbox', { name: 'Descuento en esta venta' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Aplicar descuento' })).not.toBeInTheDocument()
 
     const amounts = screen.getAllByPlaceholderText('0')
-    await user.type(amounts[1], '36000')
+    await user.type(amounts[0], '36000')
+    expect(screen.getByRole('checkbox', { name: 'Aplicar descuento' })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: 'Descuento en esta venta' })).not.toBeInTheDocument()
     expect(screen.getAllByText(/36\.000/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: /Confirmar cobro/ }))
@@ -269,12 +300,12 @@ describe('PaymentModal — descuento de esta venta', () => {
 
     await user.click(screen.getByRole('button', { name: /Dividir en varios medios de pago/ }))
     const amounts = screen.getAllByPlaceholderText('0')
-    await user.type(amounts[1], '10000')
-    expect(screen.getAllByText(/36\.000/).length).toBeGreaterThan(0)
+    await user.type(amounts[0], '36000')
+    expect(screen.getByText(/Desc\. efectivo/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('checkbox', { name: 'Aplicar descuento' }))
     expect(screen.queryByLabelText('Descuento de esta venta')).not.toBeInTheDocument()
-    expect(screen.queryByText(/36\.000/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Desc\. efectivo/)).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Cobro dividido' }).parentElement).toHaveTextContent(/40\.000/)
   })
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   exceptionalDiscountLabel,
+  goodsCoveredByCash,
   quoteCashDiscount,
   remainderIncludesCash,
   removeDiscountBlock,
@@ -18,6 +19,14 @@ describe('roundCashDiscount', () => {
 
   it('percent 0 no descuenta', () => {
     expect(roundCashDiscount(100000, 0)).toBe(0)
+  })
+})
+
+describe('goodsCoveredByCash', () => {
+  it('36.000 al 10% cubren 40.000, y no pasa del ticket', () => {
+    expect(goodsCoveredByCash(36000, 10, 80000)).toBe(40000)
+    expect(goodsCoveredByCash(1000, 10, 80000)).toBe(1111)
+    expect(goodsCoveredByCash(72000, 10, 80000)).toBe(80000)
   })
 })
 
@@ -80,17 +89,39 @@ describe('quoteCashDiscount — ejemplo acordado', () => {
     expect(quote.eligible).toBe(false)
   })
 
-  it('mixto con efectivo mantiene el descuento', () => {
+  it('mixto con efectivo descuenta el ticket entero si el efectivo lo cubre', () => {
     const quote = quoteCashDiscount({
       rule: RULE,
       itemTotal: 100000,
-      remainderIncludesCash: remainderIncludesCash([
-        { paymentMethod: 'cash', amount: 80000 },
-        { paymentMethod: 'debit', amount: 10000 },
-      ]),
+      remainderIncludesCash: true,
+      cashAmount: 90000,
     })
     expect(quote.eligible).toBe(true)
+    expect(quote.discountBase).toBe(100000)
+    expect(quote.discountAmount).toBe(10000)
     expect(quote.amountDue).toBe(90000)
+  })
+
+  it('el descuento es solo de la parte en efectivo, y $1.000 no alcanza el mínimo', () => {
+    const tiny = quoteCashDiscount({
+      rule: { minAmount: 40000, percent: 10 },
+      itemTotal: 80000,
+      remainderIncludesCash: true,
+      cashAmount: 1000,
+    })
+    expect(tiny.eligible).toBe(false)
+    expect(tiny.amountDue).toBe(80000)
+
+    const enough = quoteCashDiscount({
+      rule: { minAmount: 40000, percent: 10 },
+      itemTotal: 80000,
+      remainderIncludesCash: true,
+      cashAmount: 36000,
+    })
+    expect(enough.eligible).toBe(true)
+    expect(enough.discountBase).toBe(40000)
+    expect(enough.discountAmount).toBe(4000)
+    expect(enough.amountDue).toBe(76000)
   })
 })
 

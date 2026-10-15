@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, products, sales } from '../../db/schema'
+import { stores, users, shifts, products, sales, orders } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -40,6 +40,8 @@ import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { registerOrderHandlers } from '../orders.handler'
+import { markOrderDeletedInFirestore } from '../../licensing/orderSync'
+import { addDaysYmd, todayLocalYmd } from '../../../src/lib/datetime'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
 
@@ -400,13 +402,75 @@ describe('orders.handler', () => {
 
     it('retorna los pedidos creados del local', () => {
       const createHandler = getHandler('ipc:create-order')
-      createHandler(null, { customerName: 'A', items: 'Asado', pickupDate: '2026-07-25' })
-      createHandler(null, { customerName: 'B', items: 'Pollo', pickupDate: '2026-07-26' })
+      createHandler(null, { customerName: 'A', items: 'Asado', pickupDate: '2026-12-01' })
+      createHandler(null, { customerName: 'B', items: 'Pollo', pickupDate: '2026-12-02' })
 
       const listHandler = getHandler('ipc:list-orders')
       const res = listHandler(null) as { ok: boolean; data: { customerName: string }[] }
       expect(res.ok).toBe(true)
       expect(res.data.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('borra pendientes y listos cuyo retiro pasó hace más de una semana y los saca de Firestore', () => {
+      const today = todayLocalYmd()
+      const now = new Date().toISOString()
+      db.insert(orders).values([
+        {
+          id: '00000000-0000-0000-0000-0000000000a1',
+          storeId: STORE_ID,
+          customerName: 'Fin de mes',
+          items: 'Asado',
+          pickupDate: addDaysYmd(today, 20),
+          status: 'pending',
+          depositAmount: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          createdBy: USER_ID,
+        },
+        {
+          id: '00000000-0000-0000-0000-0000000000a2',
+          storeId: STORE_ID,
+          customerName: 'Ayer',
+          items: 'Pollo',
+          pickupDate: addDaysYmd(today, -3),
+          status: 'pending',
+          depositAmount: 0,
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+        {
+          id: '00000000-0000-0000-0000-0000000000a3',
+          storeId: STORE_ID,
+          customerName: 'Olvidado',
+          items: 'Vacío',
+          pickupDate: addDaysYmd(today, -10),
+          status: 'pending',
+          depositAmount: 0,
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+        {
+          id: '00000000-0000-0000-0000-0000000000a4',
+          storeId: STORE_ID,
+          customerName: 'Listo viejo',
+          items: 'Matambre',
+          pickupDate: addDaysYmd(today, -12),
+          status: 'ready',
+          depositAmount: 0,
+          createdAt: now,
+          createdBy: USER_ID,
+        },
+      ]).run()
+
+      const res = getHandler('ipc:list-orders')(null) as { ok: boolean; data: { customerName: string }[] }
+      expect(res.ok).toBe(true)
+      const names = res.data.map(row => row.customerName)
+      expect(names).toContain('Fin de mes')
+      expect(names).toContain('Ayer')
+      expect(names).not.toContain('Olvidado')
+      expect(names).not.toContain('Listo viejo')
+      expect(markOrderDeletedInFirestore).toHaveBeenCalledWith('test-key', '00000000-0000-0000-0000-0000000000a3')
+      expect(markOrderDeletedInFirestore).toHaveBeenCalledWith('test-key', '00000000-0000-0000-0000-0000000000a4')
+      expect(markOrderDeletedInFirestore).not.toHaveBeenCalledWith('test-key', '00000000-0000-0000-0000-0000000000a1')
     })
   })
 

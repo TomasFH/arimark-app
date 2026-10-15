@@ -37,7 +37,10 @@ export function useModalDismiss(
   return {
     onPointerDown(event: ReactPointerEvent) {
       if (!overlay) return
-      overlayDownRef.current = event.button === 0 && event.target === event.currentTarget
+      // jsdom despacha pointerdown como Event y no trae button; en el browser el primario es 0.
+      const button = typeof event.button === 'number' ? event.button : event.nativeEvent.button
+      const primary = button == null || button === 0
+      overlayDownRef.current = primary && event.target === event.currentTarget
     },
     onPointerUp(event: ReactPointerEvent) {
       const started = overlayDownRef.current

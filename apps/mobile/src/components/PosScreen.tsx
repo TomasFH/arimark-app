@@ -300,11 +300,16 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
     setShowDebt(false)
     setSaveError(null)
 
+    const cashPaid = opts.payments
+      .filter(p => p.paymentMethod === 'cash')
+      .reduce((sum, p) => sum + p.amount, 0)
+    const hasDigital = opts.payments.some(p => p.paymentMethod !== 'cash' && p.amount > 0)
     const quote = quoteCashDiscount({
       rule: cashDiscountRule,
       itemTotal: total,
       isDebt: opts.isDebt,
       remainderIncludesCash: remainderIncludesCash(opts.payments),
+      cashAmount: hasDigital ? cashPaid : undefined,
     })
     const saleTotal = opts.isDebt
       ? total

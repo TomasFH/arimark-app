@@ -33,6 +33,7 @@ export {
   summarizeBudgetItems,
 } from './orderQty'
 export type { OrderQtyLine } from './orderQty'
+export { STALE_OPEN_ORDER_DAYS, isStaleOpenOrder } from './orderRetention'
 export {
   roundPieceKg,
   impliedPieceKg,
@@ -161,6 +162,7 @@ export {
   exceptionalDiscountLabel,
   normalizeCashDiscountRule,
   parseCashDiscountSchedule,
+  goodsCoveredByCash,
   quoteCashDiscount,
   remainderIncludesCash,
   removeDiscountBlock,

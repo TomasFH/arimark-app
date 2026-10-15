@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrdersScreen from '../OrdersScreen'
 import { resetOrderCreateDraft } from '../../lib/orderCreateDraft'
@@ -57,6 +57,7 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
         ],
       }),
       getProducts: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      getPieceWeights: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       getStores: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       onOrderSyncUpdated: vi.fn(() => () => {}),
     } as unknown as typeof window.hw
@@ -123,7 +124,9 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(await screen.findByText('Update 4')).toBeInTheDocument()
 
     await user.click(screen.getByText('Update 4'))
-    expect(screen.queryByText(/Listo por/)).not.toBeInTheDocument()
+    const pendingCard = document.getElementById('order-pend-1')
+    if (!pendingCard) throw new Error('No está la tarjeta del pedido pendiente')
+    expect(within(pendingCard).queryByText(/Listo por/)).not.toBeInTheDocument()
 
     vi.mocked(window.hw.listOrders).mockResolvedValue({
       ok: true,
@@ -134,8 +137,10 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     })
     onSync?.()
 
-    expect(await screen.findByText(/Listo por/)).toBeInTheDocument()
-    expect(screen.getByText('Juan')).toBeInTheDocument()
+    expect(await screen.findByText('Juan')).toBeInTheDocument()
+    const updated = document.getElementById('order-pend-1')
+    if (!updated) throw new Error('No está la tarjeta del pedido pendiente')
+    expect(within(updated).getByText(/Listo por/)).toBeInTheDocument()
   })
 
   it('el alta nueva comparte el borrador y editar no lo pisa', async () => {

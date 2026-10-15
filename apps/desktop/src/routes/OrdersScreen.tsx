@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import NumericInput from '../components/NumericInput'
-import { ActionMenu, Button, ModalCloseButton, ModalLayer, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer, ScreenHeader } from '../components/ui'
 import DecimalInput from '../components/DecimalInput'
 import OrderFormModal from '../components/OrderFormModal'
 import { parseNumericInput, parseDecimalInput } from '../lib/numericInput'
@@ -711,16 +711,16 @@ function productSummary(lines: BudgetCartLine[]): string {
 
 function ProductDetailList({ lines }: { lines: BudgetCartLine[] }) {
   return (
-    <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-app">
+    <ul className="flex flex-wrap gap-2">
       {lines.map((line, i) => {
         const hint = formatOrderQtyHint(line)
         const qty = hint ? `${formatOrderQty(line)} ${hint}` : formatOrderQty(line)
         const price = `${formatARS(line.unitPrice)}/${line.unit === 'kg' ? 'kg' : 'u'}`
         return (
-          <li key={i} className="flex min-w-0 items-baseline gap-3 px-3 py-2">
-            <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.name}>{line.name}</span>
-            <span className="shrink-0 text-sm tabular-nums text-muted" title={qty}>{qty}</span>
-            <span className="shrink-0 text-xs tabular-nums text-subtle" title={price}>{price}</span>
+          <li key={i} className="flex min-w-0 max-w-full items-baseline gap-2 rounded-lg bg-app px-3 py-1.5">
+            <span className="min-w-0 max-w-[18rem] truncate text-sm text-ink" title={line.name}>{line.name}</span>
+            <span className="shrink-0 text-sm tabular-nums text-ink" title={qty}>{qty}</span>
+            <span className="shrink-0 text-xs tabular-nums text-muted" title={price}>{price}</span>
           </li>
         )
       })}
@@ -777,33 +777,29 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
   const estimate = estimatedBudgetTotal(order.budgetItems ?? [])
   const productLines = order.budgetItems && order.budgetItems.length > 0 ? order.budgetItems : null
 
+  const surface = order.status === 'cancelled'
+    ? 'border-line bg-panel opacity-60'
+    : overdue
+      ? 'border-danger/50 bg-panel'
+      : today || order.priority
+        ? 'border-line-strong bg-panel'
+        : 'border-line bg-panel'
+
   return (
     <div
       id={`order-${order.id}`}
-      className={`rounded-xl border transition-all duration-500 ${isNew ? 'ring-2 ring-accent shadow-[0_8px_24px_rgba(232,93,76,0.18)]' : ''} ${
-        order.status === 'cancelled'
-          ? 'border-line bg-raised opacity-60'
-          : overdue
-          ? 'border-danger/40 bg-danger/10'
-          : today
-          ? 'border-amber-900/50 bg-amber-950/20'
-          : tomorrow
-          ? 'border-line-strong bg-panel'
-          : order.priority
-          ? 'border-line-strong bg-panel'
-          : 'border-line bg-panel'
-      }`}
+      className={`rounded-xl border ${surface} ${isNew ? 'ring-2 ring-accent shadow-[0_8px_24px_rgba(232,93,76,0.18)]' : ''}`}
     >
       <div
-        className="flex items-start gap-4 px-5 py-4 cursor-pointer"
+        className={`flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-hover ${expanded ? 'rounded-t-xl' : 'rounded-xl'}`}
         onClick={onToggleExpanded}
       >
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {order.priority && (
               <span className="text-xs text-muted" title="Prioritario">⚡</span>
             )}
-            <span className="text-base font-semibold text-ink truncate" title={order.customerName}>
+            <span className="min-w-0 max-w-[18rem] truncate text-base font-semibold text-ink" title={order.customerName}>
               {order.customerName}
             </span>
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_COLORS[order.status]}`}>
@@ -816,13 +812,21 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-950/50 text-amber-400/70 border border-amber-900/40">Hoy</span>
             )}
             {!overdue && tomorrow && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-raised text-muted border border-line">Mañana</span>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-app text-muted border border-line">Mañana</span>
             )}
             {dueSoon && (order.status === 'pending' || order.status === 'ready') && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-950/60 text-orange-300 border border-orange-900/40">Retiro próximo</span>
             )}
             {outsideHours && (order.status === 'pending' || order.status === 'ready') && (
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-danger/10 text-danger border border-danger/30" title="El horario de retiro ya no cae en la franja actual del local. Avisá al cliente.">Fuera de horario</span>
+            )}
+            <span className="text-sm text-ink">{formattedDate}</span>
+            {timeSlotLabel() && <span className="text-xs text-muted">{timeSlotLabel()}</span>}
+            {estimate > 0 && (
+              <span className="text-sm font-semibold tabular-nums text-ink">{formatARS(estimate)}</span>
+            )}
+            {!expanded && order.depositAmount > 0 && (
+              <span className="text-xs text-blue-300/90">{formatARS(order.depositAmount)} seña</span>
             )}
           </div>
           {!expanded && (
@@ -834,66 +838,63 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
             </p>
           )}
         </div>
-        <div className="shrink-0 text-right w-36">
-          <p className="text-sm text-ink">{formattedDate}</p>
-          {timeSlotLabel() && <p className="text-xs text-muted mt-0.5">{timeSlotLabel()}</p>}
-          {estimate > 0 && (
-            <p className="text-sm font-semibold text-ink tabular-nums mt-2">{formatARS(estimate)}</p>
-          )}
-          {order.depositAmount > 0 && (
-            <p className="text-xs text-blue-300/90 mt-0.5">{formatARS(order.depositAmount)} seña</p>
-          )}
-        </div>
-        <span className="text-muted shrink-0 mt-1">{expanded ? '▲' : '▼'}</span>
+        <svg className={`mt-1 h-4 w-4 shrink-0 text-muted transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </div>
 
-      {expanded && (
-        <div className="px-5 pb-4 space-y-4 border-t border-line pt-3">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2 min-w-0">
-              {order.phone && (
-                <p className="text-sm text-muted">Tel: <span className="text-ink">{order.phone}</span></p>
-              )}
-              {order.notes && (
-                <p className="text-sm text-muted break-words">
-                  Notas: <span className="text-ink">{order.notes}</span>
-                </p>
-              )}
-              {order.createdBy && (
-                <p className="text-xs text-muted">
-                  Registrado por <span className="text-ink">{order.createdBy}</span>
-                  {order.createdAt ? ` · ${toLocalDateTime(order.createdAt)}` : ''}
-                </p>
-              )}
-              {order.readyByName && order.readyAt && (
-                <p className="text-xs text-success">
-                  Listo por <span className="font-medium">{order.readyByName}</span>
-                  {' · '}{toLocalDateTime(order.readyAt)}
-                </p>
-              )}
-              {order.status === 'delivered' && (order.updatedBy || order.updatedAt) && (
-                <p className="text-xs text-success">
-                  Cobrado por <span className="font-medium">{order.updatedBy ?? '—'}</span>
-                  {order.updatedAt ? ` · ${toLocalDateTime(order.updatedAt)}` : ''}
-                </p>
-              )}
-              {order.status !== 'delivered' && order.updatedBy && (
-                <p className="text-xs text-subtle">
-                  Última modificación: {order.updatedBy}
-                </p>
-              )}
-            </div>
-            <div className="space-y-2 min-w-0">
-              {depositPayments.length > 0 && (
-                <div className="text-sm text-muted space-y-0.5">
-                  <p className="font-medium text-ink">Seña: {formatARS(order.depositAmount)}</p>
-                  {depositPayments.map(p => (
-                    <p key={p.method}>{DEPOSIT_METHOD_LABELS[p.method]}: {formatARS(p.amount)}</p>
-                  ))}
-                </div>
-              )}
-            </div>
+      <CollapseReveal open={expanded}>
+        <div className="space-y-3 border-t border-line px-4 py-3">
+          {(order.phone || depositPayments.length > 0) && (
+          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+            {order.phone && (
+              <p className="text-sm text-muted">Tel <span className="text-ink">{order.phone}</span></p>
+            )}
+            {depositPayments.length > 0 && (
+              <p className="text-sm text-muted">
+                Seña <span className="font-medium tabular-nums text-ink">{formatARS(order.depositAmount)}</span>
+                {depositPayments.map(p => (
+                  <span key={p.method}>
+                    {' · '}{DEPOSIT_METHOD_LABELS[p.method]}{' '}
+                    <span className="tabular-nums text-ink">{formatARS(p.amount)}</span>
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
+          )}
+          {order.notes && (
+            <p className="max-w-prose text-sm text-muted break-words">
+              Notas <span className="text-ink">{order.notes}</span>
+            </p>
+          )}
+          {(order.createdBy || order.readyByName || order.updatedBy) && (
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            {order.createdBy && (
+              <p className="text-xs text-muted">
+                Registrado por <span className="text-ink">{order.createdBy}</span>
+                {order.createdAt ? ` · ${toLocalDateTime(order.createdAt)}` : ''}
+              </p>
+            )}
+            {order.readyByName && order.readyAt && (
+              <p className="text-xs text-success">
+                Listo por <span className="font-medium">{order.readyByName}</span>
+                {' · '}{toLocalDateTime(order.readyAt)}
+              </p>
+            )}
+            {order.status === 'delivered' && (order.updatedBy || order.updatedAt) && (
+              <p className="text-xs text-success">
+                Cobrado por <span className="font-medium">{order.updatedBy ?? '—'}</span>
+                {order.updatedAt ? ` · ${toLocalDateTime(order.updatedAt)}` : ''}
+              </p>
+            )}
+            {order.status !== 'delivered' && order.updatedBy && (
+              <p className="text-xs text-subtle">
+                Última modificación: {order.updatedBy}
+              </p>
+            )}
+          </div>
+          )}
 
           {productLines ? (
             <ProductDetailList lines={productLines} />
@@ -930,7 +931,7 @@ function OrderCard({ order, expanded, onToggleExpanded, isAdmin, isNew = false, 
             </div>
           )}
         </div>
-      )}
+      </CollapseReveal>
     </div>
   )
 }

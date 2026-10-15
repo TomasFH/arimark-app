@@ -419,6 +419,14 @@ describe('shift.handler', () => {
             }),
           })
           .mockReturnValueOnce({
+            // medios por venta, para contar sin duplicar una mezcla
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
             }),
@@ -494,6 +502,14 @@ describe('shift.handler', () => {
                 where: vi.fn().mockReturnValue({
                   groupBy: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
                 }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            // medios por venta, para contar sin duplicar una mezcla
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
               }),
             }),
           })

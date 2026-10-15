@@ -9,8 +9,9 @@ import { useEffect, useState } from 'react'
 import { exceptionalDiscountLabel } from '@carniceria/shared'
 import type { ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
-import { summarizePaymentMethods } from '../lib/paymentMethod'
-import { Button, Modal, ModalCloseButton } from '../components/ui'
+import { summarizePaymentMethods, PAYMENT_LABELS } from '../lib/paymentMethod'
+import { tallyShiftCollections, ventaCountLabel } from '../lib/shiftSaleTally'
+import { Button, CollapseReveal, Modal, ModalCloseButton } from '../components/ui'
 
 interface Props {
   onClose: () => void
@@ -30,6 +31,7 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [digitalOpen, setDigitalOpen] = useState(false)
 
   function loadSales() {
     void window.hw.getShiftSales().then(r => {
@@ -66,15 +68,7 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
   }
 
   const confirmedSales = (sales ?? []).filter(s => s.status === 'confirmed')
-  const totals = confirmedSales.reduce(
-    (acc, s) => {
-      acc.total += s.total
-      acc.cash += s.cashAmount
-      acc.digital += s.digitalAmount
-      return acc
-    },
-    { total: 0, cash: 0, digital: 0 }
-  )
+  const tally = tallyShiftCollections(sales ?? [])
 
   const allCount = sales?.length ?? 0
   const cancelledCount = (sales ?? []).filter(s => s.status === 'cancelled').length
@@ -102,25 +96,66 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
       }
       footer={
         sales && confirmedSales.length > 0 ? (
-          <div className="-mx-5 -my-3 grid min-w-0 flex-1 grid-cols-3 gap-4 bg-raised px-6 py-3">
-            <div className="min-w-0">
-              <p className="text-xs text-muted">Total en efectivo</p>
-              <p className="truncate text-base font-semibold text-success" title={formatARS(totals.cash)}>
-                {formatARS(totals.cash)}
-              </p>
+          <div className="-mx-5 -my-3 min-w-0 flex-1 bg-raised px-6 py-3">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="min-w-0">
+                <p className="text-xs text-muted">Total en efectivo</p>
+                <p className="truncate text-base font-semibold text-success" title={formatARS(tally.cashAmount)}>
+                  {formatARS(tally.cashAmount)}
+                </p>
+                {tally.cashSales > 0 && (
+                  <p className="text-[10px] text-muted">{ventaCountLabel(tally.cashSales)}</p>
+                )}
+              </div>
+              <div className="min-w-0">
+                {tally.digitalAmount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setDigitalOpen(open => !open)}
+                    aria-expanded={digitalOpen}
+                    className="text-left"
+                  >
+                    <span className="flex items-center gap-1 text-xs text-muted">
+                      Total digital
+                      <svg className={`h-3.5 w-3.5 transition-transform ${digitalOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden>
+                        <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <span className="block truncate text-base font-semibold text-ink" title={formatARS(tally.digitalAmount)}>
+                      {formatARS(tally.digitalAmount)}
+                    </span>
+                    <span className="block text-[10px] text-muted">{ventaCountLabel(tally.digitalSales)}</span>
+                  </button>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted">Total digital</p>
+                    <p className="truncate text-base font-semibold text-ink">{formatARS(0)}</p>
+                  </>
+                )}
+              </div>
+              <div className="min-w-0 text-right">
+                <p className="text-xs text-muted">Total vendido</p>
+                <p className="truncate text-lg font-bold text-ink" title={formatARS(tally.total)}>
+                  {formatARS(tally.total)}
+                </p>
+                <p className="text-[10px] text-muted">{ventaCountLabel(tally.saleCount)}</p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-xs text-muted">Total digital</p>
-              <p className="truncate text-base font-semibold text-ink" title={formatARS(totals.digital)}>
-                {formatARS(totals.digital)}
-              </p>
-            </div>
-            <div className="min-w-0 text-right">
-              <p className="text-xs text-muted">Total vendido</p>
-              <p className="truncate text-lg font-bold text-ink" title={formatARS(totals.total)}>
-                {formatARS(totals.total)}
-              </p>
-            </div>
+            <CollapseReveal open={digitalOpen && tally.digitalAmount > 0}>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-2">
+                {(['debit', 'wallet', 'credit'] as const).flatMap(method => {
+                  const slice = tally.byMethod[method]
+                  if (slice.amount <= 0) return []
+                  return [(
+                    <p key={method} className="text-xs text-muted">
+                      {PAYMENT_LABELS[method]}{' '}
+                      <span className="font-medium tabular-nums text-ink">{formatARS(slice.amount)}</span>
+                      <span className="text-subtle"> ({ventaCountLabel(slice.sales)})</span>
+                    </p>
+                  )]
+                })}
+              </div>
+            </CollapseReveal>
           </div>
         ) : null
       }
@@ -192,7 +227,14 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
                             <span className="text-xs rounded bg-danger/10 px-1.5 py-0.5 text-danger">Anulada</span>
                           ) : (
                             <>
-                              <span className="text-ink">{summarizePaymentMethods(s.paymentMethods)}</span>
+                              {s.isDebt && (
+                                <span className="mr-1.5 inline-flex rounded-md border border-line bg-app px-1.5 py-0.5 text-[10px] font-medium text-ink">
+                                  Fiado
+                                </span>
+                              )}
+                              {!(s.isDebt && s.paymentMethods.length === 0) && (
+                                <span className="text-ink">{summarizePaymentMethods(s.paymentMethods)}</span>
+                              )}
                               {s.manualEntry && (
                                 <span className="ml-2 text-[10px] rounded bg-amber-900/50 px-1.5 py-0.5 text-amber-300">manual</span>
                               )}

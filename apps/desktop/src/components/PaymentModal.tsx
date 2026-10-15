@@ -107,8 +107,8 @@ export default function PaymentModal({
   /** Cuotas para crédito — string para permitir tipeo libre. */
   const [installmentsRaw, setInstallmentsRaw] = useState('')
   const [rows, setRows] = useState<PaymentRow[]>([
-    { id: crypto.randomUUID(), method: 'debit', amount: '' },
     { id: crypto.randomUUID(), method: 'cash', amount: '' },
+    { id: crypto.randomUUID(), method: 'debit', amount: '' },
   ])
 
   const rule: CashDiscountRule = cashDiscountRule ?? { minAmount: 0, percent: 0 }
@@ -125,19 +125,53 @@ export default function PaymentModal({
     depositAmount,
     depositDigitalAmount,
   })
-  const splitHasCashPayment = rows.some(
-    r => r.method === 'cash' && (parseNumericInput(r.amount) ?? 0) > 0,
-  )
-  const remainderCash = mode === 'cash-detail' || (mode === 'split' && splitHasCashPayment)
-  const splitHasCashRow = mode === 'split' && rows.some(r => r.method === 'cash')
-  const showApplyControl = preconditionsOk && (mode === 'cash-detail' || splitHasCashRow)
+  const applyPercent = percentFromText(applyPercentText)
+  const exceptionPercent = percentFromText(exceptionPercentText)
+  const splitCashAmount = mode === 'split'
+    ? rows
+      .filter(r => r.method === 'cash')
+      .reduce((sum, r) => sum + (parseNumericInput(r.amount) ?? 0), 0)
+    : 0
+  const splitHasCashPayment = splitCashAmount > 0
+  const remainderCash = mode === 'cash-detail' || splitHasCashPayment
+  const splitQuote = mode === 'split'
+    ? quoteCashDiscount({
+        rule: { ...rule, percent: applyPercent },
+        itemTotal,
+        depositAmount,
+        depositDigitalAmount,
+        remainderIncludesCash: splitHasCashPayment,
+        cashAmount: splitCashAmount,
+      })
+    : null
+  const showApplyControl = (mode === 'cash-detail' && preconditionsOk) || (splitQuote?.eligible === true)
   const showExceptionControl = !showApplyControl && !(mode === 'single' && preconditionsOk)
   const showPercentField =
     (showApplyControl && applyDiscount) || (showExceptionControl && exceptionDiscount)
-  const applyPercent = percentFromText(applyPercentText)
-  const exceptionPercent = percentFromText(exceptionPercentText)
 
-  const quote = showApplyControl && applyDiscount && remainderCash
+  const plainQuote = quoteCashDiscount({
+    rule,
+    itemTotal,
+    depositAmount,
+    depositDigitalAmount,
+    remainderIncludesCash: false,
+  })
+  const exceptionQuote = quoteCashDiscount({
+    rule: { ...rule, percent: exceptionPercent },
+    itemTotal,
+    depositAmount,
+    depositDigitalAmount,
+    remainderIncludesCash: false,
+    force: true,
+  })
+
+  const quote = mode === 'split'
+    ? (showApplyControl && applyDiscount && splitQuote
+        ? splitQuote
+        : showExceptionControl && exceptionDiscount
+          ? exceptionQuote
+          : plainQuote)
+    : showApplyControl && applyDiscount && remainderCash
     ? quoteCashDiscount({
         rule: { ...rule, percent: applyPercent },
         itemTotal,
@@ -146,21 +180,8 @@ export default function PaymentModal({
         remainderIncludesCash: true,
       })
     : showExceptionControl && exceptionDiscount
-      ? quoteCashDiscount({
-          rule: { ...rule, percent: exceptionPercent },
-          itemTotal,
-          depositAmount,
-          depositDigitalAmount,
-          remainderIncludesCash: false,
-          force: true,
-        })
-      : quoteCashDiscount({
-          rule,
-          itemTotal,
-          depositAmount,
-          depositDigitalAmount,
-          remainderIncludesCash: false,
-        })
+      ? exceptionQuote
+      : plainQuote
   const cashPreview = quoteCashDiscount({
     rule,
     itemTotal,
@@ -170,7 +191,7 @@ export default function PaymentModal({
   })
   const chargeTotal = quote.amountDue
   const appliedPrefix = showApplyControl ? 'Desc. efectivo' : 'Descuento'
-  const discountDetail = `${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
+  const discountDetail = `${quote.discountPercent}% sobre ${formatARS(quote.discountBase)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
   const discountLine = quote.eligible
     ? `${appliedPrefix} ${discountDetail}`
     : !showApplyControl && !(showExceptionControl && exceptionDiscount) && cashPreview.eligible
@@ -612,6 +633,11 @@ export default function PaymentModal({
 
       {mode === 'split' && (
         <div className="space-y-3">
+          {splitHasCashPayment && !quote.eligible && preconditionsOk && (
+            <p className="text-xs text-muted">
+              El {rule.percent}% es solo sobre lo que se paga en efectivo, y esa parte tiene que cubrir al menos {formatARS(rule.minAmount)} de la compra.
+            </p>
+          )}
           {rows.map(row => {
             const isCashRow = row.method === 'cash'
             const rowRem = getRowRemainder(row.id)
@@ -638,12 +664,12 @@ export default function PaymentModal({
                     }}
                     className="w-full min-w-0 rounded-xl border border-line bg-input px-2 py-2.5 text-sm text-ink focus:outline-none focus:border-line-accent"
                   >
-                    <option value="debit">Débito</option>
-                    <option value="wallet">Billetera Virtual</option>
-                    <option value="credit">Crédito</option>
                     <option value="cash" disabled={cashAlreadyUsed && !isCashRow}>
                       {cashAlreadyUsed && !isCashRow ? 'Efectivo (ya usado)' : 'Efectivo'}
                     </option>
+                    <option value="debit">Débito</option>
+                    <option value="wallet">Billetera Virtual</option>
+                    <option value="credit">Crédito</option>
                   </select>
 
                   <div className="relative min-w-0">

@@ -15,7 +15,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import log from 'electron-log'
-import { budgetItemsForFirestore, budgetItemsForSqlite } from '@carniceria/shared'
+import { budgetItemsForFirestore, budgetItemsForSqlite, isStaleOpenOrder } from '@carniceria/shared'
 import { eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
 import { orders, shifts, users } from '../db/schema'
@@ -23,6 +23,7 @@ import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
 import { notifyRenderer } from './notifyRenderer'
 import { IPC } from '../ipc/channels'
+import { todayLocalYmd } from '../../src/lib/datetime'
 
 interface RemoteOrderDoc {
   id: string
@@ -218,10 +219,26 @@ export async function markOrderDeletedInFirestore(tenantId: string, orderId: str
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const ref = doc(firestore, 'licenses', tenantId, 'orders', orderId)
-    await setDoc(ref, { deleted: true, deletedAt: new Date().toISOString() }, { merge: true })
+    await setDoc(ref, {
+      deleted: true,
+      deletedAt: new Date().toISOString(),
+      // Sale de `status in [pending, ready]`. Si solo se marca deleted, el pull sigue leyéndolo.
+      status: 'cancelled',
+    }, { merge: true })
   } catch (err) {
     log.error('[orderSync] Error al marcar order eliminado', { orderId, err })
   }
+}
+
+function acceptRemoteOrder(data: RemoteOrderDoc, docId: string, tenantId: string): 'kept' | 'discarded' {
+  const id = data.id || docId
+  if (!data.deleted && isStaleOpenOrder(data.pickupDate, data.status, todayLocalYmd())) {
+    getDb().delete(orders).where(eq(orders.id, id)).run()
+    void markOrderDeletedInFirestore(tenantId, id)
+    return 'discarded'
+  }
+  upsertOrderFromRemote(data, docId)
+  return 'kept'
 }
 
 export async function pullOrdersFromFirestore(tenantId: string): Promise<void> {
@@ -233,15 +250,18 @@ export async function pullOrdersFromFirestore(tenantId: string): Promise<void> {
     const col = collection(firestore, 'licenses', tenantId, 'orders')
     const snap = await getDocs(query(col, where('status', 'in', ['pending', 'ready'])))
 
+    let discarded = 0
     for (const d of snap.docs) {
       try {
-        upsertOrderFromRemote(d.data() as RemoteOrderDoc, d.id)
+        const outcome = acceptRemoteOrder(d.data() as RemoteOrderDoc, d.id, tenantId)
+        if (outcome === 'discarded') discarded += 1
       } catch (err) {
         log.error('[orderSync] Error al upsertear order en pull', { id: d.id, err })
       }
     }
 
-    log.info('[orderSync] Orders bajados de Firestore', { count: snap.size })
+    if (discarded > 0) notifyRenderer(IPC.ORDER_SYNC_UPDATED)
+    log.info('[orderSync] Orders bajados de Firestore', { count: snap.size, discarded })
   } catch (err) {
     log.error('[orderSync] Error en pullOrdersFromFirestore', err)
   }
@@ -268,15 +288,16 @@ export function startOrderSyncListener(tenantId: string): void {
           if (change.type === 'removed') {
             void getDoc(change.doc.ref).then(full => {
               if (!full.exists()) return
-              upsertOrderFromRemote(full.data() as RemoteOrderDoc, full.id)
+              acceptRemoteOrder(full.data() as RemoteOrderDoc, full.id, tenantId)
               notifyRenderer(IPC.ORDER_SYNC_UPDATED)
             }).catch(err => {
               log.error('[orderSync] Error al leer pedido salido de pending/ready', { id: change.doc.id, err })
             })
             continue
           }
-          upsertOrderFromRemote(change.doc.data() as RemoteOrderDoc, change.doc.id)
-          applied += 1
+          const outcome = acceptRemoteOrder(change.doc.data() as RemoteOrderDoc, change.doc.id, tenantId)
+          if (outcome === 'kept') applied += 1
+          if (outcome === 'discarded') notifyRenderer(IPC.ORDER_SYNC_UPDATED)
         } catch (err) {
           log.error('[orderSync] Error al upsertear order desde snapshot', { id: change.doc.id, err })
         }

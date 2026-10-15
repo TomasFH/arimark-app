@@ -23,6 +23,7 @@ import {
   type BillRowState,
 } from '../lib/billCountUi'
 import { buildCloseShiftRecapLines } from '../lib/closeShiftRecap'
+import { ventaCountLabel } from '../lib/shiftSaleTally'
 import { isEmptyBillCount } from '@carniceria/shared'
 import type { ShiftSummary } from '../types/hw-api'
 
@@ -233,6 +234,11 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         totalDebitSales: summary.totalDebitSales,
         totalWalletSales: summary.totalWalletSales,
         totalCreditSales: summary.totalCreditSales,
+        cashSaleCount: summary.cashSaleCount,
+        digitalSaleCount: summary.digitalSaleCount,
+        debitSaleCount: summary.debitSaleCount,
+        walletSaleCount: summary.walletSaleCount,
+        creditSaleCount: summary.creditSaleCount,
         totalExpenses: summary.totalExpenses,
         totalCashInjects: summary.totalCashInjects,
         totalCashDebtPayments: summary.totalCashDebtPayments,
@@ -298,16 +304,22 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 <Stat label="Apertura" value={startedFormatted} />
                 <Stat label="Efectivo inicial" value={fmt(summary.openingCash)} />
                 <Stat label="Ventas" value={String(summary.salesCount)} />
-                <Stat label="Total vendido" value={fmt(summary.totalRevenue)} />
-                <Stat label="Cobrado en efectivo" value={fmt(summary.totalCashSales)} />
-                {summary.totalDebitSales > 0 && (
-                  <Stat label="Débito" value={fmt(summary.totalDebitSales)} />
-                )}
-                {summary.totalWalletSales > 0 && (
-                  <Stat label="Billetera Virtual" value={fmt(summary.totalWalletSales)} />
-                )}
-                {summary.totalCreditSales > 0 && (
-                  <Stat label="Crédito" value={fmt(summary.totalCreditSales)} />
+                <Stat
+                  label="Total vendido"
+                  value={fmt(summary.totalRevenue)}
+                  hint={ventaCountLabel(summary.salesCount)}
+                />
+                <Stat
+                  label="Cobrado en efectivo"
+                  value={fmt(summary.totalCashSales)}
+                  hint={summary.cashSaleCount > 0 ? ventaCountLabel(summary.cashSaleCount) : undefined}
+                />
+                {totalDigital > 0 && (
+                  <Stat
+                    label="Cobrado digital"
+                    value={fmt(totalDigital)}
+                    hint={ventaCountLabel(summary.digitalSaleCount)}
+                  />
                 )}
                 {summary.totalExpenses > 0 && (
                   <Stat label="Gastos" value={fmt(summary.totalExpenses)} />
@@ -330,25 +342,16 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
               {/* Desglose digital de ventas por tipo */}
               {totalDigital > 0 && (
                 <div className="mt-2 pt-3 border-t border-line">
-                  <p className="text-xs text-muted mb-2 font-semibold">Ventas — desglose digital</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <p className="text-xs text-muted mb-2 font-semibold">Cobrado digital</p>
+                  <div className="flex flex-wrap gap-2">
                     {summary.totalDebitSales > 0 && (
-                      <div className="bg-raised rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-muted">Débito</p>
-                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalDebitSales)}</p>
-                      </div>
+                      <DigitalSlice label="Débito" amount={fmt(summary.totalDebitSales)} count={summary.debitSaleCount} />
                     )}
                     {summary.totalWalletSales > 0 && (
-                      <div className="bg-raised rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-muted">Billetera Virtual</p>
-                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalWalletSales)}</p>
-                      </div>
+                      <DigitalSlice label="Billetera virtual" amount={fmt(summary.totalWalletSales)} count={summary.walletSaleCount} />
                     )}
                     {summary.totalCreditSales > 0 && (
-                      <div className="bg-raised rounded-lg px-3 py-2">
-                        <p className="text-[10px] text-muted">Crédito</p>
-                        <p className="text-sm font-semibold text-ink">{fmt(summary.totalCreditSales)}</p>
-                      </div>
+                      <DigitalSlice label="Crédito" amount={fmt(summary.totalCreditSales)} count={summary.creditSaleCount} />
                     )}
                   </div>
                 </div>
@@ -640,11 +643,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Stat({ label, value, hint, highlight }: { label: string; value: string; hint?: string; highlight?: boolean }) {
   return (
     <div className="space-y-0.5">
       <p className="text-xs text-muted">{label}</p>
       <p className={`text-base font-semibold ${highlight ? 'text-success' : 'text-ink'}`}>{value}</p>
+      {hint && <p className="text-[10px] text-muted">{hint}</p>}
+    </div>
+  )
+}
+
+function DigitalSlice({ label, amount, count }: { label: string; amount: string; count: number }) {
+  return (
+    <div className="rounded-lg bg-app px-3 py-2">
+      <p className="text-[10px] text-muted">{label}</p>
+      <p className="text-sm font-semibold text-ink">{amount}</p>
+      {count > 0 && <p className="text-[10px] text-muted">{ventaCountLabel(count)}</p>}
     </div>
   )
 }

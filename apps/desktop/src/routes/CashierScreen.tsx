@@ -818,7 +818,7 @@ export default function CashierScreen({
 
   async function handleConfirmFiado(payload: {
     customerId?: string
-    newCustomer?: { name: string; phone: string }
+    newCustomer?: { name: string; phone?: string }
     initialPayment: number
     paymentMethods: SalePaymentPayload[]
     dueDate?: string
