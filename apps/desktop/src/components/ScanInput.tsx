@@ -30,6 +30,8 @@ interface Props {
   products: ProductRow[]
   /** Precio especial por productId cuando hay un cliente especial elegido en el POS. */
   specialPriceByProductId?: Record<string, number>
+  /** Cambia tras confirmar una venta para devolver el foco al nombre. */
+  focusNonce?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +42,25 @@ interface Props {
  *  que el punto decimal de JS se confunda con separador de miles. */
 function toEsAR(value: number, decimals: number): string {
   return value.toFixed(decimals).replace('.', ',')
+}
+
+/** Solo dígitos (y puntos de miles). "Vacío x2" sigue siendo un nombre. */
+function isPurePluText(raw: string): boolean {
+  const compact = raw.replace(/\./g, '').trim()
+  return compact === '' || /^\d+$/.test(compact)
+}
+
+/** PLU de un número pelado o de "12 - Vacío". Un nombre con un dígito no es PLU. */
+function resolveManualPlu(raw: string): number | null {
+  const labeled = raw.match(/^(\d{1,3})\s*-\s+\S/)
+  const digits = labeled?.[1] ?? (isPurePluText(raw) ? raw.replace(/\./g, '').trim() : '')
+  if (!/^\d{1,3}$/.test(digits)) return null
+  const n = Number(digits)
+  return n >= 1 && n <= 999 ? n : null
+}
+
+function pluFieldLabel(product: ProductRow): string {
+  return `${product.pluNumber} - ${product.name}`
 }
 
 function buildItemFromManual(
@@ -102,13 +123,14 @@ function kgSpecialLine(
   return { weightKg, unitPrice, subtotal }
 }
 
-export default function ScanInput({ onAddItem, products, specialPriceByProductId = {} }: Props) {
+export default function ScanInput({ onAddItem, products, specialPriceByProductId = {}, focusNonce }: Props) {
   const [pluRaw, setPluRaw] = useState('')
   const [weightRaw, setWeightRaw] = useState('')
   const [priceRaw, setPriceRaw] = useState('')
   const [specialPrice, setSpecialPrice] = useState(false)
   const [manualError, setManualError] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [highlight, setHighlight] = useState(0)
   const pluInputRef = useRef<HTMLInputElement>(null)
   const weightInputRef = useRef<HTMLInputElement>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
@@ -116,8 +138,11 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
   useEffect(() => {
     const timer = setTimeout(() => pluInputRef.current?.focus(), 50)
+    return () => clearTimeout(timer)
+  }, [focusNonce])
+
+  useEffect(() => {
     return () => {
-      clearTimeout(timer)
       if (hideSuggestionsTimer.current) clearTimeout(hideSuggestionsTimer.current)
     }
   }, [])
@@ -129,7 +154,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
   // ── PLU lookup ──────────────────────────────────────────────────────────
 
-  const pluNum = parseNumericInput(pluRaw)
+  const pluNum = resolveManualPlu(pluRaw)
 
   const suggestions: ProductRow[] = (() => {
     const query = pluRaw.trim()
@@ -170,8 +195,9 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   // ── PLU suggestion pick ────────────────────────────────────────────────
 
   function pickSuggestion(p: ProductRow) {
-    setPluRaw(String(p.pluNumber))
+    setPluRaw(pluFieldLabel(p))
     setShowSuggestions(false)
+    setHighlight(0)
     setManualError('')
     setWeightRaw('')
     setPriceRaw('')
@@ -179,15 +205,38 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setTimeout(() => weightInputRef.current?.focus(), 50)
   }
 
+  function moveHighlight(step: number) {
+    if (suggestions.length === 0) return
+    setShowSuggestions(true)
+    setHighlight(current => (current + step + suggestions.length) % suggestions.length)
+  }
+
+  function handlePluKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    const open = showSuggestions && suggestions.length > 0
+    if (!open) return
+    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+      e.preventDefault()
+      moveHighlight(1)
+    } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      e.preventDefault()
+      moveHighlight(-1)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const pick = suggestions[highlight] ?? suggestions[0]
+      if (pick) pickSuggestion(pick)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setShowSuggestions(false)
+    }
+  }
+
   function handlePluChange(v: string) {
-    const digits = stripNonDigits(v)
-    if (digits || v === '') {
-      // Si es puramente numérico: formatear y limitar a 3 dígitos PLU
-      setPluRaw(formatIntegerWithDots(digits.slice(0, 3)))
+    if (isPurePluText(v)) {
+      setPluRaw(formatIntegerWithDots(stripNonDigits(v).slice(0, 3)))
     } else {
-      // Texto libre (búsqueda por nombre): pasar tal cual, máx 40 chars
       setPluRaw(v.slice(0, 40))
     }
+    setHighlight(0)
     setManualError('')
     setShowSuggestions(true)
     setWeightRaw('')
@@ -349,20 +398,26 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
               type="text"
               value={pluRaw}
               onChange={e => handlePluChange(e.target.value)}
+              onKeyDown={handlePluKeyDown}
               onBlur={scheduleHideSuggestions}
-              onFocus={() => pluRaw.trim() && setShowSuggestions(true)}
+              onFocus={() => {
+                if (pluRaw.trim() && !/^\d{1,3}\s*-\s+\S/.test(pluRaw)) setShowSuggestions(true)
+              }}
               placeholder=""
               autoComplete="off"
               className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
             />
             {showSuggestions && suggestions.length > 0 && (
               <ul className="absolute top-full mt-1 left-0 right-0 z-50 max-h-52 overflow-y-auto rounded-md border border-line bg-panel shadow-xl">
-                {suggestions.map(p => (
+                {suggestions.map((p, index) => (
                   <li key={p.id}>
                     <button
                       type="button"
                       onMouseDown={() => pickSuggestion(p)}
-                      className="w-full px-2 py-1.5 text-left hover:bg-hover transition-colors"
+                      onMouseEnter={() => setHighlight(index)}
+                      className={`w-full px-2 py-1.5 text-left transition-colors ${
+                        index === highlight ? 'bg-accent-soft' : 'hover:bg-hover'
+                      }`}
                     >
                       <span className="text-[10px] font-bold text-muted mr-1">{p.pluNumber}</span>
                       <span className="text-[10px] text-ink truncate">{p.name}</span>

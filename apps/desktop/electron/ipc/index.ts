@@ -1,4 +1,5 @@
 import { registerAppInfoHandler } from './appInfo.handler'
+import { registerAppQuitHandlers } from './appQuit.handler'
 import { registerHardwareStatusHandler } from './hardwareStatus.handler'
 import { registerAuthHandlers } from './auth.handler'
 import { registerHardwareConfigHandlers } from './hardwareConfig.handler'
@@ -36,6 +37,7 @@ import type { HardwareManager } from '../hardware/hardwareManager'
 export function registerAllHandlers(manager: HardwareManager): void {
   registerInitStatusHandler()
   registerAppInfoHandler()
+  registerAppQuitHandlers()
   registerHardwareStatusHandler()
   registerAuthHandlers()
   registerHardwareConfigHandlers()

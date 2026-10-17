@@ -59,8 +59,33 @@ type AppState =
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false)
   const [inactivityCountdown, setInactivityCountdown] = useState(INACTIVITY_COUNTDOWN_SECONDS)
   const prevScreenRef = useRef(state.screen)
+  const quitConfirmRef = useRef(false)
+  quitConfirmRef.current = showQuitConfirm
+
+  useEffect(() => {
+    if (!window.hw?.onAppQuitRequested) return
+    return window.hw.onAppQuitRequested(() => {
+      if (quitConfirmRef.current) {
+        void window.hw.confirmAppQuit()
+        return
+      }
+      setShowQuitConfirm(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!showQuitConfirm) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Enter' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
+      event.preventDefault()
+      void window.hw.confirmAppQuit()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showQuitConfirm])
 
   /** Carrito pendiente de inyección en el POS proveniente de un pedido */
   const [pendingOrderCart, setPendingOrderCart] = useState<{
@@ -656,6 +681,19 @@ export default function App() {
       )}
 
       </ScreenErrorBoundary>
+
+      <Modal
+        open={showQuitConfirm}
+        onClose={() => setShowQuitConfirm(false)}
+        size="sm"
+        title="¿Cerrar la aplicación?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowQuitConfirm(false)}>Cancelar</Button>
+            <Button onClick={() => { void window.hw.confirmAppQuit() }}>Cerrar</Button>
+          </>
+        }
+      />
 
       <Modal
         open={showInactivityWarning}

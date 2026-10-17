@@ -33,7 +33,7 @@ describe('PaymentModal — descuento de esta venta', () => {
     expect(screen.queryByRole('checkbox', { name: 'Descuento en esta venta' })).not.toBeInTheDocument()
     const percent = screen.getByLabelText('Descuento de esta venta')
     expect(percent).toHaveValue('10')
-    expect(screen.getByText(/Desc\. efectivo 10%/)).toBeInTheDocument()
+    expect(screen.getByText(/Desc\. efectivo: 10%/)).toBeInTheDocument()
     expect(screen.getAllByText(/36\.000/).length).toBeGreaterThan(0)
 
     await user.clear(percent)
@@ -147,7 +147,7 @@ describe('PaymentModal — descuento de esta venta', () => {
     expect(percent).toHaveValue('10')
     expect(screen.queryByRole('checkbox', { name: 'Aplicar descuento' })).not.toBeInTheDocument()
     expect(screen.queryByText(/Si cobrás con efectivo/)).not.toBeInTheDocument()
-    expect(screen.getByText(/Descuento 10%/)).toBeInTheDocument()
+    expect(screen.getByText(/Descuento: 10%/)).toBeInTheDocument()
 
     await user.clear(percent)
     await user.type(percent, '5')
@@ -182,7 +182,7 @@ describe('PaymentModal — descuento de esta venta', () => {
     expect(screen.getByText('Total cubierto')).toBeInTheDocument()
 
     await user.click(screen.getByRole('checkbox', { name: 'Descuento en esta venta' }))
-    expect(screen.getByText(/Descuento 10%/)).toBeInTheDocument()
+    expect(screen.getByText(/Descuento: 10%/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Confirmar cobro/ })).toHaveTextContent(/72\.000/)
     expect(screen.getByText('Exceso')).toBeInTheDocument()
     expect(screen.getByText(/8\.000/)).toBeInTheDocument()

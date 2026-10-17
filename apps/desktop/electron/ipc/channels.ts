@@ -5,6 +5,9 @@
 export const IPC = {
   // App info
   GET_APP_INFO: 'ipc:get-app-info',
+  /** El usuario pidió cerrar la ventana (Alt+F4 o la X). */
+  APP_QUIT_REQUESTED: 'ipc:app-quit-requested',
+  CONFIRM_APP_QUIT: 'ipc:confirm-app-quit',
   GET_INIT_STATUS: 'ipc:get-init-status',
 
   // Hardware status

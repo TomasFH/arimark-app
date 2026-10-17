@@ -351,3 +351,111 @@ describe('OrderFormModal — borrador de alta', () => {
     expect(getOrderCreateDraft().storeId).toBe('s9')
   })
 })
+
+describe('OrderFormModal — teclado de productos', () => {
+  const ASADO: ProductRow = {
+    id: 'p-asado',
+    name: 'Asado',
+    category: 'beef_cut',
+    unit: 'kg',
+    pluNumber: 5,
+    price: 18000,
+  }
+
+  beforeEach(() => {
+    resetOrderCreateDraft()
+    installHw()
+    mockSuggestLayout()
+    window.hw.getProducts = vi.fn().mockResolvedValue({ ok: true, data: [MORCILLA, ASADO] })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function openCreate(): Promise<void> {
+    await renderModal(
+      <OrderFormModal
+        open
+        mode="create"
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        showStoreFilter={false}
+        stores={NO_STORES}
+      />,
+    )
+  }
+
+  it('las flechas recorren las opciones y Enter agrega la marcada', async () => {
+    const user = userEvent.setup()
+    await openCreate()
+    const search = await screen.findByPlaceholderText('Buscar producto…')
+    await user.type(search, 'a')
+    expect(await screen.findByRole('button', { name: /Morcilla/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Asado/ })).toBeInTheDocument()
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    expect(screen.getByPlaceholderText('Observaciones del pedido…')).not.toHaveFocus()
+    const marked = screen.getAllByRole('button').find(button => button.classList.contains('bg-accent-soft'))
+    expect(marked).toBeTruthy()
+    const added = marked?.textContent?.includes('Asado') ? 'Asado' : 'Morcilla'
+    const qtyTitle = added === 'Asado' ? 'Peso estimado' : 'Cantidad'
+
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(await screen.findByText(added)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTitle(qtyTitle)).toHaveFocus())
+  })
+
+  it('Tab pasa de kilos a unidades y de ahí a buscar', async () => {
+    const user = userEvent.setup()
+    await openCreate()
+    const search = await screen.findByPlaceholderText('Buscar producto…')
+    await user.type(search, 'Asa')
+    fireEvent.keyDown(search, { key: 'Enter' })
+    const kg = await screen.findByTitle('Peso estimado')
+    await waitFor(() => expect(kg).toHaveFocus())
+
+    await user.tab()
+    expect(screen.getByTitle('Unidades pedidas (opcional). Vacío = pidió kilos.')).toHaveFocus()
+
+    await user.tab()
+    expect(search).toHaveFocus()
+  })
+
+  it('Enter en el peso vuelve a buscar y Supr quita la línea', async () => {
+    const user = userEvent.setup()
+    await openCreate()
+    const search = await screen.findByPlaceholderText('Buscar producto…')
+    await user.type(search, 'Mor')
+    fireEvent.keyDown(search, { key: 'Enter' })
+    const qty = await screen.findByTitle('Cantidad')
+
+    fireEvent.keyDown(qty, { key: 'Enter' })
+    expect(search).toHaveFocus()
+
+    qty.focus()
+    fireEvent.keyDown(qty, { key: 'Delete' })
+    expect(screen.queryByTitle('Cantidad')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Nuevo pedido' })).toBeInTheDocument()
+  })
+
+  it('Ctrl+Enter desde el nombre enfoca la búsqueda', async () => {
+    await openCreate()
+    const name = await screen.findByPlaceholderText('Ej: Restaurante El Sol')
+    name.focus()
+    fireEvent.keyDown(name, { key: 'Enter', ctrlKey: true })
+    expect(screen.getByPlaceholderText('Buscar producto…')).toHaveFocus()
+  })
+
+  it('Escape cierra la lista y deja el pedido abierto', async () => {
+    const user = userEvent.setup()
+    await openCreate()
+    const search = await screen.findByPlaceholderText('Buscar producto…')
+    await user.type(search, 'Mor')
+    expect(await screen.findByRole('button', { name: /Morcilla/ })).toBeInTheDocument()
+
+    fireEvent.keyDown(search, { key: 'Escape' })
+    expect(screen.queryByRole('button', { name: /Morcilla/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Nuevo pedido' })).toBeInTheDocument()
+  })
+})

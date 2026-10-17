@@ -80,6 +80,7 @@ interface FsSale {
   createdAt: string
   discountException?: boolean
   discountPercent?: number
+  discountAmount?: number
   items?: FsSaleItem[]
   payments?: FsSalePayment[]
 }
@@ -151,6 +152,8 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
   const cashAmount = payments.filter(p => p.paymentMethod === 'cash').reduce((a, p) => a + p.amount, 0)
   const digitalAmount = payments.filter(p => p.paymentMethod !== 'cash').reduce((a, p) => a + p.amount, 0)
   const methods = [...new Set(payments.map(p => p.paymentMethod))]
+  const byMethod = new Map<FsSalePayment['paymentMethod'], number>()
+  for (const pay of payments) byMethod.set(pay.paymentMethod, (byMethod.get(pay.paymentMethod) ?? 0) + pay.amount)
   return {
     id: s.id,
     createdAt: s.createdAt,
@@ -159,6 +162,10 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
     cashAmount,
     digitalAmount,
     paymentMethods: methods,
+    payments: [...byMethod.entries()].map(([method, amount]) => ({ method, amount })),
+    discountAmount: typeof s.discountAmount === 'number' && Number.isFinite(s.discountAmount)
+      ? Math.max(0, Math.round(s.discountAmount))
+      : 0,
     manualEntry: s.manualEntry ?? false,
     isDebt: s.isDebt ?? false,
     discountException: s.discountException === true,

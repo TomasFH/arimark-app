@@ -1265,6 +1265,10 @@ export interface HistorySaleRow {
   cashAmount: number
   digitalAmount: number
   paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+  /** Monto cobrado por medio. Vacío en turnos viejos que solo traían la lista de medios. */
+  payments?: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
+  /** Pesos descontados sobre el precio de lista. 0 si no hubo descuento. */
+  discountAmount?: number
   manualEntry: boolean
   isDebt: boolean
   customerName: string | null
@@ -1457,6 +1461,10 @@ export type SetHardwareConfigPayload = HardwareConfig
 export interface HwApi {
   /** Retorna el entorno de la app y versión */
   getAppInfo: () => Promise<IpcResult<AppInfo>>
+
+  /** Alt+F4 o la X: el main pide confirmación antes de cerrar. */
+  onAppQuitRequested: (cb: () => void) => () => void
+  confirmAppQuit: () => Promise<IpcResult>
 
   /** Retorna el estado de inicialización (licencia, activación, config del negocio) */
   getInitStatus: () => Promise<IpcResult<InitStatus>>

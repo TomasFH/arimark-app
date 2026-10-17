@@ -2,7 +2,7 @@
  * Alta y edición de pedido. Lo abren el POS (Tomar pedido) y Pedidos.
  * El alta comparte un borrador en memoria; editar un pedido guardado no lo pisa.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import NumericInput from './NumericInput'
 import DecimalInput from './DecimalInput'
 import { Button, CollapseReveal, Modal, ModalCloseButton, SuggestPopover } from './ui'
@@ -107,6 +107,8 @@ export default function OrderFormModal({
   const [fetchedStores, setFetchedStores] = useState<StoreRow[]>([])
   const [budgetSearch, setBudgetSearch] = useState('')
   const [budgetSuggestions, setBudgetSuggestions] = useState<ProductRow[]>([])
+  const [budgetHighlight, setBudgetHighlight] = useState(0)
+  const [budgetSuggestionsHidden, setBudgetSuggestionsHidden] = useState(false)
   const budgetSearchRef = useRef<HTMLInputElement>(null)
   const lastQtyRef = useRef<HTMLInputElement>(null)
   const prevCartLen = useRef(mode === 'edit'
@@ -199,6 +201,8 @@ export default function OrderFormModal({
       pluOf: product => product.pluNumber ?? 0,
     })
     setBudgetSuggestions(results.slice(0, 8))
+    setBudgetHighlight(0)
+    setBudgetSuggestionsHidden(false)
   }, [budgetSearch, catalog])
 
   useEffect(() => {
@@ -416,7 +420,87 @@ export default function OrderFormModal({
     }))
     setBudgetSearch('')
     setBudgetSuggestions([])
+    setBudgetHighlight(0)
   }
+
+  const visibleBudgetSuggestions = budgetSuggestionsHidden ? [] : budgetSuggestions
+
+  function moveBudgetHighlight(step: number): void {
+    if (visibleBudgetSuggestions.length === 0) return
+    setBudgetHighlight(current => (current + step + visibleBudgetSuggestions.length) % visibleBudgetSuggestions.length)
+  }
+
+  function handleBudgetSearchKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    const listOpen = visibleBudgetSuggestions.length > 0
+    if (!listOpen) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveBudgetHighlight(1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveBudgetHighlight(-1)
+    } else if (event.key === 'Enter' && !event.ctrlKey) {
+      event.preventDefault()
+      const pick = visibleBudgetSuggestions[budgetHighlight] ?? visibleBudgetSuggestions[0]
+      if (pick) addBudgetProduct(pick)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setBudgetSuggestionsHidden(true)
+    }
+  }
+
+  function removeBudgetLine(idx: number): void {
+    patchForm(prev => ({
+      ...prev,
+      budgetCart: prev.budgetCart.filter((_, i) => i !== idx),
+    }))
+    requestAnimationFrame(() => {
+      const fields = document.querySelectorAll<HTMLElement>('[data-order-qty]')
+      const next = fields[Math.min(idx, fields.length - 1)]
+      if (next) next.focus()
+      else budgetSearchRef.current?.focus()
+    })
+  }
+
+  function focusOrderQty(index: number): void {
+    const fields = document.querySelectorAll<HTMLElement>('[data-order-qty]')
+    fields[index]?.focus()
+  }
+
+  function handleBudgetLineKeyDown(idx: number, event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'Delete' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      removeBudgetLine(idx)
+      return
+    }
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      focusOrderQty(idx + (event.key === 'ArrowDown' ? 1 : -1))
+      return
+    }
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
+    event.preventDefault()
+    budgetSearchRef.current?.focus()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function onKey(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Enter' || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.repeat) return
+      event.preventDefault()
+      event.stopPropagation()
+      const list = budgetSuggestionsHidden ? [] : budgetSuggestions
+      if (list.length > 0) {
+        const pick = list[budgetHighlight] ?? list[0]
+        if (pick) addBudgetProduct(pick)
+        return
+      }
+      budgetSearchRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [open, budgetSuggestions, budgetSuggestionsHidden, budgetHighlight, addBudgetProduct])
 
   return (
     <>
@@ -552,7 +636,9 @@ export default function OrderFormModal({
                           {line.unit === 'kg' ? (
                             <DecimalInput
                               ref={isLast ? lastQtyRef : undefined}
+                              data-order-qty=""
                               value={line.qtyRaw}
+                              onKeyDown={event => handleBudgetLineKeyDown(idx, event)}
                               onChange={value => patchForm(prev => ({
                                 ...prev,
                                 budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, qtyRaw: value, pieceLinked: false } : item),
@@ -570,7 +656,9 @@ export default function OrderFormModal({
                           ) : (
                             <NumericInput
                               ref={isLast ? lastQtyRef : undefined}
+                              data-order-qty=""
                               value={line.qtyRaw}
+                              onKeyDown={event => handleBudgetLineKeyDown(idx, event)}
                               onChange={value => patchForm(prev => ({
                                 ...prev,
                                 budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, qtyRaw: value } : item),
@@ -587,6 +675,7 @@ export default function OrderFormModal({
                             <div className="shrink-0 w-12">
                               <NumericInput
                                 value={line.requestedUnitsRaw}
+                                onKeyDown={event => handleBudgetLineKeyDown(idx, event)}
                                 onChange={value => patchForm(prev => ({
                                   ...prev,
                                   budgetCart: prev.budgetCart.map((item, i) => {
@@ -614,10 +703,8 @@ export default function OrderFormModal({
                         )}
                         <button
                           type="button"
-                          onClick={() => patchForm(prev => ({
-                            ...prev,
-                            budgetCart: prev.budgetCart.filter((_, i) => i !== idx),
-                          }))}
+                          tabIndex={-1}
+                          onClick={() => removeBudgetLine(idx)}
                           className="shrink-0 text-muted hover:text-danger text-sm"
                           title="Quitar"
                         >
@@ -641,18 +728,23 @@ export default function OrderFormModal({
                 type="text"
                 value={budgetSearch}
                 onChange={event => setBudgetSearch(event.target.value)}
+                onKeyDown={handleBudgetSearchKeyDown}
+                onBlur={() => setBudgetSuggestionsHidden(true)}
                 placeholder="Buscar producto…"
                 className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
               />
-              <SuggestPopover anchorRef={budgetSearchRef} open={budgetSuggestions.length > 0}>
-                <ul>
-                  {budgetSuggestions.map(product => (
-                    <li key={product.id}>
+              <SuggestPopover anchorRef={budgetSearchRef} open={visibleBudgetSuggestions.length > 0}>
+                <ul className="w-full">
+                  {visibleBudgetSuggestions.map((product, index) => (
+                    <li key={product.id} className="w-full">
                       <button
                         type="button"
                         onMouseDown={event => event.preventDefault()}
+                        onMouseEnter={() => setBudgetHighlight(index)}
                         onClick={() => addBudgetProduct(product)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink hover:bg-hover"
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink ${
+                          index === budgetHighlight ? 'bg-accent-soft' : 'hover:bg-hover'
+                        }`}
                       >
                         <span className="min-w-0 flex-1 truncate" title={product.name}>{product.name}</span>
                         <span className="shrink-0 text-muted">{formatARS(product.price ?? 0)}/{product.unit === 'kg' ? 'kg' : 'u'}</span>

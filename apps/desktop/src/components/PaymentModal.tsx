@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   cashDiscountPreconditions,
   quoteCashDiscount,
@@ -11,7 +11,15 @@ import { formatARS } from '../lib/datetime'
 import type { ProductRow, SalePaymentPayload } from '../types/hw-api'
 import { Button, Modal, ModalCloseButton, useModalDismiss } from './ui'
 
-type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
+export type PaymentMethod = 'cash' | 'debit' | 'wallet' | 'credit'
+
+export function paymentMethodFromFunctionKey(key: string): PaymentMethod | null {
+  if (key === 'F1') return 'cash'
+  if (key === 'F2') return 'debit'
+  if (key === 'F3') return 'wallet'
+  if (key === 'F9') return 'credit'
+  return null
+}
 
 interface PaymentRow {
   id: string
@@ -46,9 +54,20 @@ interface Props {
   /** Llamado cuando la cajera elige cobro diferido (fiado). */
   onFiado?: () => void
   onClose: () => void
+  /** Medio ya elegido al abrir (F1–F3 y F9 desde la venta). No confirma solo. */
+  initialMethod?: PaymentMethod
+  /** Abre ya en cobro dividido (F5 desde la venta). No confirma solo. */
+  initialSplit?: boolean
 }
 
 type ModalMode = 'single' | 'cash-detail' | 'digital-confirm' | 'credit-detail' | 'split'
+
+function modeForMethod(method: PaymentMethod | undefined): ModalMode {
+  if (method === 'cash') return 'cash-detail'
+  if (method === 'credit') return 'credit-detail'
+  if (method === 'debit' || method === 'wallet') return 'digital-confirm'
+  return 'single'
+}
 
 const CREDIT_PRESET_INSTALLMENTS = [1, 3, 6, 12, 18, 24]
 
@@ -98,12 +117,16 @@ export default function PaymentModal({
   onConfirm,
   onFiado,
   onClose,
+  initialMethod,
+  initialSplit = false,
 }: Props) {
-  const [mode, setMode] = useState<ModalMode>('single')
+  const [mode, setMode] = useState<ModalMode>(() => (
+    initialSplit ? 'split' : modeForMethod(initialMethod)
+  ))
   const [clientCash, setClientCash] = useState('')
   const [notes, setNotes] = useState('')
   /** Método seleccionado pendiente de confirmación (digital-confirm / credit-detail). */
-  const [pendingMethod, setPendingMethod] = useState<PaymentMethod | null>(null)
+  const [pendingMethod, setPendingMethod] = useState<PaymentMethod | null>(initialMethod ?? null)
   /** Cuotas para crédito — string para permitir tipeo libre. */
   const [installmentsRaw, setInstallmentsRaw] = useState('')
   const [rows, setRows] = useState<PaymentRow[]>([
@@ -190,12 +213,20 @@ export default function PaymentModal({
     remainderIncludesCash: true,
   })
   const chargeTotal = quote.amountDue
-  const appliedPrefix = showApplyControl ? 'Desc. efectivo' : 'Descuento'
-  const discountDetail = `${quote.discountPercent}% sobre ${formatARS(quote.discountBase)} → ${formatARS(quote.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(quote.amountDue)}`
-  const discountLine = quote.eligible
-    ? `${appliedPrefix} ${discountDetail}`
+  const discountHint = quote.eligible
+    ? {
+        lead: `${showApplyControl ? 'Desc. efectivo' : 'Descuento'}: ${quote.discountPercent}% sobre ${formatARS(quote.discountBase)}`,
+        discounted: quote.discountedTotal,
+        deposit: depositAmount,
+        due: quote.amountDue,
+      }
     : !showApplyControl && !(showExceptionControl && exceptionDiscount) && cashPreview.eligible
-      ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(cashPreview.discountedTotal)}${depositAmount > 0 ? `; seña ${formatARS(depositAmount)}` : ''}; a cobrar ${formatARS(cashPreview.amountDue)}`
+      ? {
+          lead: `Si cobrás con efectivo: ${cashPreview.discountPercent}% sobre ${formatARS(itemTotal)}`,
+          discounted: cashPreview.discountedTotal,
+          deposit: depositAmount,
+          due: cashPreview.amountDue,
+        }
       : null
 
   useModalDismiss(() => {
@@ -322,6 +353,60 @@ export default function PaymentModal({
       }))
     confirmWithNotes(payments)
   }
+
+  function confirmStepFromKeyboard(): boolean {
+    if (mode === 'cash-detail') {
+      const empty = clientCash.trim() === ''
+      if (!empty && clientCashAmount + 0.005 < chargeTotal) return false
+      handleCashConfirm()
+      return true
+    }
+    if (mode === 'digital-confirm') {
+      if (!pendingMethod) return false
+      handleDigitalConfirm()
+      return true
+    }
+    if (mode === 'credit-detail') {
+      if (!installmentsValid) return false
+      handleCreditConfirm()
+      return true
+    }
+    if (mode === 'split') {
+      if (!splitValid) return false
+      handleSplitConfirm()
+      return true
+    }
+    return false
+  }
+
+  const onPaymentKeyRef = useRef<(event: KeyboardEvent) => void>(() => {})
+  onPaymentKeyRef.current = (event: KeyboardEvent) => {
+    const method = paymentMethodFromFunctionKey(event.key)
+    if (method) {
+      event.preventDefault()
+      if (event.repeat) return
+      handleSingleMethod(method)
+      return
+    }
+    if (event.key === 'F5') {
+      event.preventDefault()
+      if (event.repeat) return
+      setMode('split')
+      return
+    }
+    if (event.key !== 'Enter' || event.repeat) return
+    if (event.target instanceof HTMLTextAreaElement) return
+    if (event.target instanceof Element && event.target.closest('button') != null) return
+    if (confirmStepFromKeyboard()) event.preventDefault()
+  }
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      onPaymentKeyRef.current(event)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   const balanceCovered = Math.abs(remaining) < 1
   const balanceExcess = remaining < 0
@@ -459,8 +544,15 @@ export default function PaymentModal({
           </div>
         </div>
       )}
-      {discountLine && (
-        <p className="mb-3 truncate text-xs text-success" title={discountLine}>{discountLine}</p>
+      {discountHint != null && (
+        <div className="mb-3 space-y-0.5 text-xs text-success">
+          <p>{discountHint.lead}</p>
+          <p>
+            Queda {formatARS(discountHint.discounted)}
+            {discountHint.deposit > 0 ? ` · seña ${formatARS(discountHint.deposit)}` : ''}
+          </p>
+          <p className="font-semibold">A cobrar {formatARS(discountHint.due)}</p>
+        </div>
       )}
       {onAddBag && onRemoveBag && (
         <div className="mb-4">
@@ -491,25 +583,30 @@ export default function PaymentModal({
       {mode === 'single' && (
         <>
           <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={() => handleSingleMethod('cash')} className={tileClass}>
+            <button type="button" onClick={() => handleSingleMethod('cash')} className={tileClass} aria-keyshortcuts="F1">
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.cash}</span>
               <span className="text-sm font-semibold text-ink">Efectivo</span>
+              <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F1</span>
             </button>
-            <button type="button" onClick={() => handleSingleMethod('debit')} className={tileClass}>
+            <button type="button" onClick={() => handleSingleMethod('debit')} className={tileClass} aria-keyshortcuts="F2">
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.debit}</span>
               <span className="text-sm font-semibold text-ink">Débito</span>
+              <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F2</span>
             </button>
-            <button type="button" onClick={() => handleSingleMethod('wallet')} className={tileClass}>
+            <button type="button" onClick={() => handleSingleMethod('wallet')} className={tileClass} aria-keyshortcuts="F3">
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.wallet}</span>
               <span className="text-sm font-semibold text-ink">Billetera Virtual</span>
+              <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F3</span>
             </button>
             <button
               type="button"
               onClick={() => handleSingleMethod('credit')}
+              aria-keyshortcuts="F9"
               className="flex flex-col items-center gap-2 rounded-xl border border-danger/40 bg-danger/10 p-5 text-center transition-colors hover:border-danger hover:bg-danger/15"
             >
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.credit}</span>
               <span className="text-sm font-semibold text-danger">Crédito</span>
+              <span className="text-[10px] font-semibold tracking-wide text-danger/70" aria-hidden>F9</span>
               <span className="text-[10px] leading-tight text-danger/80">uso excepcional</span>
             </button>
           </div>
@@ -517,9 +614,11 @@ export default function PaymentModal({
             <button
               type="button"
               onClick={() => setMode('split')}
+              aria-keyshortcuts="F5"
               className="text-xs text-muted underline underline-offset-2 transition-colors hover:text-ink"
             >
               Dividir en varios medios de pago
+              <span aria-hidden> · F5</span>
             </button>
           </div>
         </>

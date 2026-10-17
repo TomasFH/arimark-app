@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrdersScreen from '../OrdersScreen'
 import { resetOrderCreateDraft } from '../../lib/orderCreateDraft'
@@ -175,7 +175,53 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     await user.click(screen.getByRole('button', { name: '+ Nuevo pedido' }))
     expect(await screen.findByPlaceholderText('Ej: Restaurante El Sol')).toHaveValue('Borrador Ana')
   })
+
+  it('al cobrar, la etiqueta del PLU completa el peso y otra agrega un extra', async () => {
+    vi.mocked(window.hw.getProducts).mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'p1', name: 'Asado', category: 'beef_cut', unit: 'kg', pluNumber: 1, price: 22000 },
+        { id: 'p5', name: 'Vacío', category: 'beef_cut', unit: 'kg', pluNumber: 5, price: 21000 },
+      ],
+    })
+    const user = userEvent.setup()
+    render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 3')).toBeInTheDocument()
+
+    await user.click(screen.getByText('Update 3'))
+    const card = document.getElementById('order-ready-1')
+    if (!card) throw new Error('No está la tarjeta del pedido')
+    await user.click(within(card).getByRole('button', { name: 'Cobrar' }))
+
+    expect(await screen.findByRole('heading', { name: 'Cobrar pedido' })).toBeInTheDocument()
+    expect(await screen.findByText(/lista de hoy/i)).toBeInTheDocument()
+
+    scanBarcode(kretzBarcode(1, 10000))
+    expect(await screen.findByDisplayValue('0,5')).toBeInTheDocument()
+
+    scanBarcode(kretzBarcode(5, 17535))
+    expect(await screen.findByText('Extra')).toBeInTheDocument()
+    expect(screen.getByText('Vacío')).toBeInTheDocument()
+  })
 })
+
+function kretzBarcode(plu: number, pesos: number): string {
+  const body = `20${String(plu).padStart(3, '0')}${String(pesos * 100).padStart(7, '0')}`
+  let sum = 0
+  for (let i = 0; i < body.length; i++) {
+    const digit = Number(body[i])
+    sum += i % 2 === 0 ? digit : digit * 3
+  }
+  return `${body}${(10 - (sum % 10)) % 10}`
+}
+
+function scanBarcode(digits: string) {
+  act(() => {
+    for (const key of digits) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+  })
+}
 
 function menuButton(card: HTMLElement): HTMLElement {
   const button = card.querySelector('button[aria-label="Más acciones"]')

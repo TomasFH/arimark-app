@@ -4,6 +4,12 @@ import type { HwApi, HardwareStatus, KretzSyncProgress, UiSettings } from '../sr
 
 const hw: HwApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.GET_APP_INFO),
+  onAppQuitRequested: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.APP_QUIT_REQUESTED, listener)
+    return () => ipcRenderer.removeListener(IPC.APP_QUIT_REQUESTED, listener)
+  },
+  confirmAppQuit: () => ipcRenderer.invoke(IPC.CONFIRM_APP_QUIT),
 
   getInitStatus: () => ipcRenderer.invoke(IPC.GET_INIT_STATUS),
 

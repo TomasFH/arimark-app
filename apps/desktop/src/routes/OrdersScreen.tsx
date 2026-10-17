@@ -4,13 +4,24 @@
  * Cajera: ver lista, crear pedido, editar, cancelar, marcar listo/entregado.
  * Admin: igual + eliminación permanente.
  */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import NumericInput from '../components/NumericInput'
 import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer } from '../components/ui'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import DecimalInput from '../components/DecimalInput'
 import OrderFormModal from '../components/OrderFormModal'
-import { parseNumericInput, parseDecimalInput } from '../lib/numericInput'
+import { parseNumericInput, parseDecimalInput, formatIntegerWithDots } from '../lib/numericInput'
+import { useBarcodeScanner } from '../lib/useBarcodeScanner'
+import {
+  chargeLinesFromBudget,
+  chargeQtyMatchesTicket,
+  listPriceIfDifferent,
+  matchOrderTicket,
+  repriceChargeLine,
+  saleItemFromChargeLine,
+  type OrderChargeLine,
+  type OrderTicketProduct,
+} from '../lib/orderTicketMatch'
 import { addDaysYmd, formatARS, todayLocalYmd, toLocalDateTime } from '../lib/datetime'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import {
@@ -19,7 +30,6 @@ import {
   estimatedBudgetTotal,
   paymentsForOrder,
   seedOrderCreateDraft,
-  type BudgetCartDraft,
 } from '../lib/orderCreateDraft'
 import {
   formatKgQty,
@@ -31,6 +41,8 @@ import {
   isPickupDueSoon,
   isPickupOutsideHoursOnDate,
   storeHoursSourceFromRecord,
+  centsToARS,
+  parseKretzBarcode,
   type StoreHoursSource,
 } from '@carniceria/shared'
 import { buildOrdersView } from '../lib/orderListView'
@@ -148,9 +160,16 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
 
   // Modal de cobro mediante inyección en POS (nuevo flujo)
   const [chargeModalOrder, setChargeModalOrder] = useState<OrderRow | null>(null)
-  const [chargeCartLines, setChargeCartLines] = useState<Array<BudgetCartDraft & { checked: boolean }>>([])
+  const [chargeCartLines, setChargeCartLines] = useState<OrderChargeLine[]>([])
+  const [chargeCatalog, setChargeCatalog] = useState<OrderTicketProduct[]>([])
   const [chargeError, setChargeError] = useState<string | null>(null)
+  const [chargeNotice, setChargeNotice] = useState<string | null>(null)
+  const [priceEditIndex, setPriceEditIndex] = useState<number | null>(null)
+  const [priceDraft, setPriceDraft] = useState('')
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const chargeCatalogRef = useRef(chargeCatalog)
+  const pendingNoticeRef = useRef<string | null | undefined>(undefined)
+  chargeCatalogRef.current = chargeCatalog
 
   const loadOrders = useCallback(async () => {
     const r = await window.hw.listOrders(showStoreFilter ? { storeIdFilter } : undefined)
@@ -261,19 +280,108 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     closeOrderForm()
   }
 
+  function closeChargeModal() {
+    setChargeModalOrder(null)
+    setPriceEditIndex(null)
+    setPriceDraft('')
+    setChargeNotice(null)
+    setChargeError(null)
+  }
+
   /** Abre el modal de cobro por POS: prepopula líneas del carrito de presupuesto */
   function openChargeModal(order: OrderRow) {
-    const lines = (order.budgetItems ?? []).map(line => ({
-      ...line,
-      qtyRaw: '',
-      requestedUnitsRaw: line.requestedUnits && line.requestedUnits > 0
-        ? String(line.requestedUnits)
-        : '',
-      checked: true,
-    }))
-    setChargeCartLines(lines)
+    setChargeCartLines(chargeLinesFromBudget(order.budgetItems))
+    setChargeCatalog([])
+    setPriceEditIndex(null)
+    setPriceDraft('')
     setChargeModalOrder(order)
     setChargeError(null)
+    setChargeNotice(null)
+  }
+
+  useEffect(() => {
+    if (!chargeModalOrder) return undefined
+    let cancelled = false
+    void window.hw.getProducts()
+      .then(res => {
+        if (cancelled) return
+        if (res.ok) setChargeCatalog(res.data)
+        else setChargeNotice(res.error ?? 'No se pudo leer la lista de precios.')
+      })
+      .catch((err: unknown) => {
+        console.error('[OrdersScreen] getProducts falló', err)
+        if (!cancelled) setChargeNotice('No se pudo leer la lista de precios.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chargeModalOrder])
+
+  const handleChargeScan = useCallback((digits: string) => {
+    const parsed = parseKretzBarcode(digits)
+    if (!parsed) {
+      setChargeNotice('Código inválido.')
+      return
+    }
+    const pluNumber = Number.parseInt(parsed.pluNumber, 10)
+    if (!Number.isFinite(pluNumber)) {
+      setChargeNotice('Código inválido.')
+      return
+    }
+    const scan = { pluNumber, totalPesos: Math.round(centsToARS(parsed.totalCents)) }
+    setChargeCartLines(prev => {
+      const result = matchOrderTicket(prev, scan, chargeCatalogRef.current)
+      pendingNoticeRef.current = result.notice
+      return result.lines
+    })
+    setChargeError(null)
+  }, [])
+
+  useEffect(() => {
+    if (pendingNoticeRef.current === undefined) return
+    setChargeNotice(pendingNoticeRef.current)
+    pendingNoticeRef.current = undefined
+  }, [chargeCartLines])
+
+  useBarcodeScanner({
+    onScan: handleChargeScan,
+    disabled: chargeModalOrder == null,
+  })
+
+  function beginPriceEdit(idx: number) {
+    const line = chargeCartLines[idx]
+    if (!line) return
+    const current = line.unitPrice > 0 ? Math.trunc(line.unitPrice) : 0
+    setPriceEditIndex(idx)
+    setPriceDraft(current > 0 ? formatIntegerWithDots(String(current)) : '')
+  }
+
+  function commitLinePrice(idx: number) {
+    const line = chargeCartLines[idx]
+    if (!line) return
+    const parsed = parseNumericInput(priceDraft)
+    if (parsed == null) {
+      setChargeNotice('Ingresá un precio.')
+      return
+    }
+    const result = repriceChargeLine(line, parsed)
+    setChargeCartLines(prev => prev.map((row, i) => i === idx ? result.line : row))
+    setChargeNotice(result.notice)
+    if (result.notice == null) setPriceEditIndex(null)
+  }
+
+  function updateChargeQty(idx: number, qtyRaw: string) {
+    setChargeCartLines(prev => prev.map((row, i) => (
+      i === idx ? { ...row, qtyRaw } : row
+    )))
+  }
+
+  /** El peso a mano suelta la etiqueta. El lector restaura el campo y no debe soltarla. */
+  function releaseTicketIfQtyEdited(idx: number) {
+    setChargeCartLines(prev => prev.map((row, i) => {
+      if (i !== idx || row.ticketTotal == null || chargeQtyMatchesTicket(row)) return row
+      return { ...row, ticketTotal: null }
+    }))
   }
 
   /** Confirmar cobro: inyecta el carrito en el POS */
@@ -300,6 +408,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     // Construir items del carrito para inyectar en el POS
     const checked = chargeCartLines.filter(line => line.checked)
     for (const line of checked) {
+      if (line.ticketTotal != null && line.ticketTotal > 0) continue
       const typed = line.unit === 'kg'
         ? parseDecimalInput(line.qtyRaw)
         : parseNumericInput(line.qtyRaw)
@@ -310,23 +419,8 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     }
 
     const items: SaleItemDraft[] = checked
-      .map(line => {
-        const qty = line.unit === 'kg'
-          ? (parseDecimalInput(line.qtyRaw) ?? null)
-          : (parseNumericInput(line.qtyRaw) ?? null)
-        const weightKg = qty ?? line.estimatedQty
-        return {
-          pluNumber: line.pluNumber ?? 0,
-          productId: line.productId,
-          productName: line.name,
-          weightKg,
-          unit: line.unit,
-          unitPrice: line.unitPrice,
-          subtotal: Math.round(line.unitPrice * weightKg),
-          manualEntry: true,
-        }
-      })
-      .filter(item => item.subtotal > 0)
+      .map(saleItemFromChargeLine)
+      .filter((item): item is SaleItemDraft => item != null && item.subtotal > 0)
 
     const depositPayments = paymentsForOrder(chargeModalOrder)
     const deposit = chargeModalOrder.depositAmount
@@ -536,10 +630,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       {/* Cobro de pedido (resto − seña) */}
       {/* Modal de cobro por POS (nuevo flujo) */}
       {chargeModalOrder && (
-        <ModalLayer onClose={() => setChargeModalOrder(null)} className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-overlay-fade">
+        <ModalLayer onClose={closeChargeModal} className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-overlay-fade">
           <div className="w-full sm:max-w-lg bg-panel rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-line flex items-center justify-between">
-              <div>
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between gap-2 min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-bold text-ink">Cobrar pedido</h2>
                 <p className="text-xs text-muted truncate" title={chargeModalOrder.customerName}>
                   {chargeModalOrder.customerName}
@@ -548,55 +642,109 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                   )}
                 </p>
               </div>
-              <ModalCloseButton onClick={() => setChargeModalOrder(null)} />
+              <ModalCloseButton onClick={closeChargeModal} />
             </div>
             <div className="px-5 py-4 space-y-3">
               {chargeCartLines.length > 0 ? (
                 <>
-                  <p className="text-xs text-muted">Ingresá las cantidades reales. Podés quitar productos antes de cobrar.</p>
+                  <p className="text-xs text-muted">Ingresá el peso a mano o escaneá cada etiqueta. Una etiqueta completa una línea. Podés quitar productos antes de cobrar.</p>
                   <div className="space-y-2">
-                    {chargeCartLines.map((line, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-hover rounded-lg px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={line.checked}
-                          onChange={e => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, checked: e.target.checked } : l))}
-                          className="shrink-0 accent-accent"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs text-ink truncate" title={line.name}>{line.name}</p>
-                          <p className="text-[10px] text-muted">
-                            {formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}
-                            {line.requestedUnits != null && line.requestedUnits > 0 && (
-                              <> · {line.requestedUnits} u</>
-                            )}
-                            {line.estimatedQty > 0 && line.unit === 'kg' && (
-                              <> · est. {formatKgQty(line.estimatedQty)}</>
-                            )}
-                          </p>
-                        </div>
-                        <div className="shrink-0 w-24">
-                          {line.unit === 'kg' ? (
-                            <DecimalInput
-                              value={line.qtyRaw}
-                              onChange={v => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l))}
-                              placeholder={line.estimatedQty > 0 ? formatKgQty(line.estimatedQty).replace(' kg', '') : ''}
-                              maxDecimals={3}
-                              weightMode
-                              className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
+                    {chargeCartLines.map((line, idx) => {
+                      const listPrice = listPriceIfDifferent(line, chargeCatalog)
+                      const priceLabel = `${formatARS(line.unitPrice)} / ${line.unit === 'kg' ? 'kg' : 'u'}`
+                      return (
+                        <div key={idx} className="space-y-1.5 rounded-lg bg-hover px-3 py-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={line.checked}
+                              onChange={e => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, checked: e.target.checked } : l))}
+                              className="shrink-0 accent-accent"
                             />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <p className="min-w-0 flex-1 truncate text-xs text-ink" title={line.name}>{line.name}</p>
+                                {line.extra && (
+                                  <span className="shrink-0 text-[10px] font-semibold text-amber-400">Extra</span>
+                                )}
+                              </div>
+                              <p className="truncate text-[10px] text-muted" title={priceLabel}>
+                                {priceLabel}
+                                {line.requestedUnits != null && line.requestedUnits > 0 && (
+                                  <> · {line.requestedUnits} u</>
+                                )}
+                                {line.estimatedQty > 0 && line.unit === 'kg' && (
+                                  <> · est. {formatKgQty(line.estimatedQty)}</>
+                                )}
+                                {line.ticketTotal != null && line.ticketTotal > 0 && (
+                                  <> · ticket {formatARS(line.ticketTotal)}</>
+                                )}
+                              </p>
+                            </div>
+                            <div className="shrink-0 w-24">
+                              {line.unit === 'kg' ? (
+                                <DecimalInput
+                                  value={line.qtyRaw}
+                                  onChange={v => updateChargeQty(idx, v)}
+                                  onBlur={() => releaseTicketIfQtyEdited(idx)}
+                                  placeholder={line.estimatedQty > 0 ? formatKgQty(line.estimatedQty).replace(' kg', '') : ''}
+                                  maxDecimals={3}
+                                  weightMode
+                                  aria-label={`Peso de ${line.name}`}
+                                  className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
+                                />
+                              ) : (
+                                <NumericInput
+                                  value={line.qtyRaw}
+                                  onChange={v => updateChargeQty(idx, v)}
+                                  onBlur={() => releaseTicketIfQtyEdited(idx)}
+                                  placeholder={String(Math.round(line.estimatedQty))}
+                                  aria-label={`Cantidad de ${line.name}`}
+                                  className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
+                                />
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted shrink-0">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                          </div>
+                          {listPrice != null && (
+                            <p className="text-[10px] text-amber-400">
+                              La lista de hoy es {formatARS(listPrice)}. El precio de la línea no cambió.
+                            </p>
+                          )}
+                          {priceEditIndex === idx ? (
+                            <div className="flex items-center gap-2 min-w-0">
+                              <NumericInput
+                                value={priceDraft}
+                                onChange={setPriceDraft}
+                                aria-label={`Precio de ${line.name}`}
+                                onKeyDown={e => {
+                                  if (e.key !== 'Enter') return
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  commitLinePrice(idx)
+                                }}
+                                className="w-28 shrink-0 bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => commitLinePrice(idx)}
+                                className="shrink-0 text-xs font-semibold text-ink"
+                              >
+                                Listo
+                              </button>
+                            </div>
                           ) : (
-                            <NumericInput
-                              value={line.qtyRaw}
-                              onChange={v => setChargeCartLines(prev => prev.map((l, i) => i === idx ? { ...l, qtyRaw: v } : l))}
-                              placeholder={String(Math.round(line.estimatedQty))}
-                              className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
-                            />
+                            <button
+                              type="button"
+                              onClick={() => beginPriceEdit(idx)}
+                              className="text-[10px] font-semibold text-muted hover:text-ink"
+                            >
+                              Cambiar precio
+                            </button>
                           )}
                         </div>
-                        <span className="text-[10px] text-muted shrink-0">{line.unit === 'kg' ? 'kg' : 'u'}</span>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </>
               ) : (
@@ -608,12 +756,13 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                 </p>
               )}
 
+              {chargeNotice && <p className="break-words text-xs text-amber-400">{chargeNotice}</p>}
               {chargeError && <p className="text-xs text-danger">{chargeError}</p>}
 
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setChargeModalOrder(null)}
+                  onClick={closeChargeModal}
                   className="flex-1 py-2 rounded-xl border border-line text-ink text-sm"
                 >
                   Cancelar

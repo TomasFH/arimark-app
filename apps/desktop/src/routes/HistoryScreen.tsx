@@ -19,8 +19,15 @@ const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Efectivo',
   debit: 'Débito',
-  wallet: 'Billetera Virtual',
+  wallet: 'Billetera virtual',
   credit: 'Crédito',
+}
+
+const PAYMENT_CHIP: Record<string, string> = {
+  cash: 'bg-pay-cash-soft text-pay-cash',
+  debit: 'bg-pay-debit-soft text-pay-debit',
+  wallet: 'bg-pay-wallet-soft text-pay-wallet',
+  credit: 'bg-pay-credit-soft text-pay-credit',
 }
 
 function depositBreakdown(dep: HistoryOrderRow): string | null {
@@ -455,6 +462,10 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
             const apartLabel = sale.discountException
               ? exceptionalDiscountLabel(sale.discountPercent ?? 0)
               : null
+            const discountAmount = sale.discountAmount ?? 0
+            const listPrice = discountAmount > 0 ? sale.total + discountAmount : null
+            const slices = (sale.payments ?? []).filter(pay => pay.amount > 0)
+            const showSliceAmount = slices.length > 1
             return (
             <div
               key={sale.id}
@@ -480,16 +491,32 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
                     )}
                   </div>
                   <div className="flex gap-1 mt-0.5 flex-wrap">
-                    {sale.paymentMethods.map(m => (
-                      <span key={m} className="text-[10px] text-muted bg-raised rounded px-1">
-                        {PAYMENT_METHOD_LABELS[m] ?? m}
-                      </span>
-                    ))}
+                    {(slices.length > 0 ? slices.map(pay => pay.method) : sale.paymentMethods).map(method => {
+                      const amount = slices.find(pay => pay.method === method)?.amount
+                      const label = PAYMENT_METHOD_LABELS[method] ?? method
+                      const text = showSliceAmount && amount != null ? `${label} ${formatARS(amount)}` : label
+                      return (
+                        <span
+                          key={method}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${PAYMENT_CHIP[method] ?? 'bg-raised text-muted'}`}
+                          title={text}
+                        >
+                          {text}
+                        </span>
+                      )
+                    })}
                   </div>
                 </div>
-                <span className={`font-semibold shrink-0 ${sale.status === 'cancelled' ? 'line-through text-muted' : 'text-ink'}`}>
-                  {formatARS(sale.total)}
-                </span>
+                <div className="shrink-0 text-right">
+                  {listPrice != null && (
+                    <p className="text-xs text-subtle line-through tabular-nums" title={sale.discountPercent ? `Precio de lista, ${sale.discountPercent}% de descuento` : 'Precio de lista'}>
+                      {formatARS(listPrice)}
+                    </p>
+                  )}
+                  <p className={`font-semibold tabular-nums ${sale.status === 'cancelled' ? 'line-through text-muted' : 'text-ink'}`}>
+                    {formatARS(sale.total)}
+                  </p>
+                </div>
               </div>
               {sale.items.length > 0 && (
                 <div className="mt-2 space-y-0.5 border-t border-line pt-2">

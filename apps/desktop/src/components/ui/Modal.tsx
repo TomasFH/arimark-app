@@ -120,7 +120,7 @@ export interface ModalProps {
   onClose: () => void
   title?: ReactNode
   header?: ReactNode
-  children: ReactNode
+  children?: ReactNode
   footer?: ReactNode
   size?: ModalSize
   frame?: ModalFrame
@@ -221,17 +221,22 @@ export function Modal({
             {heading}
           </div>
         )}
-        <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
-          <div className={BODY}>
-            {children}
+        {children != null && children !== false && (
+          <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
+            <div className={BODY}>
+              {children}
+            </div>
+            <div
+              ref={node => { suggestLayerRef.current = node }}
+              className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+            />
           </div>
-          <div
-            ref={node => { suggestLayerRef.current = node }}
-            className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
-          />
-        </div>
+        )}
         {footer != null && (
-          <div className="relative z-20 flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3">
+          <div className={cx(
+            'relative z-20 flex shrink-0 items-center justify-end gap-2 px-5 py-3',
+            children != null && children !== false && 'border-t border-line',
+          )}>
             {footer}
           </div>
         )}
