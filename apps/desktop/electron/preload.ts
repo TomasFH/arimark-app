@@ -4,6 +4,12 @@ import type { HwApi, HardwareStatus, KretzSyncProgress, UiSettings } from '../sr
 
 const hw: HwApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.GET_APP_INFO),
+  onAppQuitRequested: cb => {
+    const listener = () => cb()
+    ipcRenderer.on(IPC.APP_QUIT_REQUESTED, listener)
+    return () => ipcRenderer.removeListener(IPC.APP_QUIT_REQUESTED, listener)
+  },
+  confirmAppQuit: () => ipcRenderer.invoke(IPC.CONFIRM_APP_QUIT),
 
   getInitStatus: () => ipcRenderer.invoke(IPC.GET_INIT_STATUS),
 
@@ -104,6 +110,10 @@ const hw: HwApi = {
   dismissInactivityWarning: () => ipcRenderer.invoke(IPC.DISMISS_INACTIVITY_WARNING),
 
   getProducts: () => ipcRenderer.invoke(IPC.GET_PRODUCTS),
+
+  getPieceWeights: () => ipcRenderer.invoke(IPC.GET_PIECE_WEIGHTS),
+
+  setPieceWeights: payload => ipcRenderer.invoke(IPC.SET_PIECE_WEIGHTS, payload),
 
   getAllProducts: (storeId) => ipcRenderer.invoke(IPC.GET_ALL_PRODUCTS, storeId),
 
@@ -230,6 +240,7 @@ const hw: HwApi = {
 
   // Deudas / cuenta corriente (Fase 6)
   createDebt: payload => ipcRenderer.invoke(IPC.CREATE_DEBT, payload),
+  createCustomerWithInitialDebt: payload => ipcRenderer.invoke(IPC.CREATE_CUSTOMER_WITH_INITIAL_DEBT, payload),
   getDebts: payload => ipcRenderer.invoke(IPC.GET_DEBTS, payload),
   getCustomerBalance: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_BALANCE, payload),
   addDebtPayment: payload => ipcRenderer.invoke(IPC.ADD_DEBT_PAYMENT, payload),

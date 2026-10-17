@@ -66,6 +66,49 @@ export type CustomerRow = {
   createdAt: string
 }
 
+export type InsertCustomerInput = {
+  storeId: string
+  name: string
+  dni?: string | null
+  phone?: string | null
+  type?: 'restaurant' | 'wholesale' | 'other' | null
+  notes?: string | null
+  createdBy: string
+}
+
+/** Alta local de cliente. El caller decide el push (outbox `syncedAt`). */
+export function insertCustomerRecord(
+  db: ReturnType<typeof getDb>,
+  input: InsertCustomerInput,
+): CustomerRow {
+  const id = uuidv4()
+  const now = nowUtc()
+  const name = input.name.trim()
+  if (!name) {
+    throw new Error('El nombre del cliente es obligatorio.')
+  }
+
+  db.insert(customers)
+    .values({
+      id,
+      storeId: input.storeId,
+      name,
+      dni: input.dni?.trim() ?? null,
+      phone: input.phone?.trim() ?? null,
+      type: input.type ?? null,
+      notes: input.notes?.trim() ?? null,
+      active: true,
+      createdAt: now,
+      createdBy: input.createdBy,
+      syncedAt: null,
+    })
+    .run()
+
+  const row = db.select().from(customers).where(eq(customers.id, id)).get()
+  if (!row) throw new Error('Error al recuperar cliente creado.')
+  return toCustomerRow(row)
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -83,33 +126,21 @@ export function registerCustomerHandlers(): void {
 
     try {
       const db = getDb()
-      const id = uuidv4()
-      const now = nowUtc()
       const { name, dni, phone, type, notes } = parsed.data
-
-      db.insert(customers)
-        .values({
-          id,
-          storeId: session.storeId,
-          name: name.trim(),
-          dni: dni?.trim() ?? null,
-          phone: phone?.trim() ?? null,
-          type: type ?? null,
-          notes: notes?.trim() ?? null,
-          active: true,
-          createdAt: now,
-          createdBy: session.userId,
-          syncedAt: null,
-        })
-        .run()
+      const row = insertCustomerRecord(db, {
+        storeId: session.storeId,
+        name,
+        dni,
+        phone,
+        type,
+        notes,
+        createdBy: session.userId,
+      })
 
       scheduleCustomerPush()
 
-      const row = db.select().from(customers).where(eq(customers.id, id)).get()
-      if (!row) return { ok: false, error: 'Error al recuperar cliente creado.' }
-
-      log.info('[ipc:create-customer] Cliente creado', { id, name })
-      return { ok: true, data: toCustomerRow(row) }
+      log.info('[ipc:create-customer] Cliente creado', { id: row.id, name: row.name })
+      return { ok: true, data: row }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log.error('[ipc:create-customer] Error inesperado', msg)

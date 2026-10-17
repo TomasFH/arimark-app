@@ -274,7 +274,14 @@ export interface LocalMerchVisitDraft {
 
 export interface LocalProviderPurchasePrices {
   providerId: string
-  items: Record<string, { name: string; costUnit: MerchCostUnit; unitCost: number; updatedAt: string }>
+  items: Record<string, {
+    name: string
+    costUnit: MerchCostUnit
+    unitCost: number
+    updatedAt: string
+    packContents?: number | null
+    weighMode?: 'each' | 'total' | null
+  }>
   syncStatus: SyncStatus
   syncedAt: string | null
 }

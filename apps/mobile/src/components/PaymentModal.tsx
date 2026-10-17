@@ -33,11 +33,15 @@ export function PaymentModal({ itemTotal, cashDiscountRule, onConfirm, onCancel,
   const [notes, setNotes] = useState('')
 
   const rule: CashDiscountRule = cashDiscountRule ?? { minAmount: 0, percent: 0 }
-  const remainderCash = (parseNumericInput(amounts.cash) ?? 0) > 0
+  const cashNow = parseNumericInput(amounts.cash) ?? 0
+  const digitalNow = (['debit', 'wallet', 'credit'] as const)
+    .reduce((sum, method) => sum + (parseNumericInput(amounts[method]) ?? 0), 0)
+  const remainderCash = cashNow > 0
   const quote = quoteCashDiscount({
     rule,
     itemTotal,
     remainderIncludesCash: remainderCash,
+    cashAmount: digitalNow > 0 ? cashNow : undefined,
   })
   const cashPreview = quoteCashDiscount({
     rule,
@@ -47,7 +51,7 @@ export function PaymentModal({ itemTotal, cashDiscountRule, onConfirm, onCancel,
   const chargeTotal = quote.amountDue
   const settled = settleSalePayments(chargeTotal, amounts)
   const discountLine = quote.eligible
-    ? `Desc. efectivo ${quote.discountPercent}% sobre ${formatARS(itemTotal)} → ${formatARS(quote.discountedTotal)}; a cobrar ${formatARS(quote.amountDue)}`
+    ? `Desc. efectivo ${quote.discountPercent}% sobre ${formatARS(quote.discountBase)} → ${formatARS(quote.discountedTotal)}; a cobrar ${formatARS(quote.amountDue)}`
     : cashPreview.eligible
       ? `Si cobrás con efectivo: ${cashPreview.discountPercent}% → ${formatARS(cashPreview.amountDue)}`
       : null

@@ -8,6 +8,7 @@ import { fetchAllStores } from '../lib/adminFirestore'
 import {
   loadAuthorizedStoreOptions,
   loadCashierStoreOptions,
+  peekActiveStoreOptions,
   peekAuthorizedStoreOptions,
 } from '../lib/cashierStores'
 
@@ -83,5 +84,15 @@ describe('loadCashierStoreOptions', () => {
     vi.mocked(fetchAllStores).mockClear()
     expect(peekAuthorizedStoreOptions(['a'])).toEqual([{ id: 'a', name: 'Local Centro', morningStart: null, morningEnd: null, afternoonStart: null, afternoonEnd: null, hoursSchedule: null }])
     expect(fetchAllStores).not.toHaveBeenCalled()
+  })
+
+  it('peekActiveStoreOptions devuelve todos los locales cacheados', async () => {
+    vi.mocked(fetchAllStores).mockResolvedValue([
+      { id: 'a', name: 'San Martín', address: null, archivedAt: null, createdAt: '' },
+      { id: 'b', name: 'Camarones', address: null, archivedAt: null, createdAt: '' },
+    ])
+    await loadCashierStoreOptions(['a'])
+    expect(peekActiveStoreOptions().map(store => store.name)).toEqual(['San Martín', 'Camarones'])
+    expect(peekAuthorizedStoreOptions(['a']).map(store => store.id)).toEqual(['a'])
   })
 })

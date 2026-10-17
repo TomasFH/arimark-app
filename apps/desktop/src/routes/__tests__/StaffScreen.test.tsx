@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import StaffScreen from '../StaffScreen'
 
@@ -58,7 +58,9 @@ describe('StaffScreen — acceso celular del carnicero', () => {
     expect(await screen.findByRole('button', { name: 'Dar acceso al celular' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Revocar acceso' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Cerrar' }))
+    const ficha = screen.getByRole('button', { name: 'Dar acceso al celular' }).closest('[role="dialog"]')
+    if (!(ficha instanceof HTMLElement)) throw new Error('No está la ficha del carnicero')
+    await user.click(within(ficha).getByRole('button', { name: 'Cerrar' }))
     await user.click(screen.getByRole('button', { name: /Carnicero Con Acceso/ }))
     expect(await screen.findByRole('button', { name: 'Revocar acceso' })).toBeInTheDocument()
     expect(screen.getAllByTitle('carnicero@negocio.com').length).toBeGreaterThan(0)

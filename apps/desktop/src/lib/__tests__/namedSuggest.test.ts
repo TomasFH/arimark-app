@@ -16,7 +16,17 @@ describe('namedSuggest', () => {
   it('filtra por fragmento sin cambiar de opción elegida', () => {
     const r = namedSuggest(providers, 'o', p => p.name)
     expect(r.exact).toBeUndefined()
-    expect(r.listed.map(p => p.name)).toEqual(['Oso', 'Juan Pollo'])
+    expect(r.listed.map(p => p.name)).toEqual(['Oso', 'Juan Pollo', 'Carbón'])
+  })
+
+  it('carbon encuentra Carbón', () => {
+    const exact = namedSuggest(providers, 'carbon', p => p.name)
+    expect(exact.exact?.name).toBe('Carbón')
+    expect(exact.listed).toEqual([])
+
+    const fragment = namedSuggest([{ id: '4', name: 'Carbón vegetal' }], 'carbon', p => p.name)
+    expect(fragment.exact).toBeUndefined()
+    expect(fragment.listed.map(p => p.name)).toEqual(['Carbón vegetal'])
   })
 
   it('coincidencia exacta (sin importar mayúsculas) oculta la lista', () => {

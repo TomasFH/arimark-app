@@ -4,21 +4,30 @@
  * Panel izquierdo: lista de turnos (abiertos y cerrados) con filtro por rango de fechas.
  * Panel derecho: detalle completo del turno seleccionado.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
-import { ScreenHeader } from '../components/ui'
+import HistoryStoreSelect from '../components/HistoryStoreSelect'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
+import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
+import { clampHistoryRange, planHistoryFetch, type HistorySpan } from '../lib/historyRange'
 import { exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
-import StoreFilter from '../components/StoreFilter'
 
 const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Efectivo',
   debit: 'Débito',
-  wallet: 'Billetera Virtual',
+  wallet: 'Billetera virtual',
   credit: 'Crédito',
+}
+
+const PAYMENT_CHIP: Record<string, string> = {
+  cash: 'bg-pay-cash-soft text-pay-cash',
+  debit: 'bg-pay-debit-soft text-pay-debit',
+  wallet: 'bg-pay-wallet-soft text-pay-wallet',
+  credit: 'bg-pay-credit-soft text-pay-credit',
 }
 
 function depositBreakdown(dep: HistoryOrderRow): string | null {
@@ -35,9 +44,10 @@ function depositBreakdown(dep: HistoryOrderRow): string | null {
 
 interface Props {
   onBack: () => void
+  onLogout: () => void
 }
 
-export default function HistoryScreen({ onBack }: Props) {
+export default function HistoryScreen({ onBack, onLogout }: Props) {
   const [shifts, setShifts] = useState<HistoryShiftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -46,11 +56,19 @@ export default function HistoryScreen({ onBack }: Props) {
   const [toDate, setToDate] = useState(() => todayLocalYmd())
   const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
   const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
+  const [loadedSpan, setLoadedSpan] = useState<HistorySpan | null>(null)
+  const listCache = useRef<{ store: string; span: HistorySpan | null; shifts: HistoryShiftRow[] }>({
+    store: 'all',
+    span: null,
+    shifts: [],
+  })
 
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null)
   const [detail, setDetail] = useState<HistoryShiftDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const detailRequest = useRef(0)
+  const listRequest = useRef(0)
 
   // Cargar locales al montar
   useEffect(() => {
@@ -59,30 +77,73 @@ export default function HistoryScreen({ onBack }: Props) {
     })
   }, [])
 
-  const loadShifts = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    const payload: GetHistoryShiftsPayload = {
-      fromDate: fromDate || undefined,
-      toDate: toDate || undefined,
-      storeIdFilter,
+  const loadShifts = useCallback(async (prefer: 'auto' | 'older' | 'newer' = 'auto') => {
+    const ticket = ++listRequest.current
+    const today = todayLocalYmd()
+    const range = clampHistoryRange(fromDate, toDate, today)
+    if (range.from !== fromDate) setFromDate(range.from)
+    if (range.to !== toDate) setToDate(range.to)
+
+    const cache = listCache.current
+    if (cache.store !== storeIdFilter) {
+      cache.store = storeIdFilter
+      cache.span = null
+      cache.shifts = []
     }
-    const r = await window.hw.getHistoryShifts(payload)
-    if (r.ok) {
-      setShifts([...r.data].sort((a, b) => {
+
+    const plan = planHistoryFetch(range.from, range.to, cache.span, prefer)
+    const show = (rows: HistoryShiftRow[]) => {
+      const visible = rows.filter(shift => {
+        const day = shift.startedAt.slice(0, 10)
+        return day >= range.from && day <= range.to && (!cache.span || (day >= cache.span.from && day <= cache.span.to))
+      })
+      setShifts([...visible].sort((a, b) => {
         const aOpen = a.closedAt ? 0 : 1
         const bOpen = b.closedAt ? 0 : 1
         if (aOpen !== bOpen) return bOpen - aOpen
         return b.startedAt.localeCompare(a.startedAt)
       }))
-    } else {
-      setError(r.error)
     }
+
+    if (plan.kind === 'none') {
+      if (ticket !== listRequest.current) return
+      show(cache.shifts)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    const payload: GetHistoryShiftsPayload = {
+      fromDate: plan.from,
+      toDate: plan.to,
+      storeIdFilter,
+      limit: 200,
+    }
+    const r = await window.hw.getHistoryShifts(payload)
+    if (ticket !== listRequest.current) return
+    if (!r.ok) {
+      setError(r.error)
+      setLoading(false)
+      return
+    }
+    const merged = plan.kind === 'replace'
+      ? r.data
+      : [...r.data, ...cache.shifts.filter(shift => !r.data.some(row => row.id === shift.id))]
+    cache.shifts = merged
+    cache.span = plan.kind === 'replace'
+      ? { from: plan.from, to: plan.to }
+      : {
+          from: cache.span && cache.span.from < plan.from ? cache.span.from : plan.from,
+          to: cache.span && cache.span.to > plan.to ? cache.span.to : plan.to,
+        }
+    setLoadedSpan(cache.span)
+    show(merged)
     setLoading(false)
   }, [fromDate, toDate, storeIdFilter])
 
   useEffect(() => {
-    void loadShifts()
+    void loadShifts('auto')
   }, [loadShifts])
 
   async function handleSelectShift(shiftId: string) {
@@ -91,61 +152,109 @@ export default function HistoryScreen({ onBack }: Props) {
       setDetail(null)
       return
     }
+    const cached = getCachedHistoryDetail(shiftId)
+    if (cached) {
+      detailRequest.current += 1
+      setSelectedShiftId(shiftId)
+      setDetail(cached)
+      setDetailError(null)
+      setDetailLoading(false)
+      return
+    }
+    const ticket = ++detailRequest.current
     setSelectedShiftId(shiftId)
     setDetail(null)
     setDetailError(null)
     setDetailLoading(true)
     const r = await window.hw.getHistoryShiftDetail({ shiftId })
-    if (r.ok) setDetail(r.data)
-    else setDetailError(r.error)
+    if (ticket !== detailRequest.current) return
+    if (r.ok) {
+      rememberHistoryDetail(r.data)
+      setDetail(r.data)
+    } else {
+      setDetailError(r.error)
+    }
     setDetailLoading(false)
   }
 
   return (
     <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
-      <ScreenHeader
+      <AdminSectionHeader
         title="Historial de turnos"
+        subtitle="Lo vendido, cómo se cobró y el cierre de cada turno"
         onBack={onBack}
-        actions={availableStores.length > 0 ? (
-          <StoreFilter
-            stores={availableStores}
-            value={storeIdFilter}
-            onChange={v => { setStoreIdFilter(v); setSelectedShiftId(null); setDetail(null) }}
-          />
-        ) : undefined}
+        onLogout={onLogout}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Panel izquierdo — lista de turnos */}
-        <div className="w-full sm:w-80 shrink-0 flex flex-col border-r border-line bg-panel overflow-hidden">
-          <div className="px-3 py-2 border-b border-line space-y-2">
-            <p className="text-xs text-muted">Filtrar por fecha</p>
+        {/* Panel izquierdo — filtros y lista. El detalle de cada turno no se toca. */}
+        <div className="flex w-full sm:w-80 shrink-0 flex-col overflow-hidden border-r border-line bg-panel">
+          <div className="relative z-10 shrink-0 space-y-3 border-b border-line bg-app px-3 py-3">
+            <p className="text-sm font-medium text-ink">Filtros</p>
+            {availableStores.length > 0 && (
+              <div>
+                <label className="mb-1 block text-xs text-muted" htmlFor="history-store">Local</label>
+                <HistoryStoreSelect
+                  id="history-store"
+                  stores={availableStores}
+                  value={storeIdFilter}
+                  onChange={storeId => { setStoreIdFilter(storeId); setSelectedShiftId(null); setDetail(null) }}
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] text-subtle">Desde</label>
+                <label className="mb-1 block text-xs text-muted" htmlFor="history-from">Desde</label>
                 <input
+                  id="history-from"
                   type="date"
                   value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
-                  className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
+                  max={todayLocalYmd()}
+                  onChange={e => {
+                    const today = todayLocalYmd()
+                    const next = e.target.value > today ? today : e.target.value
+                    setFromDate(next)
+                    if (next > toDate) setToDate(next)
+                  }}
+                  className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink focus:border-line-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-subtle">Hasta</label>
+                <label className="mb-1 block text-xs text-muted" htmlFor="history-to">Hasta</label>
                 <input
+                  id="history-to"
                   type="date"
                   value={toDate}
-                  onChange={e => setToDate(e.target.value)}
-                  className="w-full mt-0.5 bg-input border border-line rounded-lg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-accent"
+                  max={todayLocalYmd()}
+                  onChange={e => {
+                    const today = todayLocalYmd()
+                    const next = e.target.value > today ? today : e.target.value
+                    setToDate(next)
+                    if (fromDate > next) setFromDate(next)
+                  }}
+                  className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink focus:border-line-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 />
               </div>
             </div>
-            {(fromDate || toDate) && (
+            <button
+              type="button"
+              onClick={() => {
+                const today = todayLocalYmd()
+                setFromDate(addDaysYmd(today, -7))
+                setToDate(today)
+              }}
+              className="text-xs font-medium text-muted hover:text-ink"
+            >
+              Últimos 7 días
+            </button>
+            {loadedSpan && fromDate < loadedSpan.from && (
               <button
-                onClick={() => { setFromDate(''); setToDate('') }}
-                className="text-xs text-muted hover:text-ink transition-colors"
+                type="button"
+                onClick={() => void loadShifts('older')}
+                disabled={loading}
+                className="block text-xs text-ink hover:text-accent transition-colors disabled:opacity-40"
               >
-                Limpiar filtro
+                Traer los días anteriores del filtro
               </button>
             )}
           </div>
@@ -250,6 +359,10 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
 // Shift detail
 // ---------------------------------------------------------------------------
 
+function saleCountLabel(count: number): string {
+  return count === 1 ? '1 venta' : `${count} ventas`
+}
+
 function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   const { shift, sales, expenses, debts, deposits, summary } = detail
   const vales = detail.vales ?? []
@@ -258,64 +371,65 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   const shiftLabel = SHIFT_TYPE_LABEL[shift.shiftType]
   const start = toLocalDateTime(shift.startedAt)
   const end = shift.closedAt ? toLocalDateTime(shift.closedAt) : '—'
+  const collections = collectionFacts(summary)
+  const drawer = drawerFacts(summary, shift)
 
   return (
     <div className="p-4 space-y-4">
       {/* Resumen financiero */}
       <div className="bg-panel rounded-xl border border-line p-4 space-y-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">
-              {toLocalDate(shift.startedAt)} — Turno {shiftLabel}
+        <div className="flex items-start gap-4 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="min-w-0 truncate text-sm font-semibold text-ink" title={`${toLocalDate(shift.startedAt)} — Turno ${shiftLabel}`}>
+                {toLocalDate(shift.startedAt)} — Turno {shiftLabel}
+              </h2>
               {!shift.closedAt && (
-                <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-accent-soft text-success border border-line-accent align-middle">
+                <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-accent-soft text-success border border-line-accent">
                   Abierto
                 </span>
               )}
               {shift.source === 'mobile' && (
-                <span className="ml-2 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent align-middle">
+                <span className="shrink-0 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
                   Móvil
                 </span>
               )}
-            </h2>
-            <p className="text-xs text-muted mt-0.5">Cajera: {shift.cashierName}</p>
-            <p className="text-xs text-muted">{start} → {end}</p>
-          </div>
-          {shift.closingCash != null && (
-            <div className="text-right shrink-0">
-              <p className="text-[10px] text-muted">Efectivo al cerrar</p>
-              <p className="text-sm font-semibold text-ink">{formatARS(shift.closingCash)}</p>
             </div>
-          )}
+            <p className="mt-0.5 truncate text-xs text-muted" title={shift.cashierName}>Cajera: {shift.cashierName}</p>
+            <p className="truncate text-xs text-muted" title={`${start} → ${end}`}>{start} → {end}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-2xl font-semibold leading-none tabular-nums tracking-tight text-ink">{formatARS(summary.totalRevenue)}</p>
+            <p className="mt-1 text-xs text-muted">Total vendido · {saleCountLabel(summary.salesCount)}</p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-line">
-          <SummaryStat label="Ventas" value={String(summary.salesCount)} />
-          <SummaryStat label="Total vendido" value={formatARS(summary.totalRevenue)} />
-          <SummaryStat label="Efectivo ventas" value={formatARS(summary.totalCashSales)} />
-          {summary.totalDebitSales > 0 && <SummaryStat label="Débito" value={formatARS(summary.totalDebitSales)} />}
-          {summary.totalWalletSales > 0 && <SummaryStat label="Billetera Virtual" value={formatARS(summary.totalWalletSales)} />}
-          {summary.totalCreditSales > 0 && <SummaryStat label="Crédito" value={formatARS(summary.totalCreditSales)} />}
-          {summary.totalExpenses > 0 && <SummaryStat label="Gastos" value={`- ${formatARS(summary.totalExpenses)}`} negative />}
-          {summary.totalCashInjects > 0 && <SummaryStat label="Ingresos" value={formatARS(summary.totalCashInjects)} />}
-          {summary.cashDeposits > 0 && <SummaryStat label="Señas efectivo" value={formatARS(summary.cashDeposits)} />}
-          {summary.digitalDeposits > 0 && <SummaryStat label="Señas digital" value={formatARS(summary.digitalDeposits)} />}
-          {summary.debtsCount > 0 && <SummaryStat label={`Fiados (${summary.debtsCount})`} value={formatARS(summary.totalDebts)} />}
-          <SummaryStat label="Efectivo esperado" value={formatARS(summary.cashInHand)} highlight />
+        {collections.length > 0 && (
+          <div className="border-t border-line pt-3">
+            <p className="text-xs text-muted">Cómo se cobró</p>
+            <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+              {collections.map(item => (
+                <Fact key={item.label} label={item.label} value={item.value} />
+              ))}
+            </dl>
+          </div>
+        )}
+
+        <div className="border-t border-line pt-3">
+          <p className="text-xs text-muted">Caja</p>
+          <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+            {drawer.map(item => (
+              <Fact key={item.label} label={item.label} value={item.value} tone={item.tone} />
+            ))}
+          </dl>
         </div>
 
         {shift.notes && (
-          <p className="text-xs text-muted pt-1">Notas: <span className="text-ink">{shift.notes}</span></p>
-        )}
-          {shift.deliveredAmount != null && shift.deliveredAmount > 0 && (
-          <p className="text-xs text-muted">
-            Entregó {formatARS(shift.deliveredAmount)}
-            {shift.deliveredTo ? ` a ${shift.deliveredTo}` : ''}
-          </p>
+          <p className="text-xs text-muted">Notas: <span className="text-ink">{shift.notes}</span></p>
         )}
       </div>
 
-      {detail.cashHandover && <CashHandoverAuditCard audit={detail.cashHandover} />}
+      {detail.cashHandover && <CashHandoverAuditCard key={shift.id} audit={detail.cashHandover} />}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-line">
@@ -348,6 +462,10 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
             const apartLabel = sale.discountException
               ? exceptionalDiscountLabel(sale.discountPercent ?? 0)
               : null
+            const discountAmount = sale.discountAmount ?? 0
+            const listPrice = discountAmount > 0 ? sale.total + discountAmount : null
+            const slices = (sale.payments ?? []).filter(pay => pay.amount > 0)
+            const showSliceAmount = slices.length > 1
             return (
             <div
               key={sale.id}
@@ -373,16 +491,32 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
                     )}
                   </div>
                   <div className="flex gap-1 mt-0.5 flex-wrap">
-                    {sale.paymentMethods.map(m => (
-                      <span key={m} className="text-[10px] text-muted bg-raised rounded px-1">
-                        {PAYMENT_METHOD_LABELS[m] ?? m}
-                      </span>
-                    ))}
+                    {(slices.length > 0 ? slices.map(pay => pay.method) : sale.paymentMethods).map(method => {
+                      const amount = slices.find(pay => pay.method === method)?.amount
+                      const label = PAYMENT_METHOD_LABELS[method] ?? method
+                      const text = showSliceAmount && amount != null ? `${label} ${formatARS(amount)}` : label
+                      return (
+                        <span
+                          key={method}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${PAYMENT_CHIP[method] ?? 'bg-raised text-muted'}`}
+                          title={text}
+                        >
+                          {text}
+                        </span>
+                      )
+                    })}
                   </div>
                 </div>
-                <span className={`font-semibold shrink-0 ${sale.status === 'cancelled' ? 'line-through text-muted' : 'text-ink'}`}>
-                  {formatARS(sale.total)}
-                </span>
+                <div className="shrink-0 text-right">
+                  {listPrice != null && (
+                    <p className="text-xs text-subtle line-through tabular-nums" title={sale.discountPercent ? `Precio de lista, ${sale.discountPercent}% de descuento` : 'Precio de lista'}>
+                      {formatARS(listPrice)}
+                    </p>
+                  )}
+                  <p className={`font-semibold tabular-nums ${sale.status === 'cancelled' ? 'line-through text-muted' : 'text-ink'}`}>
+                    {formatARS(sale.total)}
+                  </p>
+                </div>
               </div>
               {sale.items.length > 0 && (
                 <div className="mt-2 space-y-0.5 border-t border-line pt-2">
@@ -518,13 +652,44 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
   )
 }
 
-function SummaryStat({ label, value, highlight, negative }: { label: string; value: string; highlight?: boolean; negative?: boolean }) {
+function collectionFacts(summary: HistoryShiftDetail['summary']): FactItem[] {
+  const items: FactItem[] = []
+  if (summary.totalCashSales > 0) items.push({ label: 'Efectivo', value: formatARS(summary.totalCashSales) })
+  if (summary.totalDebitSales > 0) items.push({ label: 'Débito', value: formatARS(summary.totalDebitSales) })
+  if (summary.totalWalletSales > 0) items.push({ label: 'Billetera virtual', value: formatARS(summary.totalWalletSales) })
+  if (summary.totalCreditSales > 0) items.push({ label: 'Crédito', value: formatARS(summary.totalCreditSales) })
+  if (summary.debtsCount > 0) items.push({ label: `Fiados (${summary.debtsCount})`, value: formatARS(summary.totalDebts) })
+  return items
+}
+
+function drawerFacts(summary: HistoryShiftDetail['summary'], shift: HistoryShiftDetail['shift']): FactItem[] {
+  const items: FactItem[] = []
+  if (summary.totalExpenses > 0) items.push({ label: 'Gastos', value: `- ${formatARS(summary.totalExpenses)}`, tone: 'muted' })
+  if (summary.totalCashInjects > 0) items.push({ label: 'Ingresos', value: formatARS(summary.totalCashInjects) })
+  if (summary.cashDeposits > 0) items.push({ label: 'Señas en efectivo', value: formatARS(summary.cashDeposits) })
+  if (summary.digitalDeposits > 0) items.push({ label: 'Señas digitales', value: formatARS(summary.digitalDeposits) })
+  items.push({ label: 'Efectivo esperado', value: formatARS(summary.cashInHand) })
+  if (shift.deliveredAmount != null && shift.deliveredAmount > 0) {
+    const who = shift.deliveredTo?.trim()
+    items.push({ label: who ? `Entregó a ${who}` : 'Entregó', value: formatARS(shift.deliveredAmount) })
+  }
+  if (shift.closingCash != null && shift.closingCash !== shift.deliveredAmount) {
+    items.push({ label: 'Efectivo al cerrar', value: formatARS(shift.closingCash) })
+  }
+  return items
+}
+
+interface FactItem {
+  label: string
+  value: string
+  tone?: 'ink' | 'muted'
+}
+
+function Fact({ label, value, tone = 'ink' }: FactItem) {
   return (
-    <div className="space-y-0.5">
-      <p className="text-[10px] text-muted">{label}</p>
-      <p className={`text-sm font-semibold font-mono ${highlight ? 'text-success' : negative ? 'text-muted' : 'text-ink'}`}>
-        {value}
-      </p>
+    <div className="flex min-w-0 max-w-full items-baseline gap-2">
+      <dt className="min-w-0 truncate text-xs text-muted" title={label}>{label}</dt>
+      <dd className={`shrink-0 text-sm font-semibold tabular-nums ${tone === 'muted' ? 'text-muted' : 'text-ink'}`}>{value}</dd>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button'
-export { Modal, type ModalProps, type ModalSize, type ModalFrame } from './Modal'
+export { Modal, ModalCloseButton, ModalLayer, useModalDismiss, type ModalProps, type ModalSize, type ModalFrame } from './Modal'
 export { CollapseReveal } from './CollapseReveal'
 export { SuggestPopover } from './SuggestPopover'
 export { ScreenHeader, type ScreenHeaderProps } from './ScreenHeader'

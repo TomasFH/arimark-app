@@ -18,7 +18,7 @@
  * validar con los dueños antes de implementar.
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import BackButton from '../components/BackButton'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type {
   SpecialCustomerRow,
@@ -28,9 +28,11 @@ import type {
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 
 interface Props {
   onBack?: () => void
+  onLogout?: () => void
   isAdmin?: boolean
 }
 
@@ -371,7 +373,7 @@ function SpecialCustomerCard({ customer, prices, products, isAdmin, onEdit, onDe
 // Pantalla principal
 // ---------------------------------------------------------------------------
 
-export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Props) {
+export default function SpecialCustomersScreen({ onBack, onLogout, isAdmin = false }: Props) {
   const [customers, setCustomers] = useState<SpecialCustomerRow[]>([])
   const [allPrices, setAllPrices] = useState<Record<string, SpecialCustomerPriceRow[]>>({})
   const [products, setProducts] = useState<ProductRow[]>([])
@@ -553,23 +555,21 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
   return (
     <div className="flex flex-col flex-1 h-full bg-app text-ink">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b border-line px-6 py-3 shrink-0">
-        {onBack && <BackButton onClick={onBack} />}
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-ink">Clientes especiales</h1>
-          <p className="text-[10px] text-muted">
-            Precios de referencia · {isAdmin ? 'modo admin' : 'solo lectura'}
-          </p>
-        </div>
-        {isAdmin && (
+      <AdminSectionHeader
+        title="Clientes especiales"
+        subtitle={`Precios de referencia · ${isAdmin ? 'modo admin' : 'solo lectura'}`}
+        onBack={onBack}
+        onLogout={onLogout}
+        actions={isAdmin ? (
           <button
+            type="button"
             onClick={openCreate}
-            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg hover:bg-accent transition-colors"
+            className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-[color-mix(in_srgb,var(--accent)_86%,black)]"
           >
             + Nuevo cliente
           </button>
-        )}
-      </header>
+        ) : undefined}
+      />
 
       {/* Info banner */}
       <div className="mx-6 mt-4 rounded-lg border border-line bg-raised px-4 py-2.5">
@@ -613,22 +613,17 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
       </div>
 
       {formOpen && isAdmin && (
-        <div
+        <ModalLayer
+          onClose={closeForm}
+          enabled={!formSaving}
           className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={e => { if (e.target === e.currentTarget && !formSaving) closeForm() }}
         >
           <div className="w-full sm:max-w-lg bg-raised rounded-t-2xl sm:rounded-2xl border border-line max-h-[92vh] overflow-y-auto">
-            <div className="px-5 py-4 border-b border-line flex items-center justify-between">
-              <h2 className="text-base font-semibold">
+            <div className="px-5 py-4 border-b border-line flex items-center justify-between gap-2 min-w-0">
+              <h2 className="min-w-0 flex-1 truncate text-base font-semibold" title={editingCustomer ? 'Editar cliente especial' : 'Nuevo cliente especial'}>
                 {editingCustomer ? 'Editar cliente especial' : 'Nuevo cliente especial'}
               </h2>
-              <button
-                onClick={closeForm}
-                disabled={formSaving}
-                className="text-muted hover:text-ink text-xl disabled:opacity-40"
-              >
-                ×
-              </button>
+              <ModalCloseButton onClick={closeForm} disabled={formSaving} />
             </div>
 
             <div className="px-5 py-4 space-y-4">
@@ -682,7 +677,7 @@ export default function SpecialCustomersScreen({ onBack, isAdmin = false }: Prop
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
     </div>
   )

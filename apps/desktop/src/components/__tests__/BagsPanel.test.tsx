@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import BagsPanel from '../BagsPanel'
 import type { ProductRow } from '../../types/hw-api'
@@ -103,5 +103,77 @@ describe('BagsPanel', () => {
     expect(screen.getByRole('button', { name: 'Sumar Bolsa sin precio' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Sumar Bolsa a cero' })).toBeDisabled()
     expect(onAdd).not.toHaveBeenCalled()
+  })
+
+  it('F7 abre y cierra; las flechas marcan, suman y sacan', () => {
+    const onAdd = vi.fn()
+    const onRemove = vi.fn()
+    render(
+      <BagsPanel
+        products={[bag, bagLarge]}
+        lines={[{ productId: 'bag-1', weightKg: 1, unit: 'unit' }]}
+        onAdd={onAdd}
+        onRemove={onRemove}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Añadir bolsas' })).toHaveTextContent('F7')
+
+    fireEvent.keyDown(document, { key: 'F7' })
+    expect(screen.getByRole('list', { name: 'Bolsas' })).toBeInTheDocument()
+    expect(document.querySelector('[data-bag-marked="true"]')).toHaveTextContent('Bolsa chica')
+
+    fireEvent.keyDown(document, { key: 'ArrowDown' })
+    expect(document.querySelector('[data-bag-marked="true"]')).toHaveTextContent(bagLarge.name)
+    fireEvent.keyDown(document, { key: 'ArrowRight' })
+    expect(onAdd).toHaveBeenCalledWith(bagLarge, 1)
+
+    fireEvent.keyDown(document, { key: 'ArrowUp' })
+    fireEvent.keyDown(document, { key: 'ArrowLeft' })
+    expect(onRemove).toHaveBeenCalledWith('bag-1', 1)
+
+    fireEvent.keyDown(document, { key: 'ArrowDown' })
+    fireEvent.keyDown(document, { key: 'ArrowLeft' })
+    expect(onRemove).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('list', { name: 'Bolsas' })).not.toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'F7' })
+    expect(screen.getByRole('list', { name: 'Bolsas' })).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'F7' })
+    expect(screen.queryByRole('list', { name: 'Bolsas' })).not.toBeInTheDocument()
+  })
+
+  it('Enter suma la bolsa marcada y no suma una sin precio', () => {
+    const onAdd = vi.fn()
+    const noPrice: ProductRow = { ...bagLarge, id: 'bag-free', name: 'Bolsa sin precio', price: null }
+    render(
+      <BagsPanel
+        products={[bag, noPrice]}
+        lines={[]}
+        onAdd={onAdd}
+        onRemove={() => {}}
+      />,
+    )
+    fireEvent.keyDown(document, { key: 'F7' })
+    fireEvent.keyDown(document, { key: 'Enter' })
+    expect(onAdd).toHaveBeenCalledWith(bag, 1)
+
+    fireEvent.keyDown(document, { key: 'ArrowDown' })
+    fireEvent.keyDown(document, { key: 'Enter' })
+    expect(onAdd).toHaveBeenCalledTimes(1)
+  })
+
+  it('con los atajos apagados F7 no abre la lista', () => {
+    render(
+      <BagsPanel
+        products={[bag]}
+        lines={[]}
+        onAdd={() => {}}
+        onRemove={() => {}}
+        shortcuts={false}
+      />,
+    )
+    fireEvent.keyDown(document, { key: 'F7' })
+    expect(screen.queryByRole('list', { name: 'Bolsas' })).not.toBeInTheDocument()
   })
 })

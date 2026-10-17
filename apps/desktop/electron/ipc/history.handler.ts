@@ -302,6 +302,7 @@ export function registerHistoryHandlers(): void {
           isDebt: sales.isDebt,
           discountException: sales.discountException,
           discountPercent: sales.discountPercent,
+          discountAmount: sales.discountAmount,
           customerId: sales.customerId,
         })
         .from(sales)
@@ -348,7 +349,12 @@ export function registerHistoryHandlers(): void {
       }
 
       // Pagos por venta
-      const paymentsMap = new Map<string, { cash: number; digital: number; methods: Array<'cash' | 'debit' | 'wallet' | 'credit'> }>()
+      const paymentsMap = new Map<string, {
+        cash: number
+        digital: number
+        methods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+        byMethod: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
+      }>()
       if (saleIdList.length > 0) {
         const payRows = db
           .select({ saleId: salePayments.saleId, method: salePayments.paymentMethod, amount: salePayments.amount })
@@ -357,19 +363,23 @@ export function registerHistoryHandlers(): void {
           .filter(r => saleIdList.includes(r.saleId))
 
         for (const p of payRows) {
-          if (!paymentsMap.has(p.saleId)) paymentsMap.set(p.saleId, { cash: 0, digital: 0, methods: [] })
-          const entry = paymentsMap.get(p.saleId)!
-          if (p.method === 'cash') entry.cash += p.amount
-          else entry.digital += p.amount
-          if (!entry.methods.includes(p.method as 'cash' | 'debit' | 'wallet' | 'credit')) {
-            entry.methods.push(p.method as 'cash' | 'debit' | 'wallet' | 'credit')
+          const method = p.method as 'cash' | 'debit' | 'wallet' | 'credit'
+          if (!paymentsMap.has(p.saleId)) {
+            paymentsMap.set(p.saleId, { cash: 0, digital: 0, methods: [], byMethod: [] })
           }
+          const entry = paymentsMap.get(p.saleId)!
+          if (method === 'cash') entry.cash += p.amount
+          else entry.digital += p.amount
+          if (!entry.methods.includes(method)) entry.methods.push(method)
+          const slice = entry.byMethod.find(row => row.method === method)
+          if (slice) slice.amount += p.amount
+          else entry.byMethod.push({ method, amount: p.amount })
         }
       }
 
       // Clientes con deuda (para resolución de nombre)
       const historySales = salesRows.map(s => {
-        const pay = paymentsMap.get(s.id) ?? { cash: 0, digital: 0, methods: [] }
+        const pay = paymentsMap.get(s.id) ?? { cash: 0, digital: 0, methods: [], byMethod: [] }
         return {
           id: s.id,
           createdAt: s.createdAt,
@@ -378,10 +388,12 @@ export function registerHistoryHandlers(): void {
           cashAmount: pay.cash,
           digitalAmount: pay.digital,
           paymentMethods: pay.methods,
+          payments: pay.byMethod,
           manualEntry: s.manualEntry,
           isDebt: s.isDebt,
           discountException: s.discountException,
           discountPercent: s.discountPercent,
+          discountAmount: s.discountAmount,
           customerName: null as string | null,
           items: itemsMap.get(s.id) ?? [],
         }

@@ -52,6 +52,9 @@ export function merchDbLineToSnapshot(row: {
   unitCost?: number | null
   costTotal?: number | null
   packCount?: number | null
+  weighMode?: string | null
+  moneyRole?: string | null
+  notForSale?: boolean | null
 }): MerchIntakeLineSnapshot {
   return {
     id: row.id,
@@ -75,6 +78,9 @@ export function merchDbLineToSnapshot(row: {
     unitCost: row.unitCost ?? 0,
     costTotal: row.costTotal ?? 0,
     packCount: row.packCount ?? null,
+    weighMode: row.weighMode === 'each' || row.weighMode === 'total' ? row.weighMode : null,
+    moneyRole: row.moneyRole === 'informed' || row.moneyRole === 'none' ? row.moneyRole : 'payable',
+    notForSale: row.notForSale === true,
   }
 }
 
@@ -102,6 +108,9 @@ export function snapshotToDbLine(intakeId: string, line: MerchIntakeLineSnapshot
     unitCost: line.unitCost,
     costTotal: line.costTotal,
     packCount: line.packCount,
+    weighMode: line.weighMode,
+    moneyRole: line.moneyRole,
+    notForSale: line.notForSale,
   }
 }
 

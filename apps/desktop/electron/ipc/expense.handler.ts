@@ -10,6 +10,7 @@ import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { coerceInjectReason, injectConceptForReason, isMerchIntakeExpenseConcept } from '@carniceria/shared'
 import { providerIdFromName, providerNameKey } from './providerUtils'
+import { crossStorePaymentFits, expenseCashAmount, splitOldDebtPayments } from './expenseCash'
 import { pushUnsyncedProviders, pushUnsyncedDebtEvents, markDebtEventsDeletedInFirestore } from '../licensing/providerSync'
 import { pushUnsyncedExpenses, markExpensesDeletedInFirestore } from '../licensing/expenseSync'
 import type { IpcResult, ExpenseRow, ProviderDebtRow } from '../../src/types/hw-api'
@@ -62,6 +63,11 @@ const expenseBaseSchema = z.object({
    * El gasto (expenses.storeId) siempre queda en el local de la sesión.
    */
   debtStoreId: z.string().min(1).optional(),
+  /**
+   * Parte de paysOldDebt que se imputa a debtStoreId cuando es otro local.
+   * El resto del exceso queda en el local de la sesión (no se le suma al ajeno).
+   */
+  crossStorePayment: z.number().min(0).optional(),
 })
 
 const providerOrConceptRefine = (data: { providerId?: string; provider?: string; concept?: string }) =>
@@ -87,10 +93,12 @@ const expenseAmountRefine = (data: {
 const registerExpenseSchema = expenseBaseSchema
   .refine(providerOrConceptRefine, { message: 'Se requiere proveedor (id o nombre) o concepto.' })
   .refine(expenseAmountRefine, { message: 'El monto debe ser mayor a 0, salvo visita a proveedor sin pago.' })
+  .refine(crossStorePaymentFits, { message: 'El pago de otro local no puede superar la deuda vieja pagada.' })
 
 const updateExpenseSchema = expenseBaseSchema.extend({ id: z.string().uuid() })
   .refine(providerOrConceptRefine, { message: 'Se requiere proveedor (id o nombre) o concepto.' })
   .refine(expenseAmountRefine, { message: 'El monto debe ser mayor a 0, salvo visita a proveedor sin pago.' })
+  .refine(crossStorePaymentFits, { message: 'El pago de otro local no puede superar la deuda vieja pagada.' })
 
 const registerCashInjectSchema = z.object({
   amount: z.number().positive(),
@@ -117,7 +125,8 @@ export function registerExpenseHandlers(): void {
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
 
-    const { concept, amount, notes, newDebtAmount, paysOldDebt, debtStoreId } = parsed.data
+    const { concept, amount, notes, newDebtAmount, paysOldDebt, debtStoreId, crossStorePayment } = parsed.data
+    const cashAmount = expenseCashAmount(amount, paysOldDebt)
     const id = uuidv4()
     const now = new Date().toISOString()
 
@@ -176,7 +185,7 @@ export function registerExpenseHandlers(): void {
           kind: 'expense',
           concept: concept ?? null,
           providerId: resolvedProviderId,
-          amount,
+          amount: cashAmount,
           notes: notes ?? null,
           createdAt: now,
           createdBy: session.userId,
@@ -200,14 +209,19 @@ export function registerExpenseHandlers(): void {
               syncedAt: null,
             }).run()
           }
-          if (paysOldDebt && paysOldDebt > 0) {
+          for (const slice of splitOldDebtPayments({
+            paysOldDebt,
+            sessionStoreId: session.storeId,
+            debtStoreId,
+            crossStorePayment,
+          })) {
             tx.insert(providerDebtEvents).values({
               id: uuidv4(),
-              storeId: effectiveDebtStoreId,
+              storeId: slice.storeId,
               providerId: resolvedProviderId,
               provider: resolvedProviderName,
               type: 'payment',
-              amount: paysOldDebt,
+              amount: slice.amount,
               expenseId: id,
               shiftId: session.shiftId!,
               createdAt: now,
@@ -232,7 +246,9 @@ export function registerExpenseHandlers(): void {
         )
       }
 
-      log.info('[ipc:register-expense] Gasto registrado', { id, concept, amount, providerId: resolvedProviderId })
+      log.info('[ipc:register-expense] Gasto registrado', {
+        id, concept, visitAmount: amount, cashAmount, paysOldDebt: paysOldDebt ?? 0, providerId: resolvedProviderId,
+      })
       return { ok: true, data: { id } }
     } catch (err) {
       log.error('[ipc:register-expense] Error inesperado', err)
@@ -297,7 +313,8 @@ export function registerExpenseHandlers(): void {
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
     if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
 
-    const { id, concept, amount, notes, newDebtAmount, paysOldDebt, debtStoreId } = parsed.data
+    const { id, concept, amount, notes, newDebtAmount, paysOldDebt, debtStoreId, crossStorePayment } = parsed.data
+    const cashAmount = expenseCashAmount(amount, paysOldDebt)
 
     try {
       const db = getDb()
@@ -364,7 +381,7 @@ export function registerExpenseHandlers(): void {
         tx.update(expenses).set({
           concept: concept ?? null,
           providerId: resolvedProviderId,
-          amount,
+          amount: cashAmount,
           notes: notes ?? null,
           syncedAt: null,
         }).where(eq(expenses.id, id)).run()
@@ -389,14 +406,19 @@ export function registerExpenseHandlers(): void {
               syncedAt: null,
             }).run()
           }
-          if (paysOldDebt && paysOldDebt > 0) {
+          for (const slice of splitOldDebtPayments({
+            paysOldDebt,
+            sessionStoreId: session.storeId,
+            debtStoreId,
+            crossStorePayment,
+          })) {
             tx.insert(providerDebtEvents).values({
               id: uuidv4(),
-              storeId: effectiveDebtStoreId,
+              storeId: slice.storeId,
               providerId: resolvedProviderId,
               provider: resolvedProviderName,
               type: 'payment',
-              amount: paysOldDebt,
+              amount: slice.amount,
               expenseId: id,
               shiftId: session.shiftId!,
               createdAt: now,
@@ -428,7 +450,9 @@ export function registerExpenseHandlers(): void {
         )
       }
 
-      log.info('[ipc:update-expense] Gasto actualizado', { id, concept, amount })
+      log.info('[ipc:update-expense] Gasto actualizado', {
+        id, concept, visitAmount: amount, cashAmount, paysOldDebt: paysOldDebt ?? 0,
+      })
       return { ok: true, data: { id } }
     } catch (err) {
       log.error('[ipc:update-expense] Error inesperado', err)

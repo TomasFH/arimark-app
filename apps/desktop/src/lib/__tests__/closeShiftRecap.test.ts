@@ -49,7 +49,8 @@ describe('buildCloseShiftRecapLines', () => {
       countedRegister: 14000,
       diff: -1000,
     }))
-    expect(withDiff.find(l => l.label === 'Cobrado con Débito')?.value).toBe(formatRecapMoney(2000))
+    expect(withDiff.find(l => l.label === 'Cobrado digital')?.value).toBe(formatRecapMoney(2000))
+    expect(withDiff.find(l => l.label === 'Débito')?.indent).toBe(true)
     expect(withDiff.find(l => l.label === 'Faltante')?.tone).toBe('bad')
   })
 
@@ -86,8 +87,9 @@ describe('buildCloseShiftRecapLines', () => {
       diff: 1000,
     }))
     expect(lines.find(l => l.label === 'Turno')?.value).toBe('Tarde')
-    expect(lines.find(l => l.label === 'Cobrado Billetera Virtual')).toBeTruthy()
-    expect(lines.find(l => l.label === 'Cobrado con Crédito')).toBeTruthy()
+    expect(lines.find(l => l.label === 'Cobrado digital')).toBeTruthy()
+    expect(lines.find(l => l.label === 'Billetera virtual')?.indent).toBe(true)
+    expect(lines.find(l => l.label === 'Crédito')?.indent).toBe(true)
     expect(lines.find(l => l.label === 'Gastos')).toBeTruthy()
     expect(lines.find(l => l.label === 'Ingresos')).toBeTruthy()
     expect(lines.find(l => l.label === 'Cobranzas de fiado (efectivo)')).toBeTruthy()

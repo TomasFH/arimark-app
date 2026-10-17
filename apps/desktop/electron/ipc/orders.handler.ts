@@ -8,6 +8,7 @@ import { getDb } from '../db/client'
 import { orders, stores, users } from '../db/schema'
 import {
   checkPickupTimeOnDate,
+  isStaleOpenOrder,
   parseHoursSchedule,
   pickupSlotRegistrationError,
   pickupTimeRegistrationError,
@@ -17,6 +18,7 @@ import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedOrders, markOrderDeletedInFirestore } from '../licensing/orderSync'
 import { parseDepositPayments } from '../lib/depositPayments'
+import { addDaysYmd, todayLocalYmd } from '../../src/lib/datetime'
 import type { IpcResult, OrderRow, DepositPayment, BudgetCartLine } from '../../src/types/hw-api'
 
 function scheduleOrderPush(): void {
@@ -219,19 +221,51 @@ function resolveUserNames(db: ReturnType<typeof import('../db/client').getDb>, i
   return new Map(rows.map(u => [u.id, u.name]))
 }
 
-/** Auto-elimina pedidos entregados/cancelados con más de 30 días */
+const CLOSED_ORDER_KEEP_DAYS = 30
+
+function forgetOrdersInFirestore(ids: string[]): void {
+  if (ids.length === 0) return
+  try {
+    const { tenant_id } = getBusinessConfig()
+    for (const id of ids) {
+      markOrderDeletedInFirestore(tenant_id, id).catch(err =>
+        log.warn('[orders] no se pudo sacar el pedido vencido de Firestore', { id, err }),
+      )
+    }
+  } catch (err) {
+    log.warn('[orders] forgetOrdersInFirestore omitido', err)
+  }
+}
+
+/**
+ * Entregados y cancelados: se borran 30 días después del retiro, solo de este local.
+ * Pendientes y listos: si el retiro pasó hace más de una semana, se borran en todos
+ * los locales que haya en esta PC y se sacan de la consulta pending/ready de Firestore.
+ * Un pedido a futuro no entra, aunque se haya cargado hace un mes.
+ */
 function purgeOldOrders(db: ReturnType<typeof import('../db/client').getDb>, storeId: string): void {
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 30)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  const today = todayLocalYmd()
+  const closedCutoff = addDaysYmd(today, -CLOSED_ORDER_KEEP_DAYS)
   try {
     db.delete(orders)
       .where(and(
         eq(orders.storeId, storeId),
-        lt(orders.pickupDate, cutoffStr),
+        lt(orders.pickupDate, closedCutoff),
         inArray(orders.status, ['delivered', 'cancelled']),
       ))
       .run()
+
+    const openRows = db.select({
+      id: orders.id,
+      pickupDate: orders.pickupDate,
+      status: orders.status,
+    }).from(orders).where(inArray(orders.status, ['pending', 'ready'])).all()
+    const staleIds = openRows
+      .filter(row => isStaleOpenOrder(row.pickupDate, row.status, today))
+      .map(row => row.id)
+    if (staleIds.length === 0) return
+    db.delete(orders).where(inArray(orders.id, staleIds)).run()
+    forgetOrdersInFirestore(staleIds)
   } catch (err) {
     log.warn('[orders] purgeOldOrders error', err)
   }
@@ -309,7 +343,7 @@ export function registerOrderHandlers(): void {
   })
 
   // --------------------------------------------------------------------------
-  // LIST_ORDERS — cajera y admin (auto-purge de >30 días)
+  // LIST_ORDERS — cajera y admin (limpia cerrados viejos y abiertos vencidos)
   // --------------------------------------------------------------------------
   ipcMain.handle(IPC.LIST_ORDERS, (_event, payload: unknown): IpcResult<OrderRow[]> => {
     const parsed = listOrdersSchema.safeParse(payload ?? {})

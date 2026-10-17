@@ -36,6 +36,11 @@ interface Props {
   onBack: () => void
   stores: StoreDoc[]
   profile: LocalProfile
+  /**
+   * Cajera: opera solo este local. No muestra el selector ni el resto del hub.
+   * El admin del hub no lo pasa y sigue eligiendo local.
+   */
+  fixedStoreId?: string
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -54,11 +59,24 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   credit: 'Crédito',
 }
 
-export function DebtsScreen({ onBack, stores, profile }: Props) {
+export function DebtsScreen({ onBack, stores, profile, fixedStoreId }: Props) {
   const online = useOnlineStatus()
   const activeStores = stores.filter(s => !s.archivedAt)
   useBackLayer(true, onBack)
-  const [storeId, setStoreId] = useState<string>('')
+  const [storeId, setStoreId] = useState<string>(fixedStoreId ?? '')
+  const activeStoreId = fixedStoreId ?? storeId
+  const storesForCreate = fixedStoreId
+    ? activeStores.filter(s => s.id === fixedStoreId)
+    : activeStores
+  const modalStores = fixedStoreId
+    ? [storesForCreate[0] ?? {
+        id: fixedStoreId,
+        name: 'Este local',
+        address: null,
+        archivedAt: null,
+        createdAt: '',
+      }]
+    : activeStores
   const [customers, setCustomers] = useState<Customer[]>([])
   const [allEvents] = useState<CustomerDebtEvent[]>([])
   const [balances, setBalances] = useState<Map<string, number>>(new Map())
@@ -83,8 +101,8 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
   }, [])
 
   useEffect(() => {
-    void load(storeId)
-  }, [storeId, load])
+    void load(activeStoreId)
+  }, [activeStoreId, load])
 
   useEffect(() => {
     return subscribeKindBalances('customer', next => setBalances(next))
@@ -119,12 +137,14 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
 
       {!online && <OfflineBanner />}
 
-      <StoreSelector
-        stores={activeStores}
-        value={storeId}
-        onChange={id => { setStoreId(id); setSelected(null) }}
-        allowAll
-      />
+      {!fixedStoreId && (
+        <StoreSelector
+          stores={activeStores}
+          value={storeId}
+          onChange={id => { setStoreId(id); setSelected(null) }}
+          allowAll
+        />
+      )}
 
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
         <button
@@ -146,7 +166,7 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
       </div>
 
       <main className="flex-1 px-4 py-4">
-        {error && <ErrorBanner message={error} onRetry={() => void load(storeId)} />}
+        {error && <ErrorBanner message={error} onRetry={() => void load(activeStoreId)} />}
         {loading && <Spinner />}
         {!loading && !error && displayed.length === 0 && (
           <EmptyState message={showAll ? 'No hay clientes.' : 'Sin clientes con deuda.'} />
@@ -195,22 +215,23 @@ export function DebtsScreen({ onBack, stores, profile }: Props) {
       {selected && (
         <CustomerDetailModal
           customer={selected}
-          storeId={storeId || selected.storeId}
+          storeId={activeStoreId || selected.storeId}
           profile={profile}
           onClose={() => setSelected(null)}
-          onEventCreated={() => void load(storeId)}
+          onEventCreated={() => void load(activeStoreId)}
         />
       )}
 
       {showCreate && (
         <CreateCustomerModal
-          stores={activeStores}
-          defaultStoreId={storeId}
+          stores={modalStores}
+          defaultStoreId={activeStoreId}
           profile={profile}
           onClose={() => setShowCreate(false)}
-          onCreate={() => {
+          onCreate={initialDebt => {
             setShowCreate(false)
-            void load(storeId)
+            if (initialDebt <= 0) setShowAll(true)
+            void load(activeStoreId)
           }}
         />
       )}
@@ -533,7 +554,7 @@ interface CreateCustomerModalProps {
   defaultStoreId: string
   profile: LocalProfile
   onClose: () => void
-  onCreate: () => void
+  onCreate: (initialDebt: number) => void
 }
 
 function CreateCustomerModal({
@@ -591,7 +612,7 @@ function CreateCustomerModal({
           createdBy: profile.uid,
         })
       }
-      onCreate()
+      onCreate(debt)
     } catch {
       setErr('No se pudo crear el cliente.')
       setSaving(false)

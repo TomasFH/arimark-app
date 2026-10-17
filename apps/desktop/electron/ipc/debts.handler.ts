@@ -5,7 +5,8 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { customers, debtEvents, sales } from '../db/schema'
+import { customers, debtEvents, sales, stores } from '../db/schema'
+import { insertCustomerRecord, type CustomerRow } from './customers.handler'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
@@ -48,6 +49,20 @@ const createDebtSchema = z.object({
   notes: z.string().max(500).optional(),
 })
 
+/**
+ * Alta de cliente + saldo inicial. No acepta customerId: no suma deuda
+ * a un cliente que ya existe. CREATE_DEBT (venta del turno) no se toca.
+ */
+const createCustomerWithInitialDebtSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  dni: z.string().trim().max(20).optional(),
+  phone: z.string().trim().max(30).optional(),
+  /** Pesos enteros. 0 u omitido: solo el cliente, sin evento de ledger. */
+  initialDebt: z.number().int().nonnegative().optional(),
+  /** Solo lo usa el admin. La cajera siempre queda en el local de la sesión. */
+  storeId: z.string().trim().min(1).max(80).optional(),
+}).strict()
+
 const addPaymentSchema = z.object({
   customerId: z.string().uuid(),
   amount: z.number().positive(),
@@ -82,6 +97,11 @@ export type DebtEventRow = {
   paymentMethod: 'cash' | 'debit' | 'wallet' | 'credit' | null
   createdAt: string
   createdBy: string
+}
+
+export type CustomerOpeningDebtResult = {
+  customer: CustomerRow
+  debtEvent: DebtEventRow | null
 }
 
 export type CustomerDebtSummary = {
@@ -241,6 +261,98 @@ export function registerDebtHandlers(): void {
       return { ok: false, error: msg || 'Error al registrar la deuda.' }
     }
   })
+
+  // CREATE_CUSTOMER_WITH_INITIAL_DEBT — alta de fiado con saldo, sin venta
+  ipcMain.handle(
+    IPC.CREATE_CUSTOMER_WITH_INITIAL_DEBT,
+    (_event, payload: unknown): IpcResult<CustomerOpeningDebtResult> => {
+      const parsed = createCustomerWithInitialDebtSchema.safeParse(payload)
+      if (!parsed.success) {
+        log.error('[ipc:create-customer-with-initial-debt] Payload inválido', parsed.error)
+        return { ok: false, error: 'Datos del cliente inválidos.', code: 'VALIDATION_ERROR' }
+      }
+      const session = getActiveSession()
+      if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+
+      const { name, dni, phone, initialDebt = 0 } = parsed.data
+
+      try {
+        const db = getDb()
+        const targetStoreId = session.role === 'admin' && parsed.data.storeId
+          ? parsed.data.storeId
+          : session.storeId
+
+        if (session.role === 'admin' && parsed.data.storeId) {
+          const store = db.select({ id: stores.id }).from(stores).where(eq(stores.id, targetStoreId)).get()
+          if (!store) return { ok: false, error: 'Local no encontrado.', code: 'NOT_FOUND' }
+        }
+
+        const result = db.transaction(() => {
+          const customer = insertCustomerRecord(db, {
+            storeId: targetStoreId,
+            name,
+            dni: dni || null,
+            phone: phone || null,
+            createdBy: session.userId,
+          })
+
+          if (initialDebt <= 0) {
+            return { customer, debtEvent: null as DebtEventRow | null }
+          }
+
+          const eventId = uuidv4()
+          const now = nowUtc()
+          db.insert(debtEvents)
+            .values({
+              id: eventId,
+              customerId: customer.id,
+              saleId: null,
+              storeId: targetStoreId,
+              eventType: 'created',
+              amount: initialDebt,
+              dueDate: null,
+              notes: null,
+              paymentMethod: null,
+              shiftId: null,
+              createdAt: now,
+              createdBy: session.userId,
+              syncedAt: null,
+            })
+            .run()
+
+          const debtEvent: DebtEventRow = {
+            id: eventId,
+            customerId: customer.id,
+            customerName: customer.name,
+            saleId: null,
+            storeId: targetStoreId,
+            eventType: 'created',
+            amount: initialDebt,
+            dueDate: null,
+            notes: null,
+            paymentMethod: null,
+            createdAt: now,
+            createdBy: session.userId,
+          }
+          return { customer, debtEvent }
+        })
+
+        scheduleCustomerDebtPush()
+
+        log.info('[ipc:create-customer-with-initial-debt] Cliente creado', {
+          customerId: result.customer.id,
+          storeId: targetStoreId,
+          initialDebt,
+        })
+
+        return { ok: true, data: result }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error('[ipc:create-customer-with-initial-debt] Error inesperado', msg)
+        return { ok: false, error: msg || 'Error al crear el cliente.' }
+      }
+    },
+  )
 
   // GET_DEBTS — listado de deudas con saldo algebraico por cliente
   ipcMain.handle(IPC.GET_DEBTS, (_event, payload: unknown): IpcResult<CustomerDebtSummary[]> => {

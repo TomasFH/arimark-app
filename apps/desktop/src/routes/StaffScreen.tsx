@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import NumericInput from '../components/NumericInput'
 import { formatARS, toLocalDate } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
-import { Button, Modal } from '../components/ui'
+import { Button, Modal, ModalCloseButton } from '../components/ui'
 import { GrantButcherAccessModal, RevokeButcherAccessModal } from '../components/ButcherAccessModals'
 import { buildStaffRoster, type StaffKind, type StaffMember } from '../lib/staffRoster'
 import SalaryPaymentModal from './SalaryPaymentModal'
@@ -124,7 +124,7 @@ export default function StaffScreen({ onBack }: Props) {
           {!showArchived && (
             <Button size="sm" onClick={() => setShowCreate(true)}>+ Nuevo</Button>
           )}
-          <Button variant="ghost" size="sm" onClick={onBack} aria-label="Cerrar empleados">Cerrar</Button>
+          <ModalCloseButton onClick={onBack} />
         </div>
       )}
     >
@@ -469,7 +469,7 @@ function EmployeeDetailModal({
                   : ' · sueldo y vales'}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Cerrar">Cerrar</Button>
+          <ModalCloseButton onClick={onClose} />
         </div>
       }
     >

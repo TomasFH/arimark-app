@@ -55,6 +55,7 @@ import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
 import { notifyRenderer } from '../notifyRenderer'
 import { IPC } from '../../ipc/channels'
+import { addDaysYmd, todayLocalYmd } from '../../../src/lib/datetime'
 import { pushUnsyncedOrders, pullOrdersFromFirestore, startOrderSyncListener, stopOrderSyncListener, REMOTE_ORDER_UNKNOWN_USER } from '../orderSync'
 import {
   pushUnsyncedCustomers,
@@ -371,7 +372,7 @@ describe('ops sync (orders / debts / special customers)', () => {
           storeId: 'store-001',
           customerName: 'Pedro',
           items: 'costilla',
-          pickupDate: '2026-08-12',
+          pickupDate: '2026-12-15',
           status: 'pending',
           depositAmount: 0,
           createdAt: new Date().toISOString(),
@@ -384,6 +385,35 @@ describe('ops sync (orders / debts / special customers)', () => {
 
     const rows = db.select().from(orders).all()
     expect(rows.some(r => r.id === 'ord-remote')).toBe(true)
+  })
+
+  it('pull de un pendiente con retiro viejo no lo guarda y lo saca de Firestore', async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      size: 1,
+      docs: [{
+        id: 'ord-stale',
+        data: () => ({
+          id: 'ord-stale',
+          storeId: 'store-001',
+          customerName: 'Viejo',
+          items: 'asado',
+          pickupDate: addDaysYmd(todayLocalYmd(), -10),
+          status: 'pending',
+          depositAmount: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'user-001',
+        }),
+      }],
+    })
+
+    await pullOrdersFromFirestore(TENANT)
+
+    expect(db.select().from(orders).all().some(r => r.id === 'ord-stale')).toBe(false)
+    expect(mockSetDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ deleted: true, status: 'cancelled' }),
+      { merge: true },
+    )
   })
 
   it('pull de orders guarda budgetItems en SQLite', async () => {
@@ -404,7 +434,7 @@ describe('ops sync (orders / debts / special customers)', () => {
           storeId: 'store-001',
           customerName: 'Pedro',
           items: 'Asado · 1,5 kg',
-          pickupDate: '2026-08-12',
+          pickupDate: '2026-12-15',
           status: 'pending',
           depositAmount: 0,
           createdAt: new Date().toISOString(),
@@ -430,7 +460,7 @@ describe('ops sync (orders / debts / special customers)', () => {
           storeId: 'store-001',
           customerName: 'Ana',
           items: 'vacío',
-          pickupDate: '2026-08-18',
+          pickupDate: '2026-12-15',
           status: 'pending',
           depositAmount: 1500,
           depositPayments: [{ method: 'cash', amount: 1500 }],
@@ -462,7 +492,7 @@ describe('ops sync (orders / debts / special customers)', () => {
           storeId: 'store-001',
           customerName: 'Luis',
           items: 'pollo',
-          pickupDate: '2026-08-18',
+          pickupDate: '2026-12-15',
           status: 'pending',
           depositAmount: 0,
           createdAt: new Date().toISOString(),
@@ -488,7 +518,7 @@ describe('ops sync (orders / debts / special customers)', () => {
           storeId: 'store-001',
           customerName: 'Marta',
           items: 'vacío',
-          pickupDate: '2026-09-05',
+          pickupDate: '2026-12-15',
           status: 'ready',
           depositAmount: 0,
           createdAt: new Date().toISOString(),
@@ -540,7 +570,7 @@ describe('ops sync (orders / debts / special customers)', () => {
             storeId: 'store-001',
             customerName: 'Pedro',
             items: 'asado',
-            pickupDate: '2026-09-05',
+            pickupDate: '2026-12-15',
             status: 'ready',
             depositAmount: 0,
             createdAt: new Date().toISOString(),

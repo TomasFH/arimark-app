@@ -5,6 +5,9 @@
 export const IPC = {
   // App info
   GET_APP_INFO: 'ipc:get-app-info',
+  /** El usuario pidió cerrar la ventana (Alt+F4 o la X). */
+  APP_QUIT_REQUESTED: 'ipc:app-quit-requested',
+  CONFIRM_APP_QUIT: 'ipc:confirm-app-quit',
   GET_INIT_STATUS: 'ipc:get-init-status',
 
   // Hardware status
@@ -34,6 +37,8 @@ export const IPC = {
 
   // Productos (catálogo local)
   GET_PRODUCTS: 'ipc:get-products',
+  GET_PIECE_WEIGHTS: 'ipc:get-piece-weights',
+  SET_PIECE_WEIGHTS: 'ipc:set-piece-weights',
 
   // Catálogo admin — CRUD de productos y precios (solo admins)
   GET_ALL_PRODUCTS: 'ipc:get-all-products',
@@ -101,6 +106,8 @@ export const IPC = {
 
   // Deudas / cuenta corriente (Fase 6)
   CREATE_DEBT: 'ipc:create-debt',
+  /** Alta de cliente fiado con saldo inicial, sin venta. No reemplaza CREATE_DEBT. */
+  CREATE_CUSTOMER_WITH_INITIAL_DEBT: 'ipc:create-customer-with-initial-debt',
   GET_DEBTS: 'ipc:get-debts',
   GET_CUSTOMER_BALANCE: 'ipc:get-customer-balance',
   ADD_DEBT_PAYMENT: 'ipc:add-debt-payment',

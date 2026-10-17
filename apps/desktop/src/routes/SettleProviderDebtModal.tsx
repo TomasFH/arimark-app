@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import NumericInput from '../components/NumericInput'
 import PaymentReceipt from '../components/PaymentReceipt'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 import { formatIntegerWithDots, parseNumericInput } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
 import { isAdminAdjustNote } from '../lib/providerLedgerNotes'
@@ -320,21 +321,17 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
   const canSubmit = !saving && selected && (total > 0 || applyCredit)
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-raised rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg min-h-[70vh] sm:min-h-[32rem] shadow-xl flex flex-col max-h-[90vh] border border-line">
+    <ModalLayer
+      onClose={onClose}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-overlay p-0 sm:p-4"
+    >
+      <div className="relative z-10 bg-raised rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg min-h-[70vh] sm:min-h-[32rem] shadow-xl flex flex-col max-h-[90vh] border border-line">
         <div className="flex items-center gap-3 px-4 py-4 border-b border-line shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold">Saldar deuda</h2>
             <p className="text-xs text-muted">El efectivo sale de esta caja. No hace falta una visita.</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 text-muted hover:text-ink p-1 rounded-lg hover:bg-hover"
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         <div className="shrink-0 px-4 pt-4 pb-2 relative">
@@ -511,6 +508,6 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }

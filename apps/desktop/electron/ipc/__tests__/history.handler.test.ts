@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, sales, salePayments, expenses, orders, employees, employeeVales, customers, debtEvents } from '../../db/schema'
+import { stores, users, shifts, sales, salePayments, expenses, orders, employees, employeeVales, customers, debtEvents, providerDebtEvents } from '../../db/schema'
+import { eq } from 'drizzle-orm'
 import type { HistoryShiftDetail } from '../../../src/types/hw-api'
 
 vi.mock('electron', () => ({
@@ -160,6 +161,50 @@ describe('history.handler', () => {
       expect(row?.totalExpenses).toBe(400)
       // opening 1000 + inject 1500 - expense 400
       expect(row?.cashInHand).toBe(2100)
+    })
+
+    it('una visita con deuda vieja resta la caja una sola vez en listado y detalle', async () => {
+      const now = '2026-07-01T12:00:00.000Z'
+      db.update(shifts).set({ openingCash: 10_040_001 }).where(eq(shifts.id, SHIFT_ID)).run()
+      db.insert(expenses).values({
+        id: '33333333-0000-0000-0000-000000000031',
+        storeId: STORE_ID,
+        shiftId: SHIFT_ID,
+        kind: 'expense',
+        concept: 'Visita',
+        amount: 2_734_642,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: '44444444-0000-0000-0000-000000000031',
+        storeId: STORE_ID,
+        provider: 'Guido',
+        type: 'payment',
+        amount: 2_634_642,
+        expenseId: '33333333-0000-0000-0000-000000000031',
+        shiftId: SHIFT_ID,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+
+      const list = getHandler('ipc:get-history-shifts')
+      const listed = await list(null) as {
+        ok: boolean
+        data: Array<{ id: string; totalExpenses: number; cashInHand: number }>
+      }
+      const row = listed.data.find(s => s.id === SHIFT_ID)
+      expect(row?.totalExpenses).toBe(2_734_642)
+      expect(row?.cashInHand).toBe(7_305_359)
+
+      const detail = getHandler('ipc:get-history-shift-detail')
+      const opened = await detail(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: { summary: { totalExpenses: number; cashInHand: number } }
+      }
+      expect(opened.ok).toBe(true)
+      expect(opened.data.summary.totalExpenses).toBe(2_734_642)
+      expect(opened.data.summary.cashInHand).toBe(7_305_359)
     })
 
     it('incluye turnos abiertos (closedAt null) en la lista', async () => {

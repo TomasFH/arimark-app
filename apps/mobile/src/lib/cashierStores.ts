@@ -105,6 +105,11 @@ export function peekAuthorizedStoreOptions(
   return filterAuthorized(readCache(), wanted)
 }
 
+/** Todos los locales activos de la última descarga. Sin filtro de cuenta. */
+export function peekActiveStoreOptions(): CashierStoreOption[] {
+  return readCache()
+}
+
 /**
  * Locales autorizados con el nombre de Firestore (no el id).
  * Si un id no está en la colección o está archivado, no se lista.

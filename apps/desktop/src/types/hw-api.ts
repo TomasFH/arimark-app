@@ -160,6 +160,13 @@ export interface ShiftSummary {
   totalWalletSales: number
   /** Total cobrado con crédito durante el turno */
   totalCreditSales: number
+  /** Ventas confirmadas que incluyeron efectivo. Una mezcla cuenta acá y en digital. */
+  cashSaleCount: number
+  /** Ventas confirmadas que incluyeron algún medio digital. */
+  digitalSaleCount: number
+  debitSaleCount: number
+  walletSaleCount: number
+  creditSaleCount: number
   /** Total gastado en efectivo durante el turno (no incluye aportes) */
   totalExpenses: number
   /** Ingresos de efectivo a caja durante el turno */
@@ -214,11 +221,16 @@ export interface ExpenseRow {
   provider?: string
   /** ID del proveedor (para consultar deuda). */
   providerId?: string
-  /** Monto efectivamente pagado (lo que salió de caja). */
+  /**
+   * Toda la plata que salió de la caja en este gasto.
+   * Ya incluye `paysOldDebt`. La porción de la visita es `amount - paysOldDebt`.
+   */
   amount: number
-  /** Deuda nueva generada en esta visita (total - pagado). Undefined si no hubo. */
+  /** Deuda nueva de esta visita. No salió de caja. Undefined si no hubo. */
   newDebtAmount?: number
-  /** Deuda anterior del proveedor que se pagó en esta visita. Undefined si no hubo. */
+  /**
+   * Deuda anterior (o exceso) imputada en el ledger. Ya está incluida en `amount`.
+   */
   paysOldDebt?: number
   notes?: string
   createdAt: string
@@ -265,6 +277,11 @@ export interface SaleItemDraft {
 // Productos (catálogo local)
 // ---------------------------------------------------------------------------
 export type ProductCategory = 'beef_cut' | 'poultry' | 'pork' | 'other' | 'bags'
+
+export interface PieceWeightRow {
+  productId: string
+  kgPerUnit: number
+}
 
 export interface ProductRow {
   id: string
@@ -456,6 +473,10 @@ export interface ShiftSaleRow {
   digitalAmount: number
   /** Medios de pago usados en la venta (para el badge). */
   paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+  /** Monto de cada medio. Una venta fiado sin cobro queda vacía. */
+  payments: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
+  /** La venta quedó como fiado, aunque haya un pago parcial. */
+  isDebt: boolean
   manualEntry: boolean
   /** True solo si el tilde de excepción estuvo activo. El descuento de la regla no lo marca. */
   discountException?: boolean
@@ -619,6 +640,22 @@ export interface CustomerDebtSummary {
   balance: number
   lastEventAt: string
   events: DebtEventRow[]
+}
+
+/** Alta de cliente fiado con saldo inicial. No asocia una venta ni un cliente existente. */
+export interface CreateCustomerWithInitialDebtPayload {
+  name: string
+  dni?: string
+  phone?: string
+  /** Pesos enteros. 0 u omitido: solo crea el cliente. */
+  initialDebt?: number
+  /** Admin: local que está viendo. Si se omite, queda el de la sesión. La cajera no elige. */
+  storeId?: string
+}
+
+export interface CreateCustomerWithInitialDebtResult {
+  customer: CustomerRow
+  debtEvent: DebtEventRow | null
 }
 
 export interface CreateDebtPayload {
@@ -838,11 +875,14 @@ export interface RegisterExpensePayload {
   providerId?: string
   /** Nombre de proveedor nuevo (se crea implícitamente). */
   provider?: string
+  /** Porción de la visita o del concepto. La caja persiste amount + paysOldDebt. */
   amount: number
   notes?: string
   /** Monto que NO se pagó ahora y queda como deuda para la próxima visita */
   newDebtAmount?: number
-  /** Monto de deuda anterior que se paga en este gasto */
+  /**
+   * Exceso sobre la visita que también salió de caja. El ledger suma este número.
+   */
   paysOldDebt?: number
   /**
    * Local al que se imputa la deuda con el proveedor.
@@ -850,6 +890,11 @@ export interface RegisterExpensePayload {
    * Permite pagar deuda de otro local desde la caja actual.
    */
   debtStoreId?: string
+  /**
+   * Parte de paysOldDebt que va a debtStoreId (otro local).
+   * El resto se imputa al local de la sesión.
+   */
+  crossStorePayment?: number
 }
 
 /** Payload para actualizar un gasto existente del turno activo. */
@@ -869,6 +914,8 @@ export interface ProviderRow {
   archivedAt?: string
   /** null = todavía no se eligió qué trae. UI: Productos / Media res / Pollo. */
   intakeKind: ProviderIntakeKind | null
+  /** Último texto de “Qué se pagó” cuando la visita fue solo insumos. */
+  supplyConcept?: string | null
 }
 
 export interface ProviderWithDebtRow {
@@ -1218,6 +1265,10 @@ export interface HistorySaleRow {
   cashAmount: number
   digitalAmount: number
   paymentMethods: Array<'cash' | 'debit' | 'wallet' | 'credit'>
+  /** Monto cobrado por medio. Vacío en turnos viejos que solo traían la lista de medios. */
+  payments?: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
+  /** Pesos descontados sobre el precio de lista. 0 si no hubo descuento. */
+  discountAmount?: number
   manualEntry: boolean
   isDebt: boolean
   customerName: string | null
@@ -1411,6 +1462,10 @@ export interface HwApi {
   /** Retorna el entorno de la app y versión */
   getAppInfo: () => Promise<IpcResult<AppInfo>>
 
+  /** Alt+F4 o la X: el main pide confirmación antes de cerrar. */
+  onAppQuitRequested: (cb: () => void) => () => void
+  confirmAppQuit: () => Promise<IpcResult>
+
   /** Retorna el estado de inicialización (licencia, activación, config del negocio) */
   getInitStatus: () => Promise<IpcResult<InitStatus>>
 
@@ -1532,6 +1587,10 @@ export interface HwApi {
 
   /** Retorna todos los productos del catálogo con PLU asignado, ordenados por PLU asc */
   getProducts: () => Promise<IpcResult<ProductRow[]>>
+
+  /** Kilos de referencia por unidad, para estimar pedidos. No es el peso del ticket. */
+  getPieceWeights: () => Promise<IpcResult<PieceWeightRow[]>>
+  setPieceWeights: (payload: { items: Array<{ productId: string; kgPerUnit: number }> }) => Promise<IpcResult<{ saved: number }>>
 
   /** Retorna todos los productos (con y sin PLU) con precio y disponibilidad para el local dado — solo admin */
   getAllProducts: (storeId: string) => Promise<IpcResult<AdminProductRow[]>>
@@ -1748,14 +1807,19 @@ export interface HwApi {
     newDebtAmount?: number
     paysOldDebt?: number
     debtStoreId?: string
+    crossStorePayment?: number
     acceptPriceUpdates: boolean
     visitKind?: ProviderIntakeKind
+    clientRequestId?: string
+    paymentChannel?: 'cash' | 'digital'
   }) => Promise<IpcResult<{ id: string; expenseId: string | null }>>
   getProviderPurchasePrices: (payload: { providerId: string }) => Promise<IpcResult<Array<{
     productKey: string
     name: string
     costUnit: 'kg' | 'unit' | 'pack'
     unitCost: number
+    packContents: number | null
+    weighMode: 'each' | 'total' | null
   }>>>
   listMerchRubros: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<MerchRubroRow[]>>
   createMerchRubro: (payload: {
@@ -1790,6 +1854,8 @@ export interface HwApi {
     providerId?: string
     provider?: string
     intakeKind: ProviderIntakeKind
+    /** Solo se guarda cuando la visita es de insumos. */
+    supplyConcept?: string
   }) => Promise<IpcResult<ProviderRow>>
   /** Archiva un proveedor (lo oculta; conserva deuda e historial). */
   archiveProvider: (payload: { id: string }) => Promise<IpcResult<void>>
@@ -1875,6 +1941,10 @@ export interface HwApi {
   // ---- Deudas / cuenta corriente (Fase 6) ----
   /** Marca una venta como deuda y la asocia a un cliente (existente o nuevo) */
   createDebt: (payload: CreateDebtPayload) => Promise<IpcResult<DebtEventRow>>
+  /** Crea un cliente fiado y, si el saldo es mayor a 0, el evento `created` sin venta. */
+  createCustomerWithInitialDebt: (
+    payload: CreateCustomerWithInitialDebtPayload,
+  ) => Promise<IpcResult<CreateCustomerWithInitialDebtResult>>
   /** Lista deudas activas con saldo algebraico por cliente */
   getDebts: (payload?: { storeIdFilter?: string }) => Promise<IpcResult<CustomerDebtSummary[]>>
   /** Saldo y ledger completo de un cliente */

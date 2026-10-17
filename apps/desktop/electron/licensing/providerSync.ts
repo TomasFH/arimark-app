@@ -49,6 +49,7 @@ function upsertProviderFromRemote(data: {
   phone?: string | null
   notes?: string | null
   intakeKind?: string | null
+  supplyConcept?: string | null
   archivedAt?: string | null
   createdAt?: string
   createdBy?: string | null
@@ -70,6 +71,8 @@ function upsertProviderFromRemote(data: {
     ? undefined
     : coerceProviderIntakeKind(data.intakeKind)
 
+  const remoteConcept = data.supplyConcept === undefined ? undefined : (data.supplyConcept ?? null)
+
   db.insert(providers).values({
     id,
     name: data.name,
@@ -77,6 +80,7 @@ function upsertProviderFromRemote(data: {
     phone: data.phone ?? null,
     notes: data.notes ?? null,
     intakeKind: remoteKind ?? null,
+    supplyConcept: remoteConcept ?? null,
     archivedAt: data.archivedAt ?? null,
     createdAt,
     createdBy: null,
@@ -95,6 +99,7 @@ function upsertProviderFromRemote(data: {
         updatedBy: null,
         syncedAt: now,
         ...(remoteKind !== undefined ? { intakeKind: remoteKind } : {}),
+        ...(remoteConcept !== undefined ? { supplyConcept: remoteConcept } : {}),
       },
     })
     .run()
@@ -222,6 +227,7 @@ export async function pushUnsyncedProviders(licenseKey: string): Promise<void> {
         phone: p.phone ?? null,
         notes: p.notes ?? null,
         intakeKind: p.intakeKind ?? null,
+        supplyConcept: p.supplyConcept ?? null,
         archivedAt: p.archivedAt ?? null,
         createdAt: p.createdAt,
         createdBy: p.createdBy ?? null,

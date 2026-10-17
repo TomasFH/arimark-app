@@ -194,6 +194,12 @@ export function registerSaleHandlers(): void {
     }
 
     const discountException = saleDiscountException === true && isDebt !== true
+    const cashPaid = payments
+      .filter(p => p.paymentMethod === 'cash')
+      .reduce((sum, p) => sum + p.amount, 0)
+    const digitalPaid = payments
+      .filter(p => p.paymentMethod !== 'cash')
+      .reduce((sum, p) => sum + p.amount, 0)
     const quote = quoteCashDiscount({
       rule,
       itemTotal,
@@ -201,6 +207,7 @@ export function registerSaleHandlers(): void {
       depositAmount,
       depositDigitalAmount,
       remainderIncludesCash: remainderIncludesCash(payments),
+      cashAmount: digitalPaid > 0 ? cashPaid : undefined,
       force: discountException,
     })
 
@@ -350,6 +357,7 @@ export function registerSaleHandlers(): void {
           id: sales.id,
           total: sales.total,
           status: sales.status,
+          isDebt: sales.isDebt,
           manualEntry: sales.manualEntry,
           discountException: sales.discountException,
           discountPercent: sales.discountPercent,
@@ -430,6 +438,8 @@ export function registerSaleHandlers(): void {
           cashAmount,
           digitalAmount,
           paymentMethods: pays.map(p => p.paymentMethod),
+          payments: pays.map(p => ({ method: p.paymentMethod, amount: p.amount })),
+          isDebt: s.isDebt,
           manualEntry: s.manualEntry,
           discountException: s.discountException,
           discountPercent: s.discountPercent,

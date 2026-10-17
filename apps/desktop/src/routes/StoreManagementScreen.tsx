@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react'
 import StoreHoursScheduleEditor from '../components/StoreHoursScheduleEditor'
-import { Button, Modal } from '../components/ui'
+import { Button, Modal, ModalCloseButton } from '../components/ui'
 import type { StoreRow } from '../types/hw-api'
 import {
   editorScheduleFromStore,
@@ -156,7 +156,7 @@ export default function StoreManagementScreen({ onBack }: Props) {
           {!showDeleted && (
             <Button type="button" size="sm" onClick={openCreate}>+ Nuevo</Button>
           )}
-          <Button variant="ghost" size="sm" onClick={onBack} aria-label="Cerrar locales">Cerrar</Button>
+          <ModalCloseButton onClick={onBack} />
         </div>
       )}
     >

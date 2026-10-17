@@ -218,18 +218,32 @@ describe('sale.handler — descuento efectivo', () => {
     expect(db.select().from(sales).all()[0]?.discountAmount).toBe(0)
   })
 
-  it('mixto con efectivo mantiene descuento (faltante digital)', async () => {
+  it('mixto descuenta solo la mercadería que cubre el efectivo', async () => {
     const handler = getHandler('ipc:create-sale')
     const result = await handler({}, {
       items,
       payments: [
-        { paymentMethod: 'cash', amount: 80000 },
-        { paymentMethod: 'debit', amount: 10000 },
+        { paymentMethod: 'cash', amount: 45000 },
+        { paymentMethod: 'debit', amount: 50000 },
       ],
     }) as { ok: boolean; data: { total: number } }
     expect(result.ok).toBe(true)
-    expect(result.data.total).toBe(90000)
-    expect(db.select().from(sales).all()[0]?.discountAmount).toBe(10000)
+    expect(result.data.total).toBe(95000)
+    expect(db.select().from(sales).all()[0]?.discountAmount).toBe(5000)
+  })
+
+  it('un efectivo chico junto con débito no descuenta el ticket', async () => {
+    const handler = getHandler('ipc:create-sale')
+    const result = await handler({}, {
+      items,
+      payments: [
+        { paymentMethod: 'cash', amount: 1000 },
+        { paymentMethod: 'debit', amount: 99000 },
+      ],
+    }) as { ok: boolean; data: { total: number } }
+    expect(result.ok).toBe(true)
+    expect(result.data.total).toBe(100000)
+    expect(db.select().from(sales).all()[0]?.discountAmount).toBe(0)
   })
 
   it('un porcentaje de esta venta no cambia la regla del local', async () => {

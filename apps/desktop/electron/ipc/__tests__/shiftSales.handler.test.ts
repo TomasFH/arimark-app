@@ -53,13 +53,14 @@ describe('sale.handler — GET_SHIFT_SALES', () => {
     id: string
     total: number
     status?: 'confirmed' | 'in_progress'
+    isDebt?: boolean
     payments: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
     items?: Array<{ productId: string; qty: number; unitPrice: number; subtotal: number }>
     createdAt?: string
   }) {
     db.insert(sales).values({
       id: opts.id, storeId: 'store-001', shiftId: 'shift-001', customerId: null,
-      total: opts.total, isDebt: false, status: opts.status ?? 'confirmed',
+      total: opts.total, isDebt: opts.isDebt ?? false, status: opts.status ?? 'confirmed',
       manualEntry: false, manualApprovedBy: null, manualApprovedAt: null,
       notes: null, createdAt: opts.createdAt ?? now, createdBy: 'user-001',
     }).run()
@@ -112,6 +113,28 @@ describe('sale.handler — GET_SHIFT_SALES', () => {
     expect(result.data[0]!.cashAmount).toBe(6000)
     expect(result.data[0]!.digitalAmount).toBe(4000)
     expect(result.data[0]!.paymentMethods.sort()).toEqual(['cash', 'debit'])
+    expect(result.data[0]!.payments).toEqual([
+      { method: 'cash', amount: 6000 },
+      { method: 'debit', amount: 4000 },
+    ])
+  })
+
+  it('un fiado sin cobro no trae medios, y uno con seña conserva el pago', () => {
+    insertSale({ id: 'sale-fiado', total: 99999, isDebt: true, payments: [] })
+    insertSale({
+      id: 'sale-parcial',
+      total: 10000,
+      isDebt: true,
+      payments: [{ method: 'cash', amount: 2000 }],
+    })
+    const result = getHandler('ipc:get-shift-sales')(null) as { ok: boolean; data: ShiftSaleRow[] }
+    const pure = result.data.find(row => row.id === 'sale-fiado')
+    const partial = result.data.find(row => row.id === 'sale-parcial')
+    expect(pure?.isDebt).toBe(true)
+    expect(pure?.paymentMethods).toEqual([])
+    expect(pure?.payments).toEqual([])
+    expect(partial?.isDebt).toBe(true)
+    expect(partial?.payments).toEqual([{ method: 'cash', amount: 2000 }])
   })
 
   it('venta 100% digital no suma efectivo', () => {

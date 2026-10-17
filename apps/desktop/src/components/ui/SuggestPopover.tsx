@@ -97,7 +97,7 @@ export function SuggestPopover({
 
   return createPortal(
     <div
-      className="pointer-events-auto absolute overflow-y-auto rounded-lg border border-line bg-raised shadow-[0_8px_24px_rgba(28,28,30,0.18)] [scrollbar-gutter:stable]"
+      className="pointer-events-auto absolute overflow-y-auto rounded-lg border border-line bg-raised shadow-[0_8px_24px_rgba(28,28,30,0.18)]"
       style={{
         top: box.top,
         bottom: box.bottom,

@@ -4,7 +4,7 @@
  */
 import DecimalInput from './DecimalInput'
 import NumericInput from './NumericInput'
-import { parseNumericInput } from '../lib/numericInput'
+import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
 import { formatMoney } from '../lib/adminFirestore'
 import {
   CHICKEN_VISIT_NAME,
@@ -13,6 +13,7 @@ import {
   PROVIDER_INTAKE_KIND_LABELS,
   emptyChickenFormLine,
   emptyMediaResFormLine,
+  lineCostTotal,
   merchProductKey,
   resizeWeightInputs,
   type MerchVisitFormLine,
@@ -194,8 +195,10 @@ export function ChickenVisitForm({
   const lastCost = lastPrices[merchProductKey(null, CHICKEN_VISIT_NAME)]
   const line = lines[0] ?? emptyChickenFormLine(lastCost)
   const count = parseNumericInput(line.packCountRaw) ?? 0
-  const crateCost = parseNumericInput(line.unitCostRaw)
-  const total = count > 0 && crateCost != null && crateCost > 0 ? count * crateCost : null
+  const crateCost = parseDecimalInput(line.unitCostRaw)
+  const total = count > 0 && crateCost != null && crateCost > 0
+    ? lineCostTotal('pack', crateCost, count)
+    : null
   const progress = kgProgressHint(count, line.weightRaws, { one: 'cajón', many: 'cajones' })
 
   function commit(patch: Partial<MerchVisitFormLine>) {
@@ -241,7 +244,7 @@ export function ChickenVisitForm({
       {progress && <p className="text-xs text-gray-400">{progress}</p>}
       <label className="block space-y-1">
         <span className="text-xs text-gray-400">Precio por cajón ($)</span>
-        <NumericInput value={line.unitCostRaw} onChange={v => commit({ unitCostRaw: v })} placeholder="0" className={FIELD} />
+        <DecimalInput value={line.unitCostRaw} onChange={v => commit({ unitCostRaw: v })} maxDecimals={2} placeholder="0" className={FIELD} />
       </label>
     </div>
   )

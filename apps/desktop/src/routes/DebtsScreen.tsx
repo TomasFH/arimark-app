@@ -7,11 +7,12 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { formatARS, formatRelativeDate } from '../lib/datetime'
-import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, Modal } from '../components/ui'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import type { CustomerDebtSummary, DebtEventRow, StoreRow } from '../types/hw-api'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput, formatIntegerWithDots } from '../lib/numericInput'
-import StoreFilter from '../components/StoreFilter'
+import HistoryStoreSelect from '../components/HistoryStoreSelect'
 
 const PAYMENT_METHOD_LABELS: Record<NonNullable<DebtEventRow['paymentMethod']>, string> = {
   cash: 'Efectivo',
@@ -95,7 +96,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
   const isDue = nextDueDate && new Date(nextDueDate) <= new Date()
 
   return (
-    <div className={`overflow-hidden rounded-2xl border ${isDue ? 'border-danger/40 bg-danger/5' : 'border-line bg-panel'}`}>
+    <div className="overflow-hidden rounded-2xl border border-line-strong bg-panel">
       <button
         type="button"
         onClick={() => setExpanded(p => !p)}
@@ -107,7 +108,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate text-sm font-semibold text-ink" title={summary.customerName}>{summary.customerName}</span>
             {isDue && (
-              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-danger ring-1 ring-danger/30">
+              <span className="shrink-0 rounded border border-line-strong bg-raised px-1.5 py-0.5 text-[10px] text-danger">
                 Vencida
               </span>
             )}
@@ -259,15 +260,152 @@ function DebtPaymentModal({ summary, onConfirm, onClose, loading, error }: Payme
 }
 
 // ---------------------------------------------------------------------------
+// Modal: alta de cliente con saldo inicial (sin venta)
+// ---------------------------------------------------------------------------
+
+interface CreateCustomerModalProps {
+  isAdmin: boolean
+  storeIdFilter: string
+  storeName: string | null
+  onClose: () => void
+  onCreated: (initialDebt: number) => void
+}
+
+function CreateCustomerModal({
+  isAdmin,
+  storeIdFilter,
+  storeName,
+  onClose,
+  onCreated,
+}: CreateCustomerModalProps) {
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [dni, setDni] = useState('')
+  const [debtInput, setDebtInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const debt = parseNumericInput(debtInput) ?? 0
+  const canSubmit = name.trim().length > 0 && !saving
+
+  async function handleSubmit() {
+    if (!name.trim()) {
+      setError('El nombre es obligatorio.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const res = await window.hw.createCustomerWithInitialDebt({
+      name: name.trim(),
+      ...(phone.trim() ? { phone: phone.trim() } : {}),
+      ...(dni.trim() ? { dni: dni.trim() } : {}),
+      ...(debt > 0 ? { initialDebt: debt } : { initialDebt: 0 }),
+      ...(isAdmin && storeIdFilter !== 'all' ? { storeId: storeIdFilter } : {}),
+    })
+    setSaving(false)
+    if (!res.ok) {
+      setError(res.error ?? 'No se pudo crear el cliente.')
+      return
+    }
+    onCreated(debt)
+  }
+
+  return (
+    <Modal
+      open
+      onClose={saving ? () => {} : onClose}
+      closeOnOverlay={!saving}
+      size="sm"
+      title="Nuevo cliente"
+      footer={
+        <>
+          <Button variant="secondary" className="mr-auto" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button loading={saving} disabled={!canSubmit} onClick={() => { void handleSubmit() }}>
+            Crear
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {isAdmin && (
+          <p className="text-xs text-muted">
+            {storeIdFilter === 'all'
+              ? 'El cliente queda en el local de esta sesión.'
+              : `Local: ${storeName ?? 'el que estás viendo'}`}
+          </p>
+        )}
+        <div>
+          <label className="mb-1 block text-xs text-muted" htmlFor="new-customer-name">Nombre *</label>
+          <input
+            id="new-customer-name"
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Juan García"
+            maxLength={100}
+            required
+            autoFocus
+            className="w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted" htmlFor="new-customer-phone">Teléfono</label>
+          <input
+            id="new-customer-phone"
+            type="text"
+            inputMode="tel"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="11-1234-5678"
+            maxLength={30}
+            className="w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted" htmlFor="new-customer-dni">DNI</label>
+          <input
+            id="new-customer-dni"
+            type="text"
+            inputMode="numeric"
+            value={dni}
+            onChange={e => setDni(e.target.value)}
+            placeholder="12345678"
+            maxLength={20}
+            className="w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted" htmlFor="new-customer-debt">Deuda inicial ($)</label>
+          <NumericInput
+            id="new-customer-debt"
+            value={debtInput}
+            onChange={setDebtInput}
+            placeholder="0"
+            className="w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-line-accent focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-muted">Vacío o 0: solo crea el cliente, sin deuda.</p>
+        </div>
+        {error && (
+          <p className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Pantalla principal
 // ---------------------------------------------------------------------------
 
 interface Props {
   onBack?: () => void
+  onLogout?: () => void
   isAdmin?: boolean
 }
 
-export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
+export default function DebtsScreen({ onBack, onLogout, isAdmin = false }: Props) {
   const [debts, setDebts] = useState<CustomerDebtSummary[]>([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
@@ -285,6 +423,9 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
   const [cancelConfirm, setCancelConfirm] = useState(false)
   const [cancelLoading, setCancelLoading] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+
+  const [showCreate, setShowCreate] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   // Cargar locales al montar (solo admin)
   useEffect(() => {
@@ -366,25 +507,34 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
 
   return (
     <div className="flex h-full flex-1 flex-col bg-app text-ink">
-      <ScreenHeader
+      <AdminSectionHeader
         title="Fiados / Cuentas corrientes"
         subtitle={debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
         onBack={onBack}
+        onLogout={onLogout}
         actions={
           <>
             {isAdmin && availableStores.length > 0 && (
-              <StoreFilter
-                stores={availableStores}
-                value={storeIdFilter}
-                onChange={v => setStoreIdFilter(v)}
-              />
+              <div className="w-52 shrink-0">
+                <HistoryStoreSelect
+                  stores={availableStores}
+                  value={storeIdFilter}
+                  onChange={v => setStoreIdFilter(v)}
+                />
+              </div>
             )}
-            <Button variant="ghost" size="sm" onClick={() => void loadDebts()} disabled={loadingList}>
-              {loadingList ? '…' : 'Actualizar'}
+            <Button size="sm" onClick={() => { setShowCreate(true); setNotice(null) }}>
+              Nuevo cliente
             </Button>
           </>
         }
       />
+
+      {notice && (
+        <div className="border-b border-line bg-panel px-6 py-2.5">
+          <p className="text-xs text-ink">{notice}</p>
+        </div>
+      )}
 
       {/* Alerta de vencimientos */}
       {dueSoonDebts.length > 0 && (
@@ -435,6 +585,24 @@ export default function DebtsScreen({ onBack, isAdmin = false }: Props) {
           />
         ))}
       </div>
+
+      {showCreate && (
+        <CreateCustomerModal
+          isAdmin={isAdmin}
+          storeIdFilter={storeIdFilter}
+          storeName={availableStores.find(s => s.id === storeIdFilter)?.name ?? null}
+          onClose={() => setShowCreate(false)}
+          onCreated={initialDebt => {
+            setShowCreate(false)
+            setNotice(
+              initialDebt > 0
+                ? 'Cliente creado con deuda inicial.'
+                : 'Cliente creado. Sin deuda no aparece en esta lista.',
+            )
+            void loadDebts()
+          }}
+        />
+      )}
 
       {/* Modal de pago */}
       {payTarget && (

@@ -16,21 +16,21 @@ import { formatPhoneInput } from '../lib/phoneInput'
 import PaymentReceipt from '../components/PaymentReceipt'
 import { isAdminAdjustNote } from '../lib/providerLedgerNotes'
 import { Button, CollapseReveal, Modal, SuggestPopover } from '../components/ui'
-import { showAppToast } from '../components/ui/AppToast'
 import { namedSuggest } from '../lib/namedSuggest'
-import type { ExpenseRow, ProductRow, ProviderDebtRow, ProviderRow, StoreRow } from '../types/hw-api'
-import ProviderVisitMerchBlock, { type PurchasePriceMap } from './ProviderVisitMerchBlock'
-import { ChickenVisitForm, MediaResVisitForm, ProviderIntakeKindPicker } from './ProviderVisitKindUi'
+import type { ExpenseRow, ProviderDebtRow, ProviderRow, StoreRow } from '../types/hw-api'
+import ProviderVisitMerchBlock, { type PurchaseMemoryMap, type VisitCatalogProduct } from './ProviderVisitMerchBlock'
 import {
+  formatPurchaseUnitCost,
+  formatRecallCostUnit,
+  formatWeighMode,
   merchProductKey,
   merchVisitReceiptItems,
-  purchasePriceChanges,
+  purchaseRecallChanges,
   resolveMerchVisitLine,
   visitLinesFromForm,
   type MerchVisitFormLine,
   type MerchVisitReceiptItem,
-  type ProviderIntakeKind,
-  type PurchasePriceChange,
+  type PurchaseRecallChange,
 } from '@carniceria/shared'
 
 interface Props {
@@ -71,6 +71,7 @@ interface ReceiptData {
   finalBalance: number
   storeName?: string
   items: MerchVisitReceiptItem[]
+  paymentDigital?: boolean
 }
 
 export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftChanged, editingExpense }: Props) {
@@ -105,28 +106,32 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [crossStoreDebt, setCrossStoreDebt] = useState<ProviderDebtRow | null>(null)
   const [loadingCrossDebt, setLoadingCrossDebt] = useState(false)
 
+  // expenses.amount ya incluye paysOldDebt (toda la plata que salió de caja).
+  // La visita es amount − paysOldDebt; Entregado es amount. No volver a sumar.
+  const editingPaysOld = editingExpense?.paysOldDebt ?? 0
+  const editingCashOut = editingExpense?.amount ?? 0
+  const editingVisitTotal = editingExpense
+    ? Math.max(0, editingCashOut - editingPaysOld) + (editingExpense.newDebtAmount ?? 0)
+    : 0
+
   // --- Montos ---
-  const [totalRaw, setTotalRaw] = useState(() => {
-    if (!editingExpense) return ''
-    const total = editingExpense.amount + (editingExpense.newDebtAmount ?? 0)
-    return total > 0 ? String(total) : ''
-  })
-  const [amountRaw, setAmountRaw] = useState(() => {
-    if (!editingExpense) return ''
-    const paid = editingExpense.amount + (editingExpense.paysOldDebt ?? 0)
-    return paid > 0 ? String(paid) : ''
-  })
+  const [totalRaw, setTotalRaw] = useState(() => (
+    editingVisitTotal > 0 ? String(editingVisitTotal) : ''
+  ))
+  const [amountRaw, setAmountRaw] = useState(() => (
+    editingCashOut > 0 ? String(editingCashOut) : ''
+  ))
   const [notes, setNotes] = useState(editingExpense?.notes ?? '')
   const [merchLines, setMerchLines] = useState<MerchVisitFormLine[]>([])
-  const [intakeKind, setIntakeKind] = useState<ProviderIntakeKind | null>(null)
-  const [savingKind, setSavingKind] = useState(false)
-  const [catalog, setCatalog] = useState<ProductRow[]>([])
-  const [lastPrices, setLastPrices] = useState<PurchasePriceMap>({})
+  const [catalog, setCatalog] = useState<VisitCatalogProduct[]>([])
+  const [memory, setMemory] = useState<PurchaseMemoryMap>({})
   const [confirmStep, setConfirmStep] = useState<'prices' | 'summary' | null>(null)
-  const [priceChanges, setPriceChanges] = useState<PurchasePriceChange[]>([])
+  const [recallChanges, setRecallChanges] = useState<PurchaseRecallChange[]>([])
+  const [suppliesOnly, setSuppliesOnly] = useState(false)
+  const [paymentChannel, setPaymentChannel] = useState<'cash' | 'digital'>('cash')
   const [draftHydrated, setDraftHydrated] = useState(!!editingExpense)
   const acceptPriceUpdatesRef = useRef(true)
-  const kindTouchedRef = useRef(false)
+  const requestIdRef = useRef<string | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -168,9 +173,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     })
     void window.hw.getStores().then(r => {
       if (r.ok) setStores(r.data.filter(s => !s.archivedAt))
-    })
-    void window.hw.getProducts().then(r => {
-      if (r.ok) setCatalog(r.data)
     })
     if (!editingExpense) {
       void window.hw.getMerchVisitDraft().then(r => {
@@ -256,25 +258,37 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   }, [selectedProviderId, fetchProviderDebt])
 
   useEffect(() => {
-    if (kindTouchedRef.current) return
-    if (!matchedProviderId) {
-      setIntakeKind(null)
-      return
-    }
-    const p = providerSuggestions.find(x => x.id === matchedProviderId)
-    setIntakeKind(p?.intakeKind ?? null)
-  }, [matchedProviderId, providerSuggestions])
+    if (!currentStoreId) return
+    void window.hw.getAllProducts(currentStoreId).then(r => {
+      if (!r.ok) return
+      setCatalog(r.data.filter(p => p.active && p.available).map(p => ({
+        id: p.id,
+        name: p.name,
+        unit: p.unit,
+        pluNumber: p.pluNumber,
+        purchasePackLabel: p.purchasePackLabel,
+        purchasePackContents: p.purchasePackContents,
+      })))
+    })
+  }, [currentStoreId])
 
   useEffect(() => {
     if (!selectedProviderId) {
-      setLastPrices({})
+      setMemory({})
       return
     }
     void window.hw.getProviderPurchasePrices({ providerId: selectedProviderId }).then(r => {
       if (!r.ok) return
-      const map: PurchasePriceMap = {}
-      for (const row of r.data) map[row.productKey] = row.unitCost
-      setLastPrices(map)
+      const map: PurchaseMemoryMap = {}
+      for (const row of r.data) {
+        map[row.productKey] = {
+          unitCost: row.unitCost,
+          costUnit: row.costUnit,
+          packContents: row.packContents ?? null,
+          weighMode: row.weighMode ?? null,
+        }
+      }
+      setMemory(map)
     })
   }, [selectedProviderId])
 
@@ -282,16 +296,14 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setProviderInput(p.name)
     if (p.id !== selectedProviderId) setProviderDebt(null)
     setSelectedProviderId(p.id)
+    setSuppliesOnly(p.intakeKind === 'insumos')
+    setConcept(p.intakeKind === 'insumos' ? (p.supplyConcept ?? '') : '')
     setShowProviderSuggestions(false)
-    kindTouchedRef.current = false
-    if (intakeKind !== (p.intakeKind ?? null)) setMerchLines([])
-    setIntakeKind(p.intakeKind ?? null)
   }
 
   function handleProviderInputChange(value: string) {
     setProviderInput(value)
     clearError()
-    kindTouchedRef.current = false
 
     const exact = namedSuggest(providerSuggestions, value, p => p.name).exact
     if (exact) {
@@ -301,7 +313,8 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
 
     setSelectedProviderId(null)
     setProviderDebt(null)
-    setIntakeKind(null)
+    setSuppliesOnly(false)
+    setConcept('')
     setShowProviderSuggestions(true)
   }
 
@@ -311,42 +324,14 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     if (exact) selectProviderFromList(exact)
   }, [providerSuggestions])
 
-  function resetVisitDraft() {
-    setMerchLines([])
-    setTotalRaw('')
-    setAmountRaw('')
-    clearError()
-  }
-
-  async function chooseIntakeKind(next: ProviderIntakeKind) {
-    const previous = intakeKind
-    resetVisitDraft()
-    kindTouchedRef.current = true
-    setIntakeKind(next)
-    setSavingKind(true)
-    const r = await window.hw.setProviderIntakeKind({
-      providerId: selectedProviderId ?? undefined,
-      provider: selectedProviderId ? undefined : providerInput.trim(),
-      intakeKind: next,
-    })
-    setSavingKind(false)
-    if (!r.ok) {
-      setIntakeKind(previous)
-      showError(r.error, 'kind')
-      return
-    }
-    setSelectedProviderId(r.data.id)
-    setProviderSuggestions(prev => [r.data, ...prev.filter(p => p.id !== r.data.id)])
-  }
-
   const hasProviderName = providerInput.trim().length > 0
   const providerResolved = selectedProviderId != null || exactProvider != null
   const isNewProvider = providersLoaded && hasProviderName && !providerResolved && listedProviders.length === 0
   const showVisitFields = kind === 'provider' && (providerResolved || isNewProvider)
-  const merchResolved = merchLines.length > 0 ? visitLinesFromForm(merchLines) : null
+  const merchResolved = !suppliesOnly && !isEditing && merchLines.length > 0 ? visitLinesFromForm(merchLines) : null
   const merchTotal = merchResolved?.ok ? merchResolved.total : null
   const totalParsed = showVisitFields
-    ? (merchTotal != null ? merchTotal : (parseNumericInput(totalRaw) ?? 0))
+    ? (isEditing || suppliesOnly ? (parseNumericInput(totalRaw) ?? 0) : (merchTotal ?? 0))
     : null
   const entregadoParsed = parseNumericInput(amountRaw) ?? 0
   const previousBalance = providerDebt?.balance ?? 0
@@ -387,7 +372,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   // Saldo final tras la transacción (positivo = debo, negativo = me deben)
   // En modo cross-local, el exceso cubre primero la deuda del otro local
   const finalBalance = (() => {
-    if (totalParsed === null || totalParsed === 0) return 0
+    if (totalParsed === null) return 0
     const totalOwed = previousBalance + totalParsed
     const effectivePaid = crossLocalDebt && crossStoreBalance > 0
       ? Math.min(entregadoParsed, totalOwed + crossStoreBalance)
@@ -426,12 +411,39 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     onCancel()
   }
 
+  function visitLedgerPayload() {
+    const amountForVisit = Math.min(entregadoParsed, totalParsed ?? 0)
+    const paysForeignDebt = crossLocalDebt && crossStoreBalance > 0
+    return {
+      amount: amountForVisit,
+      newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
+      paysOldDebt: excessOverVisit > 0 ? excessOverVisit : undefined,
+      debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
+      // El otro local solo recibe su parte. El exceso de este local entra en
+      // paysOldDebt (sale de caja) pero el handler lo imputa a la sesión.
+      crossStorePayment: paysForeignDebt && excessOverVisit > 0 ? appliedToCrossDebt : undefined,
+    }
+  }
+
+  function visitRequestId(): string {
+    if (!requestIdRef.current) requestIdRef.current = crypto.randomUUID()
+    return requestIdRef.current
+  }
+
+  async function rememberVisitShape(kind: 'insumos' | 'catalog', supplyConcept?: string) {
+    const r = await window.hw.setProviderIntakeKind({
+      providerId: selectedProviderId ?? undefined,
+      provider: selectedProviderId ? undefined : providerInput.trim(),
+      intakeKind: kind,
+      supplyConcept: kind === 'insumos' ? supplyConcept : undefined,
+    })
+    if (!r.ok) return
+    setProviderSuggestions(prev => [r.data, ...prev.filter(p => p.id !== r.data.id)])
+    setSelectedProviderId(r.data.id)
+  }
+
   async function confirmVisit(acceptPriceUpdates: boolean) {
-    if (!merchResolved?.ok || !totalParsed) return
-    const amountForVisit = Math.min(entregadoParsed, totalParsed)
-    const totalPaysOldDebt = crossLocalDebt && crossStoreBalance > 0
-      ? appliedToCrossDebt
-      : excessOverVisit
+    if (!merchResolved?.ok) return
     setSaving(true)
     clearError()
     const r = await window.hw.confirmMerchVisit({
@@ -439,15 +451,15 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       notes: notes.trim() || undefined,
       providerId: selectedProviderId ?? undefined,
       provider: selectedProviderId ? undefined : providerInput.trim(),
-      amount: amountForVisit,
-      newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
-      paysOldDebt: totalPaysOldDebt > 0 ? totalPaysOldDebt : undefined,
-      debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
+      ...visitLedgerPayload(),
       acceptPriceUpdates,
-      visitKind: intakeKind === 'chicken' || intakeKind === 'media_res' ? intakeKind : 'catalog',
+      clientRequestId: visitRequestId(),
+      paymentChannel,
+      visitKind: 'catalog',
     })
     setSaving(false)
     if (!r.ok) { showError(r.error, 'merch'); setConfirmStep(null); return }
+    await rememberVisitShape('catalog')
     onDraftChanged?.()
     onSaved?.()
     setConfirmStep(null)
@@ -456,7 +468,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       providerName: providerInput.trim(),
       concept: undefined,
       date: new Date().toISOString(),
-      visitTotal: totalParsed,
+      visitTotal: totalParsed ?? 0,
       totalDelivered: entregadoParsed,
       previousBalance,
       oldDebtPaid: autoPaysOldDebt,
@@ -466,29 +478,8 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       finalBalance,
       storeName: stores.find(s => s.id === currentStoreId)?.name,
       items: merchVisitReceiptItems(merchResolved.drafts),
+      paymentDigital: paymentChannel === 'digital',
     })
-  }
-
-  async function confirmMediaRes() {
-    if (!merchResolved?.ok) return
-    setSaving(true)
-    clearError()
-    const r = await window.hw.confirmMerchVisit({
-      lines: merchResolved.drafts,
-      notes: notes.trim() || undefined,
-      providerId: selectedProviderId ?? undefined,
-      provider: selectedProviderId ? undefined : providerInput.trim(),
-      amount: 0,
-      acceptPriceUpdates: false,
-      visitKind: 'media_res',
-    })
-    setSaving(false)
-    if (!r.ok) { showError(r.error, 'merch'); return }
-    onDraftChanged?.()
-    onSaved?.()
-    const units = merchResolved.drafts.reduce((sum, line) => sum + (line.count ?? 0), 0)
-    showAppToast(units > 0 ? `Media res registrada · ${units} ${units === 1 ? 'unidad' : 'unidades'}` : 'Media res registrada')
-    onRegistered()
   }
 
   async function handleSubmit() {
@@ -517,68 +508,49 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     }
 
     if (!hasProviderName) { showError('Ingresá el proveedor.', 'provider'); return }
-    if (!intakeKind) { showError('Elegí qué trae este proveedor.', 'kind'); return }
 
-    if (intakeKind === 'insumos') {
+    if (suppliesOnly) {
       if (!concept.trim()) {
         showError('Ingresá qué se pagó.', 'concept')
         return
       }
-    }
-
-    if (intakeKind === 'media_res') {
-      if (!merchResolved?.ok) {
-        showError(merchResolved && 'error' in merchResolved ? merchResolved.error : 'Cargá el kilo de cada media res.', 'merch')
+    } else if (!isEditing) {
+      if (merchLines.length === 0) {
+        showError('Agregá lo que llegó.', 'merch')
         return
       }
-      void confirmMediaRes()
-      return
-    }
-
-    if (intakeKind === 'chicken' && (!merchResolved?.ok || merchLines.length === 0)) {
-      showError(merchResolved && 'error' in merchResolved ? merchResolved.error : 'Cargá los cajones, los kilos y el precio.', 'merch')
-      return
-    }
-
-    if (!totalParsed || totalParsed <= 0) { showError('Ingresá el total de la visita.', 'amount'); return }
-
-    if (!isEditing && merchLines.length > 0) {
       if (!merchResolved?.ok) {
         showError(merchResolved && 'error' in merchResolved ? merchResolved.error : 'Revisá los productos.', 'merch')
         return
       }
-      const changes = purchasePriceChanges(
-        merchResolved.drafts.map(d => ({
+      const changes = purchaseRecallChanges(
+        merchResolved.drafts.filter(d => !d.notForSale && d.unitCost > 0 && d.costUnit).map(d => ({
           productKey: merchProductKey(d.productId, d.name),
           name: d.name,
           unitCost: d.unitCost,
+          costUnit: d.costUnit ?? null,
+          packContents: d.costUnit === 'pack' ? d.purchasePackContents : null,
+          weighMode: d.weighMode ?? null,
         })),
-        lastPrices,
+        memory,
       )
-      setPriceChanges(changes)
+      setRecallChanges(changes)
       setConfirmStep(changes.length > 0 ? 'prices' : 'summary')
       return
     }
 
-    // Entregado 0 / vacío es válido: el proveedor dejó mercadería y no se le pagó nada.
-
-    const amountForVisit = Math.min(entregadoParsed, totalParsed)
-    // En modo cross-local, paysOldDebt incluye lo aplicado a la deuda del otro local
-    // En modo normal, incluye lo que cancela la deuda del local actual + saldo a favor
-    const totalPaysOldDebt = crossLocalDebt && crossStoreBalance > 0
-      ? appliedToCrossDebt   // el backend registra como payment event en el otro local
-      : excessOverVisit      // en modo normal: cancela deuda local o genera saldo a favor
+    if ((isEditing || suppliesOnly) && (!totalParsed || totalParsed <= 0)) {
+      showError('Ingresá el total de la visita.', 'amount')
+      return
+    }
 
     setSaving(true)
     clearError()
 
     const payload: Parameters<typeof window.hw.registerExpense>[0] = {
-      amount: amountForVisit,
+      ...visitLedgerPayload(),
       notes: notes.trim() || undefined,
-      newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
-      paysOldDebt: totalPaysOldDebt > 0 ? totalPaysOldDebt : undefined,
-      debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
-      concept: intakeKind === 'insumos' ? concept.trim() : undefined,
+      concept: suppliesOnly ? concept.trim() : undefined,
     }
 
     if (selectedProviderId) {
@@ -593,6 +565,8 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setSaving(false)
 
     if (!r.ok) { showError(r.error, 'amount'); return }
+
+    if (!isEditing && suppliesOnly) await rememberVisitShape('insumos', concept.trim())
 
     if (!isEditing) {
       await window.hw.discardMerchVisitDraft()
@@ -610,9 +584,10 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setReceipt({
       businessName,
       providerName: providerInput.trim(),
-      concept: intakeKind === 'insumos' ? concept.trim() || undefined : undefined,
+      concept: suppliesOnly ? concept.trim() || undefined : undefined,
+      paymentDigital: paymentChannel === 'digital',
       date: new Date().toISOString(),
-      visitTotal: totalParsed,
+      visitTotal: totalParsed ?? 0,
       totalDelivered: entregadoParsed,
       previousBalance,
       oldDebtPaid: autoPaysOldDebt,
@@ -715,6 +690,9 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
               <span className="font-semibold">− {formatARS(receipt.creditApplied)}</span>
             </div>
           )}
+          {receipt.paymentDigital && (
+            <p className="text-xs text-muted">Pago digital — no salió de la caja.</p>
+          )}
         </div>
       </PaymentReceipt>
     )
@@ -722,13 +700,27 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
 
   if (confirmStep === 'prices') {
     return (
-      <Modal open onClose={() => setConfirmStep(null)} title="Precios de compra" size="md">
-        <p className="text-sm text-muted">Estos precios son distintos a la última visita. ¿Los recordamos para la próxima?</p>
-        <ul className="mt-3 space-y-2">
-          {priceChanges.map(c => (
-            <li key={c.productKey} className="flex items-center justify-between gap-2 text-sm">
-              <span className="min-w-0 flex-1 truncate" title={c.name}>{c.name}</span>
-              <span className="shrink-0 tabular-nums text-muted">{formatARS(c.previous)} → {formatARS(c.next)}</span>
+      <Modal open onClose={() => setConfirmStep(null)} title="Para la próxima visita" size="md">
+        <p className="text-sm text-muted">Cambió el precio, la unidad, la equivalencia o la pesada. ¿Lo recordamos?</p>
+        <ul className="mt-3 space-y-3">
+          {recallChanges.map(c => (
+            <li key={c.productKey} className="min-w-0 text-sm">
+              <p className="truncate font-medium text-ink" title={c.name}>{c.name}</p>
+              <div className="mt-1 space-y-0.5 text-xs text-muted">
+                {c.price && (
+                  <p className="tabular-nums">{formatPurchaseUnitCost(c.price.previous)} → {formatPurchaseUnitCost(c.price.next)}</p>
+                )}
+                {c.costUnit && (
+                  <p>{formatRecallCostUnit(c.costUnit.previous)} → {formatRecallCostUnit(c.costUnit.next)}</p>
+                )}
+                {c.packContents && (
+                  <p>1 cajón = {c.packContents.previous ?? '—'} → {c.packContents.next ?? '—'}</p>
+                )}
+                {c.weighMode && (
+                  <p>{formatWeighMode(c.weighMode.previous)} → {formatWeighMode(c.weighMode.next)}</p>
+                )}
+                {c.duplicate && <p>Está dos veces. Se recuerda una sola forma.</p>}
+              </div>
             </li>
           ))}
         </ul>
@@ -767,8 +759,16 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         <ul className="space-y-1 text-sm">
           {summaryLines.map(line => (
             <li key={line.id} className="flex items-center justify-between gap-2 min-w-0">
-              <span className="min-w-0 flex-1 truncate" title={line.rubroName}>{line.rubroName}</span>
-              <span className="shrink-0 tabular-nums text-muted">{formatARS(line.costTotal)}</span>
+              <span
+                className="min-w-0 flex-1 truncate"
+                title={line.moneyRole === 'informed' ? `${line.rubroName} · costo informado` : line.rubroName}
+              >
+                {line.rubroName}
+                {line.moneyRole === 'informed' ? ' · costo informado' : ''}
+              </span>
+              <span className="shrink-0 tabular-nums text-muted">
+                {line.moneyRole === 'none' ? '—' : formatARS(line.costTotal)}
+              </span>
             </li>
           ))}
         </ul>
@@ -811,7 +811,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             </Button>
           )}
           <Button variant="primary" onClick={() => void handleSubmit()} loading={saving}>
-            {isEditing ? 'Actualizar' : intakeKind === 'media_res' ? 'Registrar kilos' : 'Registrar'}
+            {isEditing ? 'Actualizar' : 'Registrar'}
           </Button>
         </>
       )}
@@ -918,42 +918,50 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         )}
 
         {showVisitFields && !isEditing && (
-          <div className={errorField === 'kind' ? 'rounded-xl ring-2 ring-danger' : undefined}>
-            <ProviderIntakeKindPicker
-              value={intakeKind}
-              busy={savingKind}
-              onChoose={k => { void chooseIntakeKind(k) }}
-              onClear={() => {
-                kindTouchedRef.current = true
-                setIntakeKind(null)
-                resetVisitDraft()
-              }}
-            />
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Contenido de la visita">
+            {([
+              { id: false, label: 'Mercadería' },
+              { id: true, label: 'Solo insumos' },
+            ] as const).map(opt => (
+              <button
+                key={opt.label}
+                type="button"
+                role="tab"
+                aria-selected={suppliesOnly === opt.id}
+                onClick={() => {
+                  if (suppliesOnly === opt.id) return
+                  setSuppliesOnly(opt.id)
+                  setPaymentChannel('cash')
+                  if (opt.id && !concept.trim()) {
+                    const current = providerSuggestions.find(p => p.id === (selectedProviderId ?? exactProvider?.id))
+                    if (current?.supplyConcept) setConcept(current.supplyConcept)
+                  }
+                  clearError()
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+                  suppliesOnly === opt.id
+                    ? 'border-line-strong bg-hover font-medium text-ink'
+                    : 'border-line bg-panel font-normal text-ink hover:bg-hover'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         )}
 
-        {showVisitFields && !isEditing && intakeKind === 'catalog' && (
+        {showVisitFields && !isEditing && !suppliesOnly && (
           <ProviderVisitMerchBlock
             products={catalog}
-            lastPrices={lastPrices}
+            memory={memory}
             lines={merchLines}
             onChange={lines => { setMerchLines(lines); clearError() }}
             invalid={errorField === 'merch'}
           />
         )}
-        {showVisitFields && !isEditing && intakeKind === 'media_res' && (
-          <div className={errorField === 'merch' ? 'rounded-xl ring-2 ring-danger' : undefined}>
-            <MediaResVisitForm lines={merchLines} onChange={lines => { setMerchLines(lines); clearError() }} />
-          </div>
-        )}
-        {showVisitFields && !isEditing && intakeKind === 'chicken' && (
-          <div className={errorField === 'merch' ? 'rounded-xl ring-2 ring-danger' : undefined}>
-            <ChickenVisitForm lines={merchLines} lastPrices={lastPrices} onChange={lines => { setMerchLines(lines); clearError() }} />
-          </div>
-        )}
 
-        {(showVisitFields && intakeKind === 'insumos') && (
-        <div className="space-y-1">
+        {showVisitFields && suppliesOnly && (
+        <div className="space-y-1 rounded-xl border border-line bg-app p-4">
           <label className="text-sm text-muted">Qué se pagó</label>
           <input
             ref={insumosConceptRef}
@@ -970,7 +978,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           />
           <SuggestPopover
             anchorRef={insumosConceptRef}
-            open={showVisitFields && intakeKind === 'insumos' && showConceptSuggestions && listedConcepts.length > 0}
+            open={showVisitFields && suppliesOnly && showConceptSuggestions && listedConcepts.length > 0}
           >
             <ul>
               {listedConcepts.map(s => (
@@ -987,9 +995,9 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         </div>
         )}
 
-        {showVisitFields && intakeKind && intakeKind !== 'media_res' && (
-          <div className="space-y-3">
-            {merchLines.length === 0 && (intakeKind === 'catalog' || intakeKind === 'insumos') ? (
+        {showVisitFields && (
+          <div className="space-y-3 rounded-xl border border-line bg-app p-4">
+            {isEditing || suppliesOnly ? (
             <div className="space-y-1">
               <label className="text-sm text-muted">Total de la visita ($)</label>
               <NumericInput
@@ -1014,7 +1022,22 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
                 placeholder="0"
                 className={FIELD}
               />
-              <p className="text-[11px] text-muted">Vacío = queda debiendo. Si das de más, se aplica a deuda anterior.</p>
+              <p className="text-[11px] text-muted">
+                {paymentChannel === 'digital'
+                  ? 'Baja la deuda y no sale de la caja.'
+                  : 'Vacío = queda debiendo. Si das de más, se aplica a deuda anterior.'}
+              </p>
+              {!isEditing && (
+                <label className="flex items-center gap-2 cursor-pointer select-none pt-1">
+                  <input
+                    type="checkbox"
+                    checked={paymentChannel === 'digital'}
+                    onChange={e => setPaymentChannel(e.target.checked ? 'digital' : 'cash')}
+                    className="rounded border-line bg-panel text-accent focus:ring-accent focus:ring-offset-panel"
+                  />
+                  <span className="text-sm text-ink">No salió de la caja</span>
+                </label>
+              )}
             </div>
 
             {totalParsed !== null && totalParsed > 0 && (
@@ -1105,7 +1128,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           </div>
         )}
 
-        {showVisitFields && intakeKind !== 'media_res' && currentStoreId && stores.filter(s => s.id !== currentStoreId).length > 0 && (
+        {showVisitFields && currentStoreId && stores.filter(s => s.id !== currentStoreId).length > 0 && (
           <div className="space-y-2">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input

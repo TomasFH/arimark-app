@@ -3,13 +3,15 @@
  * Lista filtrable + detalle de ítems.
  */
 import { useEffect, useState } from 'react'
-import BackButton from '../components/BackButton'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { formatKg, toLocalDate, toLocalDateTime } from '../lib/datetime'
 import type { StockCountDetail, StockCountRow, StoreRow } from '../types/hw-api'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 import StockCountModal from './StockCountModal'
 
 interface Props {
   onBack: () => void
+  onLogout: () => void
 }
 
 function gramsToKgLabel(grams: number | null): string {
@@ -33,7 +35,7 @@ function originalChangedLabel(
   return parts.length > 0 ? parts.join(' ') : null
 }
 
-export default function StockCountHistoryScreen({ onBack }: Props) {
+export default function StockCountHistoryScreen({ onBack, onLogout }: Props) {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [storeFilter, setStoreFilter] = useState<string>('')
   const [startDate, setStartDate] = useState('')
@@ -101,24 +103,25 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
 
   return (
     <div className="flex flex-col h-screen bg-app text-ink">
-      <header className="flex items-center gap-3 border-b border-line px-6 py-3 shrink-0">
-        <BackButton onClick={onBack} />
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-ink truncate">Conteos de stock</h1>
-          <p className="text-[10px] text-muted truncate">Historial por local y fecha</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setResumeStoreId(undefined)
-            setResumeCountDate(undefined)
-            setShowNew(true)
-          }}
-          className="shrink-0 px-4 py-2 rounded-lg bg-accent hover:bg-accent text-sm font-medium text-accent-fg transition-colors"
-        >
-          + Nuevo conteo
-        </button>
-      </header>
+      <AdminSectionHeader
+        title="Conteos de stock"
+        subtitle="Historial por local y fecha"
+        onBack={onBack}
+        onLogout={onLogout}
+        actions={(
+          <button
+            type="button"
+            onClick={() => {
+              setResumeStoreId(undefined)
+              setResumeCountDate(undefined)
+              setShowNew(true)
+            }}
+            className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:bg-[color-mix(in_srgb,var(--accent)_86%,black)]"
+          >
+            + Nuevo conteo
+          </button>
+        )}
+      />
 
       <div className="px-4 py-3 border-b border-line bg-raised flex flex-wrap gap-2 items-end">
         <div className="min-w-0">
@@ -263,11 +266,9 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
       </div>
 
       {(detail || detailLoading) && (
-        <div
+        <ModalLayer
+          onClose={() => setDetail(null)}
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4"
-          onClick={e => {
-            if (e.target === e.currentTarget) setDetail(null)
-          }}
         >
           <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-line bg-raised shadow-2xl">
             <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-line">
@@ -282,13 +283,7 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setDetail(null)}
-                className="shrink-0 text-muted hover:text-ink px-2"
-              >
-                ✕
-              </button>
+              <ModalCloseButton onClick={() => setDetail(null)} />
             </div>
             <div className="shrink-0 px-4 pt-3 pb-2 bg-raised border-b border-line">
               {!detailLoading && detail && (
@@ -357,7 +352,7 @@ export default function StockCountHistoryScreen({ onBack }: Props) {
               </div>
             )}
           </div>
-        </div>
+        </ModalLayer>
       )}
 
       {showNew && (
