@@ -116,7 +116,7 @@ describe('BagsPanel', () => {
         onRemove={onRemove}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Añadir bolsas' })).toHaveTextContent('F7')
+    expect(screen.getByRole('button', { name: 'Añadir bolsas' })).toHaveTextContent('(F7)')
 
     fireEvent.keyDown(document, { key: 'F7' })
     expect(screen.getByRole('list', { name: 'Bolsas' })).toBeInTheDocument()
@@ -143,8 +143,9 @@ describe('BagsPanel', () => {
     expect(screen.queryByRole('list', { name: 'Bolsas' })).not.toBeInTheDocument()
   })
 
-  it('Enter suma la bolsa marcada y no suma una sin precio', () => {
+  it('Enter no suma ni frena el cobro; derecha suma y no suma una sin precio', () => {
     const onAdd = vi.fn()
+    const onEnter = vi.fn()
     const noPrice: ProductRow = { ...bagLarge, id: 'bag-free', name: 'Bolsa sin precio', price: null }
     render(
       <BagsPanel
@@ -154,13 +155,22 @@ describe('BagsPanel', () => {
         onRemove={() => {}}
       />,
     )
-    fireEvent.keyDown(document, { key: 'F7' })
-    fireEvent.keyDown(document, { key: 'Enter' })
-    expect(onAdd).toHaveBeenCalledWith(bag, 1)
+    document.addEventListener('keydown', onEnter)
+    try {
+      fireEvent.keyDown(document, { key: 'F7' })
+      expect(fireEvent.keyDown(document, { key: 'Enter' })).toBe(true)
+      expect(onAdd).not.toHaveBeenCalled()
+      expect(onEnter).toHaveBeenCalled()
 
-    fireEvent.keyDown(document, { key: 'ArrowDown' })
-    fireEvent.keyDown(document, { key: 'Enter' })
-    expect(onAdd).toHaveBeenCalledTimes(1)
+      fireEvent.keyDown(document, { key: 'ArrowRight' })
+      expect(onAdd).toHaveBeenCalledWith(bag, 1)
+
+      fireEvent.keyDown(document, { key: 'ArrowDown' })
+      expect(fireEvent.keyDown(document, { key: 'ArrowRight' })).toBe(false)
+      expect(onAdd).toHaveBeenCalledTimes(1)
+    } finally {
+      document.removeEventListener('keydown', onEnter)
+    }
   })
 
   it('con los atajos apagados F7 no abre la lista', () => {

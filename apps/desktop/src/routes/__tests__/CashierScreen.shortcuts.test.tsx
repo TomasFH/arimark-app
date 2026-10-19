@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CashierScreen from '../CashierScreen'
+import { clearOrderChargeDraft, loadOrderChargeDraft, saveOrderChargeDraft } from '../../lib/orderChargeDraft'
+import type { OrderChargeLine } from '../../lib/orderTicketMatch'
 import type { SaleItemDraft, SessionInfo, ShiftInfo } from '../../types/hw-api'
 
 const session: SessionInfo = {
@@ -292,6 +294,20 @@ describe('CashierScreen — atajos de cobro', () => {
 
   it('al confirmar una venta la carga manual queda como estaba', async () => {
     const user = userEvent.setup()
+    const draft: OrderChargeLine = {
+      productId: 'p1',
+      name: 'Vacío',
+      unit: 'kg',
+      pluNumber: 5,
+      estimatedQty: 1,
+      requestedUnits: null,
+      unitPrice: 10000,
+      qtyRaw: '1,5',
+      checked: true,
+      ticketTotal: null,
+      extra: false,
+    }
+    saveOrderChargeDraft('o1', [draft])
     const { createSale } = await openCashier([line('Vacío', 'p1')])
     expect(screen.queryByLabelText('PLU o nombre')).not.toBeInTheDocument()
 
@@ -299,6 +315,8 @@ describe('CashierScreen — atajos de cobro', () => {
     await user.click(await screen.findByRole('button', { name: /Confirmar cobro/ }))
 
     await waitFor(() => expect(createSale).toHaveBeenCalledTimes(1))
+    expect(loadOrderChargeDraft('o1')).toBeNull()
+    clearOrderChargeDraft('o1')
     expect(screen.queryByLabelText('PLU o nombre')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /Confirmar cobro/ })).not.toBeInTheDocument()
   })
@@ -317,5 +335,27 @@ describe('CashierScreen — atajos de cobro', () => {
       expect(screen.getByLabelText('PLU o nombre')).toHaveFocus()
     })
     expect(createSale).toHaveBeenCalledTimes(1)
+  })
+
+  it('Atajos abre un diálogo con F1 y los rótulos muestran (F6) y (F7)', async () => {
+    const user = userEvent.setup()
+    await openCashier([line('Vacío', 'p1')])
+
+    expect(screen.getByRole('button', { name: 'Manual' })).toHaveTextContent('(F6)')
+    expect(screen.getByRole('button', { name: 'Añadir bolsas' })).toHaveTextContent('(F7)')
+
+    await user.click(screen.getByRole('button', { name: 'Atajos' }))
+    const dialog = screen.getByRole('dialog', { name: 'Atajos' })
+    expect(dialog).toHaveTextContent('F1')
+    expect(dialog).toHaveTextContent('F6')
+    expect(dialog).toHaveTextContent('F7')
+    expect(dialog).toHaveTextContent('Venta')
+    expect(dialog).toHaveTextContent('Bolsas abiertas')
+    expect(dialog).toHaveTextContent('Pedido')
+
+    fireEvent.keyDown(document, { key: 'F1' })
+    fireEvent.keyDown(document, { key: 'F6' })
+    expect(screen.queryByRole('heading', { name: /Confirmar cobro/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('PLU o nombre')).not.toBeInTheDocument()
   })
 })

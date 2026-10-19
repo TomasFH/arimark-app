@@ -270,3 +270,33 @@
 .animate-pulse-soft {
   animation: pulse-soft 1.4s ease-in-out infinite;
 }
+
+/*
+ * Etiqueta que cayó en una fila del cobro.
+ * Aparece ya intensa (el acento sobre el fondo de la fila) y se apaga en 1,5 s.
+ * La duración la pone el estilo en línea, igual que CHARGE_LINE_FLASH_MS.
+ * Sin desplazamiento: es un aviso de cuál fila tomó el ticket.
+ */
+@keyframes charge-scan-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 62%, var(--bg-hover));
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-charge-scan {
+  animation-name: charge-scan-flash;
+  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-charge-scan {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 38%, var(--bg-hover));
+    opacity: 1;
+  }
+}

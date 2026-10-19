@@ -20,14 +20,15 @@ describe('PaymentModal — atajos de cobro', () => {
   it('F2 deja débito sin confirmar', () => {
     const { onConfirm } = renderModal()
 
-    expect(screen.getByRole('button', { name: 'Efectivo' })).toHaveTextContent('F1')
-    expect(screen.getByRole('button', { name: 'Débito' })).toHaveTextContent('F2')
-    expect(screen.getByRole('button', { name: 'Billetera Virtual' })).toHaveTextContent('F3')
-    expect(screen.getByRole('button', { name: /Crédito/ })).toHaveTextContent('F9')
-    expect(screen.getByRole('button', { name: /Dividir en varios medios de pago/ })).toHaveTextContent('F5')
+    expect(screen.getByRole('button', { name: 'Efectivo' })).toHaveTextContent('(F1)')
+    expect(screen.getByRole('button', { name: 'Débito' })).toHaveTextContent('(F2)')
+    expect(screen.getByRole('button', { name: 'Billetera Virtual' })).toHaveTextContent('(F3)')
+    expect(screen.getByRole('button', { name: /Crédito/ })).toHaveTextContent('(F9)')
+    expect(screen.getByRole('button', { name: /Dividir en varios medios de pago/ })).toHaveTextContent('(F5)')
 
     fireEvent.keyDown(document, { key: 'F2' })
 
+    expect(screen.getByRole('dialog')).toHaveFocus()
     expect(screen.getByRole('heading', { name: 'Confirmar cobro — Débito' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Confirmar cobro/ })).toBeInTheDocument()
     expect(onConfirm).not.toHaveBeenCalled()
@@ -39,7 +40,9 @@ describe('PaymentModal — atajos de cobro', () => {
     fireEvent.keyDown(document, { key: 'F1' })
 
     expect(screen.getByRole('heading', { name: 'Cobro en efectivo' })).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Monto recibido')).toHaveValue('')
+    const amount = screen.getByPlaceholderText('Monto recibido')
+    expect(amount).toHaveValue('')
+    expect(amount).toHaveFocus()
     expect(onConfirm).not.toHaveBeenCalled()
 
     fireEvent.keyDown(document, { key: 'Enter' })
@@ -65,6 +68,44 @@ describe('PaymentModal — atajos de cobro', () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 
+  it('el botón Efectivo y un cobro que ya abre en efectivo dejan el foco en el monto', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <PaymentModal
+        itemTotal={15000}
+        onConfirm={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByRole('dialog')).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'Efectivo' }))
+    expect(screen.getByPlaceholderText('Monto recibido')).toHaveFocus()
+
+    unmount()
+    render(
+      <PaymentModal
+        itemTotal={15000}
+        initialMethod="cash"
+        onConfirm={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByPlaceholderText('Monto recibido')).toHaveFocus()
+    expect(screen.getByRole('dialog')).not.toHaveFocus()
+  })
+
+  it('el vuelto usa borde gris y fondo verde con color-mix', async () => {
+    const user = userEvent.setup()
+    renderModal(15000)
+    await user.click(screen.getByRole('button', { name: 'Efectivo' }))
+    await user.type(screen.getByPlaceholderText('Monto recibido'), '20000')
+    const box = screen.getByText('Vuelto a entregar').parentElement?.parentElement
+    expect(box).toHaveClass('border-line-strong')
+    expect(box?.className ?? '').toContain('color-mix(in_srgb,var(--success)')
+    expect(box?.className ?? '').not.toContain('border-success/30')
+    expect(box?.className ?? '').not.toContain('bg-success/10')
+  })
+
   it('F9 abre crédito y F4 no lo abre', () => {
     const { onConfirm } = renderModal()
 
@@ -78,9 +119,10 @@ describe('PaymentModal — atajos de cobro', () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 
-  it('con las bolsas abiertas Enter suma una y no confirma el cobro', () => {
+  it('con las bolsas abiertas Enter confirma el cobro y no suma una bolsa', () => {
     const onConfirm = vi.fn()
     const onAddBag = vi.fn()
+    const onRemoveBag = vi.fn()
     const bolsa: ProductRow = {
       id: 'bag-1',
       pluNumber: 80,
@@ -93,9 +135,9 @@ describe('PaymentModal — atajos de cobro', () => {
       <PaymentModal
         itemTotal={15000}
         products={[bolsa]}
-        cartLines={[]}
+        cartLines={[{ productId: 'bag-1', weightKg: 1, unit: 'unit' }]}
         onAddBag={onAddBag}
-        onRemoveBag={() => {}}
+        onRemoveBag={onRemoveBag}
         onConfirm={onConfirm}
         onClose={() => {}}
         initialMethod="debit"
@@ -104,9 +146,18 @@ describe('PaymentModal — atajos de cobro', () => {
 
     fireEvent.keyDown(document, { key: 'F7' })
     expect(screen.getByRole('list', { name: 'Bolsas' })).toBeInTheDocument()
-    fireEvent.keyDown(document, { key: 'Enter' })
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' })
     expect(onAddBag).toHaveBeenCalledWith(bolsa, 1)
     expect(onConfirm).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(document, { key: 'ArrowLeft' })
+    expect(onRemoveBag).toHaveBeenCalledWith('bag-1', 1)
+    expect(onConfirm).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(document, { key: 'Enter' })
+    expect(onAddBag).toHaveBeenCalledTimes(1)
+    expect(onConfirm).toHaveBeenCalledTimes(1)
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('list', { name: 'Bolsas' })).not.toBeInTheDocument()

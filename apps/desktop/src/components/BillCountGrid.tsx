@@ -17,6 +17,9 @@ interface Props {
   showExpectedDiff?: boolean
   title?: string
   subtitle?: string
+  /** 1 en el cierre. 2 solo al abrir turno, para bajar la altura del conteo. */
+  columns?: 1 | 2
+  className?: string
 }
 
 export default function BillCountGrid({
@@ -29,16 +32,19 @@ export default function BillCountGrid({
   showExpectedDiff = false,
   title = 'Conteo de billetes',
   subtitle,
+  columns = 1,
+  className,
 }: Props) {
   const diff = expectedTotal != null ? countedTotal - expectedTotal : 0
+  const twoColumns = columns === 2
 
   return (
-    <div className="bg-raised rounded-xl border border-line p-5 space-y-4">
+    <div className={`bg-raised rounded-xl border border-line ${twoColumns ? 'space-y-3 p-4' : 'space-y-4 p-5'}${className ? ` ${className}` : ''}`}>
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="min-w-0">
+        <div className={twoColumns ? 'min-w-0 flex-1' : 'min-w-0'}>
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">{title}</h2>
           {subtitle && (
-            <p className="text-xs text-muted mt-0.5" title={subtitle}>{subtitle}</p>
+            <p className={twoColumns ? 'mt-0.5 truncate text-xs text-muted' : 'text-xs text-muted mt-0.5'} title={subtitle}>{subtitle}</p>
           )}
         </div>
         <div className="flex rounded-lg overflow-hidden border border-line-strong text-xs shrink-0">
@@ -73,39 +79,48 @@ export default function BillCountGrid({
           : 'Ingresá el monto total por denominación. Debe ser múltiplo de la denominación.'}
       </p>
 
-      <div className="grid grid-cols-1 gap-1.5">
+      <div
+        data-bill-columns={columns}
+        className={twoColumns ? 'grid grid-cols-2 gap-x-3 gap-y-1.5' : 'grid grid-cols-1 gap-1.5'}
+      >
         {rows.map(row => {
           const lineValue = mode === 'quantity'
             ? (parseNumericInput(row.quantity) ?? 0) * row.denomination
             : (parseNumericInput(row.total) ?? 0)
+          const lineLabel = lineValue > 0 ? fmt(lineValue) : ''
 
           return (
-            <div key={row.denomination} className="space-y-0.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-24 text-sm text-ink font-medium text-right shrink-0">
+            <div key={row.denomination} className={twoColumns ? 'min-w-0 space-y-0.5' : 'space-y-0.5'}>
+              <div className={twoColumns ? 'flex min-w-0 items-center gap-1' : 'flex items-center gap-2 min-w-0'}>
+                <span className={twoColumns
+                  ? 'w-20 shrink-0 whitespace-nowrap text-right text-sm font-medium tabular-nums text-ink'
+                  : 'w-24 text-sm text-ink font-medium text-right shrink-0'}
+                >
                   {formatBillDenomination(row.denomination)}
                 </span>
                 {mode === 'quantity' ? (
                   <>
-                    <span className="text-xs text-muted">×</span>
+                    <span className={twoColumns ? 'shrink-0 text-xs text-muted' : 'text-xs text-muted'}>×</span>
                     <NumericInput
                       value={row.quantity}
                       onChange={v => onUpdate(row.denomination, 'quantity', v)}
                       placeholder="0"
-                      className="w-20 rounded-lg border border-line-strong bg-app px-2 py-1.5 text-sm text-white placeholder:text-muted focus:outline-none focus:border-line-accent text-center"
+                      className={twoColumns
+                        ? 'w-16 shrink-0 rounded-lg border border-line-strong bg-app px-2 py-1.5 text-center text-sm text-white placeholder:text-muted focus:border-line-accent focus:outline-none'
+                        : 'w-20 rounded-lg border border-line-strong bg-app px-2 py-1.5 text-sm text-white placeholder:text-muted focus:outline-none focus:border-line-accent text-center'}
                     />
-                    <span className="text-xs text-muted min-w-0 flex-1 text-right truncate">
-                      {lineValue > 0 ? fmt(lineValue) : ''}
+                    <span className="text-xs text-muted min-w-0 flex-1 text-right truncate" title={lineLabel || undefined}>
+                      {lineLabel}
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className="text-xs text-muted">=</span>
+                    <span className={twoColumns ? 'shrink-0 text-xs text-muted' : 'text-xs text-muted'}>=</span>
                     <NumericInput
                       value={row.total}
                       onChange={v => onUpdate(row.denomination, 'total', v)}
                       placeholder="0"
-                      className={`flex-1 rounded-lg border bg-app px-2 py-1.5 text-sm text-white placeholder:text-muted focus:outline-none ${
+                      className={`${twoColumns ? 'min-w-0 flex-1' : 'flex-1'} rounded-lg border bg-app px-2 py-1.5 text-sm text-white placeholder:text-muted focus:outline-none ${
                         row.totalError ? 'border-red-500 focus:border-red-400' : 'border-line-strong focus:border-line-accent'
                       }`}
                     />
@@ -113,7 +128,7 @@ export default function BillCountGrid({
                 )}
               </div>
               {row.totalError && (
-                <p className="text-xs text-red-400 pl-[6.5rem]">{row.totalError}</p>
+                <p className={`text-xs text-red-400 ${twoColumns ? 'pl-20' : 'pl-[6.5rem]'}`}>{row.totalError}</p>
               )}
             </div>
           )

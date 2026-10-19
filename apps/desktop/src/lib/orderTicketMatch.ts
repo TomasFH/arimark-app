@@ -43,7 +43,15 @@ export interface OrderTicketMatch {
   lines: OrderChargeLine[]
   /** Aviso para la cajera. null si no hay nada que decir. */
   notice: string | null
+  /**
+   * Fila que acaba de recibir la etiqueta.
+   * null si el escaneo no escribió ninguna.
+   */
+  touchedIndex: number | null
 }
+
+/** La fila marcada arranca intensa y se apaga en este tiempo. Una sola a la vez. */
+export const CHARGE_LINE_FLASH_MS = 1500
 
 export function chargeLinesFromBudget(items: readonly BudgetCartLine[] | null | undefined): OrderChargeLine[] {
   return (items ?? []).map(line => ({
@@ -166,7 +174,7 @@ export function matchOrderTicket(
   catalog: readonly OrderTicketProduct[],
 ): OrderTicketMatch {
   if (!(ticket.totalPesos > 0) || !Number.isInteger(ticket.totalPesos)) {
-    return { lines: [...lines], notice: 'El ticket no tiene un precio para cobrar.' }
+    return { lines: [...lines], notice: 'El ticket no tiene un precio para cobrar.', touchedIndex: null }
   }
 
   const freeIndex = lines.findIndex(line => (
@@ -175,11 +183,12 @@ export function matchOrderTicket(
   if (freeIndex >= 0) {
     const filled = fillLine(lines[freeIndex]!, ticket.totalPesos)
     if (filled.line.ticketTotal == null) {
-      return { lines: [...lines], notice: filled.notice }
+      return { lines: [...lines], notice: filled.notice, touchedIndex: null }
     }
     return {
       lines: lines.map((line, index) => index === freeIndex ? filled.line : line),
       notice: filled.notice,
+      touchedIndex: freeIndex,
     }
   }
 
@@ -192,7 +201,7 @@ export function matchOrderTicket(
       pluNumber: fromCatalog.pluNumber,
       unitPrice: fromCatalog.price,
     }), ticket.totalPesos)
-    return { lines: [...lines, filled.line], notice: filled.notice }
+    return { lines: [...lines, filled.line], notice: filled.notice, touchedIndex: lines.length }
   }
 
   const source = [...lines].reverse().find(line => lineMatchesPlu(line, ticket.pluNumber))
@@ -204,19 +213,21 @@ export function matchOrderTicket(
       pluNumber: source.pluNumber,
       unitPrice: source.unitPrice,
     }), ticket.totalPesos)
-    return { lines: [...lines, filled.line], notice: filled.notice }
+    return { lines: [...lines, filled.line], notice: filled.notice, touchedIndex: lines.length }
   }
 
   if (fromCatalog) {
     return {
       lines: [...lines],
       notice: `${fromCatalog.name} no tiene un precio de lista válido.`,
+      touchedIndex: null,
     }
   }
 
   return {
     lines: [...lines],
     notice: `PLU ${ticket.pluNumber} no está en el pedido ni en el catálogo.`,
+    touchedIndex: null,
   }
 }
 

@@ -3,6 +3,8 @@ import { render, screen, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrdersScreen from '../OrdersScreen'
 import { resetOrderCreateDraft } from '../../lib/orderCreateDraft'
+import { loadOrderChargeDraft, resetOrderChargeDrafts } from '../../lib/orderChargeDraft'
+import { CHARGE_LINE_FLASH_MS } from '../../lib/orderTicketMatch'
 import type { OrderRow } from '../../types/hw-api'
 
 function order(overrides: Partial<OrderRow> & Pick<OrderRow, 'id' | 'pickupDate' | 'status' | 'customerName'>): OrderRow {
@@ -39,6 +41,7 @@ function order(overrides: Partial<OrderRow> & Pick<OrderRow, 'id' | 'pickupDate'
 describe('OrdersScreen — lista Listos / Pendientes', () => {
   beforeEach(() => {
     resetOrderCreateDraft()
+    resetOrderChargeDrafts()
     window.hw = {
       listOrders: vi.fn().mockResolvedValue({
         ok: true,
@@ -64,6 +67,7 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -203,7 +207,121 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(await screen.findByText('Extra')).toBeInTheDocument()
     expect(screen.getByText('Vacío')).toBeInTheDocument()
   })
+
+  it('el borrador de cobro sobrevive al desmonte y no se mezcla entre pedidos', async () => {
+    const user = userEvent.setup()
+    const view = render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 3')).toBeInTheDocument()
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    await user.type(screen.getByLabelText('Peso de Asado'), '2,5')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('heading', { name: 'Cobrar pedido' })).not.toBeInTheDocument()
+
+    view.unmount()
+    expect(loadOrderChargeDraft('ready-1')?.[0]?.qtyRaw).toBe('2,5')
+    expect(loadOrderChargeDraft('pend-1')).toBeNull()
+
+    const again = render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 4')).toBeInTheDocument()
+    await openCharge(user, 'Update 4', 'order-pend-1')
+    expect(screen.getByLabelText('Peso de Asado')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    expect(screen.getByLabelText('Peso de Asado')).toHaveValue('2,5')
+    const weight = screen.getByLabelText('Peso de Asado')
+    await user.clear(weight)
+    await user.type(weight, '3')
+    again.unmount()
+    expect(loadOrderChargeDraft('ready-1')?.[0]?.qtyRaw).toBe('3')
+  })
+
+  it('pasar al POS conserva el borrador; cancelar el cobro ahí no lo borra', async () => {
+    const user = userEvent.setup()
+    render(
+      <OrdersScreen
+        isAdmin={false}
+        onBack={() => {}}
+        currentShiftId="shift-1"
+        onInjectOrderCart={() => {}}
+      />,
+    )
+    expect(await screen.findByText('Update 3')).toBeInTheDocument()
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    await user.type(screen.getByLabelText('Peso de Asado'), '2,5')
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    expect(screen.getByLabelText('Peso de Asado')).toHaveValue('2,5')
+    await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+    expect(loadOrderChargeDraft('ready-1')?.[0]?.qtyRaw).toBe('2,5')
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    expect(screen.getByLabelText('Peso de Asado')).toHaveValue('2,5')
+  })
+
+  it('resalta una sola fila 1,5 s y corta el tiempo de la anterior', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.mocked(window.hw.getProducts).mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'p1', name: 'Asado', category: 'beef_cut', unit: 'kg', pluNumber: 1, price: 20000 },
+        { id: 'p9', name: 'Ala', category: 'beef_cut', unit: 'kg', pluNumber: 9, price: 8000 },
+      ],
+    })
+    const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime })
+    render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 3')).toBeInTheDocument()
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    scanBarcode(kretzBarcode(1, 10000))
+    expect(document.querySelector('[data-charge-line="0"] [data-charge-flash]')).toBeTruthy()
+    expect(document.querySelectorAll('[data-charge-flash]')).toHaveLength(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(200)
+    })
+    scanBarcode(kretzBarcode(9, 8000))
+    expect(document.querySelector('[data-charge-line="0"] [data-charge-flash]')).toBeNull()
+    expect(document.querySelector('[data-charge-line="1"] [data-charge-flash]')).toBeTruthy()
+    expect(document.querySelectorAll('[data-charge-flash]')).toHaveLength(1)
+
+    const rows = [...document.querySelectorAll('[data-charge-line]')].map(row => row.textContent ?? '')
+    expect(rows[0]).toMatch(/Asado/)
+    expect(rows[1]).toMatch(/Ala/)
+    expect(rows[1]).toMatch(/Extra/)
+    expect(rows[0]).not.toMatch(/Extra/)
+
+    await act(async () => {
+      vi.advanceTimersByTime(1400)
+    })
+    expect(document.querySelector('[data-charge-line="1"] [data-charge-flash]')).toBeTruthy()
+
+    await act(async () => {
+      vi.advanceTimersByTime(100)
+    })
+    expect(document.querySelector('[data-charge-flash]')).toBeNull()
+    expect(CHARGE_LINE_FLASH_MS).toBe(1500)
+  })
 })
+
+async function openCharge(
+  user: ReturnType<typeof userEvent.setup>,
+  customerName: string,
+  orderDomId: string,
+) {
+  const card = document.getElementById(orderDomId)
+  if (!card) throw new Error(`No está la tarjeta ${orderDomId}`)
+  if (!within(card).queryByRole('button', { name: 'Cobrar' })) {
+    await user.click(screen.getByText(customerName))
+  }
+  const openCard = document.getElementById(orderDomId)
+  if (!openCard) throw new Error(`No está la tarjeta ${orderDomId}`)
+  await user.click(within(openCard).getByRole('button', { name: 'Cobrar' }))
+  expect(await screen.findByRole('heading', { name: 'Cobrar pedido' })).toBeInTheDocument()
+}
 
 function kretzBarcode(plu: number, pesos: number): string {
   const body = `20${String(plu).padStart(3, '0')}${String(pesos * 100).padStart(7, '0')}`

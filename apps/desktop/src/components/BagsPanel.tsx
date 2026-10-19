@@ -73,7 +73,7 @@ export default function BagsPanel({ products, lines, onAdd, onRemove, shortcuts 
         setMarked(markedIndex(index + step, count))
         return
       }
-      if (event.key === 'ArrowRight' || event.key === 'Enter') {
+      if (event.key === 'ArrowRight') {
         event.preventDefault()
         event.stopPropagation()
         if (event.repeat) return
@@ -123,8 +123,9 @@ export default function BagsPanel({ products, lines, onAdd, onRemove, shortcuts 
         <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
         </svg>
-        Añadir bolsas
-        <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F7</span>
+        <span className="whitespace-nowrap">
+          Añadir bolsas <span className="font-medium text-muted" aria-hidden>(F7)</span>
+        </span>
       </button>
       {open && (
         <div className="mt-2 min-w-0 rounded-lg border border-line bg-raised">

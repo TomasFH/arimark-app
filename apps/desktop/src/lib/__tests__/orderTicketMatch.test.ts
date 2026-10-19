@@ -43,6 +43,7 @@ describe('matchOrderTicket', () => {
     const result = matchOrderTicket(lines, { pluNumber: 1, totalPesos: 10000 }, [])
 
     expect(result.notice).toBeNull()
+    expect(result.touchedIndex).toBe(0)
     expect(result.lines[0]).toMatchObject({
       ticketTotal: 10000,
       qtyRaw: '0,5',
@@ -160,8 +161,31 @@ describe('matchOrderTicket', () => {
 
     expect(result.lines).toHaveLength(1)
     expect(result.lines[0]?.ticketTotal).toBeNull()
+    expect(result.touchedIndex).toBeNull()
     expect(result.notice).toMatch(/99/)
     expect(result.notice).toMatch(/catálogo/)
+  })
+
+  it('marca la fila que recibió la etiqueta y deja el extra al final', () => {
+    const first = matchOrderTicket(
+      [line({ name: 'Vacío', pluNumber: 1 })],
+      { pluNumber: 1, totalPesos: 10000 },
+      [],
+    )
+    expect(first.touchedIndex).toBe(0)
+
+    const second = matchOrderTicket(
+      first.lines,
+      { pluNumber: 5, totalPesos: 21000 },
+      [product({ name: 'Asado', pluNumber: 5, price: 21000 })],
+    )
+    expect(second.touchedIndex).toBe(1)
+    expect(second.lines.map(row => row.name)).toEqual(['Vacío', 'Asado'])
+    expect(second.lines[1]?.extra).toBe(true)
+
+    const rejected = matchOrderTicket(second.lines, { pluNumber: 99, totalPesos: 5000 }, [])
+    expect(rejected.touchedIndex).toBeNull()
+    expect(rejected.lines.map(row => row.name)).toEqual(['Vacío', 'Asado'])
   })
 
   it('no divide por cero ni por un precio negativo', () => {

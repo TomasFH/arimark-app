@@ -430,16 +430,19 @@ export default function OrderFormModal({
     setBudgetHighlight(current => (current + step + visibleBudgetSuggestions.length) % visibleBudgetSuggestions.length)
   }
 
+  const scrollMarkedBudgetRow = useCallback((node: HTMLLIElement | null) => {
+    node?.scrollIntoView?.({ block: 'nearest' })
+  }, [])
+
+  // Captura: la flecha marca una fila antes de que el campo mueva el cursor.
   function handleBudgetSearchKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     const listOpen = visibleBudgetSuggestions.length > 0
     if (!listOpen) return
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (event.altKey || event.ctrlKey || event.metaKey) return
       event.preventDefault()
-      moveBudgetHighlight(1)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      moveBudgetHighlight(-1)
-    } else if (event.key === 'Enter' && !event.ctrlKey) {
+      moveBudgetHighlight(event.key === 'ArrowDown' ? 1 : -1)
+    } else if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault()
       const pick = visibleBudgetSuggestions[budgetHighlight] ?? visibleBudgetSuggestions[0]
       if (pick) addBudgetProduct(pick)
@@ -728,29 +731,38 @@ export default function OrderFormModal({
                 type="text"
                 value={budgetSearch}
                 onChange={event => setBudgetSearch(event.target.value)}
-                onKeyDown={handleBudgetSearchKeyDown}
+                onKeyDownCapture={handleBudgetSearchKeyDown}
                 onBlur={() => setBudgetSuggestionsHidden(true)}
                 placeholder="Buscar producto…"
                 className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
               />
               <SuggestPopover anchorRef={budgetSearchRef} open={visibleBudgetSuggestions.length > 0}>
                 <ul className="w-full">
-                  {visibleBudgetSuggestions.map((product, index) => (
-                    <li key={product.id} className="w-full">
-                      <button
-                        type="button"
-                        onMouseDown={event => event.preventDefault()}
-                        onMouseEnter={() => setBudgetHighlight(index)}
-                        onClick={() => addBudgetProduct(product)}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink ${
-                          index === budgetHighlight ? 'bg-accent-soft' : 'hover:bg-hover'
-                        }`}
+                  {visibleBudgetSuggestions.map((product, index) => {
+                    const marked = index === budgetHighlight
+                    return (
+                      <li
+                        key={product.id}
+                        ref={marked ? scrollMarkedBudgetRow : undefined}
+                        data-budget-marked={marked ? 'true' : undefined}
+                        className={`w-full ${marked ? 'bg-accent-soft' : ''}`}
                       >
-                        <span className="min-w-0 flex-1 truncate" title={product.name}>{product.name}</span>
-                        <span className="shrink-0 text-muted">{formatARS(product.price ?? 0)}/{product.unit === 'kg' ? 'kg' : 'u'}</span>
-                      </button>
-                    </li>
-                  ))}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onMouseDown={event => event.preventDefault()}
+                          onMouseEnter={() => setBudgetHighlight(index)}
+                          onClick={() => addBudgetProduct(product)}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink ${
+                            marked ? 'bg-accent-soft' : 'hover:bg-hover'
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1 truncate" title={product.name}>{product.name}</span>
+                          <span className="shrink-0 text-muted">{formatARS(product.price ?? 0)}/{product.unit === 'kg' ? 'kg' : 'u'}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
                 </ul>
               </SuggestPopover>
             </div>

@@ -87,8 +87,11 @@ const METHOD_ICONS: Record<PaymentMethod, string> = {
 
 const fieldClass =
   'w-full rounded-xl border border-line bg-input px-3 py-2.5 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
+/** Aviso verde del cobro. /10 y /30 sobre var(--success) no existen y el borde cae al color del texto. */
+const successNoticeClass =
+  'border-line-strong bg-[color-mix(in_srgb,var(--success)_12%,transparent)]'
 const tileClass =
-  'flex flex-col items-center gap-2 rounded-xl border border-line bg-raised p-5 text-center transition-colors hover:border-line-strong hover:bg-hover'
+  'flex h-full flex-col items-center justify-center gap-1.5 rounded-xl border border-line bg-raised px-3 py-4 text-center transition-colors hover:border-line-strong hover:bg-hover'
 const presetIdle =
   'rounded-lg border border-line bg-raised py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-hover'
 const presetActive =
@@ -124,6 +127,7 @@ export default function PaymentModal({
     initialSplit ? 'split' : modeForMethod(initialMethod)
   ))
   const [clientCash, setClientCash] = useState('')
+  const cashAmountRef = useRef<HTMLInputElement>(null)
   const [notes, setNotes] = useState('')
   /** Método seleccionado pendiente de confirmación (digital-confirm / credit-detail). */
   const [pendingMethod, setPendingMethod] = useState<PaymentMethod | null>(initialMethod ?? null)
@@ -408,6 +412,13 @@ export default function PaymentModal({
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
+  // El modal enfoca el panel al abrirse y le saca el autoFocus a este campo.
+  // Este efecto corre después, solo en efectivo, y no toca los demás modos.
+  useEffect(() => {
+    if (mode !== 'cash-detail') return
+    cashAmountRef.current?.focus()
+  }, [mode])
+
   const balanceCovered = Math.abs(remaining) < 1
   const balanceExcess = remaining < 0
 
@@ -582,32 +593,28 @@ export default function PaymentModal({
 
       {mode === 'single' && (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 items-stretch gap-3">
             <button type="button" onClick={() => handleSingleMethod('cash')} className={tileClass} aria-keyshortcuts="F1">
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.cash}</span>
-              <span className="text-sm font-semibold text-ink">Efectivo</span>
-              <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F1</span>
+              <span className="text-sm font-semibold text-ink">Efectivo <span className="font-medium text-muted" aria-hidden>(F1)</span></span>
             </button>
             <button type="button" onClick={() => handleSingleMethod('debit')} className={tileClass} aria-keyshortcuts="F2">
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.debit}</span>
-              <span className="text-sm font-semibold text-ink">Débito</span>
-              <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F2</span>
+              <span className="text-sm font-semibold text-ink">Débito <span className="font-medium text-muted" aria-hidden>(F2)</span></span>
             </button>
             <button type="button" onClick={() => handleSingleMethod('wallet')} className={tileClass} aria-keyshortcuts="F3">
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.wallet}</span>
-              <span className="text-sm font-semibold text-ink">Billetera Virtual</span>
-              <span className="text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F3</span>
+              <span className="text-sm font-semibold text-ink">Billetera Virtual <span className="font-medium text-muted" aria-hidden>(F3)</span></span>
             </button>
             <button
               type="button"
               onClick={() => handleSingleMethod('credit')}
               aria-keyshortcuts="F9"
-              className="flex flex-col items-center gap-2 rounded-xl border border-danger/40 bg-danger/10 p-5 text-center transition-colors hover:border-danger hover:bg-danger/15"
+              title="Uso excepcional"
+              className={tileClass}
             >
               <span className="text-3xl" aria-hidden>{METHOD_ICONS.credit}</span>
-              <span className="text-sm font-semibold text-danger">Crédito</span>
-              <span className="text-[10px] font-semibold tracking-wide text-danger/70" aria-hidden>F9</span>
-              <span className="text-[10px] leading-tight text-danger/80">uso excepcional</span>
+              <span className="text-sm font-semibold text-danger">Crédito <span className="font-medium" aria-hidden>(F9)</span></span>
             </button>
           </div>
           <div className="mt-4">
@@ -617,8 +624,7 @@ export default function PaymentModal({
               aria-keyshortcuts="F5"
               className="text-xs text-muted underline underline-offset-2 transition-colors hover:text-ink"
             >
-              Dividir en varios medios de pago
-              <span aria-hidden> · F5</span>
+              Dividir en varios medios de pago <span aria-hidden>(F5)</span>
             </button>
           </div>
         </>
@@ -641,6 +647,7 @@ export default function PaymentModal({
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">$</span>
               <NumericInput
+                ref={cashAmountRef}
                 value={clientCash}
                 onChange={setClientCash}
                 placeholder="Monto recibido"
@@ -656,7 +663,7 @@ export default function PaymentModal({
           </div>
 
           {cashChange > 0.005 && (
-            <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+            <div className={`rounded-xl border ${successNoticeClass} p-4`}>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm text-success">Vuelto a entregar</span>
                 <span className="text-2xl font-bold tabular-nums text-success">{formatARS(cashChange)}</span>
@@ -847,7 +854,7 @@ export default function PaymentModal({
           <div
             className={`rounded-xl border p-3.5 ${
               balanceCovered
-                ? 'border-success/30 bg-success/10 text-success'
+                ? `${successNoticeClass} text-success`
                 : balanceExcess
                   ? 'border-danger/30 bg-danger/10 text-danger'
                   : 'border-line bg-raised text-ink'

@@ -5,7 +5,7 @@
  * Las canceladas aparecen en gris con texto tachado.
  * Cada venta confirmada tiene un botón para anularla (pide confirmación en un modal).
  */
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { exceptionalDiscountLabel } from '@carniceria/shared'
 import type { ShiftSaleRow } from '../types/hw-api'
 import { formatARS, formatKg } from '../lib/datetime'
@@ -199,11 +199,11 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
                   const apartLabel = s.discountException
                     ? exceptionalDiscountLabel(s.discountPercent ?? 0)
                     : null
+                  const listPrice = s.discountAmount > 0 ? s.total + s.discountAmount : null
 
                   return (
-                    <>
+                    <Fragment key={s.id}>
                       <tr
-                        key={s.id}
                         onClick={() => !isCancelled && toggle(s.id)}
                         className={`border-b border-line ${
                           isCancelled
@@ -249,14 +249,21 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
                             </span>
                           )}
                         </td>
-                        <td className={`py-2 pr-3 text-right ${isCancelled ? 'text-muted line-through' : 'text-success'}`}>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${isCancelled ? 'text-muted line-through' : 'text-success'}`}>
                           {s.cashAmount > 0 ? formatARS(s.cashAmount) : '—'}
                         </td>
-                        <td className={`py-2 pr-3 text-right ${isCancelled ? 'text-muted line-through' : 'text-ink'}`}>
+                        <td className={`py-2 pr-3 text-right tabular-nums ${isCancelled ? 'text-muted line-through' : 'text-pay-debit'}`}>
                           {s.digitalAmount > 0 ? formatARS(s.digitalAmount) : '—'}
                         </td>
-                        <td className={`py-2 text-right font-semibold ${isCancelled ? 'text-muted line-through' : 'text-ink'}`}>
-                          {formatARS(s.total)}
+                        <td className="py-2 text-right">
+                          {listPrice != null && (
+                            <p className="text-xs font-normal text-subtle line-through tabular-nums whitespace-nowrap">
+                              {formatARS(listPrice)}
+                            </p>
+                          )}
+                          <p className={`font-semibold tabular-nums whitespace-nowrap ${isCancelled ? 'text-muted line-through' : 'text-ink'}`}>
+                            {formatARS(s.total)}
+                          </p>
                         </td>
                         <td className="py-2 pl-3 text-right" onClick={e => e.stopPropagation()}>
                           {!isCancelled && (
@@ -292,7 +299,7 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   )
                 })}
               </tbody>

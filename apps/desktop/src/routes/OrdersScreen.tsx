@@ -13,6 +13,7 @@ import OrderFormModal from '../components/OrderFormModal'
 import { parseNumericInput, parseDecimalInput, formatIntegerWithDots } from '../lib/numericInput'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import {
+  CHARGE_LINE_FLASH_MS,
   chargeLinesFromBudget,
   chargeQtyMatchesTicket,
   listPriceIfDifferent,
@@ -22,6 +23,11 @@ import {
   type OrderChargeLine,
   type OrderTicketProduct,
 } from '../lib/orderTicketMatch'
+import {
+  clearOrderChargeDraft,
+  loadOrderChargeDraft,
+  saveOrderChargeDraft,
+} from '../lib/orderChargeDraft'
 import { addDaysYmd, formatARS, todayLocalYmd, toLocalDateTime } from '../lib/datetime'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import {
@@ -166,10 +172,17 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
   const [chargeNotice, setChargeNotice] = useState<string | null>(null)
   const [priceEditIndex, setPriceEditIndex] = useState<number | null>(null)
   const [priceDraft, setPriceDraft] = useState('')
+  const [chargeFlash, setChargeFlash] = useState<{ index: number; generation: number } | null>(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const chargeCatalogRef = useRef(chargeCatalog)
   const pendingNoticeRef = useRef<string | null | undefined>(undefined)
+  const pendingFlashIndexRef = useRef<number | null | undefined>(undefined)
+  const chargeFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chargeModalOrderRef = useRef<OrderRow | null>(null)
+  const chargeCartLinesRef = useRef<OrderChargeLine[]>([])
   chargeCatalogRef.current = chargeCatalog
+  chargeModalOrderRef.current = chargeModalOrder
+  chargeCartLinesRef.current = chargeCartLines
 
   const loadOrders = useCallback(async () => {
     const r = await window.hw.listOrders(showStoreFilter ? { storeIdFilter } : undefined)
@@ -280,7 +293,19 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     closeOrderForm()
   }
 
+  function stopChargeFlash() {
+    if (chargeFlashTimerRef.current != null) {
+      clearTimeout(chargeFlashTimerRef.current)
+      chargeFlashTimerRef.current = null
+    }
+    setChargeFlash(null)
+  }
+
   function closeChargeModal() {
+    const order = chargeModalOrderRef.current
+    if (order) saveOrderChargeDraft(order.id, chargeCartLinesRef.current)
+    chargeModalOrderRef.current = null
+    stopChargeFlash()
     setChargeModalOrder(null)
     setPriceEditIndex(null)
     setPriceDraft('')
@@ -288,9 +313,23 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     setChargeError(null)
   }
 
-  /** Abre el modal de cobro por POS: prepopula líneas del carrito de presupuesto */
+  /** El cobro ya salió: ese borrador no tiene que volver. */
+  function forgetChargeDraft(orderId: string) {
+    clearOrderChargeDraft(orderId)
+    chargeModalOrderRef.current = null
+    stopChargeFlash()
+    setChargeModalOrder(null)
+    setPriceEditIndex(null)
+    setPriceDraft('')
+    setChargeNotice(null)
+    setChargeError(null)
+  }
+
+  /** Abre el modal de cobro por POS: el borrador de ese pedido, o el presupuesto. */
   function openChargeModal(order: OrderRow) {
-    setChargeCartLines(chargeLinesFromBudget(order.budgetItems))
+    stopChargeFlash()
+    const draft = loadOrderChargeDraft(order.id)
+    setChargeCartLines(draft ?? chargeLinesFromBudget(order.budgetItems))
     setChargeCatalog([])
     setPriceEditIndex(null)
     setPriceDraft('')
@@ -298,6 +337,18 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     setChargeError(null)
     setChargeNotice(null)
   }
+
+  useEffect(() => {
+    return () => {
+      if (chargeFlashTimerRef.current != null) {
+        clearTimeout(chargeFlashTimerRef.current)
+        chargeFlashTimerRef.current = null
+      }
+      const order = chargeModalOrderRef.current
+      if (!order) return
+      saveOrderChargeDraft(order.id, chargeCartLinesRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!chargeModalOrder) return undefined
@@ -332,15 +383,29 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     setChargeCartLines(prev => {
       const result = matchOrderTicket(prev, scan, chargeCatalogRef.current)
       pendingNoticeRef.current = result.notice
+      pendingFlashIndexRef.current = result.touchedIndex
       return result.lines
     })
     setChargeError(null)
   }, [])
 
   useEffect(() => {
-    if (pendingNoticeRef.current === undefined) return
-    setChargeNotice(pendingNoticeRef.current)
-    pendingNoticeRef.current = undefined
+    const notice = pendingNoticeRef.current
+    const flashIndex = pendingFlashIndexRef.current
+    if (notice === undefined && flashIndex === undefined) return
+    if (notice !== undefined) {
+      setChargeNotice(notice)
+      pendingNoticeRef.current = undefined
+    }
+    if (flashIndex === undefined) return
+    pendingFlashIndexRef.current = undefined
+    if (flashIndex == null) return
+    if (chargeFlashTimerRef.current != null) clearTimeout(chargeFlashTimerRef.current)
+    setChargeFlash(prev => ({ index: flashIndex, generation: (prev?.generation ?? 0) + 1 }))
+    chargeFlashTimerRef.current = setTimeout(() => {
+      chargeFlashTimerRef.current = null
+      setChargeFlash(null)
+    }, CHARGE_LINE_FLASH_MS)
   }, [chargeCartLines])
 
   useBarcodeScanner({
@@ -400,7 +465,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       void window.hw.chargeOrder({ orderId: chargeModalOrder.id, remaining: 0, payments: [] }).then(r => {
         if (!r.ok) { setChargeError(r.error ?? 'Error al marcar entregado.'); return }
         setOrdersList(prev => prev.map(o => o.id === r.data.id ? r.data : o))
-        setChargeModalOrder(null)
+        forgetChargeDraft(chargeModalOrder.id)
       })
       return
     }
@@ -424,15 +489,17 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
 
     const depositPayments = paymentsForOrder(chargeModalOrder)
     const deposit = chargeModalOrder.depositAmount
+    const orderId = chargeModalOrder.id
+    const customerName = chargeModalOrder.customerName
 
+    closeChargeModal()
     onInjectOrderCart({
-      orderId: chargeModalOrder.id,
-      customerName: chargeModalOrder.customerName,
+      orderId,
+      customerName,
       depositAmount: deposit,
       depositPayments,
       items,
     })
-    setChargeModalOrder(null)
   }
 
   async function executeStatusChange(order: OrderRow, status: OrderStatus) {
@@ -653,7 +720,17 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                       const listPrice = listPriceIfDifferent(line, chargeCatalog)
                       const priceLabel = `${formatARS(line.unitPrice)} / ${line.unit === 'kg' ? 'kg' : 'u'}`
                       return (
-                        <div key={idx} className="space-y-1.5 rounded-lg bg-hover px-3 py-2">
+                        <div key={idx} data-charge-line={idx} className="relative rounded-lg bg-hover px-3 py-2">
+                          {chargeFlash?.index === idx && (
+                            <span
+                              key={chargeFlash.generation}
+                              data-charge-flash=""
+                              aria-hidden
+                              className="pointer-events-none absolute inset-0 z-0 animate-charge-scan rounded-lg"
+                              style={{ animationDuration: `${CHARGE_LINE_FLASH_MS}ms` }}
+                            />
+                          )}
+                          <div className="relative z-[1] space-y-1.5">
                           <div className="flex items-center gap-2 min-w-0">
                             <input
                               type="checkbox"
@@ -742,6 +819,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                               Cambiar precio
                             </button>
                           )}
+                          </div>
                         </div>
                       )
                     })}

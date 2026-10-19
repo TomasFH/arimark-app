@@ -361,6 +361,7 @@ export function registerSaleHandlers(): void {
           manualEntry: sales.manualEntry,
           discountException: sales.discountException,
           discountPercent: sales.discountPercent,
+          discountAmount: sales.discountAmount,
           createdAt: sales.createdAt,
         })
         .from(sales)
@@ -443,6 +444,7 @@ export function registerSaleHandlers(): void {
           manualEntry: s.manualEntry,
           discountException: s.discountException,
           discountPercent: s.discountPercent,
+          discountAmount: s.discountAmount,
           items: itemsBySale.get(s.id) ?? [],
         }
       })

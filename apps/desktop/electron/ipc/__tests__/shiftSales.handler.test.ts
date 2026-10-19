@@ -57,12 +57,14 @@ describe('sale.handler — GET_SHIFT_SALES', () => {
     payments: Array<{ method: 'cash' | 'debit' | 'wallet' | 'credit'; amount: number }>
     items?: Array<{ productId: string; qty: number; unitPrice: number; subtotal: number }>
     createdAt?: string
+    discountAmount?: number
   }) {
     db.insert(sales).values({
       id: opts.id, storeId: 'store-001', shiftId: 'shift-001', customerId: null,
       total: opts.total, isDebt: opts.isDebt ?? false, status: opts.status ?? 'confirmed',
       manualEntry: false, manualApprovedBy: null, manualApprovedAt: null,
       notes: null, createdAt: opts.createdAt ?? now, createdBy: 'user-001',
+      discountAmount: opts.discountAmount ?? 0,
     }).run()
     for (const it of opts.items ?? [{ productId: 'prod-1', qty: 1, unitPrice: opts.total, subtotal: opts.total }]) {
       db.insert(saleItems).values({
@@ -112,6 +114,7 @@ describe('sale.handler — GET_SHIFT_SALES', () => {
     expect(result.data).toHaveLength(1)
     expect(result.data[0]!.cashAmount).toBe(6000)
     expect(result.data[0]!.digitalAmount).toBe(4000)
+    expect(result.data[0]!.discountAmount).toBe(0)
     expect(result.data[0]!.paymentMethods.sort()).toEqual(['cash', 'debit'])
     expect(result.data[0]!.payments).toEqual([
       { method: 'cash', amount: 6000 },
@@ -157,6 +160,19 @@ describe('sale.handler — GET_SHIFT_SALES', () => {
     const result = getHandler('ipc:get-shift-sales')(null) as { ok: boolean; data: ShiftSaleRow[] }
     expect(result.data).toHaveLength(1)
     expect(result.data[0]!.id).toBe('sale-ok')
+  })
+
+  it('devuelve discountAmount para el precio de lista tachado', () => {
+    insertSale({
+      id: 'sale-desc',
+      total: 90000,
+      discountAmount: 10000,
+      payments: [{ method: 'cash', amount: 50000 }, { method: 'debit', amount: 40000 }],
+    })
+    const result = getHandler('ipc:get-shift-sales')(null) as { ok: boolean; data: ShiftSaleRow[] }
+    expect(result.ok).toBe(true)
+    expect(result.data[0]!.total).toBe(90000)
+    expect(result.data[0]!.discountAmount).toBe(10000)
   })
 
   it('incluye los ítems con nombre de producto', () => {

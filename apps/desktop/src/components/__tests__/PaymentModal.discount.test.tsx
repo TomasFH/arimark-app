@@ -179,7 +179,11 @@ describe('PaymentModal — descuento de esta venta', () => {
     const amounts = screen.getAllByPlaceholderText('0')
     await user.type(amounts[1], '80000')
     expect(screen.getByRole('button', { name: /Confirmar cobro/ })).toHaveTextContent(/80\.000/)
-    expect(screen.getByText('Total cubierto')).toBeInTheDocument()
+    const covered = screen.getByText('Total cubierto').closest('.rounded-xl')
+    expect(covered).toHaveClass('border-line-strong')
+    expect(covered?.className ?? '').toContain('color-mix(in_srgb,var(--success)')
+    expect(covered?.className ?? '').not.toContain('border-success/30')
+    expect(covered?.className ?? '').not.toContain('bg-success/10')
 
     await user.click(screen.getByRole('checkbox', { name: 'Descuento en esta venta' }))
     expect(screen.getByText(/Descuento: 10%/)).toBeInTheDocument()

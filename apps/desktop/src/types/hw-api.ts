@@ -481,6 +481,8 @@ export interface ShiftSaleRow {
   /** True solo si el tilde de excepción estuvo activo. El descuento de la regla no lo marca. */
   discountException?: boolean
   discountPercent?: number
+  /** Pesos descontados. 0 si la venta se cobró al precio de lista. */
+  discountAmount: number
   items: ShiftSaleItem[]
 }
 

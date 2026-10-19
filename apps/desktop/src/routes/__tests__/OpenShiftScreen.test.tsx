@@ -53,5 +53,24 @@ describe('OpenShiftScreen — retomar turno propio', () => {
     )
 
     expect(await screen.findByText('Efectivo inicial en caja')).toBeInTheDocument()
+    expect(screen.getByText('Turno')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir turno' })).toBeInTheDocument()
+
+    const denominations = document.querySelector('[data-bill-columns="2"]')
+    expect(denominations).toHaveClass('grid-cols-2')
+
+    const form = document.querySelector('form')
+    expect(form).toHaveClass('items-stretch', 'md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]')
+
+    const turno = screen.getByText('Turno')
+    const conteo = screen.getByText('Lo que encontré en la registradora')
+    const efectivo = screen.getByText('Efectivo inicial en caja')
+    const abrir = screen.getByRole('button', { name: 'Abrir turno' })
+    expect(turno.compareDocumentPosition(conteo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(turno.compareDocumentPosition(efectivo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const turnoCard = efectivo.closest('div.rounded-xl')
+    expect(turnoCard).toHaveClass('bg-raised', 'border-line', 'h-full')
+    expect(conteo.closest('div.rounded-xl')).toHaveClass('h-full')
+    expect(efectivo.compareDocumentPosition(abrir) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

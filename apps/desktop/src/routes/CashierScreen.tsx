@@ -18,6 +18,7 @@ import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
 import OrderFormModal from '../components/OrderFormModal'
 import { seedOrderCreateDraft } from '../lib/orderCreateDraft'
+import { clearOrderChargeDraft } from '../lib/orderChargeDraft'
 import DebtModal from '../components/DebtModal'
 import ChangePasswordModal from '../components/ChangePasswordModal'
 import { BrandMark, Button, ListRow, Modal, ScreenHeader, cx } from '../components/ui'
@@ -253,6 +254,71 @@ interface SidebarBtnProps {
   active?: boolean
 }
 
+const SHORTCUT_GROUPS: { title: string; rows: [string, string][] }[] = [
+  {
+    title: 'Venta',
+    rows: [
+      ['F1', 'Efectivo'],
+      ['F2', 'Débito'],
+      ['F3', 'Billetera virtual'],
+      ['F9', 'Crédito'],
+      ['F5', 'Dividir el pago'],
+      ['F6', 'Carga manual'],
+      ['F7', 'Bolsas'],
+      ['Supr', 'Quitar la línea marcada'],
+      ['Alt+1', 'Venta'],
+      ['Alt+2', 'Pedido'],
+      ['Alt+3', 'Vales'],
+      ['Alt+4', 'Gastos'],
+      ['Alt+5', 'Turno'],
+      ['Alt+I', 'Ingreso'],
+    ],
+  },
+  {
+    title: 'Bolsas abiertas',
+    rows: [
+      ['Derecha', 'Sumar una'],
+      ['Izquierda', 'Sacar una'],
+      ['Escape', 'Cerrar la lista'],
+    ],
+  },
+  {
+    title: 'Pedido',
+    rows: [
+      ['Flechas', 'Elegir producto'],
+      ['Enter', 'Agregar el producto'],
+      ['Ctrl+Enter', 'Ir a buscar'],
+      ['Supr', 'Quitar la línea'],
+    ],
+  },
+]
+
+function ShortcutList() {
+  return (
+    <div className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-3">
+      {SHORTCUT_GROUPS.map((group, index) => (
+        <section
+          key={group.title}
+          className={cx(
+            'min-w-0 space-y-1.5',
+            index > 0 && 'sm:border-l sm:border-line sm:pl-3',
+          )}
+        >
+          <h3 className="text-xs font-semibold text-muted">{group.title}</h3>
+          <ul className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-1">
+            {group.rows.map(([key, label]) => (
+              <li key={key} className="col-span-2 grid grid-cols-subgrid items-center">
+                <span className="w-fit justify-self-start whitespace-nowrap rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[10px] text-ink">{key}</span>
+                <span className="min-w-0 text-sm text-ink">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 function SidebarBtn({ icon, label, onClick, active }: SidebarBtnProps) {
   return (
     <button
@@ -471,6 +537,7 @@ export default function CashierScreen({
   const [showDebtModal, setShowDebtModal] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [debtLoading, setDebtLoading] = useState(false)
   const [debtError, setDebtError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -704,7 +771,7 @@ export default function CashierScreen({
   const saleOverlayOpen = anyModalOpen
     || showSalaryModal || showStockCountModal || showSettleDebtModal
     || showExpenseListModal || showDebtModal || showChangePassword
-    || showLogoutConfirm || showAttendanceModal
+    || showLogoutConfirm || showAttendanceModal || showShortcuts
 
   useEffect(() => {
     if (!isActive) setShowOrderForm(false)
@@ -828,6 +895,7 @@ export default function CashierScreen({
         return
       }
       setLastSaleId(result.data.saleId)
+      if (activeOrder?.orderId) clearOrderChargeDraft(activeOrder.orderId)
       setCart([])
       setActiveOrder(null)
       if (showManualPanel) setManualFocusNonce(nonce => nonce + 1)
@@ -1087,6 +1155,19 @@ export default function CashierScreen({
 
         <div className="flex-1" />
 
+        <button
+          type="button"
+          onClick={() => setShowShortcuts(true)}
+          title="Atajos"
+          aria-label="Atajos"
+          className="mb-2 flex h-8 w-8 items-center justify-center rounded-full border border-line bg-raised text-muted transition-colors hover:bg-hover hover:text-ink"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+            <circle cx="12" cy="12" r="9" />
+            <path strokeLinecap="round" d="M12 11v6" />
+            <path strokeLinecap="round" d="M12 7.5h.01" />
+          </svg>
+        </button>
         <div className="mb-1.5 flex items-center justify-center">
           <BrandMark size={32} />
         </div>
@@ -1165,14 +1246,13 @@ export default function CashierScreen({
                     title="Cargar un producto por nombre o PLU"
                     aria-keyshortcuts="F6"
                     className={cx(
-                      'h-9 shrink-0 rounded-lg border px-3 text-sm font-medium transition-colors',
+                      'h-9 shrink-0 whitespace-nowrap rounded-lg border px-3 text-sm font-medium transition-colors',
                       showManualPanel
                         ? 'border-accent bg-accent-soft text-ink'
                         : 'border-line bg-panel text-ink hover:bg-hover',
                     )}
                   >
-                    Manual
-                    <span className="ml-1.5 text-[10px] font-semibold tracking-wide text-muted" aria-hidden>F6</span>
+                    Manual <span className="font-medium text-muted" aria-hidden>(F6)</span>
                   </button>
                 </div>
               </div>
@@ -1670,6 +1750,15 @@ export default function CashierScreen({
       {showChangePassword && (
         <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
       )}
+
+      <Modal
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+        title="Atajos"
+        size="lg"
+      >
+        <ShortcutList />
+      </Modal>
 
       {isActive && showOrderForm && (
         <OrderFormModal

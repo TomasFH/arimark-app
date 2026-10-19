@@ -386,6 +386,58 @@ describe('OrderFormModal — teclado de productos', () => {
     )
   }
 
+  it('las flechas marcan sin mover el cursor, Enter elige y la fila pide scroll', async () => {
+    const user = userEvent.setup()
+    await openCreate()
+    const search = await screen.findByPlaceholderText('Buscar producto…')
+    await user.type(search, 'a')
+    expect(await screen.findByRole('button', { name: /Asado/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Asado/ })).toHaveAttribute('tabindex', '-1')
+    expect(screen.getByRole('button', { name: /Morcilla/ })).toHaveAttribute('tabindex', '-1')
+
+    const input = search as HTMLInputElement
+    input.setSelectionRange(0, 0)
+    const calls: HTMLElement[] = []
+    const seen: Array<boolean | ScrollIntoViewOptions | undefined> = []
+    const previousScroll = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement, arg?: boolean | ScrollIntoViewOptions) {
+      calls.push(this)
+      seen.push(arg)
+    }
+    function onKey(event: Event): void {
+      if (!(event instanceof KeyboardEvent) || event.defaultPrevented) return
+      if (event.key === 'ArrowUp') input.setSelectionRange(0, 0)
+      if (event.key === 'ArrowDown') input.setSelectionRange(input.value.length, input.value.length)
+    }
+    input.addEventListener('keydown', onKey)
+    try {
+      expect(fireEvent.keyDown(input, { key: 'ArrowDown' })).toBe(false)
+      expect(input.selectionStart).toBe(0)
+      const marked = document.querySelector<HTMLElement>('[data-budget-marked="true"]')
+      expect(marked).toHaveTextContent('Morcilla')
+      expect(marked).toHaveClass('w-full', 'bg-accent-soft')
+      expect(calls.at(-1)).toBe(marked)
+      expect(seen.at(-1)).toEqual({ block: 'nearest' })
+
+      fireEvent.keyDown(input, { key: 'Tab' })
+      expect(document.querySelector('[data-budget-marked="true"]')).toHaveTextContent('Morcilla')
+
+      calls.length = 0
+      input.setSelectionRange(input.value.length, input.value.length)
+      expect(fireEvent.keyDown(input, { key: 'ArrowUp' })).toBe(false)
+      expect(input.selectionStart).toBe(input.value.length)
+      const back = document.querySelector<HTMLElement>('[data-budget-marked="true"]')
+      expect(back).toHaveTextContent('Asado')
+      expect(calls.at(-1)).toBe(back)
+
+      expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(false)
+      expect(await screen.findByTitle('Peso estimado')).toBeInTheDocument()
+    } finally {
+      input.removeEventListener('keydown', onKey)
+      HTMLElement.prototype.scrollIntoView = previousScroll
+    }
+  })
+
   it('las flechas recorren las opciones y Enter agrega la marcada', async () => {
     const user = userEvent.setup()
     await openCreate()
