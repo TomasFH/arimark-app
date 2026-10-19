@@ -339,30 +339,15 @@ function SidebarBtn({ icon, label, onClick, active }: SidebarBtnProps) {
   )
 }
 
-function MenuDangerItem({ label, leading, onClick }: { label: string; leading: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full min-w-0 cursor-pointer items-center gap-2 bg-panel px-3 py-1.5 text-left text-sm font-medium text-danger transition-colors hover:bg-hover [&_svg]:h-4 [&_svg]:w-4"
-    >
-      <span className="shrink-0">{leading}</span>
-      <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
-    </button>
-  )
-}
-
 function MenuSection({
   title,
-  className,
   children,
 }: {
   title: string
-  className?: string
   children: ReactNode
 }) {
   return (
-    <section className={cx('min-w-0', className)}>
+    <section className="min-w-0">
       <h2 className="min-w-0 truncate px-3 pb-1 pt-2.5 text-xs font-semibold text-ink" title={title}>
         {title}
       </h2>
@@ -375,11 +360,12 @@ function menuLeading(icon: ReactNode) {
   return <span className="text-muted">{icon}</span>
 }
 
-/** Dos secciones lado a lado. Cada una mide su contenido: la más baja no se estira. */
-function MenuPair({ children }: { children: ReactNode }) {
+/** Dos columnas que miden su contenido. No empareja una sección alta con una corta. */
+function MenuColumns({ left, right }: { left: ReactNode; right: ReactNode }) {
   return (
-    <div className="grid grid-cols-2 items-start divide-x divide-line border-b border-line">
-      {children}
+    <div className="grid grid-cols-2 items-start divide-x divide-line">
+      <div className="min-w-0">{left}</div>
+      <div className="min-w-0">{right}</div>
     </div>
   )
 }
@@ -1487,7 +1473,7 @@ export default function CashierScreen({
           <div
             role="dialog"
             aria-label="Opciones"
-            className="fixed left-16 top-0 z-50 h-auto max-h-full w-[min(28rem,calc(100vw-5rem))] overflow-y-auto border-b border-r border-line bg-panel shadow-[0_8px_28px_rgba(28,28,30,0.16)]"
+            className="fixed left-[calc(4rem+0.5rem)] top-2 z-50 h-auto max-h-[calc(100vh-1rem)] w-[min(28rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-line bg-raised shadow-[0_8px_28px_rgba(28,28,30,0.16)]"
           >
             <div className="border-b border-line px-4 py-3">
               <p className="text-sm font-semibold text-ink">Opciones</p>
@@ -1508,140 +1494,143 @@ export default function CashierScreen({
                 onPassword={() => { setShowChangePassword(true); closeMenu() }}
               />
             ) : (
-              <>
-                <MenuPair>
-                  <MenuSection title="Caja">
-                    <ListRow
-                      dense
-                      title="Ingreso"
-                      leading={menuLeading(<IconCashInject />)}
-                      onClick={() => { setShowCashInjectModal(true); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title="Sebo"
-                      leading={menuLeading(<IconCebo />)}
-                      onClick={() => { setShowCeboModal(true); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title="Saldar"
-                      leading={menuLeading(<IconSettle />)}
-                      onClick={() => { setShowSettleDebtModal(true); closeMenu() }}
-                    />
-                  </MenuSection>
+              <MenuColumns
+                left={
+                  <>
+                    <MenuSection title="Caja">
+                      <ListRow
+                        dense
+                        title="Ingreso"
+                        leading={menuLeading(<IconCashInject />)}
+                        onClick={() => { setShowCashInjectModal(true); closeMenu() }}
+                      />
+                      <ListRow
+                        dense
+                        title="Sebo"
+                        leading={menuLeading(<IconCebo />)}
+                        onClick={() => { setShowCeboModal(true); closeMenu() }}
+                      />
+                      <ListRow
+                        dense
+                        title="Saldar"
+                        leading={menuLeading(<IconSettle />)}
+                        onClick={() => { setShowSettleDebtModal(true); closeMenu() }}
+                      />
+                    </MenuSection>
 
-                  <MenuSection title="Consultas">
-                    <ListRow
-                      dense
-                      title="Catálogo"
-                      leading={menuLeading(<IconCatalog />)}
-                      onClick={() => { setShowProductsModal(true); closeMenu() }}
-                    />
-                    {onViewOrders && (
+                    <MenuSection title="Operación">
                       <ListRow
                         dense
-                        title="Pedidos"
-                        leading={menuLeading(<IconOrders />)}
-                        onClick={() => { onViewOrders(); closeMenu() }}
+                        title="Stock"
+                        leading={menuLeading(<IconStock />)}
+                        onClick={() => { setShowStockCountModal(true); closeMenu() }}
                       />
-                    )}
-                    {onViewDebts && (
                       <ListRow
                         dense
-                        title="Fiados"
-                        leading={menuLeading(<IconFiado />)}
-                        onClick={() => { onViewDebts(); closeMenu() }}
+                        title="Liquidación"
+                        leading={menuLeading(<IconPayroll />)}
+                        onClick={() => { setShowSalaryModal(true); closeMenu() }}
                       />
-                    )}
-                    {onViewSpecialCustomers && (
                       <ListRow
                         dense
-                        title="Clientes especiales"
-                        leading={menuLeading(<IconSpecialCustomer />)}
-                        onClick={() => { onViewSpecialCustomers(); closeMenu() }}
+                        title="Desc. efectivo"
+                        leading={menuLeading(<IconCashDiscount />)}
+                        onClick={() => { setShowCashDiscountModal(true); closeMenu() }}
                       />
-                    )}
-                  </MenuSection>
-                </MenuPair>
+                      <ListRow
+                        dense
+                        title="Gastos del turno"
+                        leading={menuLeading(<IconShiftExpenses />)}
+                        onClick={() => { setShowExpenseListModal(true); closeMenu() }}
+                      />
+                      <ListRow
+                        dense
+                        title={refreshing ? 'Actualizando…' : 'Actualizar'}
+                        leading={menuLeading(<IconRefresh />)}
+                        disabled={refreshing}
+                        onClick={() => { void handleRefreshRemote(); closeMenu() }}
+                      />
+                      {SHOW_ATTENDANCE_UI && (
+                        <ListRow
+                          dense
+                          title="Asistencia"
+                          leading={menuLeading(<IconAttendance />)}
+                          onClick={() => { setShowAttendanceModal(true); closeMenu() }}
+                        />
+                      )}
+                    </MenuSection>
+                  </>
+                }
+                right={
+                  <>
+                    <MenuSection title="Consultas">
+                      <ListRow
+                        dense
+                        title="Catálogo"
+                        leading={menuLeading(<IconCatalog />)}
+                        onClick={() => { setShowProductsModal(true); closeMenu() }}
+                      />
+                      {onViewOrders && (
+                        <ListRow
+                          dense
+                          title="Pedidos"
+                          leading={menuLeading(<IconOrders />)}
+                          onClick={() => { onViewOrders(); closeMenu() }}
+                        />
+                      )}
+                      {onViewDebts && (
+                        <ListRow
+                          dense
+                          title="Fiados"
+                          leading={menuLeading(<IconFiado />)}
+                          onClick={() => { onViewDebts(); closeMenu() }}
+                        />
+                      )}
+                      {onViewSpecialCustomers && (
+                        <ListRow
+                          dense
+                          title="Clientes especiales"
+                          leading={menuLeading(<IconSpecialCustomer />)}
+                          onClick={() => { onViewSpecialCustomers(); closeMenu() }}
+                        />
+                      )}
+                    </MenuSection>
 
-                <MenuPair>
-                  <MenuSection title="Operación">
-                    <ListRow
-                      dense
-                      title="Stock"
-                      leading={menuLeading(<IconStock />)}
-                      onClick={() => { setShowStockCountModal(true); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title="Liquidación"
-                      leading={menuLeading(<IconPayroll />)}
-                      onClick={() => { setShowSalaryModal(true); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title="Desc. efectivo"
-                      leading={menuLeading(<IconCashDiscount />)}
-                      onClick={() => { setShowCashDiscountModal(true); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title="Gastos del turno"
-                      leading={menuLeading(<IconShiftExpenses />)}
-                      onClick={() => { setShowExpenseListModal(true); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title={refreshing ? 'Actualizando…' : 'Actualizar'}
-                      leading={menuLeading(<IconRefresh />)}
-                      disabled={refreshing}
-                      onClick={() => { void handleRefreshRemote(); closeMenu() }}
-                    />
-                    {SHOW_ATTENDANCE_UI && (
+                    <MenuSection title="Ajustes">
                       <ListRow
                         dense
-                        title="Asistencia"
-                        leading={menuLeading(<IconAttendance />)}
-                        onClick={() => { setShowAttendanceModal(true); closeMenu() }}
+                        title="Ajustes"
+                        leading={menuLeading(<IconGear />)}
+                        onClick={() => setMenuPage('settings')}
                       />
-                    )}
-                  </MenuSection>
+                    </MenuSection>
 
-                  <MenuSection title="Ajustes" className="self-start">
-                    <ListRow
-                      dense
-                      title="Ajustes"
-                      leading={menuLeading(<IconGear />)}
-                      onClick={() => setMenuPage('settings')}
-                    />
-                  </MenuSection>
-                </MenuPair>
-
-                <MenuSection title="Sesión">
-                  <div className={cx('grid divide-x divide-line', onReturnToHub ? 'grid-cols-3' : 'grid-cols-2')}>
-                    {onReturnToHub && (
+                    <MenuSection title="Sesión">
+                      {onReturnToHub && (
+                        <ListRow
+                          dense
+                          title="Hub"
+                          leading={menuLeading(<IconHub />)}
+                          onClick={() => { onReturnToHub(); closeMenu() }}
+                        />
+                      )}
                       <ListRow
                         dense
-                        title="Hub"
-                        leading={menuLeading(<IconHub />)}
-                        onClick={() => { onReturnToHub(); closeMenu() }}
+                        tone="danger"
+                        title="Cerrar caja"
+                        leading={<span className="text-danger"><IconLock /></span>}
+                        onClick={() => { onCloseShift(); closeMenu() }}
                       />
-                    )}
-                    <MenuDangerItem
-                      label="Cerrar caja"
-                      leading={<IconLock />}
-                      onClick={() => { onCloseShift(); closeMenu() }}
-                    />
-                    <ListRow
-                      dense
-                      title="Cerrar sesión"
-                      leading={menuLeading(<IconLogout />)}
-                      onClick={() => { closeMenu(); setShowLogoutConfirm(true) }}
-                    />
-                  </div>
-                </MenuSection>
-              </>
+                      <ListRow
+                        dense
+                        title="Cerrar sesión"
+                        leading={menuLeading(<IconLogout />)}
+                        onClick={() => { closeMenu(); setShowLogoutConfirm(true) }}
+                      />
+                    </MenuSection>
+                  </>
+                }
+              />
             )}
           </div>
         </>

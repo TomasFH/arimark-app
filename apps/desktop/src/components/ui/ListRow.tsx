@@ -11,6 +11,8 @@ export interface ListRowProps {
   disabled?: boolean
   /** Filas del menú de caja: menos alto, icono un punto más chico. */
   dense?: boolean
+  /** Acción destructiva: mismo alto y peso, solo cambia el color del título. */
+  tone?: 'default' | 'danger'
 }
 
 export function ListRow({
@@ -22,6 +24,7 @@ export function ListRow({
   onClick,
   disabled = false,
   dense = false,
+  tone = 'default',
 }: ListRowProps) {
   const content = (
     <>
@@ -29,7 +32,13 @@ export function ListRow({
         <div className={cx('shrink-0', dense && '[&_svg]:h-4 [&_svg]:w-4')}>{leading}</div>
       )}
       <div className="min-w-0 flex-1">
-        <p className="min-w-0 truncate text-sm font-medium text-ink" title={title}>
+        <p
+          className={cx(
+            'min-w-0 truncate text-sm font-medium',
+            tone === 'danger' ? 'text-danger' : 'text-ink',
+          )}
+          title={title}
+        >
           {title}
         </p>
         {subtitle != null && subtitle !== '' && (
@@ -45,7 +54,7 @@ export function ListRow({
   const classes = cx(
     'flex w-full min-w-0 items-center text-left transition-colors',
     dense ? 'gap-2 px-3 py-1.5' : 'gap-3 px-4 py-3',
-    selected ? 'bg-accent-soft' : 'bg-panel hover:bg-hover',
+    selected ? 'bg-accent-soft' : 'bg-transparent hover:bg-hover',
     onClick && !disabled && 'cursor-pointer',
     disabled && 'pointer-events-none opacity-40',
   )
