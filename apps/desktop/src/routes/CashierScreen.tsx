@@ -38,7 +38,6 @@ interface Props {
   onCloseShift: () => void
   onReturnToHub?: () => void
   onViewDebts?: () => void
-  onViewSpecialCustomers?: () => void
   onViewOrders?: () => void
   isActive?: boolean
   /** Carrito inyectado desde un pedido (se carga al POS al activarse la pantalla) */
@@ -55,7 +54,7 @@ interface Props {
 
 /**
  * Selector de cliente especial en el header del POS (aplica precios acordados al escanear / Manual).
- * Oculto 2026-08-27: los acuerdos se consultan en Menú → Clientes especiales; el ticket se controla a mano.
+ * Oculto: el ticket se controla a mano. La ficha sigue en el hub de admin.
  * Para reactivar: `true`. Ver PLAN.md FEAT-SPECIAL-POS-SELECTOR-01.
  */
 const SHOW_SPECIAL_CUSTOMER_POS_SELECTOR = false
@@ -175,12 +174,6 @@ const IconFiado = () => (
   </svg>
 )
 
-const IconSpecialCustomer = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
-  </svg>
-)
-
 const IconStock = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
@@ -204,12 +197,6 @@ const IconCashDiscount = () => (
 const IconShiftExpenses = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25 15 8.25m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0c1.1.128 1.907 1.077 1.907 2.185Z" />
-  </svg>
-)
-
-const IconRefresh = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
   </svg>
 )
 
@@ -503,7 +490,6 @@ export default function CashierScreen({
   onCloseShift,
   onReturnToHub,
   onViewDebts,
-  onViewSpecialCustomers,
   onViewOrders,
   isActive = true,
   pendingOrderCart,
@@ -557,7 +543,6 @@ export default function CashierScreen({
     depositAmount: number
     depositPayments: import('../types/hw-api').DepositPayment[]
   } | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
   const [storeName, setStoreName] = useState<string | null>(null)
   const [specialCustomers, setSpecialCustomers] = useState<SpecialCustomerRow[]>([])
   const [specialCustomerId, setSpecialCustomerId] = useState<string | null>(null)
@@ -684,36 +669,6 @@ export default function CashierScreen({
     void window.hw.getShiftSummary().then(r => {
       if (r.ok) setCashInHand(r.data.cashInHand)
     })
-  }
-
-  async function handleRefreshRemote(): Promise<void> {
-    if (refreshing) return
-    setRefreshing(true)
-    setError('')
-    try {
-      const sync = await window.hw.refreshRemoteData()
-      if (!sync.ok) {
-        setError(sync.error ?? 'No se pudieron actualizar los datos remotos.')
-        return
-      }
-      const productsRes = await window.hw.getProducts()
-      if (productsRes.ok) setProducts(productsRes.data)
-      if (SHOW_SPECIAL_CUSTOMER_POS_SELECTOR) {
-        await loadSpecialCustomers()
-        await loadSpecialPrices(specialCustomerId)
-      }
-      const storeId = session.storeId ?? shift.storeId
-      if (storeId) {
-        const storesRes = await window.hw.getStores()
-        if (storesRes.ok) {
-          const store = storesRes.data.find(s => s.id === storeId)
-          if (store) setStoreName(store.name)
-        }
-      }
-      refreshBalance()
-    } finally {
-      setRefreshing(false)
-    }
   }
 
   useEffect(() => {
@@ -1551,13 +1506,6 @@ export default function CashierScreen({
                         leading={menuLeading(<IconShiftExpenses />)}
                         onClick={() => { setShowExpenseListModal(true); closeMenu() }}
                       />
-                      <ListRow
-                        dense
-                        title={refreshing ? 'Actualizando…' : 'Actualizar'}
-                        leading={menuLeading(<IconRefresh />)}
-                        disabled={refreshing}
-                        onClick={() => { void handleRefreshRemote(); closeMenu() }}
-                      />
                       {SHOW_ATTENDANCE_UI && (
                         <ListRow
                           dense
@@ -1592,14 +1540,6 @@ export default function CashierScreen({
                           title="Fiados"
                           leading={menuLeading(<IconFiado />)}
                           onClick={() => { onViewDebts(); closeMenu() }}
-                        />
-                      )}
-                      {onViewSpecialCustomers && (
-                        <ListRow
-                          dense
-                          title="Clientes especiales"
-                          leading={menuLeading(<IconSpecialCustomer />)}
-                          onClick={() => { onViewSpecialCustomers(); closeMenu() }}
                         />
                       )}
                     </MenuSection>

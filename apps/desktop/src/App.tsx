@@ -136,7 +136,7 @@ export default function App() {
     }
   }, [])
 
-  // Cuando la cajera navega a Fiados o Clientes especiales desde la caja,
+  // Cuando la cajera navega a Fiados o Pedidos desde la caja,
   // CashierScreen permanece montado (oculto) para que el carrito no se pierda.
   // Aquí derivamos el state de cashier que corresponde al contexto actual.
   const bgCashierState: Extract<AppState, { screen: 'cashier' }> | null = (() => {
@@ -546,7 +546,6 @@ export default function App() {
             onCloseShift={handleGoToCloseShift}
             onReturnToHub={bgCashierState.session.role === 'admin' ? handleReturnToAdminHub : undefined}
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
-            onViewSpecialCustomers={() => setState({ screen: 'special-customers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             pendingOrderCart={pendingOrderCart}
             onOrderCartConsumed={() => setPendingOrderCart(null)}
