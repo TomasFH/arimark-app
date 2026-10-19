@@ -181,15 +181,27 @@ export default function ShiftSalesModal({ onClose, onCancelled }: Props) {
           ) : (
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-hover">
-                <tr className="border-b border-line text-xs text-muted text-left">
-                  <th className="pb-2 pr-2 w-8"></th>
-                  <th className="pb-2 pr-3">Hora</th>
-                  <th className="pb-2 pr-3">Ítems</th>
-                  <th className="pb-2 pr-3">Medio</th>
-                  <th className="pb-2 pr-3 text-right">Efectivo</th>
-                  <th className="pb-2 pr-3 text-right">Digital</th>
-                  <th className="pb-2 text-right">Total</th>
-                  <th className="pb-2 pl-3 w-24"></th>
+                <tr className="h-6 border-b border-line text-left text-xs text-muted">
+                  <th className="w-8 pr-2" />
+                  <th className="pr-3">
+                    <span className="flex h-6 items-center">Hora</span>
+                  </th>
+                  <th className="pr-3">
+                    <span className="flex h-6 items-center">Ítems</span>
+                  </th>
+                  <th className="pr-3">
+                    <span className="flex h-6 items-center">Medio</span>
+                  </th>
+                  <th className="pr-3 text-right">
+                    <span className="flex h-6 items-center justify-end">Efectivo</span>
+                  </th>
+                  <th className="pr-3 text-right">
+                    <span className="flex h-6 items-center justify-end">Digital</span>
+                  </th>
+                  <th className="text-right">
+                    <span className="flex h-6 items-center justify-end">Total</span>
+                  </th>
+                  <th className="w-24 pl-3" />
                 </tr>
               </thead>
               <tbody>
