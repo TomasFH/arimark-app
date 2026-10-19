@@ -341,14 +341,22 @@ function SidebarBtn({ icon, label, onClick, active }: SidebarBtnProps) {
 
 function MenuSection({
   title,
+  divided = false,
   children,
 }: {
   title: string
+  divided?: boolean
   children: ReactNode
 }) {
   return (
-    <section className="min-w-0">
-      <h2 className="min-w-0 truncate px-3 pb-1 pt-2.5 text-xs font-semibold text-ink" title={title}>
+    <section className={cx('min-w-0', divided && 'border-t border-line')}>
+      <h2
+        className={cx(
+          'min-w-0 truncate px-3 pb-2 text-sm font-normal text-muted',
+          divided ? 'pt-3' : 'pt-2.5',
+        )}
+        title={title}
+      >
         {title}
       </h2>
       {children}
@@ -1518,7 +1526,7 @@ export default function CashierScreen({
                       />
                     </MenuSection>
 
-                    <MenuSection title="Operación">
+                    <MenuSection title="Operación" divided>
                       <ListRow
                         dense
                         title="Stock"
@@ -1596,7 +1604,7 @@ export default function CashierScreen({
                       )}
                     </MenuSection>
 
-                    <MenuSection title="Ajustes">
+                    <MenuSection title="Ajustes" divided>
                       <ListRow
                         dense
                         title="Ajustes"
@@ -1605,7 +1613,7 @@ export default function CashierScreen({
                       />
                     </MenuSection>
 
-                    <MenuSection title="Sesión">
+                    <MenuSection title="Sesión" divided>
                       {onReturnToHub && (
                         <ListRow
                           dense
