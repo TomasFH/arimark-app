@@ -336,7 +336,7 @@ function MenuSection({
   children: ReactNode
 }) {
   return (
-    <section className={cx('min-w-0', divided && 'border-t border-line')}>
+    <section className={cx('min-w-0 pb-2', divided && 'border-t border-line')}>
       <h2
         className={cx(
           'min-w-0 truncate px-3 pb-2 text-sm font-normal text-muted',
