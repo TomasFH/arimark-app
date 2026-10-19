@@ -17,13 +17,13 @@ import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import type { CustomerRow, SalePaymentPayload } from '../types/hw-api'
 import { PAYMENT_LABELS } from '../lib/paymentMethod'
 import type { PaymentMethod } from '../lib/paymentMethod'
-import { Button, Modal } from './ui'
+import { Button, Modal, ModalCloseButton } from './ui'
 
 interface Props {
   total: number
   onConfirm: (payload: {
     customerId?: string
-    newCustomer?: { name: string; phone: string }
+    newCustomer?: { name: string; phone?: string }
     initialPayment: number
     paymentMethods: SalePaymentPayload[]
     dueDate?: string
@@ -48,7 +48,7 @@ const fieldClass =
 
 export default function DebtModal({ total, onConfirm, onClose, loading = false, error }: Props) {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
-  const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; phone: string } | null>(null)
+  const [pendingNewCustomer, setPendingNewCustomer] = useState<{ name: string; phone?: string } | null>(null)
   const [initialPaymentRaw, setInitialPaymentRaw] = useState('0')
   const [dueDate, setDueDate] = useState('')
   const [dueDateError, setDueDateError] = useState('')
@@ -82,7 +82,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
     setStep('confirm')
   }
 
-  function handleCreateNew(data: { name: string; phone: string }) {
+  function handleCreateNew(data: { name: string; phone?: string }) {
     setPendingNewCustomer(data)
     setSelectedCustomer(null)
     setStep('confirm')
@@ -172,6 +172,7 @@ export default function DebtModal({ total, onConfirm, onClose, loading = false, 
             </h2>
             <p className="text-2xl font-bold tabular-nums text-ink">{formatARS(total)}</p>
           </div>
+          <ModalCloseButton onClick={onClose} disabled={loading} />
         </div>
       )}
     >

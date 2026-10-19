@@ -1,4 +1,5 @@
 import { registerAppInfoHandler } from './appInfo.handler'
+import { registerAppQuitHandlers } from './appQuit.handler'
 import { registerHardwareStatusHandler } from './hardwareStatus.handler'
 import { registerAuthHandlers } from './auth.handler'
 import { registerHardwareConfigHandlers } from './hardwareConfig.handler'
@@ -13,6 +14,7 @@ import { registerMerchIntakeHandlers } from './merchIntake.handler'
 import { registerKretzPluHandlers } from './kretzPlu.handler'
 import { registerKretzSyncHandler } from './kretzSync.handler'
 import { registerProductsHandlers } from './products.handler'
+import { registerPieceWeightHandlers } from './pieceWeight.handler'
 import { registerCatalogAdminHandlers } from './catalogAdmin.handler'
 import { registerCashiersHandlers } from './cashiers.handler'
 import { registerCustomerHandlers } from './customers.handler'
@@ -35,6 +37,7 @@ import type { HardwareManager } from '../hardware/hardwareManager'
 export function registerAllHandlers(manager: HardwareManager): void {
   registerInitStatusHandler()
   registerAppInfoHandler()
+  registerAppQuitHandlers()
   registerHardwareStatusHandler()
   registerAuthHandlers()
   registerHardwareConfigHandlers()
@@ -48,6 +51,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerKretzPluHandlers(manager)
   registerKretzSyncHandler(manager)
   registerProductsHandlers()
+  registerPieceWeightHandlers()
   registerCatalogAdminHandlers()
   registerCashiersHandlers()
   registerCustomerHandlers()

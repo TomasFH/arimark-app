@@ -1,0 +1,958 @@
+/**
+ * Alta y edición de pedido. Lo abren el POS (Tomar pedido) y Pedidos.
+ * El alta comparte un borrador en memoria; editar un pedido guardado no lo pisa.
+ */
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import NumericInput from './NumericInput'
+import DecimalInput from './DecimalInput'
+import { Button, CollapseReveal, Modal, ModalCloseButton, SuggestPopover } from './ui'
+import { showAppToast } from './ui/AppToast'
+import { formatNumericInputValue, parseDecimalInput, parseNumericInput } from '../lib/numericInput'
+import { formatARS, formatYmd, todayLocalYmd } from '../lib/datetime'
+import { formatPhoneInput } from '../lib/phoneInput'
+import { estimateKgFromPiece, formatKgQty, pieceWeightDecisions, type PieceWeightChange } from '@carniceria/shared'
+import {
+  blankOrderForm,
+  clearOrderCreateDraft,
+  depositTotal,
+  DEPOSIT_METHOD_LABELS,
+  estimatedBudgetTotal,
+  getOrderCreateDraft,
+  kgLineMissingWeight,
+  orderCreateDraftHasContent,
+  orderFormFromOrder,
+  resetOrderCreateDraft,
+  resolvedBudgetLines,
+  seedOrderCreateDraft,
+  TIME_SLOT_LABELS,
+  updateOrderCreateDraft,
+  useOrderCreateDraft,
+  type BudgetCartDraft,
+  type OrderFormState,
+} from '../lib/orderCreateDraft'
+import {
+  searchProductsByQuery,
+  summarizeBudgetItems,
+  pickupHoursLiveErrorOnDate,
+  pickupSlotAvailability,
+  pickupSlotRegistrationError,
+  PICKUP_SPECIFIC_HINT,
+  storeHoursSourceFromRecord,
+  type StoreHoursSource,
+} from '@carniceria/shared'
+import type {
+  CreateOrderPayload,
+  DepositMethod,
+  OrderRow,
+  OrderTimeSlot,
+  ProductRow,
+  StoreRow,
+  UpdateOrderPayload,
+} from '../types/hw-api'
+
+function kgFieldValue(kg: number): string {
+  return String(kg).replace('.', ',')
+}
+
+function pieceDecisionsFor(cart: BudgetCartDraft[], stored: Record<string, number>) {
+  return pieceWeightDecisions(cart.flatMap(line => {
+    if (line.unit !== 'kg' || !line.productId) return []
+    const units = parseNumericInput(line.requestedUnitsRaw)
+    const totalKg = parseDecimalInput(line.qtyRaw)
+    if (units == null || units <= 0 || totalKg == null || totalKg <= 0) return []
+    return [{ productId: line.productId, name: line.name, totalKg, units }]
+  }), stored)
+}
+
+export interface OrderFormModalProps {
+  open: boolean
+  mode: 'create' | 'edit'
+  editingOrder?: OrderRow | null
+  onClose: () => void
+  onSaved: (order: OrderRow, mode: 'create' | 'edit') => void
+  /** Admin en el hub, sin turno: elige el local del pedido. */
+  showStoreFilter: boolean
+  /** Local cuyos horarios validan el retiro cuando no hay selector. */
+  hoursStoreId?: string
+  /** Local que se preselecciona al sembrar un alta vacía. */
+  defaultStoreId?: string
+  /** Si el padre ya los tiene, no se vuelven a pedir. */
+  stores?: StoreRow[]
+}
+
+export default function OrderFormModal({
+  open,
+  mode,
+  editingOrder = null,
+  onClose,
+  onSaved,
+  showStoreFilter,
+  hoursStoreId = '',
+  defaultStoreId = '',
+  stores: storesProp,
+}: OrderFormModalProps) {
+  const draft = useOrderCreateDraft()
+  const [editForm, setEditForm] = useState<OrderFormState>(() =>
+    editingOrder ? orderFormFromOrder(editingOrder) : blankOrderForm(),
+  )
+  const form = mode === 'edit' ? editForm : draft
+  const [formError, setFormError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [showDepositConfirm, setShowDepositConfirm] = useState(false)
+  const [pieceWeights, setPieceWeights] = useState<Record<string, number>>({})
+  const [pieceChanges, setPieceChanges] = useState<PieceWeightChange[]>([])
+  const [showPiecePrompt, setShowPiecePrompt] = useState(false)
+  const pieceChoiceRef = useRef<'remember' | 'keep' | null>(null)
+  const [catalog, setCatalog] = useState<ProductRow[]>([])
+  const [fetchedStores, setFetchedStores] = useState<StoreRow[]>([])
+  const [budgetSearch, setBudgetSearch] = useState('')
+  const [budgetSuggestions, setBudgetSuggestions] = useState<ProductRow[]>([])
+  const [budgetHighlight, setBudgetHighlight] = useState(0)
+  const [budgetSuggestionsHidden, setBudgetSuggestionsHidden] = useState(false)
+  const budgetSearchRef = useRef<HTMLInputElement>(null)
+  const lastQtyRef = useRef<HTMLInputElement>(null)
+  const prevCartLen = useRef(mode === 'edit'
+    ? (editingOrder?.budgetItems?.length ?? 0)
+    : getOrderCreateDraft().budgetCart.length)
+  const alive = useRef(true)
+
+  const stores = storesProp ?? fetchedStores
+  const title = mode === 'edit' ? 'Editar pedido' : 'Nuevo pedido'
+
+  function patchForm(updater: (prev: OrderFormState) => OrderFormState): void {
+    if (mode === 'edit') setEditForm(updater)
+    else updateOrderCreateDraft(updater)
+  }
+
+  const hoursSourceFor = useCallback((storeId: string): StoreHoursSource | null => {
+    const id = showStoreFilter
+      ? storeId
+      : (hoursStoreId || stores[0]?.id || '')
+    const store = stores.find(item => item.id === id)
+    return store ? storeHoursSourceFromRecord(store) : null
+  }, [showStoreFilter, hoursStoreId, stores])
+
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
+
+  useEffect(() => {
+    if (!open || mode !== 'create') return
+    seedOrderCreateDraft(defaultStoreId)
+  }, [open, mode, defaultStoreId])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    window.hw.getProducts()
+      .then(result => {
+        if (cancelled) return
+        if (!result.ok) {
+          setFormError(result.error)
+          return
+        }
+        setCatalog(result.data)
+      })
+      .catch(err => {
+        if (cancelled) return
+        console.error('[OrderFormModal] getProducts falló', err)
+        setFormError(err instanceof Error ? err.message : 'No se pudo cargar el catálogo.')
+      })
+    window.hw.getPieceWeights()
+      .then(result => {
+        if (cancelled || !result.ok) return
+        setPieceWeights(Object.fromEntries(result.data.map(row => [row.productId, row.kgPerUnit])))
+      })
+      .catch(err => {
+        console.error('[OrderFormModal] getPieceWeights falló', err)
+      })
+    return () => { cancelled = true }
+  }, [open])
+
+  useEffect(() => {
+    if (!open || storesProp != null) return
+    let cancelled = false
+    window.hw.getStores()
+      .then(result => {
+        if (cancelled) return
+        if (!result.ok) {
+          setFormError(result.error)
+          return
+        }
+        setFetchedStores(result.data)
+      })
+      .catch(err => {
+        if (cancelled) return
+        console.error('[OrderFormModal] getStores falló', err)
+        setFormError(err instanceof Error ? err.message : 'No se pudieron cargar los locales.')
+      })
+    return () => { cancelled = true }
+  }, [open, storesProp])
+
+  useEffect(() => {
+    const query = budgetSearch.trim()
+    if (!query) {
+      setBudgetSuggestions([])
+      return
+    }
+    const results = searchProductsByQuery(catalog, query, {
+      nameOf: product => product.name,
+      pluOf: product => product.pluNumber ?? 0,
+    })
+    setBudgetSuggestions(results.slice(0, 8))
+    setBudgetHighlight(0)
+    setBudgetSuggestionsHidden(false)
+  }, [budgetSearch, catalog])
+
+  useEffect(() => {
+    if (form.budgetCart.length > prevCartLen.current) {
+      requestAnimationFrame(() => lastQtyRef.current?.focus())
+    }
+    prevCartLen.current = form.budgetCart.length
+  }, [form.budgetCart.length])
+
+  useEffect(() => {
+    if (!open) return
+    const current = mode === 'edit' ? editForm : getOrderCreateDraft()
+    const available = pickupSlotAvailability(hoursSourceFor(current.storeId), current.pickupDate)
+    const slotClosed = (current.timeSlot === 'afternoon' && !available.afternoon)
+      || (current.timeSlot === 'morning' && !available.morning)
+    if (!slotClosed) return
+    if (mode === 'edit') {
+      setEditForm(prev => (prev.timeSlot === '' ? prev : { ...prev, timeSlot: '' }))
+    } else {
+      updateOrderCreateDraft(prev => (prev.timeSlot === '' ? prev : { ...prev, timeSlot: '' }))
+    }
+  }, [open, mode, editForm, draft, hoursSourceFor])
+
+  function requestClose(): void {
+    if (saving) return
+    setShowDepositConfirm(false)
+    onClose()
+  }
+
+  function clearDraft(): void {
+    clearOrderCreateDraft(defaultStoreId)
+    setFormError(null)
+    setBudgetSearch('')
+    setBudgetSuggestions([])
+    setShowDepositConfirm(false)
+    prevCartLen.current = 0
+  }
+
+  const source = hoursSourceFor(form.storeId)
+  const liveBudget = resolvedBudgetLines(form.budgetCart)
+  const liveEstimate = estimatedBudgetTotal(liveBudget)
+  const livePickupHoursError = pickupHoursLiveErrorOnDate(form.timeSlot, form.pickupTime, source, form.pickupDate)
+  const slotAvailability = pickupSlotAvailability(source, form.pickupDate)
+  const pickupSlotOptions = (['morning', 'afternoon', 'specific'] as OrderTimeSlot[]).filter(slot => {
+    if (slot === 'morning') return slotAvailability.morning
+    if (slot === 'afternoon') return slotAvailability.afternoon
+    return true
+  })
+  const formIsValid = Boolean(
+    form.customerName.trim() && liveBudget.length > 0 && form.pickupDate && !livePickupHoursError,
+  )
+  const totalDeposit = depositTotal(form.depositPayments)
+  const contentBaseline = showStoreFilter ? defaultStoreId : form.storeId
+  const hasDraftContent = mode === 'create' && orderCreateDraftHasContent(form, contentBaseline)
+
+  function setDepositForMethod(method: DepositMethod, rawValue: string): void {
+    const amount = parseNumericInput(rawValue) ?? 0
+    patchForm(prev => {
+      const existing = prev.depositPayments.filter(payment => payment.method !== method)
+      if (amount > 0) return { ...prev, depositPayments: [...existing, { method, amount }] }
+      return { ...prev, depositPayments: existing }
+    })
+  }
+
+  function getDepositRaw(method: DepositMethod): string {
+    const payment = form.depositPayments.find(item => item.method === method)
+    return payment ? formatNumericInputValue(String(payment.amount)) : ''
+  }
+
+  async function handleSave(): Promise<void> {
+    setFormError(null)
+    const customerName = form.customerName.trim()
+    const pickupDate = form.pickupDate.trim()
+    const total = depositTotal(form.depositPayments)
+
+    if (!customerName) { setFormError('El nombre del cliente es obligatorio.'); return }
+    if (resolvedBudgetLines(form.budgetCart).length === 0) {
+      setFormError('Agregá al menos un producto con cantidad.'); return
+    }
+    if (!pickupDate) { setFormError('La fecha de retiro es obligatoria.'); return }
+    if (showStoreFilter && !form.storeId) { setFormError('Seleccioná un local para el pedido.'); return }
+    if (pickupDate < todayLocalYmd()) { setFormError('La fecha de retiro no puede ser anterior a hoy.'); return }
+    if (form.timeSlot === 'specific' && !form.pickupTime) {
+      setFormError('Ingresá el horario específico de retiro.'); return
+    }
+    if (form.timeSlot === 'specific' && form.pickupTime) {
+      const closed = pickupHoursLiveErrorOnDate(form.timeSlot, form.pickupTime, hoursSourceFor(form.storeId), form.pickupDate)
+      if (closed) { setFormError(closed); return }
+    }
+    const slotClosed = pickupSlotRegistrationError(form.timeSlot, hoursSourceFor(form.storeId), form.pickupDate)
+    if (slotClosed) { setFormError(slotClosed); return }
+    if (total > 0 && form.depositPayments.length === 0) {
+      setFormError('Seleccioná el medio de pago de la seña.'); return
+    }
+
+    const decisions = pieceDecisionsFor(form.budgetCart, pieceWeights)
+    if (decisions.changes.length > 0 && pieceChoiceRef.current == null) {
+      setPieceChanges(decisions.changes)
+      setShowPiecePrompt(true)
+      return
+    }
+
+    if (total > 0) {
+      setShowDepositConfirm(true)
+      return
+    }
+
+    await doSave()
+  }
+
+  async function doSave(): Promise<void> {
+    setShowDepositConfirm(false)
+    const choice = pieceChoiceRef.current
+    pieceChoiceRef.current = null
+    const decisions = pieceDecisionsFor(form.budgetCart, pieceWeights)
+    const toStore = choice === 'remember'
+      ? [...decisions.first, ...decisions.changes]
+      : decisions.first
+    if (toStore.length > 0) {
+      const saved = await window.hw.setPieceWeights({
+        items: toStore.map(item => ({ productId: item.productId, kgPerUnit: item.kgPerUnit })),
+      })
+      if (!saved.ok) {
+        if (alive.current) setFormError(saved.error)
+        return
+      }
+      setPieceWeights(prev => {
+        const next = { ...prev }
+        for (const item of toStore) next[item.productId] = item.kgPerUnit
+        return next
+      })
+    }
+    const customerName = form.customerName.trim()
+    const pickupDate = form.pickupDate.trim()
+    const total = depositTotal(form.depositPayments)
+    const budgetItems = resolvedBudgetLines(form.budgetCart)
+    const items = summarizeBudgetItems(budgetItems)
+
+    setSaving(true)
+    try {
+      if (mode === 'edit') {
+        if (!editingOrder) {
+          setFormError('No se encontró el pedido a editar.')
+          return
+        }
+        const payload: UpdateOrderPayload = {
+          id: editingOrder.id,
+          customerName,
+          phone: form.phone.replace(/\s/g, '') || undefined,
+          items,
+          pickupDate,
+          timeSlot: (form.timeSlot || null) as OrderTimeSlot | null,
+          pickupTime: form.timeSlot === 'specific' ? form.pickupTime || null : null,
+          priority: form.priority,
+          notes: form.notes.trim() || null,
+          depositAmount: total,
+          depositPayments: form.depositPayments.length > 0 ? form.depositPayments : null,
+          budgetItems,
+        }
+        const result = await window.hw.updateOrder(payload)
+        if (!result.ok) {
+          if (alive.current) setFormError(result.error)
+          return
+        }
+        onSaved(result.data, 'edit')
+      } else {
+        const payload: CreateOrderPayload = {
+          customerName,
+          phone: form.phone.replace(/\s/g, '') || undefined,
+          items,
+          pickupDate,
+          timeSlot: (form.timeSlot || undefined) as OrderTimeSlot | undefined,
+          pickupTime: form.timeSlot === 'specific' ? form.pickupTime || undefined : undefined,
+          priority: form.priority,
+          notes: form.notes.trim() || undefined,
+          depositAmount: total > 0 ? total : undefined,
+          depositPayments: total > 0 ? form.depositPayments : undefined,
+          storeId: showStoreFilter && form.storeId ? form.storeId : undefined,
+          budgetItems,
+        }
+        const result = await window.hw.createOrder(payload)
+        if (!result.ok) {
+          if (alive.current) setFormError(result.error)
+          return
+        }
+        resetOrderCreateDraft()
+        showAppToast('Pedido creado')
+        onSaved(result.data, 'create')
+      }
+      onClose()
+    } catch (err) {
+      console.error('[OrderFormModal] guardar pedido falló', err)
+      if (alive.current) {
+        setFormError(err instanceof Error ? err.message : 'No se pudo guardar el pedido.')
+      }
+    } finally {
+      if (alive.current) setSaving(false)
+    }
+  }
+
+  function addBudgetProduct(product: ProductRow): void {
+    patchForm(prev => ({
+      ...prev,
+      budgetCart: [...prev.budgetCart, {
+        productId: product.id,
+        name: product.name,
+        unit: product.unit,
+        pluNumber: product.pluNumber ?? null,
+        estimatedQty: 1,
+        unitPrice: product.price ?? 0,
+        qtyRaw: '',
+        requestedUnitsRaw: '',
+        pieceLinked: product.unit === 'kg' && pieceWeights[product.id] != null,
+      }],
+    }))
+    setBudgetSearch('')
+    setBudgetSuggestions([])
+    setBudgetHighlight(0)
+  }
+
+  const visibleBudgetSuggestions = budgetSuggestionsHidden ? [] : budgetSuggestions
+
+  function moveBudgetHighlight(step: number): void {
+    if (visibleBudgetSuggestions.length === 0) return
+    setBudgetHighlight(current => (current + step + visibleBudgetSuggestions.length) % visibleBudgetSuggestions.length)
+  }
+
+  const scrollMarkedBudgetRow = useCallback((node: HTMLLIElement | null) => {
+    node?.scrollIntoView?.({ block: 'nearest' })
+  }, [])
+
+  // Captura: la flecha marca una fila antes de que el campo mueva el cursor.
+  function handleBudgetSearchKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    const listOpen = visibleBudgetSuggestions.length > 0
+    if (!listOpen) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (event.altKey || event.ctrlKey || event.metaKey) return
+      event.preventDefault()
+      moveBudgetHighlight(event.key === 'ArrowDown' ? 1 : -1)
+    } else if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      const pick = visibleBudgetSuggestions[budgetHighlight] ?? visibleBudgetSuggestions[0]
+      if (pick) addBudgetProduct(pick)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setBudgetSuggestionsHidden(true)
+    }
+  }
+
+  function removeBudgetLine(idx: number): void {
+    patchForm(prev => ({
+      ...prev,
+      budgetCart: prev.budgetCart.filter((_, i) => i !== idx),
+    }))
+    requestAnimationFrame(() => {
+      const fields = document.querySelectorAll<HTMLElement>('[data-order-qty]')
+      const next = fields[Math.min(idx, fields.length - 1)]
+      if (next) next.focus()
+      else budgetSearchRef.current?.focus()
+    })
+  }
+
+  function focusOrderQty(index: number): void {
+    const fields = document.querySelectorAll<HTMLElement>('[data-order-qty]')
+    fields[index]?.focus()
+  }
+
+  function handleBudgetLineKeyDown(idx: number, event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'Delete' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      removeBudgetLine(idx)
+      return
+    }
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault()
+      focusOrderQty(idx + (event.key === 'ArrowDown' ? 1 : -1))
+      return
+    }
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
+    event.preventDefault()
+    budgetSearchRef.current?.focus()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function onKey(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Enter' || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.repeat) return
+      event.preventDefault()
+      event.stopPropagation()
+      const list = budgetSuggestionsHidden ? [] : budgetSuggestions
+      if (list.length > 0) {
+        const pick = list[budgetHighlight] ?? list[0]
+        if (pick) addBudgetProduct(pick)
+        return
+      }
+      budgetSearchRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [open, budgetSuggestions, budgetSuggestionsHidden, budgetHighlight, addBudgetProduct])
+
+  return (
+    <>
+      <Modal
+        open={open}
+        onClose={requestClose}
+        title={title}
+        size="md"
+        closeOnOverlay={!saving && !showDepositConfirm && !showPiecePrompt}
+        closeOnEscape={!saving && !showDepositConfirm && !showPiecePrompt}
+        header={(
+          <>
+            <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">
+              {title}
+            </h2>
+            <ModalCloseButton onClick={requestClose} disabled={saving} />
+          </>
+        )}
+        footer={(
+          <>
+            {hasDraftContent && (
+              <Button
+                variant="ghost"
+                className="mr-auto"
+                onClick={clearDraft}
+                disabled={saving}
+              >
+                Borrar borrador
+              </Button>
+            )}
+            <Button variant="secondary" onClick={requestClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button
+              loading={saving}
+              disabled={!formIsValid}
+              onClick={() => { void handleSave() }}
+            >
+              {saving ? 'Guardando…' : mode === 'edit' ? 'Guardar cambios' : 'Crear pedido'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          {showStoreFilter && mode === 'create' && stores.length > 0 && (
+            <Field label="Local *">
+              <select
+                value={form.storeId}
+                onChange={event => {
+                  const storeId = event.target.value
+                  patchForm(prev => {
+                    const store = stores.find(item => item.id === storeId)
+                    const available = pickupSlotAvailability(
+                      store ? storeHoursSourceFromRecord(store) : null,
+                      prev.pickupDate,
+                    )
+                    const timeSlot = (prev.timeSlot === 'afternoon' && !available.afternoon)
+                      || (prev.timeSlot === 'morning' && !available.morning)
+                      ? ''
+                      : prev.timeSlot
+                    return { ...prev, storeId, timeSlot }
+                  })
+                }}
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink focus:outline-none focus:border-line-accent text-sm"
+              >
+                <option value="">— Seleccioná un local —</option>
+                {stores.map(store => (
+                  <option key={store.id} value={store.id}>{store.name}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={form.priority}
+              onChange={event => patchForm(prev => ({ ...prev, priority: event.target.checked }))}
+              className="w-4 h-4 accent-orange-500"
+            />
+            <span className="text-sm font-medium text-muted">⚡ Pedido prioritario / importante</span>
+          </label>
+
+          <Field label="Nombre del cliente *">
+            <input
+              type="text"
+              value={form.customerName}
+              onChange={event => patchForm(prev => ({ ...prev, customerName: event.target.value }))}
+              placeholder="Ej: Restaurante El Sol"
+              maxLength={100}
+              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
+            />
+          </Field>
+
+          <Field label="Teléfono (opcional)">
+            <input
+              type="tel"
+              inputMode="tel"
+              value={form.phone}
+              onChange={event => patchForm(prev => ({ ...prev, phone: formatPhoneInput(event.target.value) }))}
+              placeholder="+54 9 11 1234-5678"
+              maxLength={30}
+              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
+            />
+          </Field>
+
+          <div className="space-y-3 bg-raised rounded-xl p-4 border border-line">
+            <p className="text-sm font-medium text-ink">Productos *</p>
+            <CollapseReveal open={mode === 'edit' && form.budgetCart.length === 0 && Boolean(form.items)}>
+              {form.items ? (
+                <p className="text-[11px] text-muted break-words" title={form.items}>
+                  Texto anterior: {form.items}
+                </p>
+              ) : null}
+            </CollapseReveal>
+
+            <CollapseReveal open={form.budgetCart.length > 0}>
+              <div className="space-y-1.5">
+                {form.budgetCart.map((line, idx) => {
+                  const isLast = idx === form.budgetCart.length - 1
+                  const missingWeight = kgLineMissingWeight(line)
+                  return (
+                    <div key={`${line.productId}-${idx}`} className="space-y-1">
+                      <div className="flex items-center gap-2 bg-hover rounded-lg px-3 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-ink truncate" title={line.name}>{line.name}</p>
+                          <p className="text-[10px] text-muted">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                          {line.unit === 'kg' && line.productId && pieceWeights[line.productId] != null && (
+                            <p className="text-[10px] text-muted">Referencia {formatKgQty(pieceWeights[line.productId]!)} c/u</p>
+                          )}
+                        </div>
+                        <div className="shrink-0 w-20">
+                          {line.unit === 'kg' ? (
+                            <DecimalInput
+                              ref={isLast ? lastQtyRef : undefined}
+                              data-order-qty=""
+                              value={line.qtyRaw}
+                              onKeyDown={event => handleBudgetLineKeyDown(idx, event)}
+                              onChange={value => patchForm(prev => ({
+                                ...prev,
+                                budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, qtyRaw: value, pieceLinked: false } : item),
+                              }))}
+                              placeholder="kg"
+                              maxDecimals={3}
+                              weightMode
+                              title="Peso estimado"
+                              className={`w-full bg-panel rounded px-2 py-1 text-xs text-ink text-right ${
+                                missingWeight
+                                  ? 'border border-orange-600/80'
+                                  : 'border border-line-strong'
+                              }`}
+                            />
+                          ) : (
+                            <NumericInput
+                              ref={isLast ? lastQtyRef : undefined}
+                              data-order-qty=""
+                              value={line.qtyRaw}
+                              onKeyDown={event => handleBudgetLineKeyDown(idx, event)}
+                              onChange={value => patchForm(prev => ({
+                                ...prev,
+                                budgetCart: prev.budgetCart.map((item, i) => i === idx ? { ...item, qtyRaw: value } : item),
+                              }))}
+                              placeholder="0"
+                              title="Cantidad"
+                              className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
+                            />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted shrink-0 w-6">{line.unit === 'kg' ? 'kg' : 'u'}</span>
+                        {line.unit === 'kg' && (
+                          <>
+                            <div className="shrink-0 w-12">
+                              <NumericInput
+                                value={line.requestedUnitsRaw}
+                                onKeyDown={event => handleBudgetLineKeyDown(idx, event)}
+                                onChange={value => patchForm(prev => ({
+                                  ...prev,
+                                  budgetCart: prev.budgetCart.map((item, i) => {
+                                    if (i !== idx) return item
+                                    const units = parseNumericInput(value)
+                                    const piece = item.productId ? pieceWeights[item.productId] : undefined
+                                    const next = { ...item, requestedUnitsRaw: value }
+                                    if (piece != null && units != null && units > 0 && (item.pieceLinked || !item.qtyRaw.trim())) {
+                                      const kg = estimateKgFromPiece(units, piece)
+                                      if (kg != null) {
+                                        next.qtyRaw = kgFieldValue(kg)
+                                        next.pieceLinked = true
+                                      }
+                                    }
+                                    return next
+                                  }),
+                                }))}
+                                placeholder=""
+                                title="Unidades pedidas (opcional). Vacío = pidió kilos."
+                                className="w-full bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted shrink-0" title="Unidades pedidas">u</span>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => removeBudgetLine(idx)}
+                          className="shrink-0 text-muted hover:text-danger text-sm"
+                          title="Quitar"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      {missingWeight && (
+                        <p className="text-[11px] text-orange-500/85 px-1">
+                          Sin kilos no hay precio estimado. Preguntá cuánto pueden pesar y cargalo en kg.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </CollapseReveal>
+
+            <div>
+              <input
+                ref={budgetSearchRef}
+                type="text"
+                value={budgetSearch}
+                onChange={event => setBudgetSearch(event.target.value)}
+                onKeyDownCapture={handleBudgetSearchKeyDown}
+                onBlur={() => setBudgetSuggestionsHidden(true)}
+                placeholder="Buscar producto…"
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
+              />
+              <SuggestPopover anchorRef={budgetSearchRef} open={visibleBudgetSuggestions.length > 0}>
+                <ul className="w-full">
+                  {visibleBudgetSuggestions.map((product, index) => {
+                    const marked = index === budgetHighlight
+                    return (
+                      <li
+                        key={product.id}
+                        ref={marked ? scrollMarkedBudgetRow : undefined}
+                        data-budget-marked={marked ? 'true' : undefined}
+                        className={`w-full ${marked ? 'bg-accent-soft' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onMouseDown={event => event.preventDefault()}
+                          onMouseEnter={() => setBudgetHighlight(index)}
+                          onClick={() => addBudgetProduct(product)}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink ${
+                            marked ? 'bg-accent-soft' : 'hover:bg-hover'
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1 truncate" title={product.name}>{product.name}</span>
+                          <span className="shrink-0 text-muted">{formatARS(product.price ?? 0)}/{product.unit === 'kg' ? 'kg' : 'u'}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </SuggestPopover>
+            </div>
+
+            <CollapseReveal open={liveEstimate > 0}>
+              <div className="flex items-center justify-between pt-1 border-t border-line">
+                <span className="text-xs text-muted">Total estimado</span>
+                <span className="text-sm font-semibold text-ink tabular-nums">{formatARS(liveEstimate)}</span>
+              </div>
+            </CollapseReveal>
+          </div>
+
+          <Field label="Notas">
+            <textarea
+              value={form.notes}
+              onChange={event => patchForm(prev => ({ ...prev, notes: event.target.value }))}
+              placeholder="Observaciones del pedido…"
+              rows={2}
+              maxLength={300}
+              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink placeholder:text-muted focus:outline-none focus:border-line-accent resize-none"
+            />
+          </Field>
+
+          <Field label="Fecha de retiro *">
+            <input
+              type="date"
+              value={form.pickupDate}
+              min={todayLocalYmd()}
+              onChange={event => {
+                const pickupDate = event.target.value
+                patchForm(prev => {
+                  const available = pickupSlotAvailability(hoursSourceFor(prev.storeId), pickupDate)
+                  const timeSlot = (prev.timeSlot === 'afternoon' && !available.afternoon)
+                    || (prev.timeSlot === 'morning' && !available.morning)
+                    ? ''
+                    : prev.timeSlot
+                  return { ...prev, pickupDate, timeSlot }
+                })
+              }}
+              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-ink focus:outline-none focus:border-line-accent"
+            />
+          </Field>
+
+          <div className="space-y-2">
+            <label className="text-xs text-muted">Horario de retiro (opcional)</label>
+            <div className={`grid gap-2 ${pickupSlotOptions.length === 3 ? 'grid-cols-3' : pickupSlotOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {pickupSlotOptions.map(slot => (
+                <button
+                  key={slot}
+                  type="button"
+                  onClick={() => patchForm(prev => ({ ...prev, timeSlot: prev.timeSlot === slot ? '' : slot }))}
+                  className={`py-2 rounded-lg text-xs font-medium transition-colors border ${
+                    form.timeSlot === slot
+                      ? 'bg-accent border-line-accent text-ink'
+                      : 'bg-panel border-line text-ink hover:bg-hover'
+                  }`}
+                >
+                  {TIME_SLOT_LABELS[slot]}
+                </button>
+              ))}
+            </div>
+            <CollapseReveal open={form.timeSlot === 'specific'}>
+              <div className="space-y-2">
+                <p className="text-xs text-amber-400/90 leading-snug">{PICKUP_SPECIFIC_HINT}</p>
+                <input
+                  type="time"
+                  value={form.pickupTime}
+                  onChange={event => {
+                    setFormError(null)
+                    patchForm(prev => ({ ...prev, pickupTime: event.target.value }))
+                  }}
+                  className={`w-full bg-panel border rounded-lg px-3 py-2 text-ink focus:outline-none ${
+                    livePickupHoursError
+                      ? 'border-red-500 focus:border-red-400'
+                      : 'border-line focus:border-line-accent'
+                  }`}
+                />
+                {livePickupHoursError && (
+                  <p className="text-sm text-danger">{livePickupHoursError}</p>
+                )}
+              </div>
+            </CollapseReveal>
+          </div>
+
+          <div className="space-y-3 bg-raised rounded-xl p-4 border border-line">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <p className="text-sm font-medium text-ink">Seña (opcional)</p>
+              {totalDeposit > 0 && (
+                <span className="shrink-0 text-sm font-semibold text-blue-300">{formatARS(totalDeposit)} total</span>
+              )}
+            </div>
+            <div className="space-y-2">
+              {(['cash', 'debit', 'wallet', 'credit'] as DepositMethod[]).map(method => (
+                <div key={method} className="flex items-center gap-2">
+                  <span className="text-xs text-muted w-28 shrink-0">{DEPOSIT_METHOD_LABELS[method]}</span>
+                  <NumericInput
+                    value={getDepositRaw(method)}
+                    onChange={value => setDepositForMethod(method, value)}
+                    placeholder="0"
+                    className="flex-1 bg-panel border border-line rounded-lg px-3 py-1.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-line-accent"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <CollapseReveal open={formError != null}>
+            {formError ? <p className="text-danger text-sm">{formError}</p> : null}
+          </CollapseReveal>
+        </div>
+      </Modal>
+
+      <Modal
+        open={open && showPiecePrompt}
+        onClose={() => { pieceChoiceRef.current = null; setShowPiecePrompt(false) }}
+        title="Peso por unidad"
+        size="sm"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => { pieceChoiceRef.current = 'keep'; setShowPiecePrompt(false); void handleSave() }}>
+              Usar ahora, no cambiar
+            </Button>
+            <Button onClick={() => { pieceChoiceRef.current = 'remember'; setShowPiecePrompt(false); void handleSave() }}>
+              Recordar los nuevos
+            </Button>
+          </>
+        )}
+      >
+        <p className="text-sm text-muted">Este peso por unidad es distinto al de la última vez. ¿Lo recordamos para el próximo pedido?</p>
+        <ul className="mt-3 space-y-2">
+          {pieceChanges.map(change => (
+            <li key={change.productId} className="flex items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate" title={change.name}>{change.name}</span>
+              <span className="shrink-0 tabular-nums text-muted">{formatKgQty(change.previous)} → {formatKgQty(change.kgPerUnit)}</span>
+            </li>
+          ))}
+        </ul>
+      </Modal>
+
+      <Modal
+        open={open && showDepositConfirm}
+        onClose={() => setShowDepositConfirm(false)}
+        title={mode === 'edit' ? 'Confirmar cambios en el pedido' : 'Confirmar pedido con seña'}
+        size="sm"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setShowDepositConfirm(false)} disabled={saving}>
+              Volver
+            </Button>
+            <Button loading={saving} onClick={() => { void doSave() }}>
+              {saving ? 'Guardando…' : 'Confirmar'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className="shrink-0 text-muted">Cliente</span>
+            <span className="min-w-0 truncate text-ink font-medium" title={form.customerName.trim()}>
+              {form.customerName.trim()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted">Retiro</span>
+            <span className="text-ink">{formatYmd(form.pickupDate)}</span>
+          </div>
+          <div className="border-t border-line pt-2 space-y-1">
+            <p className="text-xs text-muted font-semibold uppercase tracking-wider">Seña</p>
+            {form.depositPayments.map(payment => (
+              <div key={payment.method} className="flex justify-between">
+                <span className="text-muted">{DEPOSIT_METHOD_LABELS[payment.method]}</span>
+                <span className="text-blue-300 font-semibold">{formatARS(payment.amount)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between border-t border-line pt-1">
+              <span className="text-ink font-semibold">Total seña</span>
+              <span className="text-blue-300 font-bold">{formatARS(totalDeposit)}</span>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs text-muted">{label}</label>
+      {children}
+    </div>
+  )
+}

@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react'
 import BackButton from '../components/BackButton'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 import type { CashierRow, StoreRow } from '../types/hw-api'
 
 interface Props {
@@ -248,8 +249,11 @@ function CashierFormModal({ mode, cashier, stores, defaultStoreIds, onClose, onS
 
   if (created) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
-        <div className="bg-panel rounded-xl w-full max-w-md p-6 shadow-xl text-center space-y-3">
+      <ModalLayer onClose={onSaved} className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
+        <div className="relative bg-panel rounded-xl w-full max-w-md p-6 shadow-xl text-center space-y-3">
+          <div className="absolute right-3 top-3">
+            <ModalCloseButton onClick={onSaved} />
+          </div>
           <div className="text-4xl">✅</div>
           <h2 className="text-lg font-semibold">Cajera creada</h2>
           <p className="text-sm text-muted">
@@ -262,19 +266,23 @@ function CashierFormModal({ mode, cashier, stores, defaultStoreIds, onClose, onS
             Cerrar
           </button>
         </div>
-      </div>
+      </ModalLayer>
     )
   }
 
   return (
-    <div
+    <ModalLayer
+      onClose={onClose}
+      enabled={!saving}
       className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
-      onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}
     >
       <div className="bg-panel rounded-xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-semibold mb-2">
+        <div className="mb-2 flex items-center gap-2 min-w-0">
+          <h2 className="min-w-0 flex-1 text-lg font-semibold">
           {mode === 'create' ? 'Nueva cajera' : 'Editar cajera'}
-        </h2>
+          </h2>
+          <ModalCloseButton onClick={onClose} disabled={saving} />
+        </div>
         <p className="text-xs text-muted mb-5">
           {mode === 'create'
             ? 'Recibirá un email para definir su contraseña. Puede operar en todos los locales activos.'
@@ -347,7 +355,7 @@ function CashierFormModal({ mode, cashier, stores, defaultStoreIds, onClose, onS
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -363,16 +371,18 @@ interface DeleteConfirmModalProps {
 
 function DeleteConfirmModal({ cashier, onConfirm, onCancel }: DeleteConfirmModalProps) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade"
-      onClick={e => { if (e.target === e.currentTarget) onCancel() }}>
+    <ModalLayer onClose={onCancel} className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 animate-overlay-fade">
       <div className="bg-panel rounded-2xl border border-line w-full max-w-sm p-6 space-y-4">
-        <h2 className="text-base font-semibold text-ink min-w-0">
+        <div className="flex items-start gap-2 min-w-0">
+        <h2 className="min-w-0 flex-1 text-base font-semibold text-ink">
           ¿Estás seguro que querés eliminar{' '}
           <span className="truncate inline-block max-w-full align-bottom" title={cashier.displayName}>
             {cashier.displayName}
           </span>
           ?
         </h2>
+          <ModalCloseButton onClick={onCancel} />
+        </div>
         <div className="flex gap-3 pt-1">
           <button
             type="button"
@@ -390,6 +400,6 @@ function DeleteConfirmModal({ cashier, onConfirm, onCancel }: DeleteConfirmModal
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }

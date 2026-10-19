@@ -323,6 +323,11 @@ export interface MerchIntakeLineSnapshot {
   unitCost: number
   costTotal: number
   packCount: number | null
+  /** null en visitas viejas: un kilo por cajón, no un peso total. */
+  weighMode: 'each' | 'total' | null
+  /** payable entra al total. informed es costo anotado. none no tiene precio. */
+  moneyRole: 'payable' | 'informed' | 'none'
+  notForSale: boolean
 }
 
 export function resolveMerchLineFacts(
@@ -390,6 +395,9 @@ export function snapshotFromFacts(
     unitCost: 0,
     costTotal: 0,
     packCount: null,
+    weighMode: null,
+    moneyRole: 'payable',
+    notForSale: false,
   }
 }
 
@@ -440,6 +448,23 @@ function asFiniteNumber(value: unknown): number | null {
   return null
 }
 
+/**
+ * Precio unitario de compra en pesos, con centavos.
+ * Math.round(n * 100) / 100 antes de persistir o multiplicar, para no guardar basura binaria.
+ * En montos ≥ 0, el .5 se aleja de cero (4800.505 → 4800.51). No reescala: 9000 sigue siendo 9000.
+ */
+export function roundPurchaseUnitCost(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return Number.NaN
+  return Math.round(n * 100) / 100
+}
+
+function purchaseUnitCostOrZero(value: unknown): number {
+  const n = asFiniteNumber(value)
+  if (n == null || n < 0) return 0
+  const rounded = roundPurchaseUnitCost(n)
+  return Number.isFinite(rounded) ? rounded : 0
+}
+
 export function parseMerchLineSnapshot(raw: unknown, index: number, intakeId: string): MerchIntakeLineSnapshot | null {
   if (!raw || typeof raw !== 'object') return null
   const data = raw as Record<string, unknown>
@@ -487,12 +512,17 @@ export function parseMerchLineSnapshot(raw: unknown, index: number, intakeId: st
     costUnit: data['costUnit'] === 'kg' || data['costUnit'] === 'unit' || data['costUnit'] === 'pack'
       ? data['costUnit']
       : null,
-    unitCost: Math.max(0, Math.round(asFiniteNumber(data['unitCost']) ?? 0)),
+    unitCost: purchaseUnitCostOrZero(data['unitCost']),
     costTotal: Math.max(0, Math.round(asFiniteNumber(data['costTotal']) ?? 0)),
     packCount: (() => {
       const n = asFiniteNumber(data['packCount'])
       return n != null && n > 0 ? Math.round(n) : null
     })(),
+    weighMode: data['weighMode'] === 'each' || data['weighMode'] === 'total' ? data['weighMode'] : null,
+    moneyRole: data['moneyRole'] === 'informed' || data['moneyRole'] === 'none'
+      ? data['moneyRole']
+      : 'payable',
+    notForSale: data['notForSale'] === true,
   }
 }
 
@@ -542,6 +572,9 @@ export function merchLineToFirestore(line: MerchIntakeLineSnapshot): Record<stri
     unitCost: line.unitCost,
     costTotal: line.costTotal,
     packCount: line.packCount,
+    weighMode: line.weighMode,
+    moneyRole: line.moneyRole,
+    notForSale: line.notForSale,
   }
 }
 

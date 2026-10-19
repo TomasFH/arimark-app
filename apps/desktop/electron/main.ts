@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import log from 'electron-log'
 import { registerAllHandlers } from './ipc/index'
+import { attachQuitConfirm } from './ipc/appQuit.handler'
 import { applyInitialZoom, applyWindowChrome, hookZoomShortcuts, readSettings, windowBackgroundForScheme } from './ipc/uiSettings.handler'
 import { initHardwareManager, getHardwareManager } from './hardware/hardwareManager'
 import { loadBusinessConfig } from './businessConfig'
@@ -203,7 +204,7 @@ app.whenReady().then(async () => {
 
   await manager.start()
 
-  createWindow()
+  attachQuitConfirm(createWindow())
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

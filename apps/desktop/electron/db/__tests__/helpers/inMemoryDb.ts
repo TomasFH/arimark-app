@@ -57,4 +57,8 @@ class SqliteShim {
       },
     }
   }
+
+  exec(sqlText: string) {
+    this.db.run(sqlText)
+  }
 }

@@ -54,3 +54,62 @@ export function searchProductsByQuery<T>(
   }
   return filterAndRankByName(items, raw, opts.nameOf)
 }
+
+/**
+ * Lo que falta para vender: PLU (global) o precio de venta en un local donde el producto está disponible.
+ * Si en ese local está no disponible, no hay marca.
+ */
+export function catalogPendingGap(row: {
+  pluNumber: number | null
+  price: number | null
+  available: boolean
+}): 'plu' | 'price' | 'both' | null {
+  if (!row.available) return null
+  const missingPlu = row.pluNumber == null
+  const missingPrice = row.price == null
+  if (!missingPlu && !missingPrice) return null
+  if (missingPlu && missingPrice) return 'both'
+  return missingPlu ? 'plu' : 'price'
+}
+
+export function catalogPendingLabel(gap: 'plu' | 'price' | 'both' | null): string | null {
+  if (gap === 'both') return 'Falta PLU y precio'
+  if (gap === 'plu') return 'Falta PLU'
+  if (gap === 'price') return 'Falta precio'
+  return null
+}
+
+/** Los incompletos quedan arriba. El desempate es el orden que ya eligió la pantalla. */
+export function compareWithCatalogPending<T>(
+  a: T,
+  b: T,
+  gapOf: (row: T) => 'plu' | 'price' | 'both' | null,
+  tie: (a: T, b: T) => number,
+): number {
+  const ag = gapOf(a) == null ? 1 : 0
+  const bg = gapOf(b) == null ? 1 : 0
+  if (ag !== bg) return ag - bg
+  return tie(a, b)
+}
+
+const VISIT_MERCH_MATCH_LIMIT = 8
+
+/**
+ * Sugerencias de mercadería en la visita: coincidencia parcial y tope de 8.
+ * Sin texto muestra los primeros 8, en el orden recibido.
+ * El PLU se compara como substring del texto tipeado.
+ */
+export function matchVisitMerchProducts<T extends { name: string; pluNumber: number | string | null }>(
+  products: readonly T[],
+  query: string,
+): T[] {
+  const pluQuery = query.trim()
+  if (!pluQuery) return products.slice(0, VISIT_MERCH_MATCH_LIMIT)
+  const nameQuery = normalizeCatalogSearch(pluQuery)
+  return products
+    .filter(product =>
+      (nameQuery.length > 0 && normalizeCatalogSearch(product.name).includes(nameQuery))
+      || (product.pluNumber != null && String(product.pluNumber).includes(pluQuery)),
+    )
+    .slice(0, VISIT_MERCH_MATCH_LIMIT)
+}

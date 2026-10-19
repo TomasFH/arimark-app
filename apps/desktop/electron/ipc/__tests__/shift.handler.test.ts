@@ -47,7 +47,7 @@ import { getActiveSession, updateActiveShift } from '../../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
 import { registerShiftHandlers } from '../shift.handler'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, expenses, sales, salePayments, billDenominations } from '../../db/schema'
+import { stores, users, shifts, expenses, sales, salePayments, billDenominations, providerDebtEvents } from '../../db/schema'
 import { eq } from 'drizzle-orm'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown | Promise<unknown>
@@ -419,6 +419,14 @@ describe('shift.handler', () => {
             }),
           })
           .mockReturnValueOnce({
+            // medios por venta, para contar sin duplicar una mezcla
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({ all: mockExpensesAll }),
             }),
@@ -494,6 +502,14 @@ describe('shift.handler', () => {
                 where: vi.fn().mockReturnValue({
                   groupBy: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
                 }),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            // medios por venta, para contar sin duplicar una mezcla
+            from: vi.fn().mockReturnValue({
+              innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
               }),
             }),
           })
@@ -677,6 +693,135 @@ describe('shift.handler', () => {
       expect(Number(result.data.totalCashInjects)).toBe(2000)
       // opening(1000) + cash confirmado(5000) + inject(2000) — la anulada no suma
       expect(result.data.cashInHand).toBe(8000)
+    })
+
+    it('una visita que saldó deuda vieja baja la caja por la suma', async () => {
+      const instance = await createInMemoryDb()
+      const db = instance.db
+      const now = new Date().toISOString()
+
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-001',
+        name: 'Cajera Test',
+        storeId: 'store-001',
+        role: 'cashier',
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-001',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 10_040_001,
+        source: 'desktop',
+      }).run()
+      db.insert(expenses).values({
+        id: 'exp-visita',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        kind: 'expense',
+        concept: 'Visita',
+        amount: 2_734_642,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-pago-viejo',
+        storeId: 'store-001',
+        provider: 'Guido',
+        type: 'payment',
+        amount: 2_634_642,
+        expenseId: 'exp-visita',
+        shiftId: 'shift-001',
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-shift-summary')({}) as {
+        ok: boolean
+        data: { cashInHand: number; totalExpenses: number }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data.totalExpenses).toBe(2_734_642)
+      // 10.040.001 − 2.734.642. El payment del ledger no se resta otra vez.
+      expect(result.data.cashInHand).toBe(7_305_359)
+    })
+
+    it('un pago al proveedor desde el turno no resta dos veces', async () => {
+      const instance = await createInMemoryDb()
+      const db = instance.db
+      const now = new Date().toISOString()
+
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-001',
+        name: 'Cajera Test',
+        storeId: 'store-001',
+        role: 'cashier',
+        active: true,
+        createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-001',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 1_000_000,
+        source: 'desktop',
+      }).run()
+      // pay-from-shift: amount ya es la suma de los payments y no hay intake.
+      db.insert(expenses).values({
+        id: 'exp-pay-shift',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        kind: 'expense',
+        amount: 350_000,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values([
+        {
+          id: 'evt-pay-1',
+          storeId: 'store-001',
+          provider: 'Guido',
+          type: 'payment',
+          amount: 50_000,
+          expenseId: 'exp-pay-shift',
+          shiftId: 'shift-001',
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+        {
+          id: 'evt-pay-2',
+          storeId: 'store-002',
+          provider: 'Guido',
+          type: 'payment',
+          amount: 300_000,
+          expenseId: 'exp-pay-shift',
+          shiftId: 'shift-001',
+          createdAt: now,
+          createdBy: 'user-001',
+        },
+      ]).run()
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:get-shift-summary')({}) as {
+        ok: boolean
+        data: { cashInHand: number; totalExpenses: number }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data.totalExpenses).toBe(350_000)
+      expect(result.data.cashInHand).toBe(650_000)
     })
   })
 

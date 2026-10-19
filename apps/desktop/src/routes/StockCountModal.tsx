@@ -19,6 +19,7 @@ import {
   parseNumericInput,
 } from '../lib/numericInput'
 import type { CreateStockCountItemPayload, ProductRow, StockCountItemRow, StoreRow } from '../types/hw-api'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 
 interface Props {
   onClose: () => void
@@ -479,11 +480,11 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
   })
 
   return (
-    <div
+    <ModalLayer
+      onClose={() => { if (!saving) void handleSaveAndClose() }}
+      escape={false}
+      overlay={!saving}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={e => {
-        if (e.target === e.currentTarget && !saving) void handleSaveAndClose()
-      }}
     >
       <div className="flex flex-col bg-raised border border-line rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh]">
         <div className="flex items-center justify-between gap-2 min-w-0 border-b border-line px-5 py-3">
@@ -495,21 +496,7 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
               {countStatus === 'draft' ? ' · Borrador' : countStatus === 'final' ? ' · Registrado' : ''}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void handleSaveAndClose()}
-            disabled={saving}
-            className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors disabled:opacity-50"
-            aria-label="Cerrar"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
+          <ModalCloseButton onClick={() => void handleSaveAndClose()} disabled={saving} />
         </div>
 
         {successId ? (
@@ -837,16 +824,18 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
       </div>
 
       {confirmFinalize && (
-        <div
+        <ModalLayer
+          onClose={() => { if (!saving) setConfirmFinalize(false) }}
+          enabled={!saving}
           className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4"
-          onClick={e => {
-            if (e.target === e.currentTarget && !saving) setConfirmFinalize(false)
-          }}
         >
           <div className="bg-raised rounded-2xl border border-line w-full max-w-sm p-6 space-y-4 shadow-xl">
-            <h2 className="text-base font-semibold text-ink">
+            <div className="flex items-start gap-2 min-w-0">
+            <h2 className="min-w-0 flex-1 text-base font-semibold text-ink">
               {countStatus === 'final' ? '¿Guardar los cambios?' : '¿Finalizar el conteo?'}
             </h2>
+              <ModalCloseButton onClick={() => setConfirmFinalize(false)} disabled={saving} />
+            </div>
             <p className="text-sm text-muted">
               {countStatus === 'final'
                 ? `Se actualiza el conteo${storeName ? ` de ${storeName}` : ''}. La anotación original de la cajera se conserva para comparar.`
@@ -871,19 +860,21 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
       {confirmCancel && (
-        <div
+        <ModalLayer
+          onClose={() => { if (!saving) setConfirmCancel(false) }}
+          enabled={!saving}
           className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4"
-          onClick={e => {
-            if (e.target === e.currentTarget && !saving) setConfirmCancel(false)
-          }}
         >
           <div className="bg-raised rounded-2xl border border-line w-full max-w-sm p-6 space-y-4 shadow-xl">
-            <h2 className="text-base font-semibold text-ink">
+            <div className="flex items-start gap-2 min-w-0">
+            <h2 className="min-w-0 flex-1 text-base font-semibold text-ink">
               {countStatus === 'final' ? '¿Descartar los cambios?' : '¿Borrar lo anotado?'}
             </h2>
+              <ModalCloseButton onClick={() => setConfirmCancel(false)} disabled={saving} />
+            </div>
             <p className="text-sm text-muted">
               {countStatus === 'final'
                 ? 'Los kilos que cambiaste ahora no se guardan. El conteo ya registrado se mantiene como estaba.'
@@ -908,8 +899,8 @@ export default function StockCountModal({ onClose, storeId, countDate, onSaved }
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
-    </div>
+    </ModalLayer>
   )
 }

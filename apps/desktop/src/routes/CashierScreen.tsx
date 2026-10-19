@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
-import PaymentModal from '../components/PaymentModal'
+import PaymentModal, { paymentMethodFromFunctionKey, type PaymentMethod } from '../components/PaymentModal'
 import CatalogAssignField from '../components/CatalogAssignField'
 import BagsPanel from '../components/BagsPanel'
 import ProductsListModal from '../components/ProductsListModal'
@@ -16,6 +16,9 @@ import ValesModal from './ValesModal'
 import SalaryPaymentModal from './SalaryPaymentModal'
 import StockCountModal from './StockCountModal'
 import ShiftSalesModal from './ShiftSalesModal'
+import OrderFormModal from '../components/OrderFormModal'
+import { seedOrderCreateDraft } from '../lib/orderCreateDraft'
+import { clearOrderChargeDraft } from '../lib/orderChargeDraft'
 import DebtModal from '../components/DebtModal'
 import ChangePasswordModal from '../components/ChangePasswordModal'
 import { BrandMark, Button, ListRow, Modal, ScreenHeader, cx } from '../components/ui'
@@ -60,6 +63,24 @@ const SHOW_SPECIAL_CUSTOMER_POS_SELECTOR = false
 /** Asistencia pausada: reactivar con `true`. No borrar AttendanceModal. */
 const SHOW_ATTENDANCE_UI = false
 
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+function altShortcutAction(event: KeyboardEvent): 'venta' | 'pedido' | 'vales' | 'gastos' | 'turno' | 'ingreso' | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null
+  const key = event.key.toLowerCase()
+  if (event.code === 'Digit1' || key === '1') return 'venta'
+  if (event.code === 'Digit2' || key === '2') return 'pedido'
+  if (event.code === 'Digit3' || key === '3') return 'vales'
+  if (event.code === 'Digit4' || key === '4') return 'gastos'
+  if (event.code === 'Digit5' || key === '5') return 'turno'
+  if (event.code === 'KeyI' || key === 'i' || key === 'í') return 'ingreso'
+  return null
+}
+
 interface CartItem extends SaleItemDraft {
   localId: string
 }
@@ -71,6 +92,12 @@ interface CartItem extends SaleItemDraft {
 const IconMenu = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+  </svg>
+)
+
+const IconOrder = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12m-12 5.25h12m-12 5.25h7.5M3.75 6.75h.008v.008H3.75V6.75Zm0 5.25h.008v.008H3.75v-.008Zm0 5.25h.008v.008H3.75v-.008Z" />
   </svg>
 )
 
@@ -225,6 +252,71 @@ interface SidebarBtnProps {
   label: string
   onClick: () => void
   active?: boolean
+}
+
+const SHORTCUT_GROUPS: { title: string; rows: [string, string][] }[] = [
+  {
+    title: 'Venta',
+    rows: [
+      ['F1', 'Efectivo'],
+      ['F2', 'Débito'],
+      ['F3', 'Billetera virtual'],
+      ['F9', 'Crédito'],
+      ['F5', 'Dividir el pago'],
+      ['F6', 'Carga manual'],
+      ['F7', 'Bolsas'],
+      ['Supr', 'Quitar la línea marcada'],
+      ['Alt+1', 'Venta'],
+      ['Alt+2', 'Pedido'],
+      ['Alt+3', 'Vales'],
+      ['Alt+4', 'Gastos'],
+      ['Alt+5', 'Turno'],
+      ['Alt+I', 'Ingreso'],
+    ],
+  },
+  {
+    title: 'Bolsas abiertas',
+    rows: [
+      ['Derecha', 'Sumar una'],
+      ['Izquierda', 'Sacar una'],
+      ['Escape', 'Cerrar la lista'],
+    ],
+  },
+  {
+    title: 'Pedido',
+    rows: [
+      ['Flechas', 'Elegir producto'],
+      ['Enter', 'Agregar el producto'],
+      ['Ctrl+Enter', 'Ir a buscar'],
+      ['Supr', 'Quitar la línea'],
+    ],
+  },
+]
+
+function ShortcutList() {
+  return (
+    <div className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-3">
+      {SHORTCUT_GROUPS.map((group, index) => (
+        <section
+          key={group.title}
+          className={cx(
+            'min-w-0 space-y-1.5',
+            index > 0 && 'sm:border-l sm:border-line sm:pl-3',
+          )}
+        >
+          <h3 className="text-xs font-semibold text-muted">{group.title}</h3>
+          <ul className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-1">
+            {group.rows.map(([key, label]) => (
+              <li key={key} className="col-span-2 grid grid-cols-subgrid items-center">
+                <span className="w-fit justify-self-start whitespace-nowrap rounded-md border border-line bg-raised px-1.5 py-0.5 font-mono text-[10px] text-ink">{key}</span>
+                <span className="min-w-0 text-sm text-ink">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
 }
 
 function SidebarBtn({ icon, label, onClick, active }: SidebarBtnProps) {
@@ -422,6 +514,7 @@ export default function CashierScreen({
   const [showStockCountModal, setShowStockCountModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showProductsModal, setShowProductsModal] = useState(false)
+  const [showOrderForm, setShowOrderForm] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showCashInjectModal, setShowCashInjectModal] = useState(false)
   const [showCeboModal, setShowCeboModal] = useState(false)
@@ -444,6 +537,7 @@ export default function CashierScreen({
   const [showDebtModal, setShowDebtModal] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [debtLoading, setDebtLoading] = useState(false)
   const [debtError, setDebtError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -468,6 +562,10 @@ export default function CashierScreen({
 
   // ── New UI state ───────────────────────────────────────────────────────────
   const [showManualPanel, setShowManualPanel] = useState(false)
+  const [manualFocusNonce, setManualFocusNonce] = useState(0)
+  const [paymentInitialMethod, setPaymentInitialMethod] = useState<PaymentMethod | undefined>(undefined)
+  const [paymentInitialSplit, setPaymentInitialSplit] = useState(false)
+  const [selectedLine, setSelectedLine] = useState(0)
   const [showMenuPanel, setShowMenuPanel] = useState(false)
   const [menuPage, setMenuPage] = useState<'root' | 'settings'>('root')
   const [zoomFactor, setZoomFactor] = useState(1)
@@ -650,6 +748,7 @@ export default function CashierScreen({
   // ── Cart logic ─────────────────────────────────────────────────────────────
 
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0)
+  const markedIndex = cart.length === 0 ? -1 : Math.min(Math.max(selectedLine, 0), cart.length - 1)
   const pendingCatalog = cart.some(item => !item.productId)
   /** Monto neto a cobrar ahora: descuenta la seña del pedido activo */
   const cartNetTotal = Math.max(0, cartTotal - (activeOrder?.depositAmount ?? 0))
@@ -666,9 +765,17 @@ export default function CashierScreen({
   }, [specialPriceByProductId])
 
   const railPanelOpen = showValesModal || showExpenseModal || showSalesModal
-  const anyModalOpen = showPaymentModal || showProductsModal
+  const anyModalOpen = showPaymentModal || showProductsModal || showOrderForm
     || showCashInjectModal || showCeboModal || showCashDiscountModal
     || railPanelOpen
+  const saleOverlayOpen = anyModalOpen
+    || showSalaryModal || showStockCountModal || showSettleDebtModal
+    || showExpenseListModal || showDebtModal || showChangePassword
+    || showLogoutConfirm || showAttendanceModal || showShortcuts
+
+  useEffect(() => {
+    if (!isActive) setShowOrderForm(false)
+  }, [isActive])
 
   const handleGlobalScan = useCallback((digits: string) => {
     const parsed = parseKretzBarcode(digits)
@@ -686,6 +793,22 @@ export default function CashierScreen({
 
   function removeItem(localId: string) {
     setCart(prev => prev.filter(i => i.localId !== localId))
+  }
+
+  function moveCartMark(delta: number) {
+    setSelectedLine(current => {
+      if (cart.length === 0) return 0
+      const base = Math.min(Math.max(current, 0), cart.length - 1)
+      return Math.min(cart.length - 1, Math.max(0, base + delta))
+    })
+  }
+
+  function removeMarkedLine() {
+    if (cart.length === 0) return
+    const index = Math.min(Math.max(selectedLine, 0), cart.length - 1)
+    const item = cart[index]
+    if (!item) return
+    removeItem(item.localId)
   }
 
   function assignItemProduct(localId: string, product: ProductRow) {
@@ -772,8 +895,10 @@ export default function CashierScreen({
         return
       }
       setLastSaleId(result.data.saleId)
+      if (activeOrder?.orderId) clearOrderChargeDraft(activeOrder.orderId)
       setCart([])
       setActiveOrder(null)
+      if (showManualPanel) setManualFocusNonce(nonce => nonce + 1)
       refreshBalance()
     } catch {
       setError('Error de comunicación. Reintentar.')
@@ -782,13 +907,15 @@ export default function CashierScreen({
     }
   }
 
-  function openPaymentModal() {
+  function openPaymentModal(method?: PaymentMethod | 'split') {
     if (cart.some(item => !item.productId)) {
       setError('Asigná un producto del catálogo a cada ticket.')
       return
     }
     setError('')
     setLastSaleId(null)
+    setPaymentInitialMethod(method === 'split' ? undefined : method)
+    setPaymentInitialSplit(method === 'split')
     setShowPaymentModal(true)
   }
 
@@ -805,7 +932,7 @@ export default function CashierScreen({
 
   async function handleConfirmFiado(payload: {
     customerId?: string
-    newCustomer?: { name: string; phone: string }
+    newCustomer?: { name: string; phone?: string }
     initialPayment: number
     paymentMethods: SalePaymentPayload[]
     dueDate?: string
@@ -875,9 +1002,99 @@ export default function CashierScreen({
     return () => document.removeEventListener('keydown', onKey)
   }, [showMenuPanel])
 
-  const railActive: 'menu' | 'venta' | 'vales' | 'gastos' | 'turno' = showMenuPanel
+  const onSaleKeyRef = useRef<(event: KeyboardEvent) => void>(() => {})
+  onSaleKeyRef.current = (event: KeyboardEvent) => {
+    const method = paymentMethodFromFunctionKey(event.key)
+    if (method) event.preventDefault()
+    if (method) {
+      if (event.repeat || saleOverlayOpen || showMenuPanel || cart.length === 0) return
+      openPaymentModal(method)
+      return
+    }
+
+    if (event.key === 'F5' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault()
+      if (event.repeat || saleOverlayOpen || showMenuPanel || cart.length === 0) return
+      openPaymentModal('split')
+      return
+    }
+
+    if (event.key === 'F6' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault()
+      if (event.repeat || saleOverlayOpen || showMenuPanel) return
+      setShowManualPanel(open => !open)
+      return
+    }
+
+    if (isTextEntryTarget(event.target)) return
+
+    const alt = altShortcutAction(event)
+    if (alt) {
+      if (event.repeat || saleOverlayOpen) return
+      event.preventDefault()
+      if (alt === 'venta') {
+        setShowMenuPanel(false)
+        return
+      }
+      if (alt === 'pedido') {
+        setShowMenuPanel(false)
+        seedOrderCreateDraft(session.storeId ?? '')
+        setShowOrderForm(true)
+        return
+      }
+      if (alt === 'vales') {
+        setShowMenuPanel(false)
+        setShowValesModal(true)
+        return
+      }
+      if (alt === 'gastos') {
+        setShowMenuPanel(false)
+        setShowExpenseModal(true)
+        return
+      }
+      if (alt === 'turno') {
+        setShowMenuPanel(false)
+        setShowSalesModal(true)
+        return
+      }
+      setShowCashInjectModal(true)
+      closeMenu()
+      return
+    }
+
+    const plain = !event.altKey && !event.ctrlKey && !event.metaKey
+    if (!plain || saleOverlayOpen || showMenuPanel) return
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      moveCartMark(1)
+      return
+    }
+    if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+      event.preventDefault()
+      moveCartMark(-1)
+      return
+    }
+    if (event.key === 'Delete') {
+      event.preventDefault()
+      removeMarkedLine()
+    }
+  }
+
+  useEffect(() => {
+    if (!isActive) return
+    function onKey(event: KeyboardEvent) {
+      onSaleKeyRef.current(event)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isActive])
+
+  const railActive: 'menu' | 'venta' | 'pedido' | 'vales' | 'gastos' | 'turno' = showMenuPanel
     ? 'menu'
-    : showValesModal
+    : showOrderForm
+      ? 'pedido'
+      : showValesModal
       ? 'vales'
       : showExpenseModal
         ? 'gastos'
@@ -908,6 +1125,16 @@ export default function CashierScreen({
           active={railActive === 'venta'}
         />
         <SidebarBtn
+          icon={<IconOrder />}
+          label="Pedido"
+          onClick={() => {
+            setShowMenuPanel(false)
+            seedOrderCreateDraft(session.storeId ?? '')
+            setShowOrderForm(true)
+          }}
+          active={railActive === 'pedido'}
+        />
+        <SidebarBtn
           icon={<IconBanknote />}
           label="Vales"
           onClick={() => { setShowMenuPanel(false); setShowValesModal(true) }}
@@ -928,6 +1155,19 @@ export default function CashierScreen({
 
         <div className="flex-1" />
 
+        <button
+          type="button"
+          onClick={() => setShowShortcuts(true)}
+          title="Atajos"
+          aria-label="Atajos"
+          className="mb-2 flex h-8 w-8 items-center justify-center rounded-full border border-line bg-raised text-muted transition-colors hover:bg-hover hover:text-ink"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+            <circle cx="12" cy="12" r="9" />
+            <path strokeLinecap="round" d="M12 11v6" />
+            <path strokeLinecap="round" d="M12 7.5h.01" />
+          </svg>
+        </button>
         <div className="mb-1.5 flex items-center justify-center">
           <BrandMark size={32} />
         </div>
@@ -1004,14 +1244,15 @@ export default function CashierScreen({
                     type="button"
                     onClick={() => setShowManualPanel(v => !v)}
                     title="Cargar un producto por nombre o PLU"
+                    aria-keyshortcuts="F6"
                     className={cx(
-                      'h-9 shrink-0 rounded-lg border px-3 text-sm font-medium transition-colors',
+                      'h-9 shrink-0 whitespace-nowrap rounded-lg border px-3 text-sm font-medium transition-colors',
                       showManualPanel
                         ? 'border-accent bg-accent-soft text-ink'
                         : 'border-line bg-panel text-ink hover:bg-hover',
                     )}
                   >
-                    Manual
+                    Manual <span className="font-medium text-muted" aria-hidden>(F6)</span>
                   </button>
                 </div>
               </div>
@@ -1023,6 +1264,7 @@ export default function CashierScreen({
                     onAddItem={addItem}
                     products={products}
                     specialPriceByProductId={specialPriceByProductId}
+                    focusNonce={manualFocusNonce}
                   />
                 </div>
               )}
@@ -1053,6 +1295,7 @@ export default function CashierScreen({
                     lines={cart}
                     onAdd={addBag}
                     onRemove={removeBag}
+                    shortcuts={!saleOverlayOpen && !showMenuPanel}
                   />
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto space-y-0.5 p-1">
@@ -1071,10 +1314,14 @@ export default function CashierScreen({
                     </div>
                   </div>
                 ) : (
-                  cart.map(item => (
+                  cart.map((item, index) => (
                     <div
                       key={item.localId}
-                      className="group flex items-center gap-3 min-w-0 rounded-xl px-3 py-3 hover:bg-hover transition-colors"
+                      data-cart-marked={index === markedIndex ? 'true' : undefined}
+                      className={cx(
+                        'group flex items-center gap-3 min-w-0 rounded-xl px-3 py-3 transition-colors',
+                        index === markedIndex ? 'bg-accent-soft' : 'hover:bg-hover',
+                      )}
                     >
                       {item.pluNumber ? (
                         <span className="w-9 shrink-0 rounded-md bg-hover px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-muted tabular-nums">
@@ -1203,11 +1450,10 @@ export default function CashierScreen({
                   <Button
                     variant="primary"
                     size="lg"
-                    fullWidth
                     loading={loading}
                     disabled={cart.length === 0 || pendingCatalog}
                     onClick={openPaymentModal}
-                    className="!h-14 text-lg"
+                    className="!h-14 w-full text-lg"
                   >
                     Cobrar
                   </Button>
@@ -1378,6 +1624,8 @@ export default function CashierScreen({
       {showPaymentModal && cart.length > 0 && (
         <PaymentModal
           itemTotal={cartTotal}
+          initialMethod={paymentInitialMethod}
+          initialSplit={paymentInitialSplit}
           depositAmount={activeOrder?.depositAmount ?? 0}
           depositDigitalAmount={
             activeOrder
@@ -1393,7 +1641,11 @@ export default function CashierScreen({
           onRemoveBag={removeBag}
           onConfirm={handleConfirmSale}
           onFiado={activeOrder ? undefined : handleOpenFiado}
-          onClose={() => setShowPaymentModal(false)}
+          onClose={() => {
+            setShowPaymentModal(false)
+            setPaymentInitialMethod(undefined)
+            setPaymentInitialSplit(false)
+          }}
         />
       )}
 
@@ -1497,6 +1749,27 @@ export default function CashierScreen({
 
       {showChangePassword && (
         <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
+
+      <Modal
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+        title="Atajos"
+        size="lg"
+      >
+        <ShortcutList />
+      </Modal>
+
+      {isActive && showOrderForm && (
+        <OrderFormModal
+          open
+          mode="create"
+          onClose={() => setShowOrderForm(false)}
+          onSaved={() => setShowOrderForm(false)}
+          showStoreFilter={false}
+          hoursStoreId={session.storeId ?? ''}
+          defaultStoreId={session.storeId ?? ''}
+        />
       )}
 
       <Modal

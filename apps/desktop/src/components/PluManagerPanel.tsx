@@ -9,6 +9,7 @@ import { useState } from 'react'
 import NumericInput from './NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
 import type { SendPluPayload, PluRow } from '../types/hw-api'
+import { ModalCloseButton, ModalLayer } from './ui'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -518,9 +519,16 @@ export default function PluManagerPanel() {
       </div>
 
       {deleteCandidate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <ModalLayer
+          onClose={() => { if (!deleting) setDeleteCandidate(null) }}
+          enabled={!deleting}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+        >
           <div className="w-full max-w-sm rounded-2xl border border-red-900/60 bg-app p-5 shadow-2xl">
-            <p className="text-sm font-semibold text-ink">Confirmar borrado de PLU</p>
+            <div className="flex items-start gap-2 min-w-0">
+              <p className="min-w-0 flex-1 text-sm font-semibold text-ink">Confirmar borrado de PLU</p>
+              <ModalCloseButton onClick={() => setDeleteCandidate(null)} disabled={deleting} />
+            </div>
             <p className="mt-2 text-xs leading-relaxed text-muted">
               Vas a borrar el PLU{' '}
               <span className="font-mono text-red-300">{parseInt(deleteCandidate.number, 10)}</span>
@@ -546,7 +554,7 @@ export default function PluManagerPanel() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
     </div>
   )

@@ -23,6 +23,8 @@ import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
+import { resetOrderCreateDraft } from './lib/orderCreateDraft'
+import { resetOrderChargeDrafts } from './lib/orderChargeDraft'
 
 const INACTIVITY_COUNTDOWN_SECONDS = 300 // 5 minutos
 
@@ -58,8 +60,33 @@ type AppState =
 export default function App() {
   const [state, setState] = useState<AppState>({ screen: 'loading' })
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false)
   const [inactivityCountdown, setInactivityCountdown] = useState(INACTIVITY_COUNTDOWN_SECONDS)
   const prevScreenRef = useRef(state.screen)
+  const quitConfirmRef = useRef(false)
+  quitConfirmRef.current = showQuitConfirm
+
+  useEffect(() => {
+    if (!window.hw?.onAppQuitRequested) return
+    return window.hw.onAppQuitRequested(() => {
+      if (quitConfirmRef.current) {
+        void window.hw.confirmAppQuit()
+        return
+      }
+      setShowQuitConfirm(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!showQuitConfirm) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Enter' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
+      event.preventDefault()
+      void window.hw.confirmAppQuit()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showQuitConfirm])
 
   /** Carrito pendiente de inyección en el POS proveniente de un pedido */
   const [pendingOrderCart, setPendingOrderCart] = useState<{
@@ -409,6 +436,8 @@ export default function App() {
     } else {
       // Un solo local disponible: no tiene sentido volver al picker, ir al login
       await window.hw.logout({ role: session.role, storeId: session.storeId })
+      resetOrderCreateDraft()
+      resetOrderChargeDrafts()
       setState({ screen: 'login', initStatus })
     }
   }
@@ -417,6 +446,8 @@ export default function App() {
     const session = 'session' in state ? state.session : null
     if (!session) return
     await window.hw.logout({ role: session.role, storeId: session.storeId })
+    resetOrderCreateDraft()
+    resetOrderChargeDrafts()
     const initStatus = 'initStatus' in state ? state.initStatus : null
     if (initStatus) setState({ screen: 'login', initStatus })
   }
@@ -584,6 +615,7 @@ export default function App() {
         <Page>
           <DebtsScreen
             isAdmin={state.session.role === 'admin'}
+            onLogout={handleLogout}
             onBack={() => {
               if (state.fromCashier) {
                 setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
@@ -599,6 +631,7 @@ export default function App() {
         <Page>
           <SpecialCustomersScreen
             isAdmin={state.session.role === 'admin'}
+            onLogout={handleLogout}
             onBack={() => {
               if (state.fromCashier) {
                 setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
@@ -614,6 +647,7 @@ export default function App() {
         <Page>
           <OrdersScreen
             isAdmin={state.session.role === 'admin'}
+            onLogout={handleLogout}
             currentShiftId={state.fromCashier?.id ?? null}
             sessionStoreId={state.session.storeId}
             onBack={() => {
@@ -633,23 +667,36 @@ export default function App() {
 
       {state.screen === 'history' && (
         <Page>
-          <HistoryScreen onBack={handleReturnToAdminHub} />
+          <HistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 
       {state.screen === 'providers' && (
         <Page>
-          <ProvidersScreen onBack={handleReturnToAdminHub} />
+          <ProvidersScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 
       {state.screen === 'stock-counts' && (
         <Page>
-          <StockCountHistoryScreen onBack={handleReturnToAdminHub} />
+          <StockCountHistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 
       </ScreenErrorBoundary>
+
+      <Modal
+        open={showQuitConfirm}
+        onClose={() => setShowQuitConfirm(false)}
+        size="sm"
+        title="¿Cerrar la aplicación?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowQuitConfirm(false)}>Cancelar</Button>
+            <Button onClick={() => { void window.hw.confirmAppQuit() }}>Cerrar</Button>
+          </>
+        }
+      />
 
       <Modal
         open={showInactivityWarning}

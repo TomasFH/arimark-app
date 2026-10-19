@@ -84,11 +84,16 @@ export default function PaymentReceipt({
                   <span className="min-w-0 flex-1 truncate text-sm text-ink" title={item.name}>
                     {item.name}
                   </span>
-                  {item.qty ? (
-                    <span className="shrink-0 tabular-nums text-sm text-muted" title={item.qty}>
-                      {item.qty}
-                    </span>
-                  ) : null}
+                  <span className="shrink-0 text-right">
+                    {item.aside && (
+                      <span className="block text-[10px] text-subtle" title={item.aside}>{item.aside}</span>
+                    )}
+                    {item.qty ? (
+                      <span className="block tabular-nums text-sm text-muted" title={item.qty}>
+                        {item.qty}
+                      </span>
+                    ) : null}
+                  </span>
                 </li>
               ))}
             </ul>

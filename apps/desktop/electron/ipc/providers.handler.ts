@@ -13,7 +13,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
@@ -34,7 +34,7 @@ import { PROVIDER_DEBT_CHECKPOINTS_COL } from '@carniceria/shared'
 import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore'
 import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderDebtEventRow } from '../../src/types/hw-api'
 import { stampAdminAdjustAuthor } from '../../src/lib/providerLedgerNotes'
-import { coerceProviderIntakeKind, PROVIDER_INTAKE_KINDS } from '@carniceria/shared'
+import { coerceProviderIntakeKind, isMerchIntakeExpenseConcept, PROVIDER_INTAKE_KINDS } from '@carniceria/shared'
 
 function mapProviderRow(r: {
   id: string
@@ -43,6 +43,7 @@ function mapProviderRow(r: {
   notes: string | null
   archivedAt: string | null
   intakeKind: string | null
+  supplyConcept?: string | null
 }): ProviderRow {
   return {
     id: r.id,
@@ -51,6 +52,7 @@ function mapProviderRow(r: {
     notes: r.notes ?? undefined,
     archivedAt: r.archivedAt ?? undefined,
     intakeKind: coerceProviderIntakeKind(r.intakeKind),
+    supplyConcept: r.supplyConcept ?? null,
   }
 }
 
@@ -75,6 +77,7 @@ const setProviderIntakeKindSchema = z.object({
   providerId: z.string().min(1).optional(),
   provider: z.string().max(100).transform(s => s.trim()).optional(),
   intakeKind: z.enum(PROVIDER_INTAKE_KINDS),
+  supplyConcept: z.string().max(80).optional(),
 })
 
 const archiveProviderSchema = z.object({
@@ -113,6 +116,27 @@ const payProviderFromShiftSchema = z.object({
   })).min(1),
 })
 
+function lastInsumosConcepts(
+  db: ReturnType<typeof getDb>,
+  providerIds: string[],
+): Map<string, string> {
+  const found = new Map<string, string>()
+  if (providerIds.length === 0) return found
+  const rows = db.select({
+    providerId: expenses.providerId,
+    concept: expenses.concept,
+  }).from(expenses)
+    .where(and(inArray(expenses.providerId, providerIds), isNotNull(expenses.concept)))
+    .orderBy(desc(expenses.createdAt))
+    .all()
+  for (const row of rows) {
+    if (!row.providerId || !row.concept || found.has(row.providerId)) continue
+    if (isMerchIntakeExpenseConcept(row.concept)) continue
+    found.set(row.providerId, row.concept)
+  }
+  return found
+}
+
 // ---------------------------------------------------------------------------
 // Handler principal
 // ---------------------------------------------------------------------------
@@ -140,13 +164,22 @@ export function registerProvidersHandlers(): void {
         notes: providers.notes,
         archivedAt: providers.archivedAt,
         intakeKind: providers.intakeKind,
+        supplyConcept: providers.supplyConcept,
       }).from(providers).all()
 
       const filtered = parsed.data.includeArchived
         ? rows
         : rows.filter(r => !r.archivedAt)
 
-      const result: ProviderRow[] = filtered.map(mapProviderRow)
+      const missingConcept = filtered
+        .filter(r => r.intakeKind === 'insumos' && !r.supplyConcept)
+        .map(r => r.id)
+      const remembered = lastInsumosConcepts(db, missingConcept)
+
+      const result: ProviderRow[] = filtered.map(r => mapProviderRow({
+        ...r,
+        supplyConcept: r.supplyConcept ?? remembered.get(r.id) ?? null,
+      }))
 
       return { ok: true, data: result }
     } catch (err) {
@@ -312,6 +345,9 @@ export function registerProvidersHandlers(): void {
             name: name!,
             nameKey: providerNameKey(name!),
             intakeKind: parsed.data.intakeKind,
+            supplyConcept: parsed.data.intakeKind === 'insumos'
+              ? (parsed.data.supplyConcept?.trim() || null)
+              : null,
             createdAt: now,
             createdBy: session.userId,
             syncedAt: null,
@@ -328,6 +364,9 @@ export function registerProvidersHandlers(): void {
 
       db.update(providers).set({
         intakeKind: parsed.data.intakeKind,
+        ...(parsed.data.intakeKind === 'insumos' && parsed.data.supplyConcept != null
+          ? { supplyConcept: parsed.data.supplyConcept.trim() || null }
+          : {}),
         updatedAt: now,
         updatedBy: session.userId,
         syncedAt: null,

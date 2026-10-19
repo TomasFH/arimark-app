@@ -96,6 +96,15 @@ export const products = sqliteTable('products', {
   purchasePackContents: integer('purchase_pack_contents'),
 })
 
+/** Kilos de referencia por unidad pedida (morcilla, chorizo). No es el peso del ticket. */
+export const productPieceWeights = sqliteTable('product_piece_weights', {
+  productId: text('product_id')
+    .primaryKey()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  kgPerUnit: real('kg_per_unit').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 // ---------------------------------------------------------------------------
 // Disponibilidad de productos por local
 // Resuelve el caso de productos que solo existen en un local (carbón, leña)
@@ -434,6 +443,8 @@ export const providers = sqliteTable('providers', {
    * En UI: Productos / Media res / Pollo / Insumos.
    */
   intakeKind: text('intake_kind'),
+  /** Último concepto de una visita solo de insumos. Editable en la próxima. */
+  supplyConcept: text('supply_concept'),
   archivedAt: text('archived_at'),
   createdAt: text('created_at').notNull(),
   /** Nullable para backfill de proveedores migrados de gastos previos. */
@@ -896,10 +907,15 @@ export const merchandiseIntakes = sqliteTable(
     updatedBy: text('updated_by').references(() => users.id),
     updatedAt: text('updated_at'),
     syncedAt: text('synced_at'),
+    /** Reintento de la misma confirmación. Null en visitas anteriores. */
+    clientRequestId: text('client_request_id'),
+    /** cash mueve la caja. digital baja la deuda y no mueve la caja. */
+    paymentChannel: text('payment_channel', { enum: ['cash', 'digital'] }).notNull().default('cash'),
   },
   table => [
     index('idx_merch_intake_shift').on(table.shiftId, table.createdAt),
     index('idx_merch_intake_store_created').on(table.storeId, table.createdAt),
+    uniqueIndex('idx_merch_intake_client_request').on(table.clientRequestId),
   ],
 )
 
@@ -929,9 +945,14 @@ export const merchandiseIntakeLines = sqliteTable(
     productId: text('product_id'),
     nameKey: text('name_key'),
     costUnit: text('cost_unit'),
-    unitCost: integer('unit_cost').notNull().default(0),
+    unitCost: real('unit_cost').notNull().default(0),
     costTotal: integer('cost_total').notNull().default(0),
     packCount: integer('pack_count'),
+    /** null = histórico: un kilo por cajón, no un peso total. */
+    weighMode: text('weigh_mode'),
+    /** null en filas viejas: se cobra si hay importe. */
+    moneyRole: text('money_role'),
+    notForSale: integer('not_for_sale', { mode: 'boolean' }).notNull().default(false),
   },
   table => [
     index('idx_merch_line_intake').on(table.intakeId, table.sortOrder),
@@ -949,7 +970,11 @@ export const providerPurchasePrices = sqliteTable(
     productKey: text('product_key').notNull(),
     name: text('name').notNull(),
     costUnit: text('cost_unit', { enum: ['kg', 'unit', 'pack'] }).notNull(),
-    unitCost: integer('unit_cost').notNull(),
+    unitCost: real('unit_cost').notNull(),
+    /** 1 cajón = N. No entra en la cuenta. Null si no hay equivalencia. */
+    packContents: integer('pack_contents'),
+    /** each | total. Null si no se pesa. */
+    weighMode: text('weigh_mode'),
     updatedAt: text('updated_at').notNull(),
     syncedAt: text('synced_at'),
   },

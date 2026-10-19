@@ -141,4 +141,31 @@ describe('merchIntake', () => {
     expect(legacy[0]?.rubroId).toBe('rubro_carbon')
     expect(legacy[0]?.count).toBe(10)
   })
+
+  it('al bajar una línea conserva centavos del unitario y no reescala', () => {
+    const lines = parseMerchLinesFromUnknown(
+      [{
+        id: 'l1',
+        rubroId: 'rubro_bondiola',
+        rubroName: 'Bondiola',
+        template: 'weight',
+        count: 1,
+        netKg: 5,
+        unitCost: 4800.5,
+        costTotal: 24002.5,
+      }, {
+        id: 'l2',
+        rubroId: 'rubro_maple',
+        rubroName: 'Maple',
+        template: 'packs',
+        count: 1,
+        unitCost: 9000,
+        costTotal: 9000,
+      }],
+      { intakeId: 'x' },
+    )
+    expect(lines[0]?.unitCost).toBe(4800.5)
+    expect(lines[0]?.costTotal).toBe(24003)
+    expect(lines[1]?.unitCost).toBe(9000)
+  })
 })

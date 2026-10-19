@@ -1,7 +1,7 @@
 import type { Weekday } from './storeHours'
 
 export interface CashDiscountRule {
-  /** Mínimo del total de ítems (pesos enteros). */
+  /** Mínimo de la mercadería pagada en efectivo, antes del descuento (pesos enteros). */
   minAmount: number
   /** 0 = apagado; 1–100 = porcentaje entero. */
   percent: number
@@ -27,6 +27,8 @@ export interface CashDiscountQuote {
   discountPercent: number
   /** itemTotal − discount si aplica; si no, itemTotal. */
   discountedTotal: number
+  /** Mercadería sobre la que se calculó el %. 0 si no hay descuento. */
+  discountBase: number
   /**
    * Lo que hay que cobrar ahora.
    * Con descuento: discountedTotal − seña.
@@ -51,6 +53,18 @@ export function normalizeCashDiscountRule(
 export function roundCashDiscount(itemTotal: number, percent: number): number {
   if (percent <= 0 || itemTotal <= 0) return 0
   return Math.round((itemTotal * percent) / 100)
+}
+
+/**
+ * Mercadería (precio de lista) que cubre un pago en efectivo ya descontado.
+ * $36.000 al 10% cubren $40.000. No pasa del total de la compra.
+ */
+export function goodsCoveredByCash(cashTendered: number, percent: number, itemTotal: number): number {
+  const cash = Math.max(0, Math.round(cashTendered))
+  const total = Math.max(0, Math.round(itemTotal))
+  if (cash <= 0 || percent <= 0 || percent >= 100 || total <= 0) return 0
+  const goods = Math.round(cash / (1 - percent / 100))
+  return Math.min(total, goods)
 }
 
 export function remainderIncludesCash(
@@ -85,6 +99,13 @@ export function quoteCashDiscount(input: {
   depositDigitalAmount?: number
   remainderIncludesCash: boolean
   /**
+   * Pesos que paga ahora en efectivo, cuando el resto va por un medio digital.
+   * El % sale solo de la mercadería que ese efectivo cubre, y solo si esa
+   * mercadería llega al mínimo. Sin este dato, un saldo todo en efectivo
+   * descuenta el ticket entero.
+   */
+  cashAmount?: number
+  /**
    * Descuento de esta venta fuera de la regla del local.
    * Ignora mínimo, efectivo y seña digital. El fiado sigue sin descuento.
    */
@@ -101,8 +122,15 @@ export function quoteCashDiscount(input: {
     depositDigitalAmount: Math.max(0, Math.round(input.depositDigitalAmount ?? 0)),
   })
   const forced = input.force === true && !isDebt && input.rule.percent > 0
-  const eligible = forced || (pre && input.remainderIncludesCash)
-  const discountAmount = eligible ? roundCashDiscount(itemTotal, input.rule.percent) : 0
+  const cashTendered = input.cashAmount
+  let discountBase = itemTotal
+  let eligible = forced || (pre && input.remainderIncludesCash)
+  if (!forced && typeof cashTendered === 'number') {
+    const goods = goodsCoveredByCash(cashTendered, input.rule.percent, itemTotal)
+    eligible = pre && goods >= input.rule.minAmount
+    discountBase = eligible ? goods : 0
+  }
+  const discountAmount = eligible ? roundCashDiscount(discountBase, input.rule.percent) : 0
   const discountedTotal = eligible ? Math.max(0, itemTotal - discountAmount) : itemTotal
   const amountDue = Math.max(0, (eligible ? discountedTotal : itemTotal) - deposit)
   return {
@@ -110,6 +138,7 @@ export function quoteCashDiscount(input: {
     discountAmount,
     discountPercent: eligible ? input.rule.percent : 0,
     discountedTotal,
+    discountBase: eligible ? discountBase : 0,
     amountDue,
   }
 }

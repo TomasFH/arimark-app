@@ -1,4 +1,4 @@
-import { namesMatch } from '@carniceria/shared'
+import { namesMatch, normalizeCatalogSearch } from '@carniceria/shared'
 
 /** Autocomplete: si el texto es exactamente una opción, esa queda elegida y la lista se oculta. */
 export function namedSuggest<T>(
@@ -8,10 +8,10 @@ export function namedSuggest<T>(
 ): { exact: T | undefined; listed: T[] } {
   const exact = items.find(item => namesMatch(nameOf(item), query))
   if (exact !== undefined) return { exact, listed: [] }
-  const q = query.trim().toLowerCase()
+  const q = normalizeCatalogSearch(query)
   if (!q) return { exact: undefined, listed: [...items] }
   return {
     exact: undefined,
-    listed: items.filter(item => nameOf(item).toLowerCase().includes(q)),
+    listed: items.filter(item => normalizeCatalogSearch(nameOf(item)).includes(q)),
   }
 }

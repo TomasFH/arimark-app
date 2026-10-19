@@ -5,10 +5,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AdminProductRow, StoreRow } from '../types/hw-api'
+import { catalogPendingGap, catalogPendingLabel, compareWithCatalogPending } from '@carniceria/shared'
 import { formatARS } from '../lib/datetime'
 import { useAvailabilityToggle } from '../lib/useAvailabilityToggle'
 import CatalogToggle from './CatalogToggle'
 import KretzSyncModal from './KretzSyncModal'
+import { ModalCloseButton, ModalLayer } from './ui'
 import {
   ProductFormModal,
   PriceModal,
@@ -122,15 +124,20 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
     )
   })
 
-  const sorted = [...filtered].sort((a, b) => {
-    let cmp = 0
-    if (sortKey === 'pluNumber') cmp = (a.pluNumber ?? 0) - (b.pluNumber ?? 0)
-    else if (sortKey === 'name') cmp = a.name.localeCompare(b.name, 'es-AR')
-    else if (sortKey === 'category') cmp = a.category.localeCompare(b.category)
-    else if (sortKey === 'price') cmp = (a.price ?? 0) - (b.price ?? 0)
-    else if (sortKey === 'available') cmp = Number(a.available) - Number(b.available)
-    return sortAsc ? cmp : -cmp
-  })
+  const sorted = [...filtered].sort((a, b) => compareWithCatalogPending(
+    a,
+    b,
+    row => catalogPendingGap(row),
+    (left, right) => {
+      let cmp = 0
+      if (sortKey === 'pluNumber') cmp = (left.pluNumber ?? 0) - (right.pluNumber ?? 0)
+      else if (sortKey === 'name') cmp = left.name.localeCompare(right.name, 'es-AR')
+      else if (sortKey === 'category') cmp = left.category.localeCompare(right.category)
+      else if (sortKey === 'price') cmp = (left.price ?? 0) - (right.price ?? 0)
+      else if (sortKey === 'available') cmp = Number(left.available) - Number(right.available)
+      return sortAsc ? cmp : -cmp
+    },
+  ))
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <span className="text-subtle ml-1">↕</span>
@@ -140,9 +147,9 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
   const formStores = stores.length > 0 ? stores : [{ id: storeId, name: storeName || 'Este local' }]
 
   return (
-    <div
+    <ModalLayer
+      onClose={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="flex flex-col bg-raised border border-line rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh]">
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
@@ -168,16 +175,7 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
             >
               + Nuevo producto
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink transition-colors"
-              aria-label="Cerrar"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </button>
+            <ModalCloseButton onClick={onClose} />
           </div>
         </div>
 
@@ -266,7 +264,17 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
                             {p.pluNumber ?? <span className="text-subtle font-normal">—</span>}
                           </td>
                           <td className={`min-w-0 border-t border-line px-3 py-2 text-ink ${rowBg}`}>
-                            <span className="block truncate" title={p.name}>{p.name}</span>
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate" title={p.name}>{p.name}</span>
+                              {catalogPendingLabel(catalogPendingGap(p)) && (
+                                <span
+                                  className="shrink-0 text-[10px] text-subtle"
+                                  title={catalogPendingLabel(catalogPendingGap(p)) ?? undefined}
+                                >
+                                  {catalogPendingLabel(catalogPendingGap(p))}
+                                </span>
+                              )}
+                            </span>
                           </td>
                           <td className={`border-t border-line px-3 py-2 text-right ${rowBg}`}>
                             <div className="flex items-center justify-end gap-1">
@@ -363,6 +371,6 @@ export default function ProductsListModal({ storeId, storeName, onClose }: Props
           onClose={() => setShowSync(false)}
         />
       )}
-    </div>
+    </ModalLayer>
   )
 }

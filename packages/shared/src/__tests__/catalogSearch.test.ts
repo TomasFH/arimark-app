@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { filterAndRankByName, searchProductsByQuery } from '../catalogSearch'
+import { filterAndRankByName, matchVisitMerchProducts, searchProductsByQuery } from '../catalogSearch'
 
 const cuts = [
   { id: '1', name: 'Tapa de asado', plu: 3 },
@@ -47,5 +47,36 @@ describe('searchProductsByQuery', () => {
     const found = searchProductsByQuery(cuts, 'asado', opts)
     expect(found[0]?.name).toBe('Asado')
     expect(found.length).toBeGreaterThan(8)
+  })
+})
+
+describe('matchVisitMerchProducts', () => {
+  const products = [
+    { name: 'Jamón', pluNumber: 12 },
+    { name: 'Vacío', pluNumber: 8 },
+    { name: 'Asado', pluNumber: 101 },
+  ]
+
+  it('encuentra Jamón con jamon, JAMON y jam', () => {
+    for (const query of ['jamon', 'JAMON', 'jam']) {
+      expect(matchVisitMerchProducts(products, query).map(p => p.name)).toEqual(['Jamón'])
+    }
+  })
+
+  it('el PLU sigue siendo substring de dígitos y no reordena', () => {
+    expect(matchVisitMerchProducts(products, '01').map(p => p.name)).toEqual(['Asado'])
+    expect(matchVisitMerchProducts(products, '12').map(p => p.name)).toEqual(['Jamón'])
+    expect(matchVisitMerchProducts(
+      [{ name: 'Jamón crudo', pluNumber: 1 }, { name: 'Jamón', pluNumber: 2 }],
+      'jamon',
+    ).map(p => p.name)).toEqual(['Jamón crudo', 'Jamón'])
+  })
+
+  it('sin texto devuelve los primeros 8 y con muchas coincidencias recorta a 8', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ name: `Jamón ${i}`, pluNumber: 200 + i }))
+    expect(matchVisitMerchProducts(many, '').map(p => p.pluNumber)).toEqual([200, 201, 202, 203, 204, 205, 206, 207])
+    expect(matchVisitMerchProducts(many, '   ')).toHaveLength(8)
+    expect(matchVisitMerchProducts(many, 'jamon')).toHaveLength(8)
+    expect(matchVisitMerchProducts(products, 'pollo')).toEqual([])
   })
 })

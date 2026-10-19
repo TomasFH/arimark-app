@@ -24,7 +24,7 @@ import type {
   LocalVale,
   SalaryValeSnapshotItem,
 } from '../types/pos'
-import { coerceProviderIntakeKind, type ProviderIntakeKind } from '@carniceria/shared'
+import { coerceProviderIntakeKind, normalizeCatalogSearch, type ProviderIntakeKind } from '@carniceria/shared'
 
 const firestore = getFirestore(firebaseApp)
 
@@ -329,7 +329,7 @@ export async function setProviderIntakeKind(input: {
 }
 
 export function filterProviders(providers: CachedProvider[], queryText: string): CachedProvider[] {
-  const q = queryText.trim().toLowerCase()
+  const q = normalizeCatalogSearch(queryText)
   if (!q) return providers
-  return providers.filter(p => p.name.toLowerCase().includes(q))
+  return providers.filter(p => normalizeCatalogSearch(p.name).includes(q))
 }

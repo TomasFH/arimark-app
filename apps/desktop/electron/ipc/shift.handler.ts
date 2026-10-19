@@ -351,6 +351,36 @@ export function registerShiftHandlers(): void {
         digitalByMethod[row.method] = Number(row.total ?? 0)
       }
 
+      const methodRows = db
+        .select({ saleId: salePayments.saleId, method: salePayments.paymentMethod })
+        .from(salePayments)
+        .innerJoin(sales, eq(salePayments.saleId, sales.id))
+        .where(and(
+          eq(sales.shiftId, session.shiftId),
+          eq(sales.status, 'confirmed'),
+        ))
+        .all()
+
+      const methodsBySale = new Map<string, Set<string>>()
+      for (const row of methodRows) {
+        const methods = methodsBySale.get(row.saleId) ?? new Set<string>()
+        methods.add(row.method)
+        methodsBySale.set(row.saleId, methods)
+      }
+      let cashSaleCount = 0
+      let digitalSaleCount = 0
+      let debitSaleCount = 0
+      let walletSaleCount = 0
+      let creditSaleCount = 0
+      for (const methods of methodsBySale.values()) {
+        const hasDigital = methods.has('debit') || methods.has('wallet') || methods.has('credit')
+        if (methods.has('cash')) cashSaleCount += 1
+        if (hasDigital) digitalSaleCount += 1
+        if (methods.has('debit')) debitSaleCount += 1
+        if (methods.has('wallet')) walletSaleCount += 1
+        if (methods.has('credit')) creditSaleCount += 1
+      }
+
       // Gastos y aportes del turno en un solo select (mocks encadenados de GET_SHIFT_SUMMARY).
       // kind != 'inject' (o ausente en filas viejas) = gasto; kind == 'inject' = aporte.
       const [expenseStats] = db
@@ -429,6 +459,11 @@ export function registerShiftHandlers(): void {
           totalDebitSales,
           totalWalletSales,
           totalCreditSales,
+          cashSaleCount,
+          digitalSaleCount,
+          debitSaleCount,
+          walletSaleCount,
+          creditSaleCount,
           totalExpenses,
           totalCashInjects,
           cashInHand,

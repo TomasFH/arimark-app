@@ -62,6 +62,61 @@ describe('ScanInput — foco del peso', () => {
   })
 })
 
+describe('ScanInput — buscar por nombre', () => {
+  const ahumado: ProductRow = {
+    id: 'p-ahu',
+    pluNumber: 12,
+    name: 'Vacío ahumado',
+    category: 'beef_cut',
+    unit: 'kg',
+    price: 18000,
+  }
+
+  it('un número dentro del nombre no borra lo escrito', async () => {
+    const user = userEvent.setup()
+    render(<ScanInput products={[conPrecio, ahumado]} onAddItem={() => {}} />)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const pluInput = screen.getByLabelText('PLU o nombre')
+    await user.type(pluInput, 'Vacío x2')
+    expect(pluInput).toHaveValue('Vacío x2')
+  })
+
+  it('flechas y enter eligen la sugerencia y el campo queda PLU - producto', async () => {
+    const user = userEvent.setup()
+    const onAddItem = vi.fn<(item: SaleItemDraft) => void>()
+    render(<ScanInput products={[conPrecio, ahumado]} onAddItem={onAddItem} />)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const pluInput = screen.getByLabelText('PLU o nombre')
+    await user.type(pluInput, 'va')
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(pluInput).toHaveValue('12 - Vacío ahumado')
+
+    const weightInput = screen.getByLabelText('Peso (kg)')
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(weightInput).toHaveFocus()
+    await user.type(weightInput, '1')
+    await user.click(screen.getByRole('button', { name: 'Agregar a la venta' }))
+    expect(onAddItem).toHaveBeenCalledWith(expect.objectContaining({
+      pluNumber: 12,
+      productName: 'Vacío ahumado',
+      weightKg: 1,
+      unitPrice: 18000,
+      subtotal: 18000,
+      manualEntry: true,
+    }))
+  })
+
+  it('tab baja a la siguiente sugerencia', async () => {
+    const user = userEvent.setup()
+    render(<ScanInput products={[conPrecio, ahumado]} onAddItem={() => {}} />)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const pluInput = screen.getByLabelText('PLU o nombre')
+    await user.type(pluInput, 'va')
+    await user.keyboard('{Tab}{Enter}')
+    expect(pluInput).toHaveValue('12 - Vacío ahumado')
+  })
+})
+
 describe('ScanInput — precio por kilo', () => {
   it('sin el tilde el total es peso por el kilo de lista', async () => {
     const user = userEvent.setup()

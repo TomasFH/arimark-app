@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import type { ExpenseRow, ProviderDebtRow } from '../types/hw-api'
 import { formatARS } from '../lib/datetime'
 import ExpenseModal from './ExpenseModal'
-import { Button, Modal } from '../components/ui'
+import { Button, Modal, ModalCloseButton } from '../components/ui'
 
 interface Props {
   onClose: () => void
@@ -100,9 +100,12 @@ export default function ExpenseListModal({ onClose }: Props) {
                 : 'Cargando…'}
             </p>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => void handleRefresh()} disabled={refreshing} title="Actualizar estado de deudas">
-            {refreshing ? '…' : '↻'}
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={() => void handleRefresh()} disabled={refreshing} title="Actualizar estado de deudas">
+              {refreshing ? '…' : '↻'}
+            </Button>
+            <ModalCloseButton onClick={onClose} />
+          </div>
         </div>
       }
       footer={
@@ -132,7 +135,11 @@ export default function ExpenseListModal({ onClose }: Props) {
                 const isExpanded = expandedId === e.id
                 const label = e.provider ?? e.concept ?? '—'
                 const hasDebtDetail = e.newDebtAmount || e.paysOldDebt
-                const totalVisit = e.newDebtAmount ? e.amount + e.newDebtAmount : null
+                // amount ya incluye paysOldDebt. La visita es lo que no fue deuda vieja.
+                const paidThisVisit = Math.max(0, e.amount - (e.paysOldDebt ?? 0))
+                const totalVisit = e.newDebtAmount
+                  ? paidThisVisit + e.newDebtAmount
+                  : (e.paysOldDebt && paidThisVisit > 0 ? paidThisVisit : null)
 
                 // Estado actual de la deuda (puede haber sido saldada después de este turno)
                 const debtStatus = e.providerId ? providerStatuses[e.providerId] : undefined
@@ -212,7 +219,9 @@ export default function ExpenseListModal({ onClose }: Props) {
                             <span className="text-muted text-xs">
                               {totalVisit !== null ? 'Pagado en esta visita' : 'Monto pagado'}
                             </span>
-                            <span className="text-ink font-semibold">{formatARS(e.amount)}</span>
+                            <span className="text-ink font-semibold">
+                              {formatARS(totalVisit !== null ? paidThisVisit : e.amount)}
+                            </span>
                           </div>
                           {e.newDebtAmount && (
                             debtWasPaid ? (

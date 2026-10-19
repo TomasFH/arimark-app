@@ -237,6 +237,75 @@ describe('expense.handler', () => {
       expect(debtEvent.amount).toBe(20000)
     })
 
+    it('la caja persiste visita más deuda vieja y el ledger solo el exceso', () => {
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Guido',
+        amount: 100_000,
+        paysOldDebt: 2_634_642,
+      }) as { ok: boolean }
+
+      expect(result.ok).toBe(true)
+      const row = db.select().from(expenses).all()[0]
+      expect(row?.amount).toBe(2_734_642)
+
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('payment')
+      expect(events[0]?.amount).toBe(2_634_642)
+      expect(events[0]?.storeId).toBe('store-001')
+    })
+
+    it('pago parcial sin exceso deja el expense igual al entregado', () => {
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Guido',
+        amount: 40_000,
+        newDebtAmount: 60_000,
+      }) as { ok: boolean }
+
+      expect(result.ok).toBe(true)
+      expect(db.select().from(expenses).all()[0]?.amount).toBe(40_000)
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('debt')
+      expect(events[0]?.amount).toBe(60_000)
+    })
+
+    it('el exceso de este local no se imputa al local ajeno', () => {
+      db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: new Date().toISOString() }).run()
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Guido',
+        amount: 100_000,
+        paysOldDebt: 80_000,
+        debtStoreId: 'store-002',
+        crossStorePayment: 30_000,
+      }) as { ok: boolean }
+
+      expect(result.ok).toBe(true)
+      expect(db.select().from(expenses).all()[0]?.amount).toBe(180_000)
+      const payments = db.select().from(providerDebtEvents).all()
+      expect(payments).toHaveLength(2)
+      expect(payments.find(e => e.storeId === 'store-002')?.amount).toBe(30_000)
+      expect(payments.find(e => e.storeId === 'store-001')?.amount).toBe(50_000)
+      expect(payments.every(e => e.type === 'payment')).toBe(true)
+    })
+
+    it('rechaza crossStorePayment mayor que paysOldDebt', () => {
+      db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: new Date().toISOString() }).run()
+      const handler = getHandler('ipc:register-expense')
+      const result = handler(null, {
+        provider: 'Guido',
+        amount: 100_000,
+        paysOldDebt: 10_000,
+        debtStoreId: 'store-002',
+        crossStorePayment: 90_000,
+      }) as { ok: boolean; code: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('INVALID_PAYLOAD')
+    })
+
     it('rechaza debtStoreId inválido — local inexistente', () => {
       const handler = getHandler('ipc:register-expense')
       const result = handler(null, {
@@ -248,6 +317,33 @@ describe('expense.handler', () => {
 
       expect(result.ok).toBe(false)
       expect(result.code).toBe('INVALID_DEBT_STORE')
+    })
+  })
+
+  describe('UPDATE_EXPENSE (ipc:update-expense)', () => {
+    it('recalcula la caja como visita más deuda vieja y reemplaza el ledger', () => {
+      const register = getHandler('ipc:register-expense')
+      const created = register(null, {
+        provider: 'Guido',
+        amount: 100_000,
+        paysOldDebt: 2_634_642,
+      }) as { ok: boolean; data: { id: string } }
+      expect(created.ok).toBe(true)
+
+      const update = getHandler('ipc:update-expense')
+      const result = update(null, {
+        id: created.data.id,
+        provider: 'Guido',
+        amount: 80_000,
+        paysOldDebt: 10_000,
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      expect(db.select().from(expenses).all()[0]?.amount).toBe(90_000)
+      const payments = db.select().from(providerDebtEvents).all()
+      expect(payments).toHaveLength(1)
+      expect(payments[0]?.type).toBe('payment')
+      expect(payments[0]?.amount).toBe(10_000)
     })
   })
 

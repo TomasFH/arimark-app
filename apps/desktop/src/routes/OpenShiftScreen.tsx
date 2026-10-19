@@ -239,143 +239,153 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
-        <form onSubmit={handleSubmit} className="max-w-md mx-auto p-6 space-y-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-ink">Turno</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setShiftType('morning')}
-                className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
-                  shiftType === 'morning'
-                    ? 'border-line-accent bg-accent-soft text-ink'
-                    : 'border-transparent bg-panel text-muted hover:bg-hover'
-                }`}
-              >
-                🌅 Mañana
-              </button>
-              <button
-                type="button"
-                onClick={() => setShiftType('evening')}
-                className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
-                  shiftType === 'evening'
-                    ? 'border-line-accent bg-accent-soft text-ink'
-                    : 'border-transparent bg-panel text-muted hover:bg-hover'
-                }`}
-              >
-                🌙 Tarde
-              </button>
-            </div>
-          </div>
-
-          <BillCountGrid
-            rows={billRows}
-            mode={billMode}
-            onModeChange={handleBillModeChange}
-            onUpdate={updateBillRow}
-            countedTotal={countedTotal}
-            expectedTotal={expectedTotal}
-            showExpectedDiff={Boolean(handover)}
-            title="Lo que encontré en la registradora"
-            subtitle={handover
-              ? `Dejó ${handover.fromCashierName} al cerrar`
-              : 'No hay un cierre anterior con desglose. Contá lo que hay.'}
-          />
-
-          {!isProdEnv && (
-            <button
-              type="button"
-              onClick={() => {
-                setSkipBills(true)
-                setShowEmptyConfirm(false)
-              }}
-              className="w-full text-xs text-muted underline hover:text-ink"
-            >
-              Omitir conteo (modo pruebas)
-            </button>
-          )}
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-ink">
-              Efectivo inicial en caja
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted font-semibold">
-                $
-              </span>
-              <NumericInput
-                value={openingCash}
-                onChange={setOpeningCash}
-                placeholder="0"
-                className="w-full rounded-lg border border-line bg-input pl-8 pr-4 py-3 text-ink placeholder-subtle focus:outline-none focus:border-line-accent"
-                required
-              />
-            </div>
-            <p className="text-[11px] text-muted">
-              Lo que arranca el turno: vuelto que te dejaron, lo que te entregaron, o lo que sacaste de la caja fuerte. No es el conteo de la registradora de arriba.
-            </p>
-          </div>
-
-          {error && (
+        <form
+          onSubmit={handleSubmit}
+          className="mx-auto grid w-full max-w-5xl grid-cols-1 items-stretch gap-4 p-4 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] md:gap-x-6 md:p-5"
+        >
+          <div className="flex h-full min-w-0 flex-col gap-4 rounded-xl border border-line bg-raised p-5">
             <div className="space-y-2">
-              <p className="rounded-lg border border-danger bg-panel px-3 py-2 text-sm text-danger">{error}</p>
-              <div className="flex flex-col gap-2">
+              <label className="block text-sm font-medium text-ink">Turno</label>
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setChecking(true)
-                    void checkExistingShift().finally(() => setChecking(false))
-                  }}
-                  disabled={checking || forceClosing}
-                  className="w-full rounded-lg border border-line py-2 text-sm text-ink transition-colors hover:bg-hover disabled:opacity-50"
+                  onClick={() => setShiftType('morning')}
+                  className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
+                    shiftType === 'morning'
+                      ? 'border-line-accent bg-accent-soft text-ink'
+                      : 'border-line bg-app text-muted hover:bg-hover'
+                  }`}
                 >
-                  {checking ? 'Comprobando…' : 'Volver a comprobar'}
+                  🌅 Mañana
                 </button>
-                {canForceClose && blockingShift && (
+                <button
+                  type="button"
+                  onClick={() => setShiftType('evening')}
+                  className={`rounded-lg border-2 py-3 text-sm font-semibold transition-colors ${
+                    shiftType === 'evening'
+                      ? 'border-line-accent bg-accent-soft text-ink'
+                      : 'border-line bg-app text-muted hover:bg-hover'
+                  }`}
+                >
+                  🌙 Tarde
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-ink">
+                Efectivo inicial en caja
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-muted">
+                  $
+                </span>
+                <NumericInput
+                  value={openingCash}
+                  onChange={setOpeningCash}
+                  placeholder="0"
+                  className="w-full rounded-lg border border-line bg-input py-3 pl-8 pr-4 text-ink placeholder-subtle focus:border-line-accent focus:outline-none"
+                  required
+                />
+              </div>
+              <p className="text-[11px] text-muted">
+                Lo que arranca el turno: vuelto que te dejaron, lo que te entregaron, o lo que sacaste de la caja fuerte. No es el conteo de la registradora de arriba.
+              </p>
+            </div>
+
+            {error && (
+              <div className="space-y-2">
+                <p className="rounded-lg border border-danger bg-panel px-3 py-2 text-sm text-danger">{error}</p>
+                <div className="flex flex-col gap-2">
                   <button
                     type="button"
                     onClick={() => {
-                      void (async () => {
-                        setForceClosing(true)
-                        setError('')
-                        try {
-                          const r = await window.hw.forceCloseOpenShift({ shiftId: blockingShift.shiftId })
-                          if (!r.ok) {
-                            setError(r.error ?? 'No se pudo cerrar el turno.')
-                            return
-                          }
-                          setBlockingShift(null)
-                        } catch {
-                          setError('Error de comunicación. Reintentar.')
-                        } finally {
-                          setForceClosing(false)
-                        }
-                      })()
+                      setChecking(true)
+                      void checkExistingShift().finally(() => setChecking(false))
                     }}
-                    disabled={forceClosing || checking}
-                    className="w-full rounded-lg bg-raised py-2 text-sm font-medium text-ink transition-colors hover:bg-hover disabled:opacity-50"
+                    disabled={checking || forceClosing}
+                    className="w-full rounded-lg border border-line py-2 text-sm text-ink transition-colors hover:bg-hover disabled:opacity-50"
                   >
-                    {forceClosing ? 'Cerrando turno…' : `Cerrar el turno de ${blockingShift.userName}`}
+                    {checking ? 'Comprobando…' : 'Volver a comprobar'}
                   </button>
-                )}
+                  {canForceClose && blockingShift && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void (async () => {
+                          setForceClosing(true)
+                          setError('')
+                          try {
+                            const r = await window.hw.forceCloseOpenShift({ shiftId: blockingShift.shiftId })
+                            if (!r.ok) {
+                              setError(r.error ?? 'No se pudo cerrar el turno.')
+                              return
+                            }
+                            setBlockingShift(null)
+                          } catch {
+                            setError('Error de comunicación. Reintentar.')
+                          } finally {
+                            setForceClosing(false)
+                          }
+                        })()
+                      }}
+                      disabled={forceClosing || checking}
+                      className="w-full rounded-lg border border-line bg-app py-2 text-sm font-medium text-ink transition-colors hover:bg-hover disabled:opacity-50"
+                    >
+                      {forceClosing ? 'Cerrando turno…' : `Cerrar el turno de ${blockingShift.userName}`}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <Button
-            type="submit"
-            fullWidth
-            size="lg"
-            loading={loading}
-            disabled={!!blockingShift}
-          >
-            {loading ? 'Abriendo turno…' : 'Abrir turno'}
-          </Button>
-          {onCancel && (
-            <Button type="button" variant="secondary" fullWidth onClick={onCancel}>
-              {cancelLabel}
-            </Button>
-          )}
+            <div className="flex flex-col gap-3">
+              <Button
+                type="submit"
+                fullWidth
+                size="lg"
+                loading={loading}
+                disabled={!!blockingShift}
+              >
+                {loading ? 'Abriendo turno…' : 'Abrir turno'}
+              </Button>
+              {onCancel && (
+                <Button type="button" variant="secondary" fullWidth onClick={onCancel}>
+                  {cancelLabel}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex h-full min-w-0 flex-col gap-3">
+            <BillCountGrid
+              className="h-full"
+              rows={billRows}
+              mode={billMode}
+              onModeChange={handleBillModeChange}
+              onUpdate={updateBillRow}
+              countedTotal={countedTotal}
+              expectedTotal={expectedTotal}
+              showExpectedDiff={Boolean(handover)}
+              columns={2}
+              title="Lo que encontré en la registradora"
+              subtitle={handover
+                ? `Dejó ${handover.fromCashierName} al cerrar`
+                : 'No hay un cierre anterior con desglose. Contá lo que hay.'}
+            />
+            {!isProdEnv && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSkipBills(true)
+                  setShowEmptyConfirm(false)
+                }}
+                className="w-full text-xs text-muted underline hover:text-ink"
+              >
+                Omitir conteo (modo pruebas)
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
@@ -384,7 +394,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
         onClose={() => setShowEmptyConfirm(false)}
         title="¿Caja vacía?"
         size="sm"
-        closeOnOverlay={false}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowEmptyConfirm(false)}>

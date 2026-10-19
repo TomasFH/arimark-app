@@ -28,6 +28,14 @@
   --accent: #e85d4c;
   --danger: #c0362c;
   --success: #1f7a38;
+  --pay-cash: #1f7a38;
+  --pay-cash-soft: #e5f4ea;
+  --pay-debit: #1d4e89;
+  --pay-debit-soft: #e7eef6;
+  --pay-wallet: #0e7490;
+  --pay-wallet-soft: #e5f5f8;
+  --pay-credit: #8a5a20;
+  --pay-credit-soft: #f7f0e6;
   --overlay: rgba(28, 28, 30, 0.45);
 
   /* Estirar alto de modal/sección (no usar para autocomplete). */
@@ -57,6 +65,14 @@
   --accent: #e85d4c;
   --danger: #c0362c;
   --success: #1f7a38;
+  --pay-cash: #8ed4a8;
+  --pay-cash-soft: rgba(31, 122, 56, 0.28);
+  --pay-debit: #9ec0e6;
+  --pay-debit-soft: rgba(29, 78, 137, 0.38);
+  --pay-wallet: #8fd4e0;
+  --pay-wallet-soft: rgba(14, 116, 144, 0.34);
+  --pay-credit: #e2b888;
+  --pay-credit-soft: rgba(154, 91, 18, 0.32);
   --overlay: rgba(0, 0, 0, 0.6);
 }
 
@@ -253,4 +269,34 @@
 
 .animate-pulse-soft {
   animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+/*
+ * Etiqueta que cayó en una fila del cobro.
+ * Aparece ya intensa (el acento sobre el fondo de la fila) y se apaga en 1,5 s.
+ * La duración la pone el estilo en línea, igual que CHARGE_LINE_FLASH_MS.
+ * Sin desplazamiento: es un aviso de cuál fila tomó el ticket.
+ */
+@keyframes charge-scan-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 62%, var(--bg-hover));
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-charge-scan {
+  animation-name: charge-scan-flash;
+  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-charge-scan {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 38%, var(--bg-hover));
+    opacity: 1;
+  }
 }

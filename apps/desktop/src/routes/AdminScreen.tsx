@@ -6,10 +6,12 @@
  * Versiones y retiro global: solo admin.
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { catalogPendingGap, catalogPendingLabel, compareWithCatalogPending } from '@carniceria/shared'
 import NumericInput from '../components/NumericInput'
 import KretzSyncModal from '../components/KretzSyncModal'
 import CatalogToggle from '../components/CatalogToggle'
-import { ActionMenu, Button, Modal, ScreenHeader } from '../components/ui'
+import { ActionMenu, Button, Modal } from '../components/ui'
+import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { parseNumericInput, formatNumericInputValue } from '../lib/numericInput'
 import { useAvailabilityToggle } from '../lib/useAvailabilityToggle'
 import type {
@@ -169,7 +171,7 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
   const filtered = products.filter(p => {
     const q = normalize(filterText)
     return normalize(p.name).includes(q) || String(p.pluNumber ?? '').includes(q)
-  }).slice().sort((a, b) => {
+  }).slice().sort((a, b) => compareWithCatalogPending(a, b, row => catalogPendingGap(row), (left, right) => {
     const dir = sortDir === 'asc' ? 1 : -1
     const cmp = (av: string | number | boolean | null, bv: string | number | boolean | null): number => {
       if (av == null && bv == null) return 0
@@ -180,14 +182,14 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
       return String(av).localeCompare(String(bv), 'es') * dir
     }
     switch (sortKey) {
-      case 'plu': return cmp(a.pluNumber, b.pluNumber)
-      case 'name': return cmp(a.name, b.name)
-      case 'category': return cmp(CATEGORY_LABELS[a.category], CATEGORY_LABELS[b.category])
-      case 'unit': return cmp(a.unit, b.unit)
-      case 'price': return cmp(a.price, b.price)
-      case 'available': return cmp(a.available, b.available)
+      case 'plu': return cmp(left.pluNumber, right.pluNumber)
+      case 'name': return cmp(left.name, right.name)
+      case 'category': return cmp(CATEGORY_LABELS[left.category], CATEGORY_LABELS[right.category])
+      case 'unit': return cmp(left.unit, right.unit)
+      case 'price': return cmp(left.price, right.price)
+      case 'available': return cmp(left.available, right.available)
     }
-  })
+  }))
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
@@ -261,13 +263,11 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
 
   return (
     <div className="flex flex-col h-screen bg-app text-ink">
-      <ScreenHeader
+      <AdminSectionHeader
         title={isAdmin ? 'Administración — Productos' : 'Catálogo'}
         subtitle={stores.length === 1 ? stores[0]?.name : undefined}
         onBack={onReturnToHub}
-        actions={
-          <Button variant="ghost" size="sm" onClick={onLogout}>Cerrar sesión</Button>
-        }
+        onLogout={onLogout}
       />
 
       <div className="flex shrink-0 items-center gap-2 px-6 pt-4 pb-3">
@@ -409,7 +409,14 @@ export default function AdminScreen({ session, onLogout, onReturnToHub }: Props)
                         {p.pluNumber ?? <span className="text-subtle">—</span>}
                       </td>
                       <td className={`min-w-0 border-t border-line px-3 py-2.5 font-medium ${rowBg}`}>
-                        <span className="block truncate" title={p.name}>{p.name}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 flex-1 truncate" title={p.name}>{p.name}</span>
+                          {catalogPendingLabel(catalogPendingGap(p)) && (
+                            <span className="shrink-0 text-[10px] font-normal text-subtle" title={catalogPendingLabel(catalogPendingGap(p)) ?? undefined}>
+                              {catalogPendingLabel(catalogPendingGap(p))}
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className={`border-t border-line px-3 py-2.5 text-muted ${rowBg}`}>
                         {CATEGORY_LABELS[p.category]}

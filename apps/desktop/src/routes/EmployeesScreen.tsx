@@ -9,6 +9,7 @@ import NumericInput from '../components/NumericInput'
 import { formatARS } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
 import SalaryPaymentModal from './SalaryPaymentModal'
+import { ModalCloseButton, ModalLayer } from '../components/ui'
 import { GrantButcherAccessModal, RevokeButcherAccessModal } from '../components/ButcherAccessModals'
 import type { EmployeeRow } from '../types/hw-api'
 
@@ -380,12 +381,19 @@ function EmployeeFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
+    <ModalLayer
+      onClose={onCancel}
+      enabled={!saving}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade"
+    >
       <form
         onSubmit={e => void handleSubmit(e)}
         className="w-full max-w-md rounded-2xl bg-panel border border-line p-5 space-y-4"
       >
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold" title={title}>{title}</h2>
+          <ModalCloseButton onClick={onCancel} disabled={saving} />
+        </div>
 
         <div>
           <label className="block text-sm text-ink mb-1">Nombre</label>
@@ -433,7 +441,7 @@ function EmployeeFormModal({
           </button>
         </div>
       </form>
-    </div>
+    </ModalLayer>
   )
 }
 
@@ -449,13 +457,20 @@ function DeleteConfirmModal({
   const [busy, setBusy] = useState(false)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade">
+    <ModalLayer
+      onClose={onCancel}
+      enabled={!busy}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-overlay-fade"
+    >
       <div className="w-full max-w-sm rounded-2xl bg-panel border border-line p-6 space-y-4">
-        <h2 className="text-base font-semibold text-ink min-w-0">
+        <div className="flex items-start gap-2 min-w-0">
+        <h2 className="min-w-0 flex-1 text-base font-semibold text-ink">
           ¿Estás seguro que querés eliminar{' '}
           <span className="truncate inline-block max-w-full align-bottom" title={name}>{name}</span>
           ?
         </h2>
+          <ModalCloseButton onClick={onCancel} disabled={busy} />
+        </div>
         <div className="flex gap-3 pt-1">
           <button
             type="button"
@@ -478,6 +493,6 @@ function DeleteConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   )
 }
