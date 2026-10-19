@@ -9,6 +9,8 @@ export interface ListRowProps {
   selected?: boolean
   onClick?: () => void
   disabled?: boolean
+  /** Filas del menú de caja: menos alto, icono un punto más chico. */
+  dense?: boolean
 }
 
 export function ListRow({
@@ -19,10 +21,13 @@ export function ListRow({
   selected = false,
   onClick,
   disabled = false,
+  dense = false,
 }: ListRowProps) {
   const content = (
     <>
-      {leading != null && <div className="shrink-0">{leading}</div>}
+      {leading != null && (
+        <div className={cx('shrink-0', dense && '[&_svg]:h-4 [&_svg]:w-4')}>{leading}</div>
+      )}
       <div className="min-w-0 flex-1">
         <p className="min-w-0 truncate text-sm font-medium text-ink" title={title}>
           {title}
@@ -38,7 +43,8 @@ export function ListRow({
   )
 
   const classes = cx(
-    'flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left transition-colors',
+    'flex w-full min-w-0 items-center text-left transition-colors',
+    dense ? 'gap-2 px-3 py-1.5' : 'gap-3 px-4 py-3',
     selected ? 'bg-accent-soft' : 'bg-panel hover:bg-hover',
     onClick && !disabled && 'cursor-pointer',
     disabled && 'pointer-events-none opacity-40',
