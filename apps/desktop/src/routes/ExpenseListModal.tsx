@@ -11,6 +11,8 @@ import { Button, Modal, ModalCloseButton } from '../components/ui'
 
 interface Props {
   onClose: () => void
+  /** Se llama al eliminar o guardar una edición para que el POS refresque “en caja” al toque. */
+  onChanged?: () => void
 }
 
 function formatTime(iso: string): string {
@@ -21,7 +23,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-export default function ExpenseListModal({ onClose }: Props) {
+export default function ExpenseListModal({ onClose, onChanged }: Props) {
   const [expenses, setExpenses] = useState<ExpenseRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -70,6 +72,7 @@ export default function ExpenseListModal({ onClose }: Props) {
     setConfirmDeleteId(null)
     setExpandedId(null)
     void loadExpenses()
+    onChanged?.()
   }
 
   // Cuando hay un gasto en edición, mostrar solo el modal de edición.
@@ -78,7 +81,7 @@ export default function ExpenseListModal({ onClose }: Props) {
     return (
       <ExpenseModal
         editingExpense={editingExpense}
-        onRegistered={() => { setEditingExpense(null); void loadExpenses() }}
+        onRegistered={() => { setEditingExpense(null); void loadExpenses(); onChanged?.() }}
         onCancel={() => setEditingExpense(null)}
       />
     )

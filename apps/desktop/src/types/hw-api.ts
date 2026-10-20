@@ -4,9 +4,9 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, ProviderIntakeKind, StoreHoursBlock } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock } from '@carniceria/shared'
 
-export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, ProviderIntakeKind }
+export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind }
 
 export type AppEnv = 'dev' | 'production'
 
@@ -1326,6 +1326,10 @@ export interface MerchRubroRow {
   archivedAt: string | null
 }
 
+export interface MerchWeekBookResult extends MerchWeekBook {
+  warning: string | null
+}
+
 export interface MerchandiseIntakeRow {
   id: string
   lines: MerchIntakeLineSnapshot[]
@@ -1789,6 +1793,7 @@ export interface HwApi {
   }) => Promise<IpcResult<{ id: string }>>
 
   listShiftMerch: (payload?: { weekOffset?: number }) => Promise<IpcResult<MerchandiseIntakeRow[]>>
+  listMerchWeek: (payload: { weekOffset: number; storeIdFilter: string }) => Promise<IpcResult<MerchWeekBookResult>>
   getMerchVisitDraft: () => Promise<IpcResult<{
     id: string
     providerId: string | null

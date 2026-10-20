@@ -62,6 +62,7 @@ describe('migrations', () => {
       'merchandise_intakes',
       'merchandise_intake_rubros',
       'merchandise_intake_lines',
+      'merch_week_pulls',
       'provider_purchase_prices',
     ]
 
@@ -640,6 +641,12 @@ describe('migrations', () => {
     expect(linked('bola').base).toBeNull()
     expect(linked('rinonada').base).toBeNull()
     expect(linked('tapa-pack').base).toBeNull()
+  })
+
+  it('guarda la marca de semana bajada (migración 0056)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const cols = sqlite.prepare('PRAGMA table_info(merch_week_pulls)').all() as { name: string }[]
+    expect(cols.map(c => c.name)).toEqual(['store_id', 'week_start_iso', 'pulled_at'])
   })
 
   it('tiene el índice idx_debt_events_customer', async () => {

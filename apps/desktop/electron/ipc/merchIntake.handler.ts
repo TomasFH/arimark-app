@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { and, asc, desc, eq, gte, isNull, lt } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
@@ -10,6 +10,7 @@ import {
   merchandiseIntakeLines,
   merchandiseIntakeRubros,
   merchandiseIntakes,
+  merchWeekPulls,
   products,
   providerDebtEvents,
   providers,
@@ -47,6 +48,7 @@ import {
   MERCH_INTAKE_NAME_MAX,
   MERCH_INTAKE_NOTES_MAX,
   MERCH_INTAKE_QUANTITY_MAX,
+  buildMerchWeekBook,
   lineEntersVisitTotal,
   merchIntakeExpenseConcept,
   merchNameKey,
@@ -61,11 +63,20 @@ import {
   MERCH_VISIT_KINDS,
   PROVIDER_INTAKE_KINDS,
 } from '@carniceria/shared'
-import type { IpcError, IpcResult, MerchandiseIntakeRow, MerchRubroRow } from '../../src/types/hw-api'
+import { isFirebaseAvailable } from '../licensing/firebase'
+import type { IpcError, IpcResult, MerchandiseIntakeRow, MerchRubroRow, MerchWeekBookResult } from '../../src/types/hw-api'
 
 const listSchema = z.object({
   weekOffset: z.number().int().min(-104).max(0).optional(),
 })
+
+const listMerchWeekSchema = z.object({
+  weekOffset: z.number().int().min(-104).max(0),
+  storeIdFilter: z.string().min(1).max(128),
+})
+
+const MERCH_WEEK_STALE_WARNING = 'Puede faltar mercadería cargada en otra caja.'
+const MERCH_WEEK_NO_COPY = 'Sin conexión. No hay una copia de esta semana en esta computadora.'
 
 const visitLineDraftSchema = z.object({
   productId: z.string().min(1).max(64).nullable(),
@@ -339,6 +350,129 @@ function schedulePushes(opts: {
   }
 }
 
+function weekPullMarked(
+  db: ReturnType<typeof getDb>,
+  storeId: string,
+  weekStartIso: string,
+): boolean {
+  const row = db.select({ storeId: merchWeekPulls.storeId }).from(merchWeekPulls).where(and(
+    eq(merchWeekPulls.storeId, storeId),
+    eq(merchWeekPulls.weekStartIso, weekStartIso),
+  )).get()
+  return row != null
+}
+
+function markWeekPull(db: ReturnType<typeof getDb>, storeId: string, weekStartIso: string): void {
+  const pulledAt = new Date().toISOString()
+  db.insert(merchWeekPulls).values({ storeId, weekStartIso, pulledAt }).onConflictDoUpdate({
+    target: [merchWeekPulls.storeId, merchWeekPulls.weekStartIso],
+    set: { pulledAt },
+  }).run()
+}
+
+function cashLeftDrawer(
+  paymentChannel: string,
+  expenseId: string | null,
+  expenseAmount: number | undefined,
+): number {
+  if (paymentChannel === 'digital') return 0
+  if (!expenseId || expenseAmount == null) return 0
+  if (!Number.isFinite(expenseAmount) || expenseAmount <= 0) return 0
+  return Math.round(expenseAmount)
+}
+
+function storeIdsForMerchWeek(
+  db: ReturnType<typeof getDb>,
+  storeIdFilter: string,
+): { ok: true; ids: string[] } | { ok: false; error: IpcError } {
+  if (storeIdFilter === 'all') {
+    const ids = db.select({ id: stores.id }).from(stores).where(isNull(stores.archivedAt)).all().map(row => row.id)
+    return { ok: true, ids }
+  }
+  const store = db.select({ id: stores.id, archivedAt: stores.archivedAt })
+    .from(stores)
+    .where(eq(stores.id, storeIdFilter))
+    .get()
+  if (!store || store.archivedAt) {
+    return { ok: false, error: { ok: false, error: 'El local no existe.', code: 'NOT_FOUND' } }
+  }
+  return { ok: true, ids: [store.id] }
+}
+
+function readMerchWeekBook(
+  db: ReturnType<typeof getDb>,
+  storeIds: string[],
+  startIso: string,
+  endIso: string,
+): MerchWeekBookResult {
+  if (storeIds.length === 0) {
+    return { ...buildMerchWeekBook([]), warning: null }
+  }
+  const intakes = db.select().from(merchandiseIntakes).where(and(
+    inArray(merchandiseIntakes.storeId, storeIds),
+    eq(merchandiseIntakes.status, 'confirmed'),
+    gte(merchandiseIntakes.createdAt, startIso),
+    lt(merchandiseIntakes.createdAt, endIso),
+  )).all()
+
+  const intakeIds = intakes.map(row => row.id)
+  const lineRows = intakeIds.length === 0
+    ? []
+    : db.select().from(merchandiseIntakeLines)
+      .where(inArray(merchandiseIntakeLines.intakeId, intakeIds))
+      .orderBy(asc(merchandiseIntakeLines.sortOrder))
+      .all()
+  const linesByIntake = new Map<string, MerchIntakeLineSnapshot[]>()
+  for (const line of lineRows) {
+    const list = linesByIntake.get(line.intakeId) ?? []
+    list.push(merchDbLineToSnapshot(line))
+    linesByIntake.set(line.intakeId, list)
+  }
+
+  const expenseIds = intakes.map(row => row.expenseId).filter((id): id is string => Boolean(id))
+  const expenseRows = expenseIds.length === 0
+    ? []
+    : db.select({ id: expenses.id, amount: expenses.amount }).from(expenses).where(inArray(expenses.id, expenseIds)).all()
+  const expenseAmount = new Map(expenseRows.map(row => [row.id, row.amount]))
+
+  const paymentRows = expenseIds.length === 0
+    ? []
+    : db.select({
+      expenseId: providerDebtEvents.expenseId,
+      amount: providerDebtEvents.amount,
+    }).from(providerDebtEvents).where(and(
+      inArray(providerDebtEvents.expenseId, expenseIds),
+      eq(providerDebtEvents.type, 'payment'),
+    )).all()
+  const oldDebtByExpense = new Map<string, number>()
+  for (const payment of paymentRows) {
+    if (!payment.expenseId) continue
+    if (!Number.isFinite(payment.amount) || payment.amount <= 0) continue
+    oldDebtByExpense.set(payment.expenseId, (oldDebtByExpense.get(payment.expenseId) ?? 0) + payment.amount)
+  }
+
+  const nameMap = namesById(db, intakes.map(row => row.createdBy))
+  const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).where(inArray(stores.id, storeIds)).all()
+  const storeName = new Map(storeRows.map(row => [row.id, row.name]))
+
+  const book = buildMerchWeekBook(intakes.map(row => ({
+    id: row.id,
+    providerId: row.providerId,
+    providerName: row.providerName,
+    createdAt: row.createdAt,
+    createdByName: nameMap.get(row.createdBy) ?? row.createdBy,
+    storeId: row.storeId,
+    storeName: storeName.get(row.storeId) ?? row.storeId,
+    notes: row.notes,
+    paidAmount: row.paidAmount,
+    debtAmount: row.debtAmount,
+    cashOut: cashLeftDrawer(row.paymentChannel, row.expenseId, row.expenseId ? expenseAmount.get(row.expenseId) : undefined),
+    oldDebtSettled: row.expenseId ? Math.round(oldDebtByExpense.get(row.expenseId) ?? 0) : 0,
+    lines: linesByIntake.get(row.id) ?? [],
+  })))
+  return { ...book, warning: null }
+}
+
 function mapRubro(row: typeof merchandiseIntakeRubros.$inferSelect): MerchRubroRow {
   return {
     id: row.id,
@@ -353,6 +487,69 @@ function mapRubro(row: typeof merchandiseIntakeRubros.$inferSelect): MerchRubroR
 }
 
 export function registerMerchIntakeHandlers(): void {
+  ipcMain.handle(IPC.LIST_MERCH_WEEK, async (_event, payload: unknown): Promise<IpcResult<MerchWeekBookResult>> => {
+    const parsed = listMerchWeekSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:list-merch-week] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo los administradores pueden ver los ingresos.', code: 'FORBIDDEN' }
+    }
+
+    const bounds = mondayWeekRange(parsed.data.weekOffset)
+
+    try {
+      const db = getDb()
+      const storesResult = storeIdsForMerchWeek(db, parsed.data.storeIdFilter)
+      if (!storesResult.ok) return storesResult.error
+      const storeIds = storesResult.ids
+      if (storeIds.length === 0) {
+        return { ok: true, data: { ...buildMerchWeekBook([]), warning: null } }
+      }
+
+      let refreshFailed = false
+      const closedAndCached = parsed.data.weekOffset !== 0
+        && storeIds.every(storeId => weekPullMarked(db, storeId, bounds.startIso))
+
+      if (!closedAndCached) {
+        if (!isFirebaseAvailable()) {
+          refreshFailed = true
+        } else {
+          const config = getBusinessConfig()
+          for (const storeId of storeIds) {
+            if (parsed.data.weekOffset !== 0 && weekPullMarked(db, storeId, bounds.startIso)) continue
+            try {
+              await pullMerchandiseIntakesForStoreWeek(
+                config.tenant_id,
+                storeId,
+                bounds.startIso,
+                bounds.endIso,
+              )
+              markWeekPull(db, storeId, bounds.startIso)
+            } catch (err) {
+              log.warn('[ipc:list-merch-week] pullMerchandiseIntakesForStoreWeek falló', { storeId, err })
+              refreshFailed = true
+            }
+          }
+        }
+      }
+
+      const data = readMerchWeekBook(db, storeIds, bounds.startIso, bounds.endIso)
+      if (data.providers.length === 0 && data.rubros.length === 0 && refreshFailed) {
+        return { ok: false, error: MERCH_WEEK_NO_COPY }
+      }
+      if (refreshFailed) data.warning = MERCH_WEEK_STALE_WARNING
+      return { ok: true, data }
+    } catch (err) {
+      log.error('[ipc:list-merch-week] Error inesperado', err)
+      return { ok: false, error: 'Error al listar los ingresos de la semana.' }
+    }
+  })
+
   ipcMain.handle(IPC.LIST_SHIFT_MERCH, async (_event, payload: unknown): Promise<IpcResult<MerchandiseIntakeRow[]>> => {
     const parsed = listSchema.safeParse(payload ?? {})
     if (!parsed.success) {

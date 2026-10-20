@@ -1,6 +1,6 @@
 # Checklist — sesión 16 oct 2026
 
-Versión 0.6.4. Probar con el instalador nuevo o con `pnpm dev`.
+Versión 0.6.5. Probar con el instalador nuevo o con `pnpm dev`.
 
 La charla del cierre de caja, los clientes especiales y los cortes con oferta no tienen código nuevo.
 

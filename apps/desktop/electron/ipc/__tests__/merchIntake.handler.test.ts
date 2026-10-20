@@ -6,6 +6,7 @@ import {
   shifts,
   merchandiseIntakes,
   merchandiseIntakeLines,
+  merchWeekPulls,
   expenses,
   products,
   providerDebtEvents,
@@ -31,6 +32,11 @@ vi.mock('../../activeSession', () => ({
 
 vi.mock('../../businessConfig', () => ({
   getBusinessConfig: vi.fn(() => ({ tenant_id: 'test-license' })),
+}))
+
+vi.mock('../../licensing/firebase', () => ({
+  isFirebaseAvailable: vi.fn(() => false),
+  getFirebaseApp: vi.fn(),
 }))
 
 vi.mock('../../licensing/merchIntakeSync', () => ({
@@ -67,6 +73,8 @@ import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { pullMerchandiseIntakesForStoreWeek } from '../../licensing/merchIntakeSync'
+import { isFirebaseAvailable } from '../../licensing/firebase'
+import { mondayWeekRange } from '@carniceria/shared'
 import { registerMerchIntakeHandlers } from '../merchIntake.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
@@ -113,6 +121,8 @@ describe('merchIntake.handler visita', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    vi.mocked(pullMerchandiseIntakesForStoreWeek).mockResolvedValue(0)
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
     const instance = await createInMemoryDb()
     db = instance.db
     const now = new Date().toISOString()
@@ -727,5 +737,215 @@ describe('merchIntake.handler visita', () => {
     expect(db.select().from(products).all()).toHaveLength(0)
     expect(db.select().from(expenses).all()[0]?.amount).toBe(3_000)
     expect(db.select().from(merchandiseIntakeLines).all()[0]?.notForSale).toBe(true)
+  })
+
+  function asAdmin() {
+    vi.mocked(getActiveSession).mockReturnValue({
+      ...SESSION,
+      role: 'admin',
+      shiftId: null,
+    } as ReturnType<typeof getActiveSession>)
+  }
+
+  function insertWeekIntake(opts: {
+    id: string
+    storeId: string
+    shiftId: string
+    createdAt: string
+    providerName: string
+    rubroName: string
+  }) {
+    db.insert(merchandiseIntakes).values({
+      id: opts.id,
+      storeId: opts.storeId,
+      shiftId: opts.shiftId,
+      paymentKind: 'paid_now',
+      paidAmount: 1_000,
+      debtAmount: 0,
+      providerName: opts.providerName,
+      expenseId: null,
+      status: 'confirmed',
+      paymentChannel: 'cash',
+      createdBy: 'user-001',
+      createdAt: opts.createdAt,
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: `${opts.id}-l1`,
+      intakeId: opts.id,
+      rubroId: `rubro-${opts.rubroName}`,
+      rubroName: opts.rubroName,
+      template: 'weight',
+      sortOrder: 0,
+      count: 1,
+      netKg: 2,
+      grossKg: 2,
+    }).run()
+  }
+
+  it('lista la semana pedida con payload válido', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const bounds = mondayWeekRange(0)
+    const createdAt = new Date(new Date(bounds.startIso).getTime() + 3_600_000).toISOString()
+    insertWeekIntake({
+      id: 'week-1',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      createdAt,
+      providerName: 'Oso',
+      rubroName: 'Bondiola',
+    })
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: 0,
+      storeIdFilter: 'all',
+    }) as { ok: boolean; data: { providers: Array<{ providerName: string }>; warning: string | null } }
+    expect(result.ok).toBe(true)
+    expect(result.data.providers.map(p => p.providerName)).toEqual(['Oso'])
+    expect(result.data.warning).toBeNull()
+  })
+
+  it('zod rechaza el listado de semana malformado', async () => {
+    asAdmin()
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: 1,
+      storeIdFilter: 'all',
+    }) as { ok: boolean; code?: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('INVALID_PAYLOAD')
+  })
+
+  it('cajera no puede ver los ingresos de la semana', async () => {
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: 0,
+      storeIdFilter: 'all',
+    }) as { ok: boolean; code?: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('FORBIDDEN')
+    expect(vi.mocked(pullMerchandiseIntakesForStoreWeek)).not.toHaveBeenCalled()
+  })
+
+  it('pedir la semana actual no pide la anterior', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const current = mondayWeekRange(0)
+    const previous = mondayWeekRange(-1)
+    await getHandler('ipc:list-merch-week')(null, { weekOffset: 0, storeIdFilter: 'all' })
+    const starts = vi.mocked(pullMerchandiseIntakesForStoreWeek).mock.calls.map(call => call[2])
+    expect(starts.length).toBeGreaterThan(0)
+    expect(starts.every(start => start === current.startIso)).toBe(true)
+    expect(starts).not.toContain(previous.startIso)
+  })
+
+  it('semana cerrada con marca no llama al pull', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const previous = mondayWeekRange(-1)
+    const createdAt = new Date(new Date(previous.startIso).getTime() + 3_600_000).toISOString()
+    db.insert(merchWeekPulls).values({
+      storeId: 'store-001',
+      weekStartIso: previous.startIso,
+      pulledAt: createdAt,
+    }).run()
+    insertWeekIntake({
+      id: 'old-1',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      createdAt,
+      providerName: 'Guido',
+      rubroName: 'Cerdo',
+    })
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: -1,
+      storeIdFilter: 'store-001',
+    }) as { ok: boolean; data: { providers: Array<{ providerName: string }> } }
+    expect(result.ok).toBe(true)
+    expect(result.data.providers.map(p => p.providerName)).toEqual(['Guido'])
+    expect(vi.mocked(pullMerchandiseIntakesForStoreWeek)).not.toHaveBeenCalled()
+  })
+
+  it('la primera consulta de una semana vacía deja marca', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const previous = mondayWeekRange(-1)
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: -1,
+      storeIdFilter: 'store-001',
+    }) as { ok: boolean; data: { providers: unknown[]; warning: string | null } }
+    expect(result.ok).toBe(true)
+    expect(result.data.providers).toEqual([])
+    expect(result.data.warning).toBeNull()
+    const marks = db.select().from(merchWeekPulls).all()
+    expect(marks).toEqual([expect.objectContaining({
+      storeId: 'store-001',
+      weekStartIso: previous.startIso,
+    })])
+    expect(vi.mocked(pullMerchandiseIntakesForStoreWeek)).toHaveBeenCalledTimes(1)
+  })
+
+  it('pull fallido no marca y devuelve lo local', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    vi.mocked(pullMerchandiseIntakesForStoreWeek).mockRejectedValue(new Error('red'))
+    const previous = mondayWeekRange(-1)
+    const createdAt = new Date(new Date(previous.startIso).getTime() + 3_600_000).toISOString()
+    insertWeekIntake({
+      id: 'local-1',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      createdAt,
+      providerName: 'Oso',
+      rubroName: 'Bondiola',
+    })
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: -1,
+      storeIdFilter: 'store-001',
+    }) as { ok: boolean; data: { providers: Array<{ providerName: string }>; warning: string | null } }
+    expect(result.ok).toBe(true)
+    expect(result.data.providers.map(p => p.providerName)).toEqual(['Oso'])
+    expect(result.data.warning).toBe('Puede faltar mercadería cargada en otra caja.')
+    expect(db.select().from(merchWeekPulls).all()).toHaveLength(0)
+  })
+
+  it('el filtro de un local no mezcla el otro', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const now = new Date().toISOString()
+    db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: now }).run()
+    db.insert(shifts).values({
+      id: 'shift-002',
+      storeId: 'store-002',
+      userId: 'user-001',
+      shiftType: 'morning',
+      startedAt: now,
+      openingCash: 0,
+      source: 'desktop',
+    }).run()
+    const bounds = mondayWeekRange(0)
+    const createdAt = new Date(new Date(bounds.startIso).getTime() + 3_600_000).toISOString()
+    insertWeekIntake({
+      id: 'here',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      createdAt,
+      providerName: 'Oso',
+      rubroName: 'Bondiola',
+    })
+    insertWeekIntake({
+      id: 'there',
+      storeId: 'store-002',
+      shiftId: 'shift-002',
+      createdAt,
+      providerName: 'Guido',
+      rubroName: 'Cerdo',
+    })
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: 0,
+      storeIdFilter: 'store-001',
+    }) as { ok: boolean; data: { providers: Array<{ providerName: string }>; rubros: Array<{ rubroName: string }> } }
+    expect(result.ok).toBe(true)
+    expect(result.data.providers.map(p => p.providerName)).toEqual(['Oso'])
+    expect(result.data.rubros.map(r => r.rubroName)).toEqual(['Bondiola'])
+    const pulledStores = vi.mocked(pullMerchandiseIntakesForStoreWeek).mock.calls.map(call => call[1])
+    expect(pulledStores).toEqual(['store-001'])
   })
 })

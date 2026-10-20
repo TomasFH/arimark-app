@@ -16,6 +16,7 @@ import DebtsScreen from './routes/DebtsScreen'
 import SpecialCustomersScreen from './routes/SpecialCustomersScreen'
 import OrdersScreen from './routes/OrdersScreen'
 import HistoryScreen from './routes/HistoryScreen'
+import IngresosScreen from './routes/IngresosScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
@@ -54,6 +55,7 @@ type AppState =
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
 
@@ -575,6 +577,7 @@ export default function App() {
             onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
             onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
             onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
+            onGoToIngresos={() => setState({ screen: 'ingresos', session: state.session, initStatus: state.initStatus })}
             onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
             onGoToStockCounts={handleGoToStockCounts}
             onLogout={handleLogout}
@@ -667,6 +670,12 @@ export default function App() {
       {state.screen === 'history' && (
         <Page>
           <HistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
+        </Page>
+      )}
+
+      {state.screen === 'ingresos' && (
+        <Page>
+          <IngresosScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 

@@ -170,6 +170,7 @@ const hw: HwApi = {
   updateCebo: payload => ipcRenderer.invoke(IPC.UPDATE_CEBO, payload),
 
   listShiftMerch: payload => ipcRenderer.invoke(IPC.LIST_SHIFT_MERCH, payload),
+  listMerchWeek: payload => ipcRenderer.invoke(IPC.LIST_MERCH_WEEK, payload),
   getMerchVisitDraft: () => ipcRenderer.invoke(IPC.GET_MERCH_VISIT_DRAFT),
   saveMerchVisitDraft: payload => ipcRenderer.invoke(IPC.SAVE_MERCH_VISIT_DRAFT, payload),
   discardMerchVisitDraft: () => ipcRenderer.invoke(IPC.DISCARD_MERCH_VISIT_DRAFT),

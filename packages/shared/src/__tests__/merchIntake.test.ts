@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildMerchWeekBook,
   computeMerchLineFacts,
   coerceMerchIntakeTemplate,
   formatMerchLineSummary,
@@ -8,8 +9,11 @@ import {
   parseMerchLinesFromUnknown,
   parseMerchWeightsJson,
   resolveMerchLineFacts,
+  snapshotFromFacts,
   summarizeMerchIntakeLines,
   synthesizeLegacyMerchLine,
+  type MerchIntakeLineSnapshot,
+  type MerchWeekIntakeInput,
 } from '../merchIntake'
 
 describe('merchIntake', () => {
@@ -167,5 +171,182 @@ describe('merchIntake', () => {
     expect(lines[0]?.unitCost).toBe(4800.5)
     expect(lines[0]?.costTotal).toBe(24003)
     expect(lines[1]?.unitCost).toBe(9000)
+  })
+})
+
+function weekLine(
+  template: MerchIntakeLineSnapshot['template'],
+  rubroId: string,
+  rubroName: string,
+  factsInput: Parameters<typeof computeMerchLineFacts>[0],
+): MerchIntakeLineSnapshot {
+  const computed = computeMerchLineFacts(factsInput)
+  if (!computed.ok) throw new Error(computed.error)
+  return snapshotFromFacts({
+    id: `${rubroId}-${rubroName}`,
+    rubroId,
+    rubroName,
+    template,
+    sortOrder: 0,
+    packLabel: template === 'packs' ? 'Cajón' : null,
+  }, computed.facts)
+}
+
+function weekVisit(partial: Partial<MerchWeekIntakeInput> & Pick<MerchWeekIntakeInput, 'id' | 'lines'>): MerchWeekIntakeInput {
+  return {
+    providerId: partial.providerId ?? null,
+    providerName: partial.providerName ?? 'Proveedor',
+    createdAt: partial.createdAt ?? '2026-10-19T15:00:00.000Z',
+    createdByName: partial.createdByName ?? 'Ana',
+    storeId: partial.storeId ?? 'store-001',
+    storeName: partial.storeName ?? 'Local 1',
+    notes: partial.notes ?? null,
+    paidAmount: partial.paidAmount ?? 0,
+    debtAmount: partial.debtAmount ?? 0,
+    cashOut: partial.cashOut ?? 0,
+    oldDebtSettled: partial.oldDebtSettled ?? 0,
+    id: partial.id,
+    lines: partial.lines,
+  }
+}
+
+describe('buildMerchWeekBook', () => {
+  it('suma dos visitas del mismo rubro sin promediar el kilo', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'a',
+        providerId: 'p1',
+        providerName: 'Oso',
+        createdAt: '2026-10-19T12:00:00.000Z',
+        lines: [weekLine('pieces_weight', 'rubro_media_res', 'Media res', {
+          template: 'pieces_weight',
+          weightsKg: [90, 90],
+        })],
+      }),
+      weekVisit({
+        id: 'b',
+        providerId: 'p1',
+        providerName: 'Oso',
+        createdAt: '2026-10-20T12:00:00.000Z',
+        lines: [weekLine('pieces_weight', 'rubro_media_res', 'Media res', {
+          template: 'pieces_weight',
+          weightsKg: [80],
+        })],
+      }),
+    ])
+    expect(book.rubros).toHaveLength(1)
+    expect(book.rubros[0]?.pieces).toBe(3)
+    expect(book.rubros[0]?.netKg).toBe(260)
+    expect(book.rubros[0]?.qtyLabel).toBe('3 u · 260.000 kg')
+    expect(book.rubros[0]?.qtyLabel.includes('/u')).toBe(false)
+    expect(book.providers).toHaveLength(1)
+    expect(book.providers[0]?.deliveries.map(d => d.id)).toEqual(['a', 'b'])
+  })
+
+  it('no mezcla dos proveedores', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'oso',
+        providerId: 'p-oso',
+        providerName: 'Oso',
+        paidAmount: 10_000,
+        cashOut: 10_000,
+        lines: [weekLine('weight', 'rubro_bondiola', 'Bondiola', { template: 'weight', kg: 4 })],
+      }),
+      weekVisit({
+        id: 'guido',
+        providerId: 'p-guido',
+        providerName: 'Guido',
+        paidAmount: 3_000,
+        cashOut: 3_000,
+        lines: [weekLine('weight', 'rubro_cerdo', 'Cerdo', { template: 'weight', kg: 2 })],
+      }),
+    ])
+    expect(book.providers.map(p => p.providerName)).toEqual(['Guido', 'Oso'])
+    expect(book.providers.find(p => p.providerName === 'Guido')?.paid).toBe(3_000)
+    expect(book.providers.find(p => p.providerName === 'Oso')?.paid).toBe(10_000)
+    expect(book.paid).toBe(13_000)
+    expect(book.rubros.map(r => r.rubroName)).toEqual(['Bondiola', 'Cerdo'])
+  })
+
+  it('digital suma pagado y deja en 0 lo que salió de caja', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'd1',
+        providerId: 'p1',
+        providerName: 'Oso',
+        paidAmount: 10_000,
+        cashOut: 0,
+        lines: [weekLine('weight', 'rubro_cerdo', 'Cerdo', { template: 'weight', kg: 2 })],
+      }),
+      weekVisit({
+        id: 'd2',
+        providerId: 'p1',
+        providerName: 'Oso',
+        paidAmount: 8_000,
+        cashOut: 0,
+        lines: [weekLine('weight', 'rubro_cerdo', 'Cerdo', { template: 'weight', kg: 1 })],
+      }),
+    ])
+    expect(book.paid).toBe(18_000)
+    expect(book.cashOut).toBe(0)
+    expect(book.providers[0]?.paid).toBe(18_000)
+    expect(book.providers[0]?.cashOut).toBe(0)
+  })
+
+  it('efectivo con deuda vieja hace que salió de caja sea mayor que paidAmount', () => {
+    const paidAmount = 20_000
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'cash',
+        providerId: 'p1',
+        providerName: 'Oso',
+        paidAmount,
+        oldDebtSettled: 5_000,
+        cashOut: 25_000,
+        lines: [weekLine('weight', 'rubro_cerdo', 'Cerdo', { template: 'weight', kg: 6 })],
+      }),
+    ])
+    expect(book.paid).toBe(25_000)
+    expect(book.cashOut).toBe(25_000)
+    expect(book.cashOut).toBeGreaterThan(paidAmount)
+    expect(book.providers[0]?.cashOut).toBeGreaterThan(paidAmount)
+    expect(book.providers[0]?.paid).toBe(25_000)
+  })
+
+  it('media res entra en las cantidades con plata en 0', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'media',
+        providerId: 'p1',
+        providerName: 'Frigorífico',
+        paidAmount: 0,
+        debtAmount: 0,
+        cashOut: 0,
+        oldDebtSettled: 0,
+        lines: [weekLine('pieces_weight', 'rubro_media_res', 'Media res', {
+          template: 'pieces_weight',
+          weightsKg: [100, 98],
+        })],
+      }),
+    ])
+    expect(book.rubros[0]?.rubroName).toBe('Media res')
+    expect(book.rubros[0]?.pieces).toBe(2)
+    expect(book.rubros[0]?.netKg).toBe(198)
+    expect(book.paid).toBe(0)
+    expect(book.cashOut).toBe(0)
+    expect(book.debt).toBe(0)
+    expect(book.providers[0]?.paid).toBe(0)
+    expect(book.providers[0]?.cashOut).toBe(0)
+    expect(book.providers[0]?.debt).toBe(0)
+  })
+
+  it('semana sin entregas', () => {
+    const book = buildMerchWeekBook([])
+    expect(book.rubros).toEqual([])
+    expect(book.providers).toEqual([])
+    expect(book.paid).toBe(0)
+    expect(book.cashOut).toBe(0)
+    expect(book.debt).toBe(0)
   })
 })

@@ -584,3 +584,260 @@ export function formatMerchIntakeTitle(lines: MerchIntakeLineSnapshot[]): string
     .map(line => `${line.rubroName} · ${formatMerchLineSummary(line.template, line, line.packLabel)}`)
     .join(' · ')
 }
+
+/**
+ * Entrega ya joineada en SQLite: `cashOut` es `expenses.amount`
+ * (0 si fue digital o no hubo gasto) y `oldDebtSettled` es la deuda vieja
+ * saldada en ese gasto.
+ */
+export interface MerchWeekIntakeInput {
+  id: string
+  providerId: string | null
+  providerName: string | null
+  createdAt: string
+  createdByName: string
+  storeId: string
+  storeName: string
+  notes: string | null
+  paidAmount: number
+  debtAmount: number
+  cashOut: number
+  oldDebtSettled: number
+  lines: MerchIntakeLineSnapshot[]
+}
+
+export interface MerchWeekRubroTotal {
+  rubroId: string
+  rubroName: string
+  template: MerchIntakeTemplate
+  packLabel: string | null
+  pieces: number
+  packs: number
+  netKg: number
+  units: number
+  qtyLabel: string
+}
+
+export interface MerchWeekDelivery {
+  id: string
+  createdAt: string
+  createdByName: string
+  storeId: string
+  storeName: string
+  notes: string | null
+  lines: MerchIntakeLineSnapshot[]
+  paid: number
+  cashOut: number
+  debt: number
+}
+
+export interface MerchWeekProviderBlock {
+  providerId: string | null
+  providerName: string
+  paid: number
+  cashOut: number
+  debt: number
+  deliveries: MerchWeekDelivery[]
+}
+
+export interface MerchWeekBook {
+  rubros: MerchWeekRubroTotal[]
+  paid: number
+  cashOut: number
+  debt: number
+  providers: MerchWeekProviderBlock[]
+}
+
+function pesos(n: number): number {
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.round(n)
+}
+
+function deliveryMoney(row: MerchWeekIntakeInput): { paid: number; cashOut: number; debt: number } {
+  return {
+    paid: pesos(row.paidAmount) + pesos(row.oldDebtSettled),
+    cashOut: pesos(row.cashOut),
+    debt: pesos(row.debtAmount),
+  }
+}
+
+function providerGroupKey(row: MerchWeekIntakeInput): string {
+  const id = row.providerId?.trim()
+  if (id) return `id:${id}`
+  return `name:${merchNameKey(row.providerName ?? '')}`
+}
+
+function providerLabel(name: string | null | undefined): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed : 'Sin proveedor'
+}
+
+function formatPackHead(count: number, packLabel: string | null): string {
+  const raw = (packLabel && packLabel.trim()) || 'bulto'
+  const lower = raw.toLowerCase()
+  if (count === 1) return `1 ${lower}`
+  if (lower === 'cajón' || lower === 'cajon') return `${count} cajones`
+  return `${count} ${lower}`
+}
+
+function formatWeekRubroQty(total: {
+  template: MerchIntakeTemplate
+  packLabel: string | null
+  pieces: number
+  packs: number
+  netKg: number
+  units: number
+}): string {
+  if (total.template === 'pieces_weight') {
+    const units = total.pieces === 1 ? '1 u' : `${total.pieces} u`
+    if (total.netKg > 0) return `${units} · ${formatKg3(total.netKg)}`
+    return units
+  }
+  if (total.template === 'packs') {
+    const parts = [formatPackHead(total.packs, total.packLabel)]
+    if (total.units > 0) parts.push(`${total.units} u`)
+    if (total.netKg > 0) parts.push(`${formatKg3(total.netKg)} neto`)
+    return parts.join(' · ')
+  }
+  if (total.template === 'weight') {
+    return total.netKg > 0 ? formatKg3(total.netKg) : '0 kg'
+  }
+  const n = total.units > 0 ? total.units : total.pieces
+  return n === 1 ? '1 u' : `${n} u`
+}
+
+interface RubroAcc {
+  rubroId: string
+  rubroName: string
+  template: MerchIntakeTemplate
+  packLabel: string | null
+  pieces: number
+  packs: number
+  netKg: number
+  units: number
+  seenAt: string
+}
+
+function addRubroLine(acc: RubroAcc, line: MerchIntakeLineSnapshot, createdAt: string): void {
+  if (createdAt >= acc.seenAt) {
+    acc.rubroName = line.rubroName
+    acc.template = line.template
+    acc.packLabel = line.packLabel
+    acc.seenAt = createdAt
+  }
+  if (line.template === 'pieces_weight') acc.pieces += line.count
+  if (line.template === 'packs') acc.packs += line.packCount != null && line.packCount > 0 ? line.packCount : line.count
+  if (line.template === 'packs' && line.unitCount != null) acc.units += line.unitCount
+  if (line.template === 'count') acc.units += line.unitCount != null ? line.unitCount : line.count
+  if (line.netKg != null && Number.isFinite(line.netKg)) acc.netKg = roundKg(acc.netKg + line.netKg)
+}
+
+/**
+ * Arma el libro de la semana: un renglón por rubro (sin promediar kg/u)
+ * y un bloque por proveedor que tuvo al menos una entrega.
+ */
+export function buildMerchWeekBook(rows: MerchWeekIntakeInput[]): MerchWeekBook {
+  const rubros = new Map<string, RubroAcc>()
+  const providers = new Map<string, {
+    providerId: string | null
+    providerName: string
+    paid: number
+    cashOut: number
+    debt: number
+    latestAt: string
+    deliveries: MerchWeekDelivery[]
+  }>()
+
+  let paid = 0
+  let cashOut = 0
+  let debt = 0
+
+  for (const row of rows) {
+    const money = deliveryMoney(row)
+    paid += money.paid
+    cashOut += money.cashOut
+    debt += money.debt
+
+    for (const line of row.lines) {
+      const existing = rubros.get(line.rubroId)
+      if (!existing) {
+        const acc: RubroAcc = {
+          rubroId: line.rubroId,
+          rubroName: line.rubroName,
+          template: line.template,
+          packLabel: line.packLabel,
+          pieces: 0,
+          packs: 0,
+          netKg: 0,
+          units: 0,
+          seenAt: '',
+        }
+        addRubroLine(acc, line, row.createdAt)
+        rubros.set(line.rubroId, acc)
+      } else {
+        addRubroLine(existing, line, row.createdAt)
+      }
+    }
+
+    const key = providerGroupKey(row)
+    const delivery: MerchWeekDelivery = {
+      id: row.id,
+      createdAt: row.createdAt,
+      createdByName: row.createdByName,
+      storeId: row.storeId,
+      storeName: row.storeName,
+      notes: row.notes,
+      lines: [...row.lines].sort((a, b) => a.sortOrder - b.sortOrder),
+      paid: money.paid,
+      cashOut: money.cashOut,
+      debt: money.debt,
+    }
+    const block = providers.get(key)
+    if (!block) {
+      providers.set(key, {
+        providerId: row.providerId?.trim() || null,
+        providerName: providerLabel(row.providerName),
+        paid: money.paid,
+        cashOut: money.cashOut,
+        debt: money.debt,
+        latestAt: row.createdAt,
+        deliveries: [delivery],
+      })
+    } else {
+      block.paid += money.paid
+      block.cashOut += money.cashOut
+      block.debt += money.debt
+      block.deliveries.push(delivery)
+      if (row.createdAt >= block.latestAt) {
+        block.latestAt = row.createdAt
+        block.providerName = providerLabel(row.providerName)
+        block.providerId = row.providerId?.trim() || block.providerId
+      }
+    }
+  }
+
+  const rubroTotals: MerchWeekRubroTotal[] = [...rubros.values()].map(acc => ({
+    rubroId: acc.rubroId,
+    rubroName: acc.rubroName,
+    template: acc.template,
+    packLabel: acc.packLabel,
+    pieces: acc.pieces,
+    packs: acc.packs,
+    netKg: acc.netKg,
+    units: acc.units,
+    qtyLabel: formatWeekRubroQty(acc),
+  }))
+  rubroTotals.sort((a, b) => a.rubroName.localeCompare(b.rubroName, 'es'))
+
+  const providerBlocks: MerchWeekProviderBlock[] = [...providers.values()].map(block => ({
+    providerId: block.providerId,
+    providerName: block.providerName,
+    paid: block.paid,
+    cashOut: block.cashOut,
+    debt: block.debt,
+    deliveries: [...block.deliveries].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  }))
+  providerBlocks.sort((a, b) => a.providerName.localeCompare(b.providerName, 'es'))
+
+  return { rubros: rubroTotals, paid, cashOut, debt, providers: providerBlocks }
+}

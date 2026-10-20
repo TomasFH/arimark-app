@@ -1707,7 +1707,10 @@ export default function CashierScreen({
       )}
 
       {showExpenseListModal && (
-        <ExpenseListModal onClose={() => setShowExpenseListModal(false)} />
+        <ExpenseListModal
+          onClose={() => setShowExpenseListModal(false)}
+          onChanged={refreshBalance}
+        />
       )}
 
       {showSalesModal && (

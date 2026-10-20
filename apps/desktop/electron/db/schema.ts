@@ -965,6 +965,24 @@ export const merchandiseIntakeLines = sqliteTable(
   ],
 )
 
+/**
+ * Marca de que esta PC ya bajó los ingresos de un local en esa semana.
+ * Semana actual se vuelve a pedir igual. Semana cerrada con marca no va a la red.
+ */
+export const merchWeekPulls = sqliteTable(
+  'merch_week_pulls',
+  {
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    weekStartIso: text('week_start_iso').notNull(),
+    pulledAt: text('pulled_at').notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.storeId, table.weekStartIso] }),
+  ],
+)
+
 /** Último costo de compra por proveedor + producto (no es el precio de venta). */
 export const providerPurchasePrices = sqliteTable(
   'provider_purchase_prices',

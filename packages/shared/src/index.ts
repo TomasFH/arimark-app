@@ -68,6 +68,7 @@ export {
   MERCH_INTAKE_TEMPLATES,
   MERCH_INTAKE_TEMPLATE_LABELS,
   MERCH_INTAKE_UNITS,
+  buildMerchWeekBook,
   coerceMerchIntakePaymentKind,
   coerceMerchIntakeTemplate,
   coerceMerchIntakeUnit,
@@ -99,6 +100,11 @@ export type {
   MerchLineComputeInput,
   MerchLineDraftInput,
   MerchLineFacts,
+  MerchWeekBook,
+  MerchWeekDelivery,
+  MerchWeekIntakeInput,
+  MerchWeekProviderBlock,
+  MerchWeekRubroTotal,
 } from './merchIntake'
 export {
   CHICKEN_VISIT_NAME,

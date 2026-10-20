@@ -86,6 +86,7 @@ export const IPC = {
 
   // Ingreso de mercadería (puente)
   LIST_SHIFT_MERCH: 'ipc:list-shift-merch',
+  LIST_MERCH_WEEK: 'ipc:list-merch-week',
   REGISTER_MERCH_INTAKE: 'ipc:register-merch-intake',
   UPDATE_MERCH_INTAKE: 'ipc:update-merch-intake',
   GET_MERCH_VISIT_DRAFT: 'ipc:get-merch-visit-draft',

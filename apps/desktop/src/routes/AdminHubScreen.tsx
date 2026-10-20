@@ -23,6 +23,7 @@ interface Props {
   onGoToSpecialCustomers: () => void
   onGoToOrders: () => void
   onGoToHistory: () => void
+  onGoToIngresos: () => void
   onGoToProviders: () => void
   onGoToStockCounts: () => void
   onLogout: () => void
@@ -70,6 +71,12 @@ const ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h11v10H3V7Zm11 3h4l3 3v4h-7V10Z" />
       <circle cx="7.5" cy="18.5" r="1.5" />
       <circle cx="17.5" cy="18.5" r="1.5" />
+    </svg>
+  ),
+  inbox: (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 13h4l1.5 2h5L16 13h4v6H4v-6Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 13 6 5h12l2 8" />
     </svg>
   ),
   chart: (
@@ -220,6 +227,7 @@ export default function AdminHubScreen({
   onGoToSpecialCustomers,
   onGoToOrders,
   onGoToHistory,
+  onGoToIngresos,
   onGoToProviders,
   onGoToStockCounts,
   onLogout,
@@ -289,6 +297,7 @@ export default function AdminHubScreen({
             <SectionLabel>Análisis</SectionLabel>
             <div className="grid grid-cols-2 items-start gap-2">
               <Tile icon={ICONS.chart} label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
+              <Tile icon={ICONS.inbox} label="Ingresos" description="Mercadería que entró, por semana" onClick={onGoToIngresos} />
               {SHOW_ATTENDANCE_UI && (
                 <Tile icon={ICONS.check} label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} />
               )}
