@@ -30,6 +30,7 @@ import { parseKretzBarcode, centsToARS, normalizeCashDiscountRule, parseCashDisc
 import { applySpecialUnitPrice, assignCatalogProduct, buildItemFromBarcode } from '../lib/barcodeItem'
 import { addBagToCart, collapseDuplicateBags, removeBagQuantity } from '../lib/bags'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
+import CatalogQuickSearch from '../components/CatalogQuickSearch'
 
 interface Props {
   session: SessionInfo
@@ -252,6 +253,7 @@ const SHORTCUT_GROUPS: { title: string; rows: [string, string][] }[] = [
       ['F5', 'Dividir el pago'],
       ['F6', 'Carga manual'],
       ['F7', 'Bolsas'],
+      ['Ctrl+F', 'Buscar en el catálogo'],
       ['Supr', 'Quitar la línea marcada'],
       ['Alt+1', 'Venta'],
       ['Alt+2', 'Pedido'],
@@ -1763,6 +1765,8 @@ export default function CashierScreen({
           Hay un turno abierto. La caja sigue abierta y quien sigue no va a poder abrir la suya hasta cerrar este turno.
         </p>
       </Modal>
+
+      <CatalogQuickSearch storeId={session.storeId ?? null} />
 
     </div>
   )
