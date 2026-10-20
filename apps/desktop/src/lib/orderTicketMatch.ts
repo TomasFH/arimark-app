@@ -1,9 +1,9 @@
 /**
  * Empareja una etiqueta de balanza con las líneas del cobro de un pedido.
  *
- * Hoy solo compara `pluNumber`. Más adelante un corte va a agrupar varios PLU
- * (el común y el de oferta) y esta función va a reemplazar el producto de la
- * línea por el PLU escaneado.
+ * Primero una línea libre con el mismo PLU. Si no hay, una línea libre del
+ * mismo corte (baseProductId, o el propio id) pasa a ser el producto de la
+ * etiqueta. Una línea que ya tiene etiqueta no se vuelve a cambiar.
  */
 import type { BudgetCartLine, SaleItemDraft } from '../types/hw-api'
 import { formatIntegerWithDots, formatKgQuantity, parseDecimalInput, parseNumericInput } from './numericInput'
@@ -15,6 +15,8 @@ export interface OrderTicketProduct {
   unit: 'kg' | 'unit'
   pluNumber: number
   price: number | null
+  /** Corte suelto. Null o ausente = el producto es su propia mercadería. */
+  baseProductId?: string | null
 }
 
 /** Línea del modal de cobro. `ticketTotal` null = todavía sin etiqueta. */
@@ -31,6 +33,11 @@ export interface OrderChargeLine {
   /** Pesos enteros impresos en la etiqueta. */
   ticketTotal: number | null
   extra: boolean
+  /**
+   * Nombre que tenía el pedido antes de cambiar de variante.
+   * Solo lo muestra el modal de cobrar. No va al ticket ni al historial.
+   */
+  orderedName?: string | null
 }
 
 /** PLU numérico (sin ceros) y total del ticket en pesos enteros. */
@@ -66,6 +73,7 @@ export function chargeLinesFromBudget(items: readonly BudgetCartLine[] | null | 
     checked: true,
     ticketTotal: null,
     extra: false,
+    orderedName: null,
   }))
 }
 
@@ -84,13 +92,24 @@ export function listPriceIfDifferent(
   return product.price
 }
 
-/**
- * Hoy solo compara `pluNumber`. Más adelante un corte va a agrupar varios PLU
- * (el común y el de oferta) y esta función va a reemplazar el producto de la
- * línea por el PLU escaneado.
- */
 function lineMatchesPlu(line: OrderChargeLine, pluNumber: number): boolean {
   return line.pluNumber === pluNumber
+}
+
+/** Id del corte suelto. Sin enlace, el producto es su propia mercadería. */
+function merchandiseCutId(product: OrderTicketProduct): string {
+  const base = product.baseProductId?.trim()
+  return base ? base : product.id
+}
+
+function lineSharesCut(
+  line: OrderChargeLine,
+  scanned: OrderTicketProduct,
+  catalog: readonly OrderTicketProduct[],
+): boolean {
+  const lineProduct = catalog.find(item => item.id === line.productId)
+  if (!lineProduct) return false
+  return merchandiseCutId(lineProduct) === merchandiseCutId(scanned)
 }
 
 function blankExtra(product: {
@@ -112,6 +131,7 @@ function blankExtra(product: {
     checked: true,
     ticketTotal: null,
     extra: true,
+    orderedName: null,
   }
 }
 
@@ -181,7 +201,7 @@ export function matchOrderTicket(
     lineMatchesPlu(line, ticket.pluNumber) && line.ticketTotal == null
   ))
   if (freeIndex >= 0) {
-    const filled = fillLine(lines[freeIndex]!, ticket.totalPesos)
+    const filled = fillLine({ ...lines[freeIndex]!, orderedName: null }, ticket.totalPesos)
     if (filled.line.ticketTotal == null) {
       return { lines: [...lines], notice: filled.notice, touchedIndex: null }
     }
@@ -193,6 +213,37 @@ export function matchOrderTicket(
   }
 
   const fromCatalog = catalog.find(product => product.pluNumber === ticket.pluNumber)
+  const cutIndex = fromCatalog
+    ? lines.findIndex(line => line.ticketTotal == null && lineSharesCut(line, fromCatalog, catalog))
+    : -1
+  if (cutIndex >= 0 && fromCatalog) {
+    if (fromCatalog.price == null || !(fromCatalog.price > 0)) {
+      return {
+        lines: [...lines],
+        notice: `${fromCatalog.name} no tiene un precio de lista válido.`,
+        touchedIndex: null,
+      }
+    }
+    const current = lines[cutIndex]!
+    const filled = fillLine({
+      ...current,
+      productId: fromCatalog.id,
+      name: fromCatalog.name,
+      unit: fromCatalog.unit,
+      pluNumber: fromCatalog.pluNumber,
+      unitPrice: fromCatalog.price,
+      orderedName: current.pluNumber === fromCatalog.pluNumber ? null : current.name,
+    }, ticket.totalPesos)
+    if (filled.line.ticketTotal == null) {
+      return { lines: [...lines], notice: filled.notice, touchedIndex: null }
+    }
+    return {
+      lines: lines.map((line, index) => index === cutIndex ? filled.line : line),
+      notice: filled.notice,
+      touchedIndex: cutIndex,
+    }
+  }
+
   if (fromCatalog && fromCatalog.price != null && fromCatalog.price > 0) {
     const filled = fillLine(blankExtra({
       productId: fromCatalog.id,

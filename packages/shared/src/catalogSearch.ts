@@ -92,7 +92,36 @@ export function compareWithCatalogPending<T>(
   return tie(a, b)
 }
 
+/**
+ * Ingreso por catálogo: se elige el corte suelto.
+ * Una oferta (baseProductId seteado) no aparece. Los rubros de visita
+ * (media res, bondiola, costilla) no pasan por esta lista.
+ */
+export function productsForCatalogIntake<T extends { baseProductId?: string | null }>(
+  products: readonly T[],
+): T[] {
+  return products.filter(product => {
+    const base = product.baseProductId
+    return base == null || base.trim() === ''
+  })
+}
+
 const VISIT_MERCH_MATCH_LIMIT = 8
+
+/**
+ * Caso único del ingreso: huevo/huevos y maple ofrecen solo Maple.
+ * Maple x2 no se ingresa: el cajón se carga sobre Maple. En el pedido sigue existiendo.
+ */
+const INTAKE_EGG_QUERY = new Set(['huevo', 'huevos'])
+const INTAKE_MAPLE_QUERY = new Set(['maple', 'maples'])
+
+function isIntakeMaple<T extends { name: string }>(product: T): boolean {
+  return normalizeCatalogSearch(product.name) === 'maple'
+}
+
+function withoutMaplePairOffer<T extends { name: string }>(products: readonly T[]): T[] {
+  return products.filter(product => normalizeCatalogSearch(product.name) !== 'maple x2')
+}
 
 /**
  * Sugerencias de mercadería en la visita: coincidencia parcial y tope de 8.
@@ -103,10 +132,14 @@ export function matchVisitMerchProducts<T extends { name: string; pluNumber: num
   products: readonly T[],
   query: string,
 ): T[] {
+  const forIntake = withoutMaplePairOffer(products)
   const pluQuery = query.trim()
-  if (!pluQuery) return products.slice(0, VISIT_MERCH_MATCH_LIMIT)
+  if (!pluQuery) return forIntake.slice(0, VISIT_MERCH_MATCH_LIMIT)
   const nameQuery = normalizeCatalogSearch(pluQuery)
-  return products
+  if (INTAKE_EGG_QUERY.has(nameQuery) || INTAKE_MAPLE_QUERY.has(nameQuery)) {
+    return forIntake.filter(isIntakeMaple).slice(0, VISIT_MERCH_MATCH_LIMIT)
+  }
+  return forIntake
     .filter(product =>
       (nameQuery.length > 0 && normalizeCatalogSearch(product.name).includes(nameQuery))
       || (product.pluNumber != null && String(product.pluNumber).includes(pluQuery)),

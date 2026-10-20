@@ -123,6 +123,21 @@ describe('OrderFormModal — borrador de alta', () => {
     vi.restoreAllMocks()
   })
 
+  it('al abrir, el nombre del cliente tiene el foco', async () => {
+    await renderModal(
+      <OrderFormModal
+        open
+        mode="create"
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        showStoreFilter={false}
+        stores={NO_STORES}
+      />,
+    )
+
+    expect(screen.getByPlaceholderText('Ej: Restaurante El Sol')).toHaveFocus()
+  })
+
   it('cerrar con Escape, Cancelar o la X no borra el borrador', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

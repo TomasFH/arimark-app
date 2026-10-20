@@ -509,6 +509,7 @@ export function registerCatalogAdminHandlers(): void {
           category: products.category,
           unit: products.unit,
           pluNumber: products.pluNumber,
+          baseProductId: products.baseProductId,
           active: products.active,
           purchasePackLabel: products.purchasePackLabel,
           purchasePackContents: products.purchasePackContents,
@@ -536,6 +537,7 @@ export function registerCatalogAdminHandlers(): void {
           category: r.category,
           unit: r.unit,
           pluNumber: r.pluNumber ?? null,
+          baseProductId: r.baseProductId ?? null,
           active: r.active,
           price: priceMap.get(r.id) ?? null,
           // Si no hay fila en store_products, se considera disponible por defecto

@@ -23,6 +23,7 @@ import {
   merchIntakeExpenseConcept,
   merchProductKey,
   normalizeCatalogSearch,
+  productsForCatalogIntake,
   purchasePriceChanges,
   resolveMerchVisitLine,
   type MerchIntakeLineSnapshot,
@@ -581,7 +582,7 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
         )}
         {showVisitFields && intakeKind === 'catalog' && (
           <ProviderVisitMerchBlock
-            products={catalog}
+            products={productsForCatalogIntake(catalog)}
             lastPrices={lastPrices}
             lines={merchLines}
             onChange={lines => { setMerchLines(lines); setError(null); setErrorField(null) }}
@@ -650,9 +651,6 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
                 className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-3 text-base text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                 placeholder="0"
               />
-              <p className="mt-1 text-[11px] text-gray-500">
-                Vacío = queda debiendo. Si das de más, se aplica a deuda anterior.
-              </p>
             </div>
             {visit && visitTotal > 0 && (
               <div className="space-y-1 rounded-xl border border-gray-700 bg-gray-800/80 px-4 py-3 text-sm">

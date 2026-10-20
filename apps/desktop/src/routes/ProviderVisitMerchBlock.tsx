@@ -2,7 +2,7 @@
  * Lista única de la visita: arranca vacía. Pollo, maple y media res conviven.
  * No crea productos al escribir. La cantidad no se precarga.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import DecimalInput from '../components/DecimalInput'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
@@ -152,10 +152,41 @@ function patchForMode(mode: BillMode, line: MerchVisitFormLine): Partial<MerchVi
   }
 }
 
+interface MerchSuggestion {
+  id: string
+  label: string
+  title: string
+  muted: boolean
+  pluNumber: number | null
+  line: MerchVisitFormLine
+}
+
+function markedIndex(index: number, count: number): number {
+  if (count <= 0) return 0
+  return ((index % count) + count) % count
+}
+
 export default function ProviderVisitMerchBlock({ products, memory, lines, onChange, invalid = false }: Props) {
   const [query, setQuery] = useState('')
   const [focusKey, setFocusKey] = useState<string | null>(null)
+  const [highlight, setHighlight] = useState(0)
+  const [listHidden, setListHidden] = useState(false)
   const queryRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onKey(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Enter' || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.repeat) return
+      const root = rootRef.current
+      const target = event.target
+      if (!root || !(target instanceof Node) || !root.contains(target)) return
+      event.preventDefault()
+      event.stopPropagation()
+      queryRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [])
 
   const matches = useMemo(
     () => matchVisitMerchProducts(products, query),
@@ -180,11 +211,75 @@ export default function ProviderVisitMerchBlock({ products, memory, lines, onCha
     return map
   }, [lines])
 
+  const showAdd = Boolean(query.trim()) && !exact && lines.length < MERCH_INTAKE_MAX_LINES
+
+  const suggestions = useMemo(() => {
+    const rows: MerchSuggestion[] = matches.map(product => ({
+      id: product.id,
+      label: product.name,
+      title: product.name,
+      muted: false,
+      pluNumber: product.pluNumber,
+      line: formLineFromProduct(product, memory[merchProductKey(product.id, product.name)]),
+    }))
+    if (showAdd) {
+      const name = query.trim()
+      rows.push({
+        id: 'add',
+        label: `Agregar «${name}»`,
+        title: name,
+        muted: false,
+        pluNumber: null,
+        line: formLineFromName(name, false),
+      })
+      rows.push({
+        id: 'not-for-sale',
+        label: `No se vende: «${name}»`,
+        title: name,
+        muted: true,
+        pluNumber: null,
+        line: formLineFromName(name, true),
+      })
+    }
+    return rows
+  }, [matches, memory, query, showAdd])
+
+  const listOpen = Boolean(query.trim()) && !listHidden && suggestions.length > 0
+  const current = markedIndex(highlight, suggestions.length)
+
+  const scrollMarkedRow = useCallback((node: HTMLLIElement | null) => {
+    node?.scrollIntoView?.({ block: 'nearest' })
+  }, [])
+
   function pushLine(line: MerchVisitFormLine) {
     if (lines.length >= MERCH_INTAKE_MAX_LINES) return
     onChange([...lines, line])
     setQuery('')
     setFocusKey(line.key)
+    setHighlight(0)
+    setListHidden(false)
+  }
+
+  function handleQueryKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!listOpen) return
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setHighlight(index => markedIndex(markedIndex(index, suggestions.length) + step, suggestions.length))
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const pick = suggestions[current]
+      if (pick) pushLine(pick.line)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setListHidden(true)
+    }
   }
 
   function updateLine(key: string, patch: Partial<MerchVisitFormLine>) {
@@ -195,10 +290,8 @@ export default function ProviderVisitMerchBlock({ products, memory, lines, onCha
     onChange(lines.filter(l => l.key !== key))
   }
 
-  const showAdd = Boolean(query.trim()) && !exact && lines.length < MERCH_INTAKE_MAX_LINES
-
   return (
-    <div className={`space-y-3 rounded-xl border p-3 ${invalid ? 'border-danger bg-danger/5' : 'border-line bg-app'}`}>
+    <div ref={rootRef} className={`space-y-3 rounded-xl border p-3 ${invalid ? 'border-danger bg-danger/5' : 'border-line bg-app'}`}>
       <div className="flex items-center justify-between gap-2 min-w-0">
         <p className="text-sm font-medium text-ink">Lo que llegó</p>
         {runningTotal != null && runningTotal > 0 && (
@@ -211,60 +304,50 @@ export default function ProviderVisitMerchBlock({ products, memory, lines, onCha
           ref={queryRef}
           type="text"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => {
+            setQuery(e.target.value)
+            setHighlight(0)
+            setListHidden(false)
+          }}
+          onKeyDownCapture={handleQueryKeyDown}
           placeholder="Buscar producto…"
           maxLength={MERCH_INTAKE_NAME_MAX}
+          autoComplete="off"
           className={fieldClass}
         />
-        <SuggestPopover
-          anchorRef={queryRef}
-          open={Boolean(query.trim()) && (matches.length > 0 || showAdd)}
-        >
-          <ul>
-            {matches.map(p => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
-                  onMouseDown={e => {
-                    e.preventDefault()
-                    pushLine(formLineFromProduct(p, memory[merchProductKey(p.id, p.name)]))
-                  }}
+        <SuggestPopover anchorRef={queryRef} open={listOpen}>
+          <ul className="w-full">
+            {suggestions.map((suggestion, index) => {
+              const marked = index === current
+              return (
+                <li
+                  key={suggestion.id}
+                  ref={marked ? scrollMarkedRow : undefined}
+                  data-merch-marked={marked ? 'true' : undefined}
+                  className={`w-full ${marked ? 'bg-accent-soft' : ''}`}
                 >
-                  <span className="min-w-0 flex-1 truncate" title={p.name}>{p.name}</span>
-                  {p.pluNumber != null && (
-                    <span className="shrink-0 text-xs text-muted">PLU {p.pluNumber}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-            {showAdd && (
-              <>
-                <li>
                   <button
                     type="button"
-                    className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm hover:bg-hover"
-                    onMouseDown={e => { e.preventDefault(); pushLine(formLineFromName(query.trim(), false)) }}
+                    tabIndex={-1}
+                    className={`flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm ${
+                      marked ? 'bg-accent-soft text-ink' : suggestion.muted ? 'text-muted hover:bg-hover' : 'hover:bg-hover'
+                    }`}
+                    onMouseDown={e => {
+                      e.preventDefault()
+                      pushLine(suggestion.line)
+                    }}
+                    onMouseEnter={() => setHighlight(index)}
                   >
-                    <span className="min-w-0 flex-1 truncate" title={query.trim()}>Agregar «{query.trim()}»</span>
+                    <span className="min-w-0 flex-1 truncate" title={suggestion.title}>{suggestion.label}</span>
+                    {suggestion.pluNumber != null && (
+                      <span className="shrink-0 text-xs text-muted">PLU {suggestion.pluNumber}</span>
+                    )}
                   </button>
                 </li>
-                <li>
-                  <button
-                    type="button"
-                    className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm text-muted hover:bg-hover"
-                    onMouseDown={e => { e.preventDefault(); pushLine(formLineFromName(query.trim(), true)) }}
-                  >
-                    <span className="min-w-0 flex-1 truncate" title={query.trim()}>No se vende: «{query.trim()}»</span>
-                  </button>
-                </li>
-              </>
-            )}
+              )
+            })}
           </ul>
         </SuggestPopover>
-        {!query.trim() && lines.length === 0 && (
-          <p className="mt-1 text-xs text-muted">Buscá lo que llegó. La lista arranca vacía.</p>
-        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -521,7 +604,6 @@ function VisitLineEditor({
         <p className="text-xs text-muted">
           {resolved.moneyRole === 'informed' ? 'Costo informado ' : 'Subtotal '}
           <span className="tabular-nums">{formatARS(resolved.costTotal)}</span>
-          {resolved.moneyRole === 'informed' ? ' · no suma a la visita' : ''}
         </p>
       )}
     </div>

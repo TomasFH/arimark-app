@@ -110,6 +110,7 @@ export default function OrderFormModal({
   const [budgetHighlight, setBudgetHighlight] = useState(0)
   const [budgetSuggestionsHidden, setBudgetSuggestionsHidden] = useState(false)
   const budgetSearchRef = useRef<HTMLInputElement>(null)
+  const customerNameRef = useRef<HTMLInputElement>(null)
   const lastQtyRef = useRef<HTMLInputElement>(null)
   const prevCartLen = useRef(mode === 'edit'
     ? (editingOrder?.budgetItems?.length ?? 0)
@@ -141,6 +142,15 @@ export default function OrderFormModal({
     if (!open || mode !== 'create') return
     seedOrderCreateDraft(defaultStoreId)
   }, [open, mode, defaultStoreId])
+
+  // El modal enfoca el panel al abrirse y le saca el foco a este campo.
+  // Este efecto corre después. Si el nombre está deshabilitado, no lo toca.
+  useEffect(() => {
+    if (!open) return
+    const input = customerNameRef.current
+    if (!input || input.disabled) return
+    input.focus()
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -589,6 +599,7 @@ export default function OrderFormModal({
 
           <Field label="Nombre del cliente *">
             <input
+              ref={customerNameRef}
               type="text"
               value={form.customerName}
               onChange={event => patchForm(prev => ({ ...prev, customerName: event.target.value }))}

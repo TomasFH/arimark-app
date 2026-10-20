@@ -319,4 +319,144 @@ describe('matchOrderTicket', () => {
     expect(item?.subtotal).toBe(40000)
     expect(item?.manualEntry).toBe(true)
   })
+
+  const asado = product({ id: 'asado', name: 'Asado', pluNumber: 1, price: 20000 })
+  const pack = product({
+    id: 'pack',
+    name: 'Asado x2kg',
+    pluNumber: 301,
+    price: 15000,
+    baseProductId: 'asado',
+  })
+  const cuts = [asado, pack]
+
+  it('el mismo PLU completa esa línea y no muestra el nombre anterior', () => {
+    const result = matchOrderTicket(
+      [line({ productId: 'pack', name: 'Asado x2kg', pluNumber: 301, unitPrice: 15000 })],
+      { pluNumber: 301, totalPesos: 7500 },
+      cuts,
+    )
+
+    expect(result.lines[0]).toMatchObject({
+      productId: 'pack',
+      name: 'Asado x2kg',
+      pluNumber: 301,
+      unitPrice: 15000,
+      ticketTotal: 7500,
+      orderedName: null,
+      extra: false,
+    })
+    expect(saleItemFromChargeLine(result.lines[0]!)).toMatchObject({
+      productId: 'pack',
+      productName: 'Asado x2kg',
+      pluNumber: 301,
+      subtotal: 7500,
+    })
+    expect(saleItemFromChargeLine(result.lines[0]!)).not.toHaveProperty('orderedName')
+  })
+
+  it('si no hay ese PLU, la línea libre del mismo corte pasa a ser la etiqueta', () => {
+    const result = matchOrderTicket(
+      [line({ productId: 'pack', name: 'Asado x2kg', pluNumber: 301, unitPrice: 15000 })],
+      { pluNumber: 1, totalPesos: 10000 },
+      cuts,
+    )
+
+    expect(result.notice).toBeNull()
+    expect(result.touchedIndex).toBe(0)
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0]).toMatchObject({
+      productId: 'asado',
+      name: 'Asado',
+      pluNumber: 1,
+      unitPrice: 20000,
+      ticketTotal: 10000,
+      qtyRaw: '0,5',
+      orderedName: 'Asado x2kg',
+      extra: false,
+    })
+    const item = saleItemFromChargeLine(result.lines[0]!)
+    expect(item).toMatchObject({
+      productId: 'asado',
+      productName: 'Asado',
+      pluNumber: 1,
+      unitPrice: 20000,
+      subtotal: 10000,
+    })
+    expect(item).not.toHaveProperty('orderedName')
+  })
+
+  it('prefiere la línea del mismo PLU antes que otra libre del mismo corte', () => {
+    const result = matchOrderTicket(
+      [
+        line({ productId: 'pack', name: 'Asado x2kg', pluNumber: 301, unitPrice: 15000 }),
+        line({ productId: 'asado', name: 'Asado', pluNumber: 1, unitPrice: 18000 }),
+      ],
+      { pluNumber: 1, totalPesos: 10000 },
+      cuts,
+    )
+
+    expect(result.lines[0]).toMatchObject({ productId: 'pack', ticketTotal: null, name: 'Asado x2kg' })
+    expect(result.lines[1]).toMatchObject({
+      productId: 'asado',
+      name: 'Asado',
+      unitPrice: 18000,
+      ticketTotal: 10000,
+      orderedName: null,
+    })
+  })
+
+  it('una línea ya etiquetada no cambia y la siguiente del mismo corte entra como extra', () => {
+    const first = matchOrderTicket(
+      [line({ productId: 'pack', name: 'Asado x2kg', pluNumber: 301, unitPrice: 15000 })],
+      { pluNumber: 1, totalPesos: 10000 },
+      cuts,
+    )
+    const second = matchOrderTicket(
+      first.lines,
+      { pluNumber: 301, totalPesos: 7500 },
+      cuts,
+    )
+
+    expect(second.lines).toHaveLength(2)
+    expect(second.lines[0]).toMatchObject({
+      productId: 'asado',
+      name: 'Asado',
+      pluNumber: 1,
+      ticketTotal: 10000,
+      orderedName: 'Asado x2kg',
+    })
+    expect(second.lines[1]).toMatchObject({
+      extra: true,
+      productId: 'pack',
+      name: 'Asado x2kg',
+      pluNumber: 301,
+      unitPrice: 15000,
+      ticketTotal: 7500,
+      orderedName: null,
+    })
+    expect(second.touchedIndex).toBe(1)
+  })
+
+  it('un PLU de otro corte no toca las líneas del corte', () => {
+    const result = matchOrderTicket(
+      [line({ productId: 'pack', name: 'Asado x2kg', pluNumber: 301, unitPrice: 15000 })],
+      { pluNumber: 5, totalPesos: 21000 },
+      [...cuts, product({ id: 'vacio', name: 'Vacío', pluNumber: 5, price: 21000 })],
+    )
+
+    expect(result.lines[0]).toMatchObject({
+      productId: 'pack',
+      name: 'Asado x2kg',
+      pluNumber: 301,
+      ticketTotal: null,
+    })
+    expect(result.lines[1]).toMatchObject({
+      extra: true,
+      productId: 'vacio',
+      name: 'Vacío',
+      pluNumber: 5,
+      orderedName: null,
+    })
+  })
 })

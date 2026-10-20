@@ -13,6 +13,7 @@ import {
   merchandiseIntakeLines,
   providers,
   providerPurchasePrices,
+  products,
 } from '../schema'
 
 describe('migrations', () => {
@@ -582,6 +583,63 @@ describe('migrations', () => {
     const { sqlite } = await createInMemoryDb()
     const cols = sqlite.prepare('PRAGMA table_info(providers)').all() as { name: string }[]
     expect(cols.map(c => c.name)).toContain('supply_concept')
+  })
+
+  it('enlaza ofertas al corte suelto por PLU (migración 0055)', async () => {
+    const { db, sqlite } = await createInMemoryDb()
+    const cols = sqlite.prepare('PRAGMA table_info(products)').all() as { name: string }[]
+    expect(cols.map(c => c.name)).toContain('base_product_id')
+
+    const now = '2026-01-01T00:00:00.000Z'
+    const row = (id: string, name: string, plu: number, category: 'beef_cut' | 'pork' = 'beef_cut') => ({
+      id,
+      name,
+      category,
+      unit: 'kg' as const,
+      pluNumber: plu,
+      active: true,
+      createdAt: now,
+    })
+    db.insert(products).values([
+      row('asado', 'Asado', 1),
+      row('pack', 'Asado x2kg', 301),
+      row('vacio', 'Vacío', 4),
+      row('vacio-pack', 'Vacío x2kg', 303),
+      row('vacio-pieza', 'Vacío pieza entera', 401),
+      row('bondiola', 'Bondiola', 154, 'pork'),
+      row('bondiola-u', 'Bondiola c/3 u. $/kg', 341, 'pork'),
+      row('bondiola-x2', 'Bondiola x2kg', 342, 'pork'),
+      row('puchero', 'Falda puchero x2kg', 313),
+      row('bola', 'Bola/cuadrada pieza', 406),
+      row('rinonada', 'Riñonada', 24),
+      row('tapa-pack', 'Tapa de asado x2kg', 302),
+    ]).run()
+
+    const migrationSql = fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/0055_product_base_product.sql'),
+      'utf8',
+    )
+    const updateSql = migrationSql.split('--> statement-breakpoint')[1]?.trim()
+    expect(updateSql).toMatch(/^WITH links/)
+    sqlite.exec(updateSql!)
+    sqlite.exec(updateSql!)
+
+    const linked = (id: string) => sqlite.prepare(
+      'SELECT base_product_id AS base FROM products WHERE id = ?',
+    ).get(id) as { base: string | null }
+
+    expect(linked('pack').base).toBe('asado')
+    expect(linked('vacio-pack').base).toBe('vacio')
+    expect(linked('vacio-pieza').base).toBe('vacio')
+    expect(linked('bondiola-u').base).toBe('bondiola')
+    expect(linked('bondiola-x2').base).toBe('bondiola')
+    expect(linked('asado').base).toBeNull()
+    expect(linked('vacio').base).toBeNull()
+    expect(linked('bondiola').base).toBeNull()
+    expect(linked('puchero').base).toBeNull()
+    expect(linked('bola').base).toBeNull()
+    expect(linked('rinonada').base).toBeNull()
+    expect(linked('tapa-pack').base).toBeNull()
   })
 
   it('tiene el índice idx_debt_events_customer', async () => {

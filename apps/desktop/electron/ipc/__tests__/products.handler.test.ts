@@ -202,4 +202,37 @@ describe('GET_PRODUCTS — disponibilidad por local (SQLite real)', () => {
       .run()
     expect(listPlus()).toContain(789)
   })
+
+  it('devuelve el corte suelto de una oferta', () => {
+    const db = vi.mocked(getDb)()
+    const now = '2026-01-15T12:00:00.000Z'
+    db.insert(products).values({
+      id: 'offer-301',
+      name: 'Asado x2kg',
+      category: 'beef_cut',
+      unit: 'kg',
+      pluNumber: 301,
+      baseProductId: PRODUCT,
+      active: true,
+      createdAt: now,
+    }).run()
+    db.insert(productPrices).values({
+      id: 'price-301',
+      productId: 'offer-301',
+      storeId: STORE,
+      price: 15000,
+      validFrom: now,
+      validTo: null,
+      createdBy: 'user-1',
+    }).run()
+
+    const handler = getHandler('ipc:get-products')
+    const result = handler({}) as {
+      ok: boolean
+      data: Array<{ id: string; baseProductId: string | null }>
+    }
+    expect(result.ok).toBe(true)
+    expect(result.data.find(row => row.id === PRODUCT)?.baseProductId).toBeNull()
+    expect(result.data.find(row => row.id === 'offer-301')?.baseProductId).toBe(PRODUCT)
+  })
 })

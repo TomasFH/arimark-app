@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { sqliteTable, text, real, integer, index, primaryKey, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, real, integer, index, primaryKey, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 
 // ---------------------------------------------------------------------------
 // Locales
@@ -84,6 +84,11 @@ export const products = sqliteTable('products', {
    *   300+    → Reservado / uso libre
    */
   pluNumber: integer('plu_number').unique(),
+  /**
+   * Corte suelto de esta oferta. Null = el producto es su propia mercadería.
+   * El destino tiene que tener este campo en null: no hay cadenas.
+   */
+  baseProductId: text('base_product_id').references((): AnySQLiteColumn => products.id),
   barcode: text('barcode'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),

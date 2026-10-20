@@ -305,6 +305,51 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(document.querySelector('[data-charge-flash]')).toBeNull()
     expect(CHARGE_LINE_FLASH_MS).toBe(1500)
   })
+
+  it('al cambiar la variante muestra el nombre nuevo y debajo el del pedido', async () => {
+    vi.mocked(window.hw.listOrders).mockResolvedValue({
+      ok: true,
+      data: [
+        order({
+          id: 'ready-1',
+          pickupDate: '2026-09-02',
+          status: 'ready',
+          customerName: 'Update 3',
+          readyAt: '2026-09-02T12:00:00.000Z',
+          readyByName: 'Carnicero',
+          budgetItems: [{
+            productId: 'pack',
+            name: 'Asado x2kg',
+            unit: 'kg',
+            pluNumber: 301,
+            estimatedQty: 2,
+            unitPrice: 14000,
+          }],
+        }),
+      ],
+    })
+    vi.mocked(window.hw.getProducts).mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'asado', name: 'Asado', category: 'beef_cut', unit: 'kg', pluNumber: 1, price: 20000, baseProductId: null },
+        { id: 'pack', name: 'Asado x2kg', category: 'beef_cut', unit: 'kg', pluNumber: 301, price: 15000, baseProductId: 'asado' },
+      ],
+    })
+    const user = userEvent.setup()
+    render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 3')).toBeInTheDocument()
+
+    await openCharge(user, 'Update 3', 'order-ready-1')
+    expect(await screen.findByText(/lista de hoy/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Pedido:/)).not.toBeInTheDocument()
+
+    scanBarcode(kretzBarcode(1, 10000))
+
+    expect(await screen.findByText('Pedido: Asado x2kg')).toBeInTheDocument()
+    expect(screen.getByText('Asado')).toBeInTheDocument()
+    expect(screen.queryByText('Extra')).not.toBeInTheDocument()
+    expect(screen.queryByText(/lista de hoy/i)).not.toBeInTheDocument()
+  })
 })
 
 async function openCharge(

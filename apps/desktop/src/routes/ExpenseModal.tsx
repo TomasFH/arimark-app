@@ -25,6 +25,7 @@ import {
   formatWeighMode,
   merchProductKey,
   merchVisitReceiptItems,
+  productsForCatalogIntake,
   purchaseRecallChanges,
   resolveMerchVisitLine,
   visitLinesFromForm,
@@ -50,6 +51,10 @@ type ErrorField = 'provider' | 'kind' | 'concept' | 'amount' | 'merch' | null
 const FIELD =
   'w-full rounded-lg border border-line bg-input px-3 py-2 text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
 
+/** border-success/30 cae a currentColor (blanco en oscuro). El borde es el gris del sistema. */
+const successNoticeClass =
+  'border-line-strong bg-[color-mix(in_srgb,var(--success)_12%,transparent)]'
+
 function kindFromExpense(expense: ExpenseRow | undefined): ExpenseKind {
   if (!expense) return 'provider'
   return expense.providerId || expense.provider ? 'provider' : 'simple'
@@ -71,7 +76,6 @@ interface ReceiptData {
   finalBalance: number
   storeName?: string
   items: MerchVisitReceiptItem[]
-  paymentDigital?: boolean
 }
 
 export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftChanged, editingExpense }: Props) {
@@ -261,7 +265,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     if (!currentStoreId) return
     void window.hw.getAllProducts(currentStoreId).then(r => {
       if (!r.ok) return
-      setCatalog(r.data.filter(p => p.active && p.available).map(p => ({
+      setCatalog(productsForCatalogIntake(r.data.filter(p => p.active && p.available)).map(p => ({
         id: p.id,
         name: p.name,
         unit: p.unit,
@@ -478,7 +482,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       finalBalance,
       storeName: stores.find(s => s.id === currentStoreId)?.name,
       items: merchVisitReceiptItems(merchResolved.drafts),
-      paymentDigital: paymentChannel === 'digital',
     })
   }
 
@@ -585,7 +588,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       businessName,
       providerName: providerInput.trim(),
       concept: suppliesOnly ? concept.trim() || undefined : undefined,
-      paymentDigital: paymentChannel === 'digital',
       date: new Date().toISOString(),
       visitTotal: totalParsed ?? 0,
       totalDelivered: entregadoParsed,
@@ -619,10 +621,10 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         onClose={onRegistered}
         resultClassName={
           isCreditBalance
-            ? 'bg-success/10 border border-success/30'
+            ? `border ${successNoticeClass}`
             : isDebtBalance
               ? 'border border-amber-500/30 bg-amber-500/10'
-              : 'bg-success/10 border border-success/30'
+              : `border ${successNoticeClass}`
         }
         result={
           isSettled ? (
@@ -661,7 +663,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
               <p className="text-2xl font-bold text-success mt-1">
                 A favor {formatARS(Math.abs(receipt.finalBalance))}
               </p>
-              <p className="text-[11px] text-success/80 mt-0.5">el proveedor deberá descontar en próxima visita</p>
             </>
           )
         }
@@ -689,9 +690,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
               <span>Saldo a favor aplicado</span>
               <span className="font-semibold">− {formatARS(receipt.creditApplied)}</span>
             </div>
-          )}
-          {receipt.paymentDigital && (
-            <p className="text-xs text-muted">Pago digital — no salió de la caja.</p>
           )}
         </div>
       </PaymentReceipt>
@@ -892,9 +890,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
               <p className="min-w-0 flex-1 truncate text-sm font-medium text-danger">Deuda anterior</p>
               <span className="shrink-0 text-sm font-bold tabular-nums text-danger">{formatARS(previousDebt)}</span>
             </div>
-            <p className="mt-1 text-[11px] text-danger/80">
-              Si entregás más que el total, el excedente cancela esta deuda.
-            </p>
             {isAdminAdjustNote(providerDebt?.lastEventNotes) && (
               <p className="mt-1 text-[11px] text-ink/80" title={providerDebt?.lastEventNotes ?? undefined}>
                 {providerDebt?.lastEventNotes}
@@ -903,12 +898,11 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           </div>
         )}
         {showVisitFields && hasProviderCredit && (
-          <div className="rounded-xl border border-success/30 bg-success/10 px-4 py-3">
+          <div className={`rounded-xl border ${successNoticeClass} px-4 py-3`}>
             <div className="flex items-center justify-between gap-2 min-w-0">
               <p className="min-w-0 flex-1 truncate text-sm font-medium text-success">Saldo a favor</p>
               <span className="shrink-0 text-sm font-bold tabular-nums text-success">{formatARS(previousCredit)}</span>
             </div>
-            <p className="mt-1 text-[11px] text-success">Se descuenta solo de esta visita.</p>
             {isAdminAdjustNote(providerDebt?.lastEventNotes) && (
               <p className="mt-1 text-[11px] text-ink/80" title={providerDebt?.lastEventNotes ?? undefined}>
                 {providerDebt?.lastEventNotes}
@@ -1022,11 +1016,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
                 placeholder="0"
                 className={FIELD}
               />
-              <p className="text-[11px] text-muted">
-                {paymentChannel === 'digital'
-                  ? 'Baja la deuda y no sale de la caja.'
-                  : 'Vacío = queda debiendo. Si das de más, se aplica a deuda anterior.'}
-              </p>
               {!isEditing && (
                 <label className="flex items-center gap-2 cursor-pointer select-none pt-1">
                   <input
@@ -1044,7 +1033,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
               <div className={`space-y-1.5 rounded-xl border px-4 py-3 ${
                 finalBalance > 0 || remainingCrossDebt > 0
                   ? 'border-amber-500/30 bg-amber-500/10'
-                  : 'border-success/30 bg-success/10'
+                  : successNoticeClass
               }`}>
                 {previousDebt > 0 && (
                   <div className="flex items-center justify-between gap-2 text-sm">
@@ -1162,9 +1151,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-muted">
-                  Sale de esta caja; la deuda queda en el local elegido.
-                </p>
                 {/* Deuda del otro local con este proveedor */}
                 {matchedProviderId && (
                   <div className="mt-1">
@@ -1179,9 +1165,6 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
                             <span className="text-xs text-danger">Deuda pendiente de ese local</span>
                             <span className="text-sm font-bold text-danger">{formatARS(remainingCrossDebt)}</span>
                           </div>
-                          <p className="text-[11px] text-danger/80 mt-0.5">
-                            Este pago no alcanza para saldarla.
-                          </p>
                         </div>
                       ) : null
                     ) : crossStoreDebt && crossStoreDebt.balance < 0 ? (

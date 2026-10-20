@@ -566,7 +566,7 @@ const AUDIT_ACTION_LABELS: Record<CatalogAuditAction, string> = {
   restore_revision: 'Versión',
 }
 
-function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId: string }) {
+function CatalogAuditBlock({ productId, storeId, rowBg = 'bg-raised' }: { productId: string; storeId: string; rowBg?: string }) {
   const [rows, setRows] = useState<CatalogAuditRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -590,7 +590,7 @@ function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId:
   return (
     <div className="space-y-1.5 max-h-40 overflow-auto">
       {rows.map(row => (
-        <div key={row.id} className="rounded-lg border border-line bg-raised px-3 py-1.5">
+        <div key={row.id} className={`rounded-lg border border-line px-3 py-1.5 ${rowBg}`}>
           <div className="flex items-center gap-2 min-w-0">
             <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted">
               {AUDIT_ACTION_LABELS[row.action] ?? row.action}
@@ -608,7 +608,7 @@ function CatalogAuditBlock({ productId, storeId }: { productId: string; storeId:
   )
 }
 
-function PriceHistoryBlock({ productId, storeId }: { productId: string; storeId: string }) {
+function PriceHistoryBlock({ productId, storeId, rowBg = 'bg-raised' }: { productId: string; storeId: string; rowBg?: string }) {
   const [history, setHistory] = useState<PriceHistoryRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -632,7 +632,9 @@ function PriceHistoryBlock({ productId, storeId }: { productId: string; storeId:
   return (
     <div className="space-y-2 max-h-40 overflow-auto">
       {history.map(h => (
-        <div key={h.id} className={`rounded-lg border px-3 py-2 text-sm ${h.validTo == null ? 'border-line-accent bg-accent-soft' : 'border-line bg-raised'}`}>
+        <div key={h.id} className={h.validTo == null
+          ? 'rounded-lg border border-line-accent bg-accent-soft px-3 py-2 text-sm'
+          : `rounded-lg border border-line px-3 py-2 text-sm ${rowBg}`}>
           <div className="flex items-center justify-between">
             <span className="font-semibold tabular-nums">{fmtARS(h.price)}</span>
             {h.validTo == null
@@ -662,20 +664,26 @@ function ProductHistoryDisclosure({ productId, storeId }: { productId: string; s
         {open ? 'Ocultar historial' : 'Historial'}
       </button>
       {open && (
-        <div className="mt-3 space-y-4">
+        <div className="mt-3 space-y-4 rounded-xl border border-line bg-raised p-4">
           <div>
             <p className="text-xs font-medium text-muted mb-2">Ficha y visibilidad</p>
-            <CatalogAuditBlock productId={productId} storeId={storeId} />
+            <CatalogAuditBlock productId={productId} storeId={storeId} rowBg="bg-input" />
           </div>
           <div>
             <p className="text-xs font-medium text-muted mb-2">Precios de este local</p>
-            <PriceHistoryBlock productId={productId} storeId={storeId} />
+            <PriceHistoryBlock productId={productId} storeId={storeId} rowBg="bg-input" />
           </div>
         </div>
       )}
     </div>
   )
 }
+
+const PRODUCT_FIELD =
+  'w-full rounded-lg border border-line-strong bg-input px-3 py-2 text-sm text-ink focus:outline-none focus:border-line-accent'
+
+const PRODUCT_PRICE_FIELD =
+  'w-28 shrink-0 rounded-lg border border-line-strong bg-input px-2 py-1.5 text-right text-sm text-ink focus:outline-none focus:border-line-accent'
 
 export function ProductFormModal({ storeId, stores, product, onClose, onSaved, onRequestGlobalDelete, allowGlobalDelete }: ProductFormModalProps) {
   const isEdit = Boolean(product)
@@ -831,73 +839,75 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
       }
     >
         <div className="space-y-4">
-          <Field label="Nombre">
-            <input type="text" value={name} onChange={e => setName(e.target.value)}
-              maxLength={100}
-              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
-              placeholder="Nombre del producto" autoFocus />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Categoría">
-              <select
-                value={category}
-                onChange={e => {
-                  const next = e.target.value as AdminProductRow['category']
-                  setCategory(next)
-                  if (next === 'bags') setUnit('unit')
-                }}
-                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40">
-                {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+          <div className="space-y-4 rounded-xl border border-line bg-raised p-4">
+            <Field label="Nombre">
+              <input type="text" value={name} onChange={e => setName(e.target.value)}
+                maxLength={100}
+                className={PRODUCT_FIELD}
+                placeholder="Nombre del producto" autoFocus />
             </Field>
-            <Field label="Unidad">
-              <select
-                value={unit}
-                disabled={category === 'bags'}
-                title={category === 'bags' ? 'Las bolsas se venden por unidad' : undefined}
-                onChange={e => {
-                  const next = e.target.value as 'kg' | 'unit'
-                  setUnit(next)
-                  if (next === 'kg') {
-                    setPackLabel('')
-                    setPackContentsRaw('')
-                  }
-                }}
-                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40 disabled:opacity-70">
-                {category !== 'bags' && <option value="kg">kg (pesable)</option>}
-                <option value="unit">Unidad</option>
-              </select>
-            </Field>
-          </div>
-          {unit === 'unit' && (
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Pack de compra (opcional)">
-                <input
-                  type="text"
-                  value={packLabel}
-                  onChange={e => setPackLabel(e.target.value.slice(0, 40))}
-                  maxLength={40}
-                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
-                  placeholder="Cajón"
-                />
+              <Field label="Categoría">
+                <select
+                  value={category}
+                  onChange={e => {
+                    const next = e.target.value as AdminProductRow['category']
+                    setCategory(next)
+                    if (next === 'bags') setUnit('unit')
+                  }}
+                  className={PRODUCT_FIELD}>
+                  {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
               </Field>
-              <Field label="Unidades por pack">
-                <NumericInput
-                  value={packContentsRaw}
-                  onChange={setPackContentsRaw}
-                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
-                  placeholder="12"
-                />
+              <Field label="Unidad">
+                <select
+                  value={unit}
+                  disabled={category === 'bags'}
+                  title={category === 'bags' ? 'Las bolsas se venden por unidad' : undefined}
+                  onChange={e => {
+                    const next = e.target.value as 'kg' | 'unit'
+                    setUnit(next)
+                    if (next === 'kg') {
+                      setPackLabel('')
+                      setPackContentsRaw('')
+                    }
+                  }}
+                  className={`${PRODUCT_FIELD} disabled:opacity-70`}>
+                  {category !== 'bags' && <option value="kg">kg (pesable)</option>}
+                  <option value="unit">Unidad</option>
+                </select>
               </Field>
             </div>
-          )}
-          <Field label="Número de PLU (1–999, opcional)">
-            <input type="text" inputMode="numeric" value={pluRaw}
-              onChange={e => setPluRaw(e.target.value.replace(/\D/g, '').slice(0, 3))}
-              className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
-              placeholder="Sin asignar" />
-          </Field>
-          <div className="space-y-3">
+            {unit === 'unit' && (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Pack de compra (opcional)">
+                  <input
+                    type="text"
+                    value={packLabel}
+                    onChange={e => setPackLabel(e.target.value.slice(0, 40))}
+                    maxLength={40}
+                    className={PRODUCT_FIELD}
+                    placeholder="Cajón"
+                  />
+                </Field>
+                <Field label="Unidades por pack">
+                  <NumericInput
+                    value={packContentsRaw}
+                    onChange={setPackContentsRaw}
+                    className={PRODUCT_FIELD}
+                    placeholder="12"
+                  />
+                </Field>
+              </div>
+            )}
+            <Field label="Número de PLU (1–999, opcional)">
+              <input type="text" inputMode="numeric" value={pluRaw}
+                onChange={e => setPluRaw(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                className={PRODUCT_FIELD}
+                placeholder="Sin asignar" />
+            </Field>
+          </div>
+          <div className="space-y-3 rounded-xl border border-line bg-raised p-4">
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <p className="text-xs font-medium text-muted shrink-0">
                   Precio ($/{unitLabel}{isEdit ? '' : ', opcional'})
@@ -919,17 +929,17 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
 
               {(samePriceAll || stores.length <= 1) ? (
                 <NumericInput value={sharedPriceRaw} onChange={setSharedPriceRaw}
-                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-accent/40"
+                  className={PRODUCT_FIELD}
                   placeholder="Dejar en blanco si no tiene precio aún" />
               ) : (
-                <div className="rounded-lg border border-line bg-raised divide-y divide-line">
+                <div className="divide-y divide-line">
                   {stores.map(s => (
-                    <div key={s.id} className="flex items-center gap-2 min-w-0 px-3 py-2">
+                    <div key={s.id} className="flex items-center gap-2 min-w-0 py-2 first:pt-0 last:pb-0">
                       <span className="min-w-0 flex-1 truncate text-sm text-ink" title={s.name}>{s.name}</span>
                       <NumericInput
                         value={perStorePriceRaw[s.id] ?? ''}
                         onChange={v => setPerStorePriceRaw(prev => ({ ...prev, [s.id]: v }))}
-                        className="w-28 shrink-0 bg-panel border border-line rounded-lg px-2 py-1.5 text-sm text-ink text-right focus:outline-none focus:ring-1 focus:ring-accent/40"
+                        className={PRODUCT_PRICE_FIELD}
                         placeholder="—"
                       />
                     </div>
@@ -986,7 +996,7 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
                   onSaved()
                 })()
               }}
-              className="text-xs text-ink hover:text-ink hover:bg-hover px-3 py-1.5 rounded-lg transition-colors border border-line w-full"
+              className="w-full rounded-lg border border-line-strong bg-raised px-3 py-1.5 text-xs text-ink transition-colors hover:bg-hover"
             >
               {product.available ? 'Quitar de este local' : 'Mostrar en este local'}
             </button>

@@ -745,6 +745,11 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                                   <span className="shrink-0 text-[10px] font-semibold text-amber-400">Extra</span>
                                 )}
                               </div>
+                              {line.orderedName ? (
+                                <p className="truncate text-[10px] text-muted" title={`Pedido: ${line.orderedName}`}>
+                                  Pedido: {line.orderedName}
+                                </p>
+                              ) : null}
                               <p className="truncate text-[10px] text-muted" title={priceLabel}>
                                 {priceLabel}
                                 {line.requestedUnits != null && line.requestedUnits > 0 && (

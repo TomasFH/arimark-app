@@ -173,6 +173,28 @@ describe('catalogAdmin.handler', () => {
       const asado = result.data.find(p => p.id === PRODUCT_ID)
       expect(asado?.price).toBe(18000)
       expect(asado?.available).toBe(true)
+      expect(asado).toMatchObject({ baseProductId: null })
+    })
+
+    it('devuelve el enlace al corte suelto', () => {
+      db.insert(products).values({
+        id: 'offer-301',
+        name: 'Asado x2kg',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 301,
+        baseProductId: PRODUCT_ID,
+        active: true,
+        createdAt: '2026-01-15T12:00:00.000Z',
+      }).run()
+
+      const result = getHandler('ipc:get-all-products')({}, STORE_A) as {
+        ok: boolean
+        data: Array<{ id: string; baseProductId: string | null }>
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data.find(row => row.id === 'offer-301')?.baseProductId).toBe(PRODUCT_ID)
+      expect(result.data.find(row => row.id === PRODUCT_ID)?.baseProductId).toBeNull()
     })
 
     it('rechaza storeId inválido', () => {

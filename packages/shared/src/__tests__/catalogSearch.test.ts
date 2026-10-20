@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { filterAndRankByName, matchVisitMerchProducts, searchProductsByQuery } from '../catalogSearch'
+import { filterAndRankByName, matchVisitMerchProducts, productsForCatalogIntake, searchProductsByQuery } from '../catalogSearch'
 
 const cuts = [
   { id: '1', name: 'Tapa de asado', plu: 3 },
@@ -72,11 +72,37 @@ describe('matchVisitMerchProducts', () => {
     ).map(p => p.name)).toEqual(['Jamón crudo', 'Jamón'])
   })
 
+  it('huevo y huevos en el ingreso ofrecen solo Maple', () => {
+    const eggs = [
+      { name: 'Huevos media docena', pluNumber: 258 },
+      { name: 'Huevos x12', pluNumber: 259 },
+      { name: 'Maple', pluNumber: 260 },
+      { name: 'Maple x2', pluNumber: 261 },
+      { name: 'Asado', pluNumber: 1 },
+    ]
+    for (const query of ['huevo', 'huevos', 'Huevos', 'HUEVO', 'maple', 'Maple', 'maples']) {
+      expect(matchVisitMerchProducts(eggs, query).map(p => p.name)).toEqual(['Maple'])
+    }
+    expect(matchVisitMerchProducts(eggs, 'maple x2')).toEqual([])
+    expect(matchVisitMerchProducts(eggs, '').map(p => p.name)).not.toContain('Maple x2')
+  })
+
   it('sin texto devuelve los primeros 8 y con muchas coincidencias recorta a 8', () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ name: `Jamón ${i}`, pluNumber: 200 + i }))
     expect(matchVisitMerchProducts(many, '').map(p => p.pluNumber)).toEqual([200, 201, 202, 203, 204, 205, 206, 207])
     expect(matchVisitMerchProducts(many, '   ')).toHaveLength(8)
     expect(matchVisitMerchProducts(many, 'jamon')).toHaveLength(8)
     expect(matchVisitMerchProducts(products, 'pollo')).toEqual([])
+  })
+})
+
+describe('productsForCatalogIntake', () => {
+  it('deja el corte suelto y oculta la oferta', () => {
+    const products = [
+      { id: 'asado', name: 'Asado', baseProductId: null },
+      { id: 'pack', name: 'Asado x2kg', baseProductId: 'asado' },
+      { id: 'huevos', name: 'Huevos x12' },
+    ]
+    expect(productsForCatalogIntake(products).map(product => product.name)).toEqual(['Asado', 'Huevos x12'])
   })
 })

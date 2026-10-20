@@ -37,6 +37,8 @@ export interface CatalogProduct {
   unit: 'kg' | 'unit'
   /** Precio vigente en pesos (no centavos). */
   price: number
+  /** Corte suelto. Ausente = el celu no lo usa para vender. */
+  baseProductId?: string | null
   purchasePackLabel?: string | null
   purchasePackContents?: number | null
 }

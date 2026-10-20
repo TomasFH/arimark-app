@@ -22,6 +22,7 @@ export {
   filterAndRankByName,
   searchProductsByQuery,
   matchVisitMerchProducts,
+  productsForCatalogIntake,
   catalogPendingGap,
   catalogPendingLabel,
   compareWithCatalogPending,

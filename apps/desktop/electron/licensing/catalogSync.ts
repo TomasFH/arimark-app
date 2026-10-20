@@ -16,6 +16,7 @@
  */
 import { getFirestore, doc, getDoc, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { v4 as uuidv4 } from 'uuid'
+import { z } from 'zod'
 import log from 'electron-log'
 import { and, eq, isNull, ne } from 'drizzle-orm'
 import { getDb } from '../db/client'
@@ -45,6 +46,33 @@ interface CatalogProduct {
   priceUpdatedAt?: string
   /** Visibilidad en este local. Ausente = no tocar (compat con snapshots viejos). */
   available?: boolean
+  /**
+   * Corte suelto. Ausente = no tocar el enlace local (snapshots viejos).
+   * Null = el producto es su propia mercadería.
+   */
+  baseProductId?: string | null
+}
+
+/** Texto o null. Un número u otro tipo no es un id y no se aplica. */
+export const remoteBaseProductIdSchema = z.string().trim().min(1).max(64).nullable()
+
+/**
+ * Lee el enlace de corte de un ítem remoto.
+ * undefined = el campo no vino o no es válido: no pisar el valor local.
+ */
+export function readRemoteBaseProductId(product: unknown): string | null | undefined {
+  if (!product || typeof product !== 'object' || !('baseProductId' in product)) return undefined
+  const parsed = remoteBaseProductIdSchema.safeParse(
+    (product as { baseProductId: unknown }).baseProductId,
+  )
+  if (!parsed.success) {
+    const productId = 'productId' in product
+      ? (product as { productId: unknown }).productId
+      : undefined
+    log.warn('[catalogSync] baseProductId remoto inválido', { productId })
+    return undefined
+  }
+  return parsed.data
 }
 
 type CatalogAuditAction = 'create' | 'update_identity' | 'hide_store' | 'show_store' | 'retire_global' | 'restore_revision'
@@ -154,6 +182,73 @@ function applyRemoteIdentity(tx: DbTx, p: CatalogProduct, now: string): void {
     .run()
 }
 
+/**
+ * Persiste el enlace de corte después de las fichas, para que el destino ya exista.
+ * Un snapshot viejo (sin el campo) no borra el enlace local.
+ */
+function applyRemoteCutLinks(tx: DbTx, remoteProducts: readonly CatalogProduct[]): void {
+  for (const product of remoteProducts) {
+    if (product.baseProductId === undefined) continue
+    const row = tx
+      .select({ id: products.id, active: products.active })
+      .from(products)
+      .where(eq(products.id, product.productId))
+      .get()
+    if (!row?.active) continue
+
+    const target = product.baseProductId
+    if (target == null) {
+      tx.update(products)
+        .set({ baseProductId: null })
+        .where(eq(products.id, product.productId))
+        .run()
+      continue
+    }
+    if (target === product.productId) {
+      log.warn('[catalogSync] Enlace de corte a sí mismo omitido', { productId: product.productId })
+      continue
+    }
+
+    const destination = tx
+      .select({ id: products.id, baseProductId: products.baseProductId })
+      .from(products)
+      .where(eq(products.id, target))
+      .get()
+    if (!destination) {
+      log.warn('[catalogSync] Enlace de corte sin destino', {
+        productId: product.productId,
+        baseProductId: target,
+      })
+      continue
+    }
+    if (destination.baseProductId != null) {
+      log.warn('[catalogSync] Enlace de corte en cadena omitido', {
+        productId: product.productId,
+        baseProductId: target,
+      })
+      continue
+    }
+
+    const dependent = tx
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.baseProductId, product.productId))
+      .get()
+    if (dependent) {
+      log.warn('[catalogSync] Enlace de corte en cadena omitido', {
+        productId: product.productId,
+        baseProductId: target,
+      })
+      continue
+    }
+
+    tx.update(products)
+      .set({ baseProductId: target })
+      .where(eq(products.id, product.productId))
+      .run()
+  }
+}
+
 function applyRemoteAvailability(tx: DbTx, productId: string, storeId: string, available: boolean): boolean {
   const existing = tx
     .select({ productId: storeProducts.productId, available: storeProducts.available })
@@ -232,9 +327,25 @@ function hasPricedLocalCatalog(storeId: string): boolean {
   return active.length > 0
 }
 
+function normalizeRemoteProduct(raw: unknown): CatalogProduct {
+  const product = (raw && typeof raw === 'object' ? raw : {}) as CatalogProduct
+  const link = readRemoteBaseProductId(raw)
+  if (link === undefined) {
+    if (product && typeof product === 'object' && 'baseProductId' in product) {
+      const copy = { ...product }
+      delete copy.baseProductId
+      return copy
+    }
+    return product
+  }
+  return { ...product, baseProductId: link }
+}
+
 function parseRemoteCatalogData(data: unknown): RemoteCatalog {
   const raw = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
-  const productsList = Array.isArray(raw['products']) ? (raw['products'] as CatalogProduct[]) : []
+  const productsList = Array.isArray(raw['products'])
+    ? raw['products'].map(item => normalizeRemoteProduct(item))
+    : []
   const deletedRaw = raw['deletedProductIds']
   const deletedProductIds = Array.isArray(deletedRaw)
     ? deletedRaw.filter((id): id is string => typeof id === 'string')
@@ -461,6 +572,8 @@ function applySnapshotForced(
     }
   }
 
+  applyRemoteCutLinks(tx, remote.products)
+
   for (const id of remote.deletedProductIds) {
     if (remoteIds.has(id)) continue
     const row = tx.select({ id: products.id, active: products.active }).from(products).where(eq(products.id, id)).get()
@@ -545,6 +658,7 @@ export async function pullCatalogFromFirestore(licenseKey: string, storeId: stri
           }
         }
       }
+      applyRemoteCutLinks(t, remote.products)
     })
 
     log.info('[catalogSync] Catálogo sincronizado desde Firestore', {
@@ -659,6 +773,7 @@ function mergeRemoteIntoLocal(
         }
       }
     }
+    applyRemoteCutLinks(t, remote.products)
   })
 
   return { applied, keptLocal, deleted, availabilityChanged }

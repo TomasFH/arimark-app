@@ -67,6 +67,8 @@ interface CatalogProduct {
   available: boolean
   purchasePackLabel?: string | null
   purchasePackContents?: number | null
+  /** Corte suelto. Null = mercadería propia. Ausente en snapshots viejos. */
+  baseProductId: string | null
 }
 
 function publishKey(licenseKey: string, storeId: string): string {
@@ -84,6 +86,7 @@ export function catalogContentFingerprint(
     available?: boolean
     purchasePackLabel?: string | null
     purchasePackContents?: number | null
+    baseProductId?: string | null
   }>,
   deletedProductIds: string[],
 ): string {
@@ -99,6 +102,7 @@ export function catalogContentFingerprint(
         p.available === false ? '0' : '1',
         p.purchasePackLabel ?? '',
         p.purchasePackContents ?? '',
+        p.baseProductId ?? '',
       ].join('\t'),
     )
     .sort()
@@ -123,6 +127,7 @@ export function buildPublishedCatalog(storeId: string): {
       updatedAt: products.updatedAt,
       purchasePackLabel: products.purchasePackLabel,
       purchasePackContents: products.purchasePackContents,
+      baseProductId: products.baseProductId,
     })
     .from(products)
     .where(and(eq(products.active, true), isNotNull(products.pluNumber)))
@@ -175,6 +180,7 @@ export function buildPublishedCatalog(storeId: string): {
         available: availMap.get(r.productId) ?? true,
         purchasePackLabel: r.purchasePackLabel,
         purchasePackContents: r.purchasePackContents,
+        baseProductId: r.baseProductId ?? null,
       }
     })
 

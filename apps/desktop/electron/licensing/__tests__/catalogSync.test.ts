@@ -71,6 +71,8 @@ import {
   pullCatalogFromFirestore,
   startCatalogSyncListener,
   stopCatalogSyncListener,
+  readRemoteBaseProductId,
+  remoteBaseProductIdSchema,
 } from '../catalogSync'
 
 const TENANT = 'test-tenant'
@@ -1053,5 +1055,196 @@ describe('catalogSync', () => {
 
       expect(mockNotifyRenderer).toHaveBeenCalledWith('ipc:catalog-sync-updated', { storeId: STORE })
     })
+  })
+
+  it('acepta un enlace de corte y rechaza un payload malformado', () => {
+    expect(remoteBaseProductIdSchema.safeParse('prod-asado').success).toBe(true)
+    expect(remoteBaseProductIdSchema.safeParse(null).success).toBe(true)
+    expect(readRemoteBaseProductId({ baseProductId: '  prod-asado  ' })).toBe('prod-asado')
+    expect(readRemoteBaseProductId({ name: 'Asado' })).toBeUndefined()
+
+    expect(remoteBaseProductIdSchema.safeParse(301).success).toBe(false)
+    expect(remoteBaseProductIdSchema.safeParse('').success).toBe(false)
+    expect(readRemoteBaseProductId({ productId: 'offer', baseProductId: 301 })).toBeUndefined()
+  })
+
+  it('persiste el enlace aunque la oferta llegue antes que el corte', async () => {
+    mockGetDoc.mockResolvedValue(remoteSnap([
+      {
+        productId: 'offer',
+        pluNumber: 301,
+        name: 'Asado x2kg',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 15000,
+        baseProductId: 'base',
+      },
+      {
+        productId: 'base',
+        pluNumber: 1,
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 20000,
+        baseProductId: null,
+      },
+    ], '2026-08-01T00:00:00.000Z'))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const rows = db.select().from(products).all()
+    expect(rows.find(row => row.id === 'offer')?.baseProductId).toBe('base')
+    expect(rows.find(row => row.id === 'base')?.baseProductId).toBeNull()
+  })
+
+  it('no pisa un enlace local si el snapshot viejo no trae el campo', async () => {
+    db.insert(products).values([
+      {
+        id: 'base',
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 1,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'offer',
+        name: 'Asado x2kg',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 301,
+        baseProductId: 'base',
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]).run()
+    addPrice('offer')
+
+    mockGetDoc.mockResolvedValue(remoteSnap([
+      {
+        productId: 'offer',
+        pluNumber: 301,
+        name: 'Asado oferta',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 15000,
+        updatedAt: '2026-08-20T01:00:00.000Z',
+      },
+    ], '2026-08-20T00:00:00.000Z'))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const offer = db.select().from(products).all().find(row => row.id === 'offer')
+    expect(offer?.name).toBe('Asado oferta')
+    expect(offer?.baseProductId).toBe('base')
+  })
+
+  it('aplica el enlace remoto aunque la ficha local sea más nueva', async () => {
+    db.insert(products).values([
+      {
+        id: 'base',
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 1,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'offer',
+        name: 'Nombre local',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 301,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-09-01T00:00:00.000Z',
+      },
+    ]).run()
+    addPrice('offer')
+
+    mockGetDoc.mockResolvedValue(remoteSnap([
+      {
+        productId: 'offer',
+        pluNumber: 301,
+        name: 'Nombre remoto',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 15000,
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        baseProductId: 'base',
+      },
+    ], '2026-08-01T00:00:00.000Z'))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const offer = db.select().from(products).all().find(row => row.id === 'offer')
+    expect(offer?.name).toBe('Nombre local')
+    expect(offer?.baseProductId).toBe('base')
+  })
+
+  it('no guarda una cadena ni un baseProductId que no es texto', async () => {
+    db.insert(products).values([
+      {
+        id: 'loose',
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 1,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'mid',
+        name: 'Asado x2kg',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 301,
+        baseProductId: 'loose',
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'offer',
+        name: 'Otra oferta',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 302,
+        active: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]).run()
+    addPrice('offer')
+
+    mockGetDoc.mockResolvedValue(remoteSnap([
+      {
+        productId: 'offer',
+        pluNumber: 302,
+        name: 'Otra oferta',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 15000,
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        baseProductId: 'mid',
+      },
+      {
+        productId: 'loose',
+        pluNumber: 1,
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        price: 20000,
+        baseProductId: 1,
+      },
+    ], '2026-08-01T00:00:00.000Z'))
+
+    await syncCatalogWithFirestore(TENANT, STORE)
+
+    const rows = db.select().from(products).all()
+    expect(rows.find(row => row.id === 'offer')?.baseProductId).toBeNull()
+    expect(rows.find(row => row.id === 'mid')?.baseProductId).toBe('loose')
+    expect(rows.find(row => row.id === 'loose')?.baseProductId).toBeNull()
   })
 })

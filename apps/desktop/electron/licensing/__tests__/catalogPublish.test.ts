@@ -178,6 +178,50 @@ describe('catalogPublish', () => {
     expect(catalogPayload?.products?.[0]?.available).toBe(false)
   })
 
+  it('publica el enlace al corte suelto', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    db.insert(products).values([
+      {
+        id: 'asado',
+        name: 'Asado',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 1,
+        active: true,
+        createdAt: now,
+      },
+      {
+        id: 'pack',
+        name: 'Asado x2kg',
+        category: 'beef_cut',
+        unit: 'kg',
+        pluNumber: 301,
+        baseProductId: 'asado',
+        active: true,
+        createdAt: now,
+      },
+    ]).run()
+    for (const productId of ['asado', 'pack']) {
+      db.insert(productPrices).values({
+        id: `price-${productId}`,
+        productId,
+        storeId: STORE,
+        price: productId === 'asado' ? 20000 : 15000,
+        validFrom: '2020-01-01T00:00:00.000Z',
+        validTo: null,
+        createdBy: 'user-001',
+      }).run()
+    }
+
+    await publishCatalog(TENANT, STORE)
+
+    const catalogPayload = mockSetDoc.mock.calls
+      .map(c => c[1] as { products?: Array<{ productId: string; baseProductId: string | null }>; archivedAt?: string })
+      .find(p => Array.isArray(p.products) && !('archivedAt' in p))
+    expect(catalogPayload?.products?.find(row => row.productId === 'asado')?.baseProductId).toBeNull()
+    expect(catalogPayload?.products?.find(row => row.productId === 'pack')?.baseProductId).toBe('asado')
+  })
+
   it('incluye auditoría y historial de precios con el nombre de quien cambió', async () => {
     db.insert(products).values({
       id: 'prod-a',

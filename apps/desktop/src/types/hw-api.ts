@@ -289,6 +289,8 @@ export interface ProductRow {
   category: ProductCategory
   unit: 'kg' | 'unit'
   pluNumber: number
+  /** Corte suelto de esta oferta. Null o ausente = mercadería propia. */
+  baseProductId?: string | null
   price: number | null
   purchasePackLabel?: string | null
   purchasePackContents?: number | null
@@ -305,6 +307,8 @@ export interface AdminProductRow {
   category: ProductCategory
   unit: 'kg' | 'unit'
   pluNumber: number | null
+  /** Corte suelto de esta oferta. Null o ausente = mercadería propia. */
+  baseProductId?: string | null
   active: boolean
   /** Precio vigente en el local seleccionado. null si no hay precio cargado. */
   price: number | null
