@@ -169,8 +169,8 @@ export default function PluManagerPanel() {
       return
     }
     const precioEnPesos = parseNumericInput(pluPrice)
-    if (precioEnPesos === null || precioEnPesos <= 0) {
-      showFeedback('error', 'Ingresá un precio válido (en pesos, sin centavos).')
+    if (precioEnPesos === null || precioEnPesos < 0) {
+      showFeedback('error', 'Ingresá un precio válido (en pesos, sin centavos). 0 carga el PLU con precio abierto.')
       return
     }
     const maxPesos = maxPriceForDigits(priceDigits)

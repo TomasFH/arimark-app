@@ -735,18 +735,18 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
         return v !== null && v > KRETZ_MAX_PRICE
       })
 
-  /** Resuelve la lista (storeId, price) a persistir. Precio vacío / 0 → se omite. */
+  /** Resuelve la lista (storeId, price) a persistir. Vacío = no se toca. 0 = precio abierto. */
   function resolvePriceTargets(): Array<{ storeId: string; price: number }> {
     if (samePriceAll || stores.length <= 1) {
       const price = sharedPriceValue
-      if (price === null || price <= 0) return []
+      if (price === null) return []
       const ids = stores.length <= 1 ? [storeId] : stores.map(s => s.id)
       return ids.map(id => ({ storeId: id, price }))
     }
     const targets: Array<{ storeId: string; price: number }> = []
     for (const s of stores) {
       const price = parseNumericInput(perStorePriceRaw[s.id] ?? '')
-      if (price !== null && price > 0) targets.push({ storeId: s.id, price })
+      if (price !== null) targets.push({ storeId: s.id, price })
     }
     return targets
   }
@@ -930,7 +930,7 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
               {(samePriceAll || stores.length <= 1) ? (
                 <NumericInput value={sharedPriceRaw} onChange={setSharedPriceRaw}
                   className={PRODUCT_FIELD}
-                  placeholder="Dejar en blanco si no tiene precio aún" />
+                  placeholder="En blanco = sin precio. 0 = precio abierto en la balanza" />
               ) : (
                 <div className="divide-y divide-line">
                   {stores.map(s => (
@@ -953,7 +953,7 @@ export function ProductFormModal({ storeId, stores, product, onClose, onSaved, o
                 </p>
               )}
               {!samePriceAll && stores.length > 1 && (
-                <p className="text-xs text-subtle">Dejá en blanco los locales sin precio por ahora.</p>
+                <p className="text-xs text-subtle">En blanco queda sin precio y no se carga en la balanza. 0 sí se carga: en la balanza se puede escribir el importe a mano.</p>
               )}
             </div>
         </div>
@@ -1027,9 +1027,8 @@ export function PriceModal({ product, storeId, onClose, onSaved }: PriceModalPro
 
   async function handleSave() {
     setError(null)
-    const parsed = priceRaw === '' ? 0 : parseNumericInput(priceRaw)
-    const price = parsed ?? 0
-    if (price < 0) { setError('El precio no puede ser negativo.'); return }
+    const price = priceRaw.trim() === '' ? null : parseNumericInput(priceRaw)
+    if (priceRaw.trim() !== '' && price === null) { setError('Ingresá un precio válido.'); return }
     setSaving(true)
     const r = await window.hw.setProductPrice({ productId: product.id, storeId, price })
     if (!r.ok) { setError(r.error); setSaving(false); return }
@@ -1057,12 +1056,17 @@ export function PriceModal({ product, storeId, onClose, onSaved }: PriceModalPro
             placeholder="0" autoFocus />
         </Field>
         {product.price != null && <p className="mt-1 text-xs text-muted">Precio actual: {fmtARS(product.price)}</p>}
+        {priceValue === 0 && (
+          <p className="mt-2 text-xs text-subtle">
+            Con $0 la balanza deja escribir el importe en el ticket. El PLU sí se carga.
+          </p>
+        )}
         {priceOverLimit && (
           <p className="mt-2 text-xs text-amber-400">
             El precio supera ${KRETZ_MAX_PRICE.toLocaleString('es-AR')} — este producto no podrá cargarse en la balanza.
           </p>
         )}
-        <p className="mt-2 text-xs text-subtle">Dejar en blanco o poner 0 para quitar el precio.</p>
+        <p className="mt-2 text-xs text-subtle">Dejá el campo en blanco para quitar el precio. Ese PLU no se carga en la balanza.</p>
         {error && <div className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>}
     </Modal>
   )

@@ -217,6 +217,31 @@ describe('kretzSync.handler — KRETZ_SYNC_CATALOG', () => {
     expect(manager.kretzSendPlu).toHaveBeenCalledTimes(2)
   })
 
+  it('envía un PLU con precio 0 para que la balanza permita precio manual', async () => {
+    const manager = makeManager()
+    vi.mocked(getDb).mockReturnValue(makeDb(
+      [{ id: 'p0', name: 'Precio especial', unit: 'kg', pluNumber: 998 }],
+      [{ productId: 'p0', price: 0, validFrom: '2026-01-01T00:00:00.000Z' }],
+    ))
+    registerKretzSyncHandler(manager)
+    const { event } = makeEvent()
+
+    const result = await getHandler('ipc:kretz-sync-catalog')(event, STORE_ID) as {
+      ok: boolean
+      data: { total: number; succeeded: number; skipped: unknown[] }
+    }
+
+    expect(result.ok).toBe(true)
+    expect(result.data.total).toBe(1)
+    expect(result.data.succeeded).toBe(1)
+    expect(result.data.skipped).toHaveLength(0)
+    expect(manager.kretzSendPlu).toHaveBeenCalledWith(expect.objectContaining({
+      pluNumber: '998',
+      priceCents: 0,
+      priceDigits: 6,
+    }))
+  })
+
   it('convierte el precio a raw (pesos × 10) y setea pesable según la unidad', async () => {
     const manager = makeManager()
     vi.mocked(getDb).mockReturnValue(makeDb(

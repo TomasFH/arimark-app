@@ -390,13 +390,17 @@ export interface UpdateProductPayload {
 export interface SetProductPricePayload {
   productId: string
   storeId: string
-  /** Nuevo precio en pesos (entero). 0 = sin precio (elimina el precio vigente). */
-  price: number
+  /**
+   * Nuevo precio en pesos (entero).
+   * 0 = precio abierto: se carga en la balanza y ahí se puede escribir el importe.
+   * null = sin precio: cierra el vigente y ese PLU no se carga en la balanza.
+   */
+  price: number | null
 }
 
 export interface SetProductPricesPayload {
   storeId: string
-  items: Array<{ productId: string; price: number }>
+  items: Array<{ productId: string; price: number | null }>
 }
 
 export interface SetProductAvailabilityPayload {

@@ -11,7 +11,8 @@
  *  3. Envía cada PLU secuencialmente (la cola serial del driver no admite
  *     comandos en paralelo), emitiendo un evento de progreso por cada uno.
  *  4. Devuelve un resumen: enviados OK, fallidos (con motivo) y omitidos
- *     (sin precio o precio fuera de rango).
+ *     (sin precio — null — o precio fuera de rango). Un precio de $0 sí se envía:
+ *     en la KRETZ un PLU a 0 permite escribir el importe a mano.
  *
  * Estrategia de sincronización: upsert. El comando 2005 crea el PLU si no
  * existe y lo sobreescribe si ya existe. Nunca borra PLUs de la balanza que
@@ -175,7 +176,7 @@ export function registerKretzSyncHandler(manager: HardwareManager): void {
       const skipped: KretzSyncSkipped[] = []
       const sendable: CatalogPluRow[] = []
       for (const p of catalog) {
-        if (p.price === null || p.price <= 0) {
+        if (p.price === null) {
           skipped.push({ pluNumber: p.pluNumber, name: p.name, reason: 'no_price' })
         } else if (p.price > MAX_PESOS) {
           skipped.push({ pluNumber: p.pluNumber, name: p.name, reason: 'price_too_high' })

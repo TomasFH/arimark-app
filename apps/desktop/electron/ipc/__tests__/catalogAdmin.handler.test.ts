@@ -474,6 +474,62 @@ describe('catalogAdmin.handler', () => {
       expect(result.ok).toBe(false)
       expect(result.code).toBe('DB_ERROR')
     })
+
+    it('guarda $0 como precio vigente y lo distingue de sin precio', async () => {
+      db.insert(productPrices).values({
+        id: 'price-prev',
+        productId: PRODUCT_ID,
+        storeId: STORE_A,
+        price: 18000,
+        validFrom: '2026-01-01T00:00:00.000Z',
+        validTo: null,
+        createdBy: USER_ID,
+      }).run()
+
+      const result = await getHandler('ipc:set-product-price')({}, {
+        productId: PRODUCT_ID, storeId: STORE_A, price: 0,
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const prices = db.select().from(productPrices).all()
+      const closed = prices.find(p => p.id === 'price-prev')
+      const open = prices.find(p => p.validTo == null)
+      expect(closed?.validTo).not.toBeNull()
+      expect(open?.price).toBe(0)
+
+      const listed = getHandler('ipc:get-all-products')({}, STORE_A) as {
+        ok: boolean
+        data: { id: string; price: number | null }[]
+      }
+      expect(listed.data.find(p => p.id === PRODUCT_ID)?.price).toBe(0)
+    })
+
+    it('null cierra el precio vigente y deja el producto sin precio', async () => {
+      db.insert(productPrices).values({
+        id: 'price-prev',
+        productId: PRODUCT_ID,
+        storeId: STORE_A,
+        price: 18000,
+        validFrom: '2026-01-01T00:00:00.000Z',
+        validTo: null,
+        createdBy: USER_ID,
+      }).run()
+
+      const result = await getHandler('ipc:set-product-price')({}, {
+        productId: PRODUCT_ID, storeId: STORE_A, price: null,
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+
+      const prices = db.select().from(productPrices).all()
+      expect(prices).toHaveLength(1)
+      expect(prices[0]?.validTo).not.toBeNull()
+
+      const listed = getHandler('ipc:get-all-products')({}, STORE_A) as {
+        ok: boolean
+        data: { id: string; price: number | null }[]
+      }
+      expect(listed.data.find(p => p.id === PRODUCT_ID)?.price).toBeNull()
+    })
   })
 
   describe('SET_PRODUCT_PRICES', () => {

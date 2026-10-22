@@ -16,8 +16,10 @@
  *
  * Regla de precios: el precio vigente se gestiona con fechas de validez
  * (valid_from / valid_to). Cambiar el precio NO sobreescribe la fila existente:
- * cierra la fila actual (pone valid_to = now) e inserta una fila nueva. Si
- * `price === 0` solo cierra el precio vigente (producto queda sin precio).
+ * cierra la fila actual (pone valid_to = now) e inserta una fila nueva.
+ * `price === 0` es un precio vigente (la balanza permite escribirlo a mano).
+ * `price === null` solo cierra el vigente: el producto queda sin precio y no
+ * se carga en la balanza.
  */
 import { ipcMain } from 'electron'
 import log from 'electron-log'
@@ -63,17 +65,20 @@ const updateProductSchema = z.object({
   purchasePackContents: z.number().int().positive().max(99_999).nullable().optional(),
 })
 
+/** null = quitar el precio. 0 = precio abierto en la balanza. */
+const catalogPriceSchema = z.number().int().min(0).nullable()
+
 const setProductPriceSchema = z.object({
   productId: z.string().min(1),
   storeId: z.string().min(1),
-  price: z.number().int().min(0),
+  price: catalogPriceSchema,
 })
 
 const setProductPricesSchema = z.object({
   storeId: z.string().min(1),
   items: z.array(z.object({
     productId: z.string().min(1),
-    price: z.number().int().min(0),
+    price: catalogPriceSchema,
   })).min(1).max(200),
 })
 
@@ -389,7 +394,7 @@ function writeProductPrices(
   db: ReturnType<typeof getDb>,
   userId: string,
   storeId: string,
-  items: Array<{ productId: string; price: number }>,
+  items: Array<{ productId: string; price: number | null }>,
 ): void {
   const now = new Date().toISOString()
   db.transaction(tx => {
@@ -411,18 +416,19 @@ function writeProductPrices(
         tx.update(productPrices).set({ validTo: now }).where(eq(productPrices.id, v.id)).run()
       }
 
-      if (price > 0) {
-        tx.insert(productPrices).values({
-          id: uuidv4(),
-          productId,
-          storeId,
-          price,
-          validFrom: now,
-          validTo: null,
-          createdBy: userId,
-          syncedAt: null,
-        }).run()
-      }
+      // null cierra el vigente y deja el producto sin precio. 0 se guarda.
+      if (price === null) continue
+
+      tx.insert(productPrices).values({
+        id: uuidv4(),
+        productId,
+        storeId,
+        price,
+        validFrom: now,
+        validTo: null,
+        createdBy: userId,
+        syncedAt: null,
+      }).run()
     }
   })
 }
@@ -790,7 +796,7 @@ export function registerCatalogAdminHandlers(): void {
     if (storeDenied) return storeDenied
     const { session } = auth
 
-    const byProduct = new Map<string, number>()
+    const byProduct = new Map<string, number | null>()
     for (const item of items) {
       byProduct.set(item.productId, item.price)
     }
