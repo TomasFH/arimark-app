@@ -48,7 +48,9 @@ export function ActionMenu({ items, align = 'end', label = 'Más acciones', trig
       if (event.key === 'Escape') {
         event.stopPropagation()
         setOpen(false)
-        triggerRef.current?.focus()
+        // No devolver el foco al botón: un Enter posterior lo volvería a abrir.
+        const trigger = triggerRef.current
+        if (trigger && document.activeElement === trigger) trigger.blur()
       }
     }
 

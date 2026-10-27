@@ -38,10 +38,32 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   // Limpiar los elementos insertados para simular foco
-  document.querySelectorAll('body > input, body > textarea, body > select').forEach(el =>
+  document.querySelectorAll('body > input, body > textarea, body > select, body > button').forEach(el =>
     el.remove()
   )
 })
+
+function pressOn(target: EventTarget, type: 'keydown' | 'keyup', key: string) {
+  const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true })
+  target.dispatchEvent(event)
+  return event
+}
+
+function focusButton() {
+  const button = document.createElement('button')
+  button.type = 'button'
+  document.body.appendChild(button)
+  button.focus()
+  const onKeyDown = vi.fn()
+  const onKeyUp = vi.fn()
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') onKeyDown(event)
+  })
+  button.addEventListener('keyup', (event) => {
+    if (event.key === 'Enter') onKeyUp(event)
+  })
+  return { button, onKeyDown, onKeyUp }
+}
 
 describe('useBarcodeScanner — detección básica (sin campo enfocado)', () => {
   it('llama onScan al recibir 13 dígitos seguidos de Enter', async () => {
@@ -169,7 +191,7 @@ describe('useBarcodeScanner — descarte de buffer', () => {
   })
 })
 
-describe('useBarcodeScanner — Enter residual', () => {
+describe('useBarcodeScanner — Enter del lector y botones', () => {
   it('no deja que el Enter posterior active el botón enfocado', () => {
     const onScan = vi.fn()
     renderHook(() => useBarcodeScanner({ onScan }))
@@ -184,6 +206,80 @@ describe('useBarcodeScanner — Enter residual', () => {
 
     expect(onScan).toHaveBeenCalledOnce()
     expect(enter.defaultPrevented).toBe(true)
+    button.remove()
+  })
+
+  it('el Enter que cierra un buffer rápido no llega al botón (keydown ni keyup)', () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan }))
+    const { button, onKeyDown, onKeyUp } = focusButton()
+
+    for (const ch of '1234567890') pressOn(button, 'keydown', ch)
+    const down = pressOn(button, 'keydown', 'Enter')
+    const up = pressOn(button, 'keyup', 'Enter')
+
+    expect(onScan).toHaveBeenCalledOnce()
+    expect(onScan).toHaveBeenCalledWith('1234567890')
+    expect(down.defaultPrevented).toBe(true)
+    expect(up.defaultPrevented).toBe(true)
+    expect(onKeyDown).not.toHaveBeenCalled()
+    expect(onKeyUp).not.toHaveBeenCalled()
+    button.remove()
+  })
+
+  it('el Enter residual de un EAN-13 no llega al botón (keydown ni keyup)', () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan }))
+    const { button, onKeyDown, onKeyUp } = focusButton()
+
+    for (const ch of '2001060000012') pressOn(button, 'keydown', ch)
+    const down = pressOn(button, 'keydown', 'Enter')
+    const up = pressOn(button, 'keyup', 'Enter')
+
+    expect(onScan).toHaveBeenCalledOnce()
+    expect(onScan).toHaveBeenCalledWith('2001060000012')
+    expect(down.defaultPrevented).toBe(true)
+    expect(up.defaultPrevented).toBe(true)
+    expect(onKeyDown).not.toHaveBeenCalled()
+    expect(onKeyUp).not.toHaveBeenCalled()
+    button.remove()
+  })
+
+  it('un Enter tipeado a mano llega al botón enfocado', () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan }))
+    const { button, onKeyDown, onKeyUp } = focusButton()
+
+    const down = pressOn(button, 'keydown', 'Enter')
+    const up = pressOn(button, 'keyup', 'Enter')
+
+    expect(onScan).not.toHaveBeenCalled()
+    expect(down.defaultPrevented).toBe(false)
+    expect(up.defaultPrevented).toBe(false)
+    expect(onKeyDown).toHaveBeenCalledOnce()
+    expect(onKeyUp).toHaveBeenCalledOnce()
+    button.remove()
+  })
+
+  it('después de tragar el Enter del lector, un Enter manual llega al botón', () => {
+    const onScan = vi.fn()
+    renderHook(() => useBarcodeScanner({ onScan }))
+    const { button, onKeyDown, onKeyUp } = focusButton()
+
+    for (const ch of '2001060000012') pressOn(button, 'keydown', ch)
+    pressOn(button, 'keydown', 'Enter')
+    pressOn(button, 'keyup', 'Enter')
+    onKeyDown.mockClear()
+    onKeyUp.mockClear()
+
+    const down = pressOn(button, 'keydown', 'Enter')
+    const up = pressOn(button, 'keyup', 'Enter')
+
+    expect(onScan).toHaveBeenCalledOnce()
+    expect(down.defaultPrevented).toBe(false)
+    expect(up.defaultPrevented).toBe(false)
+    expect(onKeyDown).toHaveBeenCalledOnce()
+    expect(onKeyUp).toHaveBeenCalledOnce()
     button.remove()
   })
 })

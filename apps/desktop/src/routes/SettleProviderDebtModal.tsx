@@ -41,6 +41,10 @@ interface SettleReceipt {
   lines: SettleReceiptLine[]
 }
 
+/** border-success/30 cae a currentColor. Mismo aviso que el comprobante de Gastos. */
+const successNoticeClass =
+  'border-line-strong bg-[color-mix(in_srgb,var(--success)_12%,transparent)]'
+
 export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
   const [providers, setProviders] = useState<ProviderRow[]>([])
   const [stores, setStores] = useState<StoreRow[]>([])
@@ -245,10 +249,8 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
         onClose={() => { onClose() }}
         resultClassName={
           leftover > 0
-            ? 'bg-amber-50 border border-amber-200'
-            : leftoverCredit > 0
-              ? 'bg-success/10 border border-success/30'
-              : 'bg-green-50 border border-green-200'
+            ? 'border border-amber-500/30 bg-amber-500/10'
+            : `border ${successNoticeClass}`
         }
         result={
           leftover > 0 ? (
@@ -264,16 +266,16 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             </>
           ) : (
             <>
-              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Saldado ✓</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">Sin deuda</p>
+              <p className="text-xs font-semibold text-success uppercase tracking-wide">Saldado ✓</p>
+              <p className="text-2xl font-bold text-success mt-1">Sin deuda</p>
             </>
           )
         }
       >
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-gray-600">Sale de esta caja</span>
-            <span className="font-bold text-gray-900">{formatARS(receipt.cashOut)}</span>
+            <span className="text-muted">Sale de esta caja</span>
+            <span className="font-bold text-ink">{formatARS(receipt.cashOut)}</span>
           </div>
           {receipt.usedCredit && (
             <div className="flex justify-between text-success">
@@ -282,8 +284,8 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
             </div>
           )}
           {receipt.lines.map(l => (
-            <div key={l.storeName} className="border-t border-gray-100 pt-2 space-y-0.5">
-              <p className="text-xs text-gray-500 truncate" title={l.storeName}>{l.storeName}</p>
+            <div key={l.storeName} className="border-t border-line pt-2 space-y-0.5">
+              <p className="min-w-0 text-xs text-muted truncate" title={l.storeName}>{l.storeName}</p>
               {l.creditUsed > 0 && (
                 <div className="flex justify-between text-success">
                   <span>Saldo a favor usado</span>
@@ -292,13 +294,13 @@ export default function SettleProviderDebtModal({ onClose, onSaved }: Props) {
               )}
               {l.paid > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Pagado</span>
-                  <span className="font-semibold text-gray-900">{formatARS(l.paid)}</span>
+                  <span className="text-muted">Pagado</span>
+                  <span className="font-semibold text-ink">{formatARS(l.paid)}</span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-gray-600">Saldo del local</span>
-                <span className={`font-semibold ${l.remaining > 0 ? 'text-amber-700' : l.remaining < 0 ? 'text-success' : 'text-green-700'}`}>
+                <span className="text-muted">Saldo del local</span>
+                <span className={`font-semibold ${l.remaining > 0 ? 'text-amber-700' : 'text-success'}`}>
                   {l.remaining > 0
                     ? formatARS(l.remaining)
                     : l.remaining < 0

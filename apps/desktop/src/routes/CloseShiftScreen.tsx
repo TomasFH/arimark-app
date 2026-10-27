@@ -3,14 +3,14 @@
  *
  * Flujo:
  *  1. Ver resumen del turno (ventas, efectivo, digital por tipo).
- *  2. Declarar monto entregado / depositado en caja fuerte (opcional).
- *  3. Contar billetes del efectivo que queda en caja registradora.
- *     - Modo cantidad: cuántos billetes de cada denominación.
- *     - Modo monto: monto total por denominación (validado como múltiplo).
- *     La preferencia se guarda en localStorage.
- *  4. Al confirmar → pantalla de resumen final con botón "Finalizar".
+ *  2. Registrar entrega / depósito (opcional).
+ *  3. Declarar cuánto queda en la registradora (obligatorio, 0 permitido).
+ *  4. El conteo de billetes es una herramienta: si cuentan, completa el monto.
+ *     Si después editan el monto, vale lo tipeado.
+ *  5. Al confirmar → pantalla de resumen final con botón "Finalizar".
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { billLinesTotal } from '@carniceria/shared'
 import NumericInput from '../components/NumericInput'
 import BillCountGrid from '../components/BillCountGrid'
 import { Button, Modal } from '../components/ui'
@@ -18,14 +18,14 @@ import { parseNumericInput } from '../lib/numericInput'
 import {
   billRowsCountedTotal,
   billRowsToLines,
+  cashAmountToInput,
   emptyBillRows,
   type BillMode,
   type BillRowState,
 } from '../lib/billCountUi'
 import { buildCloseShiftRecapLines } from '../lib/closeShiftRecap'
 import { ventaCountLabel } from '../lib/shiftSaleTally'
-import { isEmptyBillCount } from '@carniceria/shared'
-import type { ShiftSummary } from '../types/hw-api'
+import type { BillLine, ShiftSummary } from '../types/hw-api'
 
 const BILL_MODE_KEY = 'close-shift-bill-mode'
 const isProdEnv = import.meta.env['VITE_APP_ENV'] === 'production'
@@ -52,16 +52,20 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   const [summary, setSummary] = useState<ShiftSummary | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  // Lo que queda en la registradora. Vacío hasta que lo declaran o cuentan.
+  const [leftRaw, setLeftRaw] = useState('')
+  const [leftError, setLeftError] = useState<string | null>(null)
+  const amountFromCount = useRef(false)
+
   // Entrega / depósito
   const [deliveredAmountRaw, setDeliveredAmountRaw] = useState('')
   const [deliveredTo, setDeliveredTo] = useState('')
   const [notes, setNotes] = useState('')
 
-  // Conteo de billetes
+  // Conteo de billetes (herramienta)
   const [billMode, setBillMode] = useState<BillMode>(loadBillMode)
   const [billRows, setBillRows] = useState<BillRowState[]>(emptyBillRows)
   const [skipBills, setSkipBills] = useState(false)
-  const [showEmptyConfirm, setShowEmptyConfirm] = useState(false)
 
   // Estado del formulario
   const [saving, setSaving] = useState(false)
@@ -89,10 +93,6 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         onConfirmed()
         return
       }
-      if (showEmptyConfirm) {
-        setShowEmptyConfirm(false)
-        return
-      }
       if (showConfirm) {
         setShowConfirm(false)
         return
@@ -101,7 +101,7 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [saving, closed, showConfirm, showEmptyConfirm, onCancel, onConfirmed])
+  }, [saving, closed, showConfirm, onCancel, onConfirmed])
 
   useEffect(() => {
     void window.hw.getShiftSummary().then(r => {
@@ -116,20 +116,31 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   function handleBillModeChange(mode: BillMode): void {
     saveBillMode(mode)
     setBillMode(mode)
-    // Limpiar errores de validación al cambiar de modo
-    setBillRows(prev => prev.map(r => ({ ...r, totalError: null })))
+    setBillRows(prev => {
+      const next = prev.map(r => ({ ...r, totalError: null }))
+      if (amountFromCount.current) {
+        setLeftRaw(cashAmountToInput(billRowsCountedTotal(next, mode)))
+        setLeftError(null)
+      }
+      return next
+    })
+  }
+
+  function handleLeftChange(value: string): void {
+    amountFromCount.current = false
+    setLeftRaw(value)
+    if (value !== '') setLeftError(null)
   }
 
   function updateBillRow(denomination: number, field: 'quantity' | 'total', value: string) {
-    setBillRows(prev =>
-      prev.map(r => {
+    setBillRows(prev => {
+      const next = prev.map(r => {
         if (r.denomination !== denomination) return r
         const updated = { ...r, [field]: value }
-        // Validar en tiempo real solo si hay valor ingresado
         if (field === 'total' && value !== '' && value !== '0') {
-        const parsed = parseNumericInput(value)
-        if (parsed !== null && parsed > 0 && parsed % denomination !== 0) {
-          updated.totalError = `Debe ser múltiplo de ${fmt(denomination)}`
+          const parsed = parseNumericInput(value)
+          if (parsed !== null && parsed > 0 && parsed % denomination !== 0) {
+            updated.totalError = `Debe ser múltiplo de ${fmt(denomination)}`
           } else {
             updated.totalError = null
           }
@@ -138,7 +149,11 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         }
         return updated
       })
-    )
+      amountFromCount.current = true
+      setLeftRaw(cashAmountToInput(billRowsCountedTotal(next, billMode)))
+      setLeftError(null)
+      return next
+    })
   }
 
   /** Validar modo monto: todos los totales ingresados deben ser múltiplos de su denominación. */
@@ -158,40 +173,50 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
   }
 
   const deliveredAmount = parseNumericInput(deliveredAmountRaw) ?? 0
+  const declaredLeft = parseNumericInput(leftRaw)
 
-  /** Efectivo que quedará en caja = esperado − monto entregado. */
+  /** Efectivo esperado en la registradora = esperado del turno − entrega. */
   const expectedRegister = summary ? Math.max(0, summary.cashInHand - deliveredAmount) : 0
 
-  /** Total contado en billetes para la caja registradora. */
-  const countedRegister = billRowsCountedTotal(billRows, billMode)
+  /** Diferencia: lo declarado que queda, contra el efectivo esperado menos la entrega. */
+  const diff = declaredLeft === null ? 0 : declaredLeft - expectedRegister
 
-  /** Diferencia: positiva = sobrante, negativa = faltante (respecto a expectedRegister). */
-  const diff = countedRegister - expectedRegister
+  function matchingBills(forceSkip: boolean): BillLine[] | undefined {
+    if (forceSkip || declaredLeft === null) return undefined
+    const lines = billRowsToLines(billRows, billMode)
+    if (lines.length === 0 || billLinesTotal(lines) !== declaredLeft) return undefined
+    return lines
+  }
+
+  function requireLeft(): boolean {
+    if (declaredLeft !== null) return true
+    setLeftError('Ingresá cuánto queda en la caja.')
+    return false
+  }
 
   async function handleConfirm() {
-    if (billMode === 'total' && !validateTotalMode()) {
+    if (!requireLeft()) return
+    const lines = matchingBills(skipBills)
+    if (lines && billMode === 'total' && !validateTotalMode()) {
       setSaveError('Hay montos que no son múltiplos de su denominación. Corregalos antes de cerrar.')
       return
     }
-    const lines = billRowsToLines(billRows, billMode)
-    if (isProdEnv && !skipBills && isEmptyBillCount(lines)) {
-      setShowEmptyConfirm(true)
-      return
-    }
+    setSaveError(null)
+    setSkipBills(false)
     setShowConfirm(true)
   }
 
   async function doCloseShift() {
+    if (declaredLeft === null) {
+      setLeftError('Ingresá cuánto queda en la caja.')
+      setShowConfirm(false)
+      return
+    }
     setSaveError(null)
     setSaving(true)
 
-    const lines = skipBills ? undefined : billRowsToLines(billRows, billMode)
-    const emptyConfirmed = !skipBills && isEmptyBillCount(lines ?? [])
-
-    const closingCash =
-      countedRegister > 0 || deliveredAmount > 0
-        ? countedRegister + deliveredAmount
-        : undefined
+    const lines = matchingBills(skipBills)
+    const closingCash = declaredLeft + deliveredAmount
 
     try {
       const r = await window.hw.closeShift({
@@ -200,7 +225,6 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
         deliveredTo: deliveredTo.trim() || undefined,
         notes: notes.trim() || undefined,
         billDenominations: lines,
-        confirmEmptyRegister: emptyConfirmed || undefined,
       })
 
       if (!r.ok) {
@@ -211,7 +235,7 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       setClosedSummary({
         deliveredAmount,
         deliveredTo: deliveredTo.trim(),
-        countedRegister,
+        countedRegister: declaredLeft,
         diff,
         notes: notes.trim(),
       })
@@ -276,9 +300,8 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
       <div className="flex flex-1 min-h-0 h-full bg-app" aria-hidden />
     ) : (
     <div className="flex flex-1 min-h-0 h-full flex-col bg-app text-ink overflow-hidden">
-      <div className="shrink-0 text-center space-y-1 px-6 pt-5 pb-3 border-b border-line bg-panel">
-        <h1 className="text-2xl font-bold">Cerrar caja</h1>
-        <p className="text-sm text-muted">Registrá el arqueo antes de finalizar el turno</p>
+      <div className="shrink-0 px-6 pt-5 pb-3 border-b border-line bg-panel">
+        <h1 className="text-2xl font-bold text-center">Cerrar caja</h1>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
@@ -398,73 +421,87 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
           )}
         </div>
 
-        {/* ── Monto a entregar / depositar ── */}
-        <div className="bg-panel rounded-xl border border-line p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-muted">
-            Entrega / depósito en caja fuerte
-          </h2>
-          <p className="text-xs text-muted">
-            Si un admin retiró efectivo, o si dejás plata en la caja fuerte, registralo acá.
-            Lo que queda en la registradora (vuelto del próximo turno) se cuenta abajo.
-          </p>
-
-          <Field label="Monto a entregar o depositar (opcional)">
-            <NumericInput
-              value={deliveredAmountRaw}
-              onChange={v => setDeliveredAmountRaw(v)}
-              placeholder="0"
-              className={FIELD}
-            />
-          </Field>
-
-          {deliveredAmount > 0 && (
-            <Field label="¿A quién se entregó / dónde se depositó? (opcional)">
-              <input
-                type="text"
-                value={deliveredTo}
-                onChange={e => setDeliveredTo(e.target.value)}
-                placeholder="Nombre, cargo o 'Caja fuerte'"
-                maxLength={80}
+        <div className="bg-panel rounded-xl border border-line p-5 space-y-5">
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold text-muted">Entrega / depósito en caja fuerte</h2>
+            <Field label="Monto a entregar o depositar (opcional)">
+              <NumericInput
+                value={deliveredAmountRaw}
+                onChange={v => setDeliveredAmountRaw(v)}
+                placeholder="0"
                 className={FIELD}
               />
             </Field>
-          )}
 
-          {summary && deliveredAmount > 0 && (
-            <div className="rounded-lg bg-raised px-4 py-2 text-sm">
-              <span className="text-muted">Efectivo a contar para caja: </span>
-              <span className="font-semibold text-success">{fmt(expectedRegister)}</span>
+            {deliveredAmount > 0 && (
+              <Field label="¿A quién se entregó / dónde se depositó? (opcional)">
+                <input
+                  type="text"
+                  value={deliveredTo}
+                  onChange={e => setDeliveredTo(e.target.value)}
+                  placeholder="Nombre, cargo o 'Caja fuerte'"
+                  maxLength={80}
+                  className={FIELD}
+                />
+              </Field>
+            )}
+          </div>
+
+          <div className="space-y-2 border-t border-line pt-4">
+            <label htmlFor="left-in-register" className="block text-sm font-medium text-ink">
+              Queda en la caja
+            </label>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-muted">
+                $
+              </span>
+              <NumericInput
+                id="left-in-register"
+                value={leftRaw}
+                onChange={handleLeftChange}
+                placeholder="0"
+                aria-invalid={leftError ? true : undefined}
+                className="w-full rounded-lg border border-line-strong bg-input py-3 pl-8 pr-4 text-lg font-semibold tabular-nums text-ink placeholder-subtle focus:border-line-accent focus:outline-none"
+              />
             </div>
-          )}
+            {leftError && <p className="text-sm text-danger">{leftError}</p>}
+            {summary && declaredLeft !== null && (
+              <div className="flex items-baseline justify-between gap-3 rounded-lg bg-raised px-4 py-2.5 text-sm">
+                <span className="text-muted">Esperado {fmt(expectedRegister)}</span>
+                <span className={`font-semibold tabular-nums ${
+                  diff === 0 ? 'text-success' : diff > 0 ? 'text-ink' : 'text-danger'
+                }`}>
+                  {diff === 0 ? 'Caja cuadrada' : diff > 0 ? `Sobrante ${fmt(diff)}` : `Faltante ${fmt(Math.abs(diff))}`}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ── Conteo de billetes (caja registradora) ── */}
-        <BillCountGrid
-          rows={billRows}
-          mode={billMode}
-          onModeChange={handleBillModeChange}
-          onUpdate={updateBillRow}
-          countedTotal={countedRegister}
-          expectedTotal={expectedRegister}
-          showExpectedDiff={Boolean(summary)}
-          title="Conteo de billetes"
-          subtitle={summary
-            ? `Billetes que quedan en la registradora. Efectivo a contabilizar: ${fmt(expectedRegister)}`
-            : 'Billetes que quedan en la registradora (no lo entregado / caja fuerte).'}
-        />
-        {!isProdEnv && (
-          <button
-            type="button"
-            onClick={() => {
-              setSkipBills(true)
-              setShowEmptyConfirm(false)
-              setShowConfirm(true)
-            }}
-            className="w-full text-xs text-muted underline hover:text-ink"
-          >
-            Omitir conteo (modo pruebas)
-          </button>
-        )}
+        <div className="space-y-2">
+          <BillCountGrid
+            rows={billRows}
+            mode={billMode}
+            onModeChange={handleBillModeChange}
+            onUpdate={updateBillRow}
+            countedTotal={billRowsCountedTotal(billRows, billMode)}
+            title="Conteo de billetes"
+          />
+          {!isProdEnv && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!requireLeft()) return
+                setSkipBills(true)
+                setSaveError(null)
+                setShowConfirm(true)
+              }}
+              className="w-full text-xs text-muted underline hover:text-ink"
+            >
+              Omitir conteo (modo pruebas)
+            </button>
+          )}
+        </div>
 
         {/* ── Notas ── */}
         <div className="bg-panel rounded-xl border border-line p-5">
@@ -513,33 +550,6 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
     )}
 
     <Modal
-      open={showEmptyConfirm}
-      onClose={() => setShowEmptyConfirm(false)}
-      title="¿Caja vacía?"
-      size="sm"
-      footer={
-        <>
-          <Button variant="secondary" onClick={() => setShowEmptyConfirm(false)}>
-            Volver
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              setShowEmptyConfirm(false)
-              setShowConfirm(true)
-            }}
-          >
-            Confirmar
-          </Button>
-        </>
-      }
-    >
-      <p className="text-sm text-muted">
-        ¿Confirmás que no queda ningún billete en caja?
-      </p>
-    </Modal>
-
-    <Modal
       open={showConfirm && summary != null}
       onClose={() => setShowConfirm(false)}
       title="¿Cerrar el turno ahora?"
@@ -576,10 +586,16 @@ export default function CloseShiftScreen({ onConfirmed, onCancel }: Props) {
                 <span className="text-ink">{fmt(deliveredAmount)}</span>
               </div>
             )}
-            {countedRegister > 0 && (
+            {declaredLeft !== null && (
+              <div className="flex justify-between">
+                <span className="text-muted">Queda en la caja</span>
+                <span className="text-ink tabular-nums">{fmt(declaredLeft)}</span>
+              </div>
+            )}
+            {declaredLeft !== null && (
               <div className={`flex justify-between border-t border-line pt-2 ${diff === 0 ? 'text-success' : diff > 0 ? 'text-ink' : 'text-danger'}`}>
                 <span>{diff === 0 ? 'Caja cuadrada' : diff > 0 ? 'Sobrante' : 'Faltante'}</span>
-                <span className="font-semibold">
+                <span className="font-semibold tabular-nums">
                   {diff === 0 ? '✓' : fmt(Math.abs(diff))}
                 </span>
               </div>

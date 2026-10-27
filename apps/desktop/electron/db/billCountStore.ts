@@ -21,6 +21,21 @@ export interface CashHandoverSnapshot {
   fromClosedAt: string
   bills: BillLine[]
   counted: boolean
+  /** Efectivo que quedó en la registradora (cierre − entrega). Null si ese cierre no declaró monto. */
+  cashLeft: number | null
+}
+
+/** Lo que quedó en la registradora. Null si no hay monto de cierre, o si la resta no es un entero ≥ 0. */
+export function cashLeftFromClose(
+  closingCash: number | null | undefined,
+  deliveredAmount: number | null | undefined,
+): number | null {
+  if (closingCash == null || !Number.isFinite(closingCash)) return null
+  const delivered = deliveredAmount ?? 0
+  if (!Number.isFinite(delivered)) return null
+  const left = closingCash - delivered
+  if (!Number.isFinite(left) || left < 0) return null
+  return left
 }
 
 export function readBillLines(db: AppDb, shiftId: string, kind: BillCountKind): BillLine[] {
@@ -99,5 +114,6 @@ export function readLastClosedHandover(db: AppDb, storeId: string): CashHandover
     fromClosedAt: shift.closedAt,
     bills,
     counted: Boolean(shift.closingCounted) || bills.length > 0,
+    cashLeft: cashLeftFromClose(shift.closingCash, shift.deliveredAmount),
   }
 }

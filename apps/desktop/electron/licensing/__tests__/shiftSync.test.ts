@@ -387,6 +387,8 @@ describe('shiftSync', () => {
         startedAt: '2026-09-11T08:00:00.000Z',
         closedAt,
         openingCash: 0,
+        closingCash: 5000,
+        deliveredAmount: 2000,
         source: 'desktop',
         closingCounted: true,
         syncedAt: closedAt,
@@ -406,6 +408,7 @@ describe('shiftSync', () => {
         fromCashierName: 'Cajera Test',
         bills: [{ denomination: 1000, quantity: 3 }],
         counted: true,
+        cashLeft: 3000,
       })
     })
 
@@ -428,6 +431,8 @@ describe('shiftSync', () => {
               userId: 'user-001',
               cashierName: 'Ana',
               closedAt: '2026-09-11T20:00:00.000Z',
+              closingCash: 4000,
+              deliveredAmount: 2000,
               closingBills: [{ denomination: 2000, quantity: 1 }],
               closingBillsCounted: true,
             }),
@@ -442,6 +447,7 @@ describe('shiftSync', () => {
         fromShiftId: 'shift-remote-closed',
         fromCashierName: 'Ana',
         bills: [{ denomination: 2000, quantity: 1 }],
+        cashLeft: 2000,
       })
     })
   })

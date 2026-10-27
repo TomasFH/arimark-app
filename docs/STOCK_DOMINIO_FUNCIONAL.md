@@ -84,11 +84,15 @@ Mover mercadería entre cámara y mostrador dentro de la misma condición operat
 | Evento | Quién registra | Por qué es obligatorio |
 |--------|---------------|------------------------|
 | Ingreso de mercadería | Admin / responsable de recepción | Es el punto de partida de cualquier estimación. Sin este evento el sistema no puede calcular disponibilidad. |
-| Venta confirmada | Caja (automático desde el POS) | Ya queda registrada por la venta; debe descontar del producto o corte correspondiente. |
+| Venta confirmada | Caja (automático desde el POS) | Ya queda registrada por la venta; debe descontar del producto o corte correspondiente. El kilo de un PLU a precio 0 es el de la línea, no un peso que venga en el código de barras. |
 | Conteo físico por condición | Admin / encargado | Es la observación real. Debe indicar cuánto hay disponible y cuánto congelado, no solo el total. |
 | Descarte o merma excepcional | Admin / encargado | Evita que una pérdida conocida parezca un error del perfil o una venta faltante. |
 | Devolución al proveedor | Admin / responsable de recepción | La mercadería que vuelve a salir no debe permanecer como disponibilidad estimada. |
 | Cambio de condición relevante | Encargado | Congelar o descongelar producto cambia la disponibilidad operativa aunque no altere el total. |
+
+### Venta confirmada con precio abierto
+
+Los PLU 998 (prueba) y 950 (confirmación) quedan a precio 0. Sirven para cortes de precio especial. El código de barras del ticket no trae el peso: trae el PLU y el importe. El kilo que se guarda en la línea es el importe del ticket dividido por el precio entero tipeado en esa venta. Ese precio no se escribe en el catálogo. Cuando exista el descuento de stock, ese kilo se descuenta del producto vinculado.
 
 ### Eventos que pueden estimarse
 
@@ -196,7 +200,7 @@ Hasta implementar Fase 8, el producto tiene un **libro de ingresos** (`PLAN.md` 
 
 ## Decisiones pendientes antes de implementar
 
-Las siguientes decisiones no están acordadas y bloquean partes específicas de la implementación. No avanzar en esos bloques hasta tenerlas resueltas.
+Los puntos 1 a 6 no están acordados y bloquean partes específicas de la implementación. No avanzar en esos bloques hasta tenerlos resueltos. El punto 7 ya está cerrado: falta implementarlo junto con el módulo, sin reabrir el criterio.
 
 1. ¿Cómo se modela el ingreso de pollo, cerdo, embutidos y congelados? (El perfil de media res vacuna no aplica directamente a ninguno de ellos.)
 2. ¿Qué ocurre con las devoluciones de clientes? (¿Vuelven al stock, van a descarte, o depende del producto?)
@@ -204,3 +208,4 @@ Las siguientes decisiones no están acordadas y bloquean partes específicas de 
 4. ¿El conteo físico semanal se ingresa en la app? (Si no entra en la app, no puede usarse como ancla de corrección.)
 5. ¿Las alertas de disponibilidad baja se muestran en la pantalla de caja, en el panel admin, o en ambos?
 6. ¿Qué umbral define que una discrepancia es suficientemente sistemática para sugerir una recalibración?
+7. El descuento de stock de los PLU 998 (prueba) y 950 (confirmación) ya tiene regla cerrada y solo espera este módulo: lista en 0, el código de barras no trae el peso, y el kilo a descontar del producto vinculado es el importe del ticket dividido por el precio tipeado en esa venta. No reabrir el criterio.

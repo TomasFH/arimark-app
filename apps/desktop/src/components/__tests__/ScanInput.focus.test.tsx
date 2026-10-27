@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ScanInput from '../ScanInput'
 import type { ProductRow, SaleItemDraft } from '../../types/hw-api'
@@ -138,6 +138,26 @@ describe('ScanInput — precio por kilo', () => {
     expect(onAddItem.mock.calls[0]?.[0].priceDiscrepancy).toBeUndefined()
   })
 
+  it('con lista en 0 el unitario es total ÷ peso y no queda en 0', async () => {
+    const user = userEvent.setup()
+    const onAddItem = vi.fn<(item: SaleItemDraft) => void>()
+    const abierto: ProductRow = { ...sinPrecio, id: 'p-0', pluNumber: 998, name: 'Prueba', price: 0 }
+    render(<ScanInput products={[abierto]} onAddItem={onAddItem} />)
+    await typeWeight(user, '998', '0,5', false)
+    const total = screen.getByLabelText(/Precio total/)
+    await user.click(total)
+    await user.type(total, '10000')
+    await user.click(screen.getByRole('button', { name: 'Agregar a la venta' }))
+    expect(onAddItem).toHaveBeenCalledWith(expect.objectContaining({
+      pluNumber: 998,
+      weightKg: 0.5,
+      unitPrice: 20000,
+      subtotal: 10000,
+      manualEntry: true,
+    }))
+    expect(onAddItem.mock.calls[0]?.[0].unitPrice).not.toBe(0)
+  })
+
   it('con el tilde el total es peso por el kilo editado, sin tope', async () => {
     const user = userEvent.setup()
     const onAddItem = vi.fn<(item: SaleItemDraft) => void>()
@@ -168,5 +188,84 @@ describe('ScanInput — precio por kilo', () => {
       manualEntry: true,
       priceDiscrepancy: true,
     }))
+  })
+})
+
+describe('ScanInput — producto por unidad sin precio de lista', () => {
+  const suelto: ProductRow = {
+    id: 'u-0',
+    pluNumber: 3,
+    name: 'Huevo suelto',
+    category: 'other',
+    unit: 'unit',
+    price: 0,
+  }
+
+  it('muestra el precio por unidad y la línea no queda en 0', async () => {
+    const user = userEvent.setup()
+    const onAddItem = vi.fn<(item: SaleItemDraft) => void>()
+    render(<ScanInput products={[suelto]} onAddItem={onAddItem} />)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const pluInput = screen.getByLabelText('PLU o nombre')
+    await user.type(pluInput, '3')
+    expect(screen.getByLabelText('Precio por unidad ($)')).toBeInTheDocument()
+    expect(screen.queryByText('Precio total')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Cantidad'), '2')
+    await user.type(screen.getByLabelText('Precio por unidad ($)'), '1500')
+    await user.click(screen.getByRole('button', { name: 'Agregar a la venta' }))
+    expect(onAddItem).toHaveBeenCalledWith(expect.objectContaining({
+      unit: 'unit',
+      weightKg: 2,
+      unitPrice: 1500,
+      subtotal: 3000,
+      manualEntry: true,
+    }))
+  })
+})
+
+describe('ScanInput — autoscroll del autocompletado', () => {
+  const cortes: ProductRow[] = Array.from({ length: 8 }, (_, index) => ({
+    id: `corte-${index}`,
+    pluNumber: index + 1,
+    name: `Corte ${index + 1}`,
+    category: 'beef_cut' as const,
+    unit: 'kg' as const,
+    price: 10000 + index,
+  }))
+
+  it('flechas y tab llevan la fila a la vista; el mouse no', async () => {
+    const user = userEvent.setup()
+    render(<ScanInput products={cortes} onAddItem={() => {}} />)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const calls: HTMLElement[] = []
+    const seen: Array<boolean | ScrollIntoViewOptions | undefined> = []
+    const previousScroll = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement, arg?: boolean | ScrollIntoViewOptions) {
+      calls.push(this)
+      seen.push(arg)
+    }
+    try {
+      const pluInput = screen.getByLabelText('PLU o nombre')
+      await user.type(pluInput, 'Corte')
+      const segunda = screen.getByRole('button', { name: /Corte 2/ })
+      fireEvent.mouseEnter(segunda)
+      expect(document.querySelector('[data-scan-marked="true"]')).toHaveTextContent('Corte 2')
+      expect(calls).toHaveLength(0)
+
+      await user.keyboard('{ArrowDown}')
+      const marked = document.querySelector<HTMLElement>('[data-scan-marked="true"]')
+      expect(marked).toHaveTextContent('Corte 3')
+      expect(calls.at(-1)).toBe(marked)
+      expect(seen.at(-1)).toEqual({ block: 'nearest' })
+
+      calls.length = 0
+      await user.keyboard('{Tab}')
+      const next = document.querySelector<HTMLElement>('[data-scan-marked="true"]')
+      expect(next).toHaveTextContent('Corte 4')
+      expect(calls.at(-1)).toBe(next)
+      expect(seen.at(-1)).toEqual({ block: 'nearest' })
+    } finally {
+      HTMLElement.prototype.scrollIntoView = previousScroll
+    }
   })
 })

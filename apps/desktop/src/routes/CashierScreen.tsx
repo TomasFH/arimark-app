@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import DevToolsPanel from '../components/DevToolsPanel'
 import ScanInput from '../components/ScanInput'
+import OpenPriceModal from '../components/OpenPriceModal'
 import PaymentModal, { paymentMethodFromFunctionKey, type PaymentMethod } from '../components/PaymentModal'
 import CatalogAssignField from '../components/CatalogAssignField'
 import BagsPanel from '../components/BagsPanel'
@@ -27,7 +28,7 @@ import { formatARS, formatKg } from '../lib/datetime'
 import { applyColorScheme, type ColorScheme } from '../lib/theme'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS, normalizeCashDiscountRule, parseCashDiscountSchedule, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock } from '@carniceria/shared'
-import { applySpecialUnitPrice, assignCatalogProduct, buildItemFromBarcode } from '../lib/barcodeItem'
+import { applySpecialUnitPrice, assignCatalogProduct, buildItemFromBarcode, resolveScannedItem, type OpenPriceRequest } from '../lib/barcodeItem'
 import { addBagToCart, collapseDuplicateBags, removeBagQuantity } from '../lib/bags'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import CatalogQuickSearch from '../components/CatalogQuickSearch'
@@ -537,6 +538,7 @@ export default function CashierScreen({
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
   const [cashInHand, setCashInHand] = useState<number | null>(null)
   const [scanFlash, setScanFlash] = useState<string | null>(null)
+  const [openPriceScan, setOpenPriceScan] = useState<OpenPriceRequest | null>(null)
 
   /** Pedido activo inyectado en el POS (para marcar entregado al confirmar la venta) */
   const [activeOrder, setActiveOrder] = useState<{
@@ -729,6 +731,7 @@ export default function CashierScreen({
   const anyModalOpen = showPaymentModal || showProductsModal || showOrderForm
     || showCashInjectModal || showCeboModal || showCashDiscountModal
     || railPanelOpen
+    || openPriceScan != null
   const saleOverlayOpen = anyModalOpen
     || showSalaryModal || showStockCountModal || showSettleDebtModal
     || showExpenseListModal || showDebtModal || showChangePassword
@@ -738,17 +741,40 @@ export default function CashierScreen({
     if (!isActive) setShowOrderForm(false)
   }, [isActive])
 
+  const flashScannedName = useCallback((name: string) => {
+    if (scanFlashTimerRef.current) clearTimeout(scanFlashTimerRef.current)
+    setScanFlash(name)
+    scanFlashTimerRef.current = setTimeout(() => setScanFlash(null), 2000)
+  }, [])
+
   const handleGlobalScan = useCallback((digits: string) => {
     const parsed = parseKretzBarcode(digits)
     if (!parsed) return
     const plu = parseInt(parsed.pluNumber, 10)
     const product = products.find(p => p.pluNumber === plu)
-    const item = buildItemFromBarcode(plu, centsToARS(parsed.totalCents), product)
+    const totalARS = centsToARS(parsed.totalCents)
+    const special = product?.id ? specialPriceByProductId[product.id] : undefined
+    const resolved = resolveScannedItem(plu, totalARS, product, special)
+    if (resolved.status === 'needsPrice') {
+      setOpenPriceScan(resolved.request)
+      return
+    }
+    addItem(resolved.item)
+    flashScannedName(resolved.item.productName)
+  }, [products, addItem, specialPriceByProductId, flashScannedName])
+
+  function confirmOpenPrice(unitPrice: number): void {
+    if (!openPriceScan) return
+    const item = buildItemFromBarcode(
+      openPriceScan.product.pluNumber,
+      openPriceScan.totalARS,
+      openPriceScan.product,
+      unitPrice,
+    )
+    setOpenPriceScan(null)
     addItem(item)
-    if (scanFlashTimerRef.current) clearTimeout(scanFlashTimerRef.current)
-    setScanFlash(item.productName)
-    scanFlashTimerRef.current = setTimeout(() => setScanFlash(null), 2000)
-  }, [products, addItem])
+    flashScannedName(item.productName)
+  }
 
   useBarcodeScanner({ onScan: handleGlobalScan, disabled: anyModalOpen || !isActive })
 
@@ -1719,6 +1745,15 @@ export default function CashierScreen({
 
       {showChangePassword && (
         <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
+
+      {openPriceScan && (
+        <OpenPriceModal
+          product={openPriceScan.product}
+          ticketTotal={openPriceScan.totalARS}
+          onClose={() => setOpenPriceScan(null)}
+          onConfirm={confirmOpenPrice}
+        />
       )}
 
       <Modal

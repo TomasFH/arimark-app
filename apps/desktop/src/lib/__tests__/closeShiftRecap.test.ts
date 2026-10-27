@@ -52,6 +52,10 @@ describe('buildCloseShiftRecapLines', () => {
     expect(withDiff.find(l => l.label === 'Cobrado digital')?.value).toBe(formatRecapMoney(2000))
     expect(withDiff.find(l => l.label === 'Débito')?.indent).toBe(true)
     expect(withDiff.find(l => l.label === 'Faltante')?.tone).toBe('bad')
+
+    const zeroLeft = buildCloseShiftRecapLines(base({ countedRegister: 0, diff: -15000 }))
+    expect(zeroLeft.find(l => l.label === 'Queda en la caja')?.value).toBe(formatRecapMoney(0))
+    expect(zeroLeft.find(l => l.label === 'Faltante')?.value).toBe(formatRecapMoney(15000))
   })
 
   it('muestra caja cuadrada y entrega', () => {

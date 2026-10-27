@@ -30,6 +30,7 @@ SECTION_ORDER = [
     "Ofertas pieza",
     "Congelados",
     "Almacén",
+    "Bolsas",
 ]
 
 MAX_PAGES = 2

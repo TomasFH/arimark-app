@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import OpenShiftScreen from '../OpenShiftScreen'
+import type { CashHandoverSnapshot } from '../../types/hw-api'
 
 const OWN_SHIFT = {
   id: 'shift-001',
@@ -72,5 +74,75 @@ describe('OpenShiftScreen — retomar turno propio', () => {
     expect(turnoCard).toHaveClass('bg-raised', 'border-line', 'h-full')
     expect(conteo.closest('div.rounded-xl')).toHaveClass('h-full')
     expect(efectivo.compareDocumentPosition(abrir) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('precarga el efectivo con lo que quedó y la grilla si hay billetes', async () => {
+    const handover: CashHandoverSnapshot = {
+      fromShiftId: 'prev',
+      fromUserId: 'user-9',
+      fromCashierName: 'Ana',
+      fromClosedAt: '2026-09-11T16:00:00.000Z',
+      bills: [{ denomination: 1000, quantity: 3 }],
+      counted: true,
+      cashLeft: 12500,
+    }
+    vi.mocked(window.hw.getActiveShift).mockResolvedValue({ ok: true, data: null })
+    vi.mocked(window.hw.getStoreOpenShift).mockResolvedValue({ ok: true, data: null })
+    vi.mocked(window.hw.getCashHandover).mockResolvedValue({ ok: true, data: handover })
+
+    render(
+      <OpenShiftScreen
+        onShiftOpened={vi.fn()}
+        storeId="store-1"
+        userId="user-1"
+      />,
+    )
+
+    expect(await screen.findByLabelText('Efectivo inicial en caja')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Efectivo inicial en caja')).toHaveValue('12.500')
+    })
+    expect(screen.getByText('Precargado con lo que dejó Ana. Corregí si no coincide — no se pisa el cierre anterior.')).toBeInTheDocument()
+    expect(screen.getByText('Dejó Ana al cerrar')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('3')).toBeInTheDocument()
+  })
+
+  it('no pisa el efectivo si ya se tipeó antes de que llegue el handover', async () => {
+    let resolveHandover: (value: { ok: true; data: CashHandoverSnapshot }) => void = () => {}
+    const pending = new Promise<{ ok: true; data: CashHandoverSnapshot }>(resolve => {
+      resolveHandover = resolve
+    })
+    vi.mocked(window.hw.getActiveShift).mockResolvedValue({ ok: true, data: null })
+    vi.mocked(window.hw.getStoreOpenShift).mockResolvedValue({ ok: true, data: null })
+    vi.mocked(window.hw.getCashHandover).mockReturnValue(pending)
+
+    const user = userEvent.setup()
+    render(
+      <OpenShiftScreen
+        onShiftOpened={vi.fn()}
+        storeId="store-1"
+        userId="user-1"
+      />,
+    )
+
+    const cash = await screen.findByLabelText('Efectivo inicial en caja')
+    await user.type(cash, '9')
+
+    resolveHandover({
+      ok: true,
+      data: {
+        fromShiftId: 'prev',
+        fromUserId: 'user-9',
+        fromCashierName: 'Ana',
+        fromClosedAt: '2026-09-11T16:00:00.000Z',
+        bills: [{ denomination: 1000, quantity: 3 }],
+        counted: true,
+        cashLeft: 50000,
+      },
+    })
+
+    await screen.findByText('Dejó Ana al cerrar')
+    expect(cash).toHaveValue('9')
+    expect(screen.getByDisplayValue('3')).toBeInTheDocument()
   })
 })

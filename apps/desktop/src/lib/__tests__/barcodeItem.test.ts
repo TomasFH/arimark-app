@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildItemFromBarcode, applySpecialUnitPrice, assignCatalogProduct, valeLineFromBarcode } from '../barcodeItem'
+import { buildItemFromBarcode, applySpecialUnitPrice, assignCatalogProduct, resolveScannedItem, valeLineFromBarcode, valeLineFromTypedPrice } from '../barcodeItem'
 import type { ProductRow } from '../../types/hw-api'
 
 const kgProduct: ProductRow = {
@@ -130,6 +130,69 @@ describe('assignCatalogProduct', () => {
   })
 })
 
+const abierto: ProductRow = {
+  id: 'prod-abierto',
+  pluNumber: 998,
+  name: 'Prueba',
+  category: 'beef_cut',
+  unit: 'kg',
+  price: 0,
+}
+
+const unidadAbierta: ProductRow = {
+  ...unitProduct,
+  id: 'prod-u0',
+  pluNumber: 950,
+  name: 'Confirmación',
+  price: 0,
+}
+
+describe('resolveScannedItem — precio abierto', () => {
+  it('no arma la línea si la lista está en 0 y no hay precio de cliente', () => {
+    const resolved = resolveScannedItem(998, 10000, abierto)
+    expect(resolved.status).toBe('needsPrice')
+    if (resolved.status !== 'needsPrice') return
+    expect(resolved.request.totalARS).toBe(10000)
+    expect(resolved.request.product.id).toBe(abierto.id)
+  })
+
+  it('divide por el precio de cliente cuando la lista está en 0', () => {
+    const resolved = resolveScannedItem(998, 10000, abierto, 20000)
+    expect(resolved.status).toBe('ready')
+    if (resolved.status !== 'ready') return
+    expect(resolved.item.weightKg).toBeCloseTo(0.5, 5)
+    expect(resolved.item.unitPrice).toBe(20000)
+    expect(resolved.item.subtotal).toBe(10000)
+    expect(resolved.item.productId).toBe(abierto.id)
+  })
+
+  it('con lista mayor a 0 sigue dividiendo por la lista', () => {
+    const resolved = resolveScannedItem(5, 17535, kgProduct, 18000)
+    expect(resolved.status).toBe('ready')
+    if (resolved.status !== 'ready') return
+    expect(resolved.item.unitPrice).toBe(21000)
+    expect(resolved.item.weightKg).toBeCloseTo(17535 / 21000, 5)
+    expect(resolved.item.subtotal).toBe(17535)
+  })
+
+  it('el precio tipeado usa el mismo redondeo por unidad que la lista', () => {
+    const fromList = buildItemFromBarcode(1, 7000, unitProduct)
+    const typed = buildItemFromBarcode(950, 7000, unidadAbierta, unitProduct.price ?? 0)
+    expect(typed.weightKg).toBe(fromList.weightKg)
+    expect(typed.priceDiscrepancy).toBe(fromList.priceDiscrepancy)
+    expect(typed.unitPrice).toBe(unitProduct.price)
+    expect(typed.subtotal).toBe(7000)
+  })
+
+  it('el kilo tipeado conserva el importe del ticket', () => {
+    const item = buildItemFromBarcode(998, 10000, abierto, 18000)
+    expect(item.weightKg).toBeCloseTo(10000 / 18000, 5)
+    expect(item.unitPrice).toBe(18000)
+    expect(item.subtotal).toBe(10000)
+    expect(item.priceDiscrepancy).toBeUndefined()
+  })
+})
+
 describe('valeLineFromBarcode', () => {
   it('agrega el producto del ticket a la lista del vale', () => {
     const line = valeLineFromBarcode('2000517535000', [kgProduct])
@@ -144,4 +207,44 @@ describe('valeLineFromBarcode', () => {
     const line = valeLineFromBarcode('2009910000009', [kgProduct])
     expect(line).toEqual({ ok: false, error: 'PLU 99 no está en el catálogo.' })
   })
+
+  it('pide precio si el PLU está en 0', () => {
+    const line = valeLineFromBarcode(kretzBarcode(998, 10000), [abierto])
+    expect(line.ok).toBe(false)
+    if (line.ok || !('needsPrice' in line)) return
+    expect(line.needsPrice.product.pluNumber).toBe(998)
+    expect(line.needsPrice.totalARS).toBe(10000)
+  })
 })
+
+describe('valeLineFromTypedPrice', () => {
+  it('guarda el kilo como importe ÷ precio y el subtotal del ticket', () => {
+    const line = valeLineFromTypedPrice(abierto, 10000, 20000)
+    expect(line.ok).toBe(true)
+    if (!line.ok) return
+    expect(line.priceText).toBe('20.000')
+    expect(line.quantityText).toContain('0,5')
+    expect(line.subtotal).toBe(10000)
+  })
+
+  it('redondea unidades igual que un precio de lista', () => {
+    const fromList = valeLineFromBarcode(kretzBarcode(1, 7000), [unitProduct])
+    const typed = valeLineFromTypedPrice(unidadAbierta, 7000, 6000)
+    expect(fromList.ok).toBe(true)
+    expect(typed.ok).toBe(true)
+    if (!fromList.ok || !typed.ok) return
+    expect(typed.quantityText).toBe(fromList.quantityText)
+    expect(typed.subtotal).toBe(7000)
+  })
+})
+
+function kretzBarcode(plu: number, pesos: number): string {
+  const body = `20${String(plu).padStart(3, '0')}${String(pesos * 100).padStart(7, '0')}`
+  let sum = 0
+  for (let i = 0; i < 12; i++) {
+    const digit = Number(body[i])
+    sum += i % 2 === 0 ? digit : digit * 3
+  }
+  const check = (10 - (sum % 10)) % 10
+  return body + String(check)
+}

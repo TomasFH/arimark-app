@@ -1265,3 +1265,22 @@ Hoy un turno abierto bloquea al siguiente en ese local. `FORCE_CLOSE_OPEN_SHIFT`
 
 No compartir claves. No impedir que alguien cierre sesión con la caja abierta (el aviso al salir ya está); esto cubre cuando igual se fue.
 
+---
+
+### Cierre remoto sin pisar las ventas (anotado 2026-10-23, no implementar todavía)
+
+Distinto de la caja colgada. Ahí alguien que está en el local cierra el turno anterior contando la plata. Acá el admin cierra desde **otra PC**, que no tiene las ventas de ese turno.
+
+**Qué pasó el 22/10/2026.** El turno tarde quedó abierto. En el Historial (Firestore) estaban las ventas y los gastos. En el POS de la PC del admin el mismo turno existía en SQLite, pero vacío: `reconcileStoreShifts` había bajado la ficha del turno, no cada venta. Cerrar desde esa pantalla habría usado esa copia vacía. El cierre se hizo a mano sobre el documento del turno en Firestore (solo `closedAt`, entrega, efectivo contado y nota) y se agregó ahí una venta que faltaba. La PC del local no se tocó.
+
+**Regla.** La PC que no originó los movimientos no puede publicar un turno vacío que reemplace al que sí los tiene. Ventas, gastos, señas y fiados quedan como están. El cierre solo escribe los campos de cierre.
+
+**Cuando se codee:**
+
+1. Desde el Historial, cerrar un turno abierto aunque esta PC no tenga sus ventas en SQLite. El formulario es el de siempre: entrega, qué queda en la registradora, nota.
+2. Se publica el cierre del turno. No se reescribe ni se borra la colección de ventas ni la de gastos.
+3. Si en esta PC hay una ficha local vacía de ese turno, queda cerrada y sincronizada. El próximo arranque no debe volver a subirla como abierta ni con totales en cero.
+4. La PC del local, al abrir la app, adopta ese cierre y **conserva** sus ventas. No ofrece cerrar de nuevo un turno que ya se cerró afuera.
+
+Hoy `pushUnsyncedShifts` sube la ficha local entera con `merge`. Eso no borra las ventas (van en otro documento), pero un turno local vacío y todavía abierto puede pisar `closedAt` o el arqueo que se cargó en la nube. El flujo de arriba tiene que cerrar esa puerta.
+

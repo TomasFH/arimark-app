@@ -18,7 +18,8 @@ import {
   weekStartMondayLocalYmd,
 } from '../lib/datetime'
 import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
-import { valeLineFromBarcode } from '../lib/barcodeItem'
+import { valeLineFromBarcode, valeLineFromTypedPrice, type OpenPriceRequest } from '../lib/barcodeItem'
+import OpenPriceModal from '../components/OpenPriceModal'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import type { EmployeeRow, EmployeeValeRow, ProductRow, ValeItem, WeeklyValeSummary } from '../types/hw-api'
@@ -31,6 +32,8 @@ interface DraftItem {
   product: ProductRow
   quantityText: string
   priceText: string
+  /** Importe del ticket. La cantidad × precio puede no cerrar por el redondeo. */
+  subtotalOverride?: number
 }
 
 interface Props {
@@ -47,7 +50,9 @@ function draftItemToValeItem(d: DraftItem): ValeItem | null {
     : parseNumericInput(d.quantityText)
   const price = parseNumericInput(d.priceText)
   if (quantity === null || quantity <= 0 || price === null || price <= 0) return null
-  const subtotal = Math.round(quantity * price)
+  const subtotal = d.subtotalOverride != null && d.subtotalOverride > 0
+    ? d.subtotalOverride
+    : Math.round(quantity * price)
   return {
     productId: d.product.id,
     productName: d.product.name,
@@ -88,6 +93,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
   const [quantityText, setQuantityText] = useState('')
   const [priceText, setPriceText] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
+  const [openPrice, setOpenPrice] = useState<OpenPriceRequest | null>(null)
   const productInputRef = useRef<HTMLInputElement>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const nextDraftId = useRef(0)
@@ -204,18 +210,19 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
     pluOf: p => p.pluNumber,
   })
 
-  const handleValeScan = useCallback((digits: string) => {
-    const line = valeLineFromBarcode(digits, products)
-    if (!line.ok) {
-      setAddError(line.error)
-      return
-    }
+  const appendBarcodeLine = useCallback((line: {
+    product: ProductRow
+    quantityText: string
+    priceText: string
+    subtotal: number
+  }) => {
     const id = String(nextDraftId.current++)
     setDraftItems(prev => [...prev, {
       id,
       product: line.product,
       quantityText: line.quantityText,
       priceText: line.priceText,
+      subtotalOverride: line.subtotal,
     }])
     setAddError(null)
     setProductQuery('')
@@ -223,11 +230,36 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
     setQuantityText('')
     setPriceText('')
     setShowProductSuggestions(false)
-  }, [products])
+  }, [])
+
+  const handleValeScan = useCallback((digits: string) => {
+    const line = valeLineFromBarcode(digits, products)
+    if (!line.ok) {
+      if ('needsPrice' in line) {
+        setOpenPrice(line.needsPrice)
+        setAddError(null)
+        return
+      }
+      setAddError(line.error)
+      return
+    }
+    appendBarcodeLine(line)
+  }, [products, appendBarcodeLine])
+
+  function confirmValePrice(unitPrice: number): void {
+    if (!openPrice) return
+    const line = valeLineFromTypedPrice(openPrice.product, openPrice.totalARS, unitPrice)
+    if (!line.ok) {
+      setAddError('error' in line ? line.error : 'No se pudo armar la línea.')
+      return
+    }
+    setOpenPrice(null)
+    appendBarcodeLine(line)
+  }
 
   useBarcodeScanner({
     onScan: handleValeScan,
-    disabled: mode !== 'products' || saving,
+    disabled: mode !== 'products' || saving || openPrice != null,
   })
 
   function handleAddItem() {
@@ -270,6 +302,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
     setSelectedProductId('')
     setPriceText('')
     setShowProductSuggestions(false)
+    setOpenPrice(null)
   }
 
   async function handleCancelVale(id: string) {
@@ -337,6 +370,7 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
   }
 
   return (
+    <>
     <Modal
       open
       onClose={onClose}
@@ -732,5 +766,14 @@ export default function ValesModal({ onClose, onSaved, storeId, viewerRole, view
           </div>
         </div>
     </Modal>
+    {openPrice && (
+      <OpenPriceModal
+        product={openPrice.product}
+        ticketTotal={openPrice.totalARS}
+        onClose={() => setOpenPrice(null)}
+        onConfirm={confirmValePrice}
+      />
+    )}
+    </>
   )
 }

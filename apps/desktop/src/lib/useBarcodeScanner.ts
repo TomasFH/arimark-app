@@ -20,9 +20,12 @@
  *  3. Dígitos siguientes en modo intercepción → preventDefault (no van al campo).
  *  4. 13 dígitos → auto-flush sin esperar Enter.
  *  5. Enter → flush con lo acumulado (mínimo MIN_SCAN_LENGTH dígitos).
- *     Si el flush vino del auto-flush (13 dígitos), el Enter residual del lector
- *     también se bloquea para no disparar el formulario enfocado.
- *  6. Gap > MAX_GAP_MS o carácter no-dígito → descarta buffer.
+ *     Ese Enter se traga en fase capture (keydown y el keyup que sigue) para
+ *     que no active un botón enfocado. Un Enter tipeado a mano, sin escaneo,
+ *     sigue llegando al botón.
+ *  6. Si el flush vino del auto-flush (13 dígitos), el Enter residual del lector
+ *     también se traga en capture, igual que el del punto 5.
+ *  7. Gap > MAX_GAP_MS o carácter no-dígito → descarta buffer.
  */
 
 import { useCallback, useEffect, useRef } from 'react'
@@ -49,6 +52,9 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
   const interceptingRef = useRef(false)
   // Bloquea el Enter residual que el lector envía tras el auto-flush de 13 dígitos
   const pendingEnterBlockRef = useRef(false)
+  // El click de un <button> puede salir en keydown o en keyup. Si tragamos el
+  // keydown del Enter de un escaneo, el keyup que le sigue también se traga.
+  const blockEnterKeyupRef = useRef(false)
 
   const clearBuffer = useCallback(() => {
     bufferRef.current = ''
@@ -93,7 +99,21 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
   useEffect(() => {
     if (disabled) {
       clearBuffer()
+      blockEnterKeyupRef.current = false
       return
+    }
+
+    function blockScanEnter(e: KeyboardEvent): void {
+      e.preventDefault()
+      e.stopPropagation()
+      blockEnterKeyupRef.current = true
+    }
+
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key !== 'Enter' || !blockEnterKeyupRef.current) return
+      blockEnterKeyupRef.current = false
+      e.preventDefault()
+      e.stopPropagation()
     }
 
     function onKeyDown(e: KeyboardEvent) {
@@ -116,13 +136,15 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
       if (e.key === 'Enter') {
         const digits = bufferRef.current
         if (digits.length >= MIN_SCAN_LENGTH) {
-          e.preventDefault()
+          blockScanEnter(e)
           flush(digits)
         } else if (pendingEnterBlockRef.current) {
-          // Enter residual del lector tras un auto-flush de 13 dígitos en campo enfocado
-          e.preventDefault()
+          // Enter residual del lector tras un auto-flush de 13 dígitos
+          blockScanEnter(e)
           pendingEnterBlockRef.current = false
         } else {
+          // Enter tipeado a mano: no tragar el keyup que lo acompaña.
+          blockEnterKeyupRef.current = false
           clearBuffer()
         }
         return
@@ -162,8 +184,8 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
       bufferRef.current += e.key
 
       // Auto-submit al alcanzar la longitud exacta del EAN-13.
-      // El lector manda un Enter después: hay que tragárselo aunque el foco
-      // esté en un botón (si no, reabre Vales, Gastos o Turno).
+      // El lector manda un Enter después: hay que tragárselo en capture
+      // (keydown y keyup) aunque el foco esté en un botón.
       if (bufferRef.current.length === 13) {
         pendingEnterBlockRef.current = true
         flush(bufferRef.current)
@@ -175,10 +197,13 @@ export function useBarcodeScanner({ onScan, disabled = false }: Options): void {
       timeoutRef.current = setTimeout(clearBuffer, MAX_GAP_MS * 4)
     }
 
-    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('keydown', onKeyDown, { capture: true })
+    document.addEventListener('keyup', onKeyUp, { capture: true })
     return () => {
-      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('keydown', onKeyDown, { capture: true })
+      document.removeEventListener('keyup', onKeyUp, { capture: true })
       clearBuffer()
+      blockEnterKeyupRef.current = false
     }
   }, [disabled, flush, clearBuffer])
 }

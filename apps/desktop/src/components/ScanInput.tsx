@@ -8,6 +8,8 @@
  *     arranca en el de lista, sin tope. El total de la línea es peso × ese precio.
  *   - Productos por unidad: cantidad entera. Precio = qty × catálogo, salvo
  *     precio especial (precio por unidad editable, arranca en el de lista).
+ *   - Sin precio de lista usable: por unidad se pide el precio por unidad;
+ *     por kg el unitario de la línea es total ÷ peso. Nunca queda en 0.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -72,9 +74,10 @@ function buildItemFromManual(
   unitPriceOverride?: number,
 ): SaleItemDraft {
   const unit = product?.unit ?? 'kg'
+  const catalog = product?.price != null && product.price > 0 ? product.price : null
   const unitPrice = unitPriceOverride != null && unitPriceOverride > 0
     ? unitPriceOverride
-    : (product?.price ?? (weightKg > 0 ? subtotal / weightKg : subtotal))
+    : (catalog ?? (weightKg > 0 ? subtotal / weightKg : subtotal))
   return {
     pluNumber,
     productId: product?.id ?? null,
@@ -134,6 +137,9 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   const pluInputRef = useRef<HTMLInputElement>(null)
   const weightInputRef = useRef<HTMLInputElement>(null)
   const priceInputRef = useRef<HTMLInputElement>(null)
+  const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([])
+  /** Índice a llevar a la vista. Solo lo setean flechas y Tab. */
+  const pendingScroll = useRef<number | null>(null)
   const hideSuggestionsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -171,14 +177,19 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
   const catalogPrice = matchedProduct?.price ?? null
   const customerSpecial = matchedProduct?.id ? specialPriceByProductId[matchedProduct.id] : undefined
-  const refPrice = customerSpecial ?? catalogPrice
+  const usablePrice = customerSpecial != null && customerSpecial > 0
+    ? customerSpecial
+    : catalogPrice != null && catalogPrice > 0
+      ? catalogPrice
+      : null
   const isUnit = matchedProduct?.unit === 'unit'
+  const needsTypedUnitPrice = isUnit && usablePrice == null
 
   // Precio calculado automáticamente para productos por unidad (sin precio especial)
   const autoPrice = (() => {
-    if (!isUnit || specialPrice || refPrice === null) return null
+    if (!isUnit || specialPrice || usablePrice == null) return null
     const qty = parseNumericInput(weightRaw)
-    return qty !== null && qty > 0 ? qty * refPrice : null
+    return qty !== null && qty > 0 ? qty * usablePrice : null
   })()
 
   // ── Reset helpers ──────────────────────────────────────────────────────
@@ -208,7 +219,18 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
   function moveHighlight(step: number) {
     if (suggestions.length === 0) return
     setShowSuggestions(true)
-    setHighlight(current => (current + step + suggestions.length) % suggestions.length)
+    setHighlight(current => {
+      const next = (current + step + suggestions.length) % suggestions.length
+      pendingScroll.current = next
+      return next
+    })
+  }
+
+  function suggestionRef(index: number, node: HTMLButtonElement | null) {
+    suggestionRefs.current[index] = node
+    if (!node || pendingScroll.current !== index) return
+    pendingScroll.current = null
+    node.scrollIntoView?.({ block: 'nearest' })
   }
 
   function handlePluKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -252,18 +274,18 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     // El foco se queda en Peso, también con precio especial y coma decimal.
     // Con precio especial el kilo no se recalcula: el total sale de peso × ese kilo.
     if (specialPrice) return
-    if (refPrice && refPrice > 0) {
-      setPriceRaw(kgTotalRaw(v, refPrice))
+    if (usablePrice) {
+      setPriceRaw(kgTotalRaw(v, usablePrice))
     }
   }
 
   function handleKgPriceChange(v: string) {
     setPriceRaw(v)
     setManualError('')
-    if (refPrice && refPrice > 0) {
+    if (usablePrice) {
       const p = parseDecimalInput(v)
       if (p !== null && p > 0) {
-        setWeightRaw(toEsAR(p / refPrice, 3))
+        setWeightRaw(toEsAR(p / usablePrice, 3))
       }
     }
   }
@@ -285,12 +307,12 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     setSpecialPrice(checked)
     if (!checked) {
       if (!isUnit) {
-        setPriceRaw(refPrice && refPrice > 0 ? kgTotalRaw(weightRaw, refPrice) : '')
+        setPriceRaw(usablePrice ? kgTotalRaw(weightRaw, usablePrice) : '')
       }
       return
     }
-    if (refPrice && refPrice > 0) {
-      const rounded = String(Math.round(refPrice))
+    if (usablePrice) {
+      const rounded = String(Math.round(usablePrice))
       setPriceRaw(isUnit ? formatDecimalInputValue(rounded) : formatNumericInputValue(rounded))
       return
     }
@@ -317,9 +339,19 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
         return
       }
       let subtotal: number | null
-      if (specialPrice) {
+      let unitPriceOverride: number | undefined
+      if (needsTypedUnitPrice) {
+        const pricePerUnit = parseNumericInput(priceRaw)
+        if (pricePerUnit == null || pricePerUnit <= 0) {
+          setManualError('Precio por unidad inválido.')
+          return
+        }
+        unitPriceOverride = pricePerUnit
+        subtotal = pricePerUnit * qty
+      } else if (specialPrice) {
         const pricePerUnit = parseDecimalInput(priceRaw)
-        subtotal = pricePerUnit !== null ? pricePerUnit * qty : null
+        subtotal = pricePerUnit !== null && pricePerUnit > 0 ? pricePerUnit * qty : null
+        if (pricePerUnit != null && pricePerUnit > 0) unitPriceOverride = pricePerUnit
       } else {
         subtotal = autoPrice
       }
@@ -327,7 +359,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
         setManualError('Precio por unidad inválido.')
         return
       }
-      const item = buildItemFromManual(plu, qty, subtotal, matchedProduct, specialPrice)
+      const item = buildItemFromManual(plu, qty, subtotal, matchedProduct, specialPrice, unitPriceOverride)
       onAddItem(item)
       resetManual()
       setTimeout(() => pluInputRef.current?.focus(), 50)
@@ -377,8 +409,12 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
     if (isUnit) {
       const qty = parseNumericInput(weightRaw)
       if (!qty || qty <= 0) return false
+      if (needsTypedUnitPrice) {
+        const price = parseNumericInput(priceRaw)
+        return price != null && price > 0
+      }
       if (specialPrice) return !!priceRaw.trim()
-      return autoPrice !== null
+      return autoPrice !== null && autoPrice > 0
     }
     if (specialPrice) return kgSpecialLine(weightRaw, priceRaw) !== null
     return !!weightRaw.trim() && !!priceRaw.trim()
@@ -413,16 +449,18 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                   <li key={p.id}>
                     <button
                       type="button"
+                      ref={node => suggestionRef(index, node)}
+                      data-scan-marked={index === highlight ? 'true' : undefined}
                       onMouseDown={() => pickSuggestion(p)}
                       onMouseEnter={() => setHighlight(index)}
-                      className={`w-full px-2 py-1.5 text-left transition-colors ${
+                      className={`flex w-full min-w-0 items-center gap-1 px-2 py-1.5 text-left transition-colors ${
                         index === highlight ? 'bg-accent-soft' : 'hover:bg-hover'
                       }`}
                     >
-                      <span className="text-[10px] font-bold text-muted mr-1">{p.pluNumber}</span>
-                      <span className="text-[10px] text-ink truncate">{p.name}</span>
+                      <span className="shrink-0 text-[10px] font-bold text-muted">{p.pluNumber}</span>
+                      <span className="min-w-0 flex-1 truncate text-[10px] text-ink" title={p.name}>{p.name}</span>
                       {p.price != null && (
-                        <span className="text-[10px] text-muted ml-1">
+                        <span className="shrink-0 text-[10px] text-muted">
                           {formatARS(p.price)}/{p.unit === 'unit' ? 'u.' : 'kg'}
                         </span>
                       )}
@@ -435,11 +473,14 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
 
           {/* Info del producto */}
           {pluNum !== null && matchedProduct && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="text-[10px] text-ink truncate">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p
+                className="min-w-0 flex-1 truncate text-[10px] text-ink"
+                title={`${matchedProduct.name} · ${CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}${usablePrice ? ` · ${formatARS(usablePrice)}/${isUnit ? 'u.' : 'kg'}` : ''}`}
+              >
                 {matchedProduct.name} · {CATEGORY_LABELS[matchedProduct.category] ?? matchedProduct.category}
-                {refPrice && (
-                  <span className="text-muted"> · {formatARS(refPrice)}/{isUnit ? 'u.' : 'kg'}</span>
+                {usablePrice && (
+                  <span className="text-muted"> · {formatARS(usablePrice)}/{isUnit ? 'u.' : 'kg'}</span>
                 )}
               </p>
               <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold ${
@@ -457,8 +498,9 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
           {isUnit ? (
             <div className="space-y-2">
               <div>
-                <label className="block text-[9px] text-muted mb-0.5">Cantidad</label>
+                <label htmlFor="manual-unit-qty" className="block text-[9px] text-muted mb-0.5">Cantidad</label>
                 <NumericInput
+                  id="manual-unit-qty"
                   value={weightRaw}
                   onChange={handleUnitQuantityChange}
                   placeholder=""
@@ -467,8 +509,32 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                 />
               </div>
 
+              {needsTypedUnitPrice && (
+                <div>
+                  <label htmlFor="manual-unit-price" className="block text-[9px] text-muted mb-0.5">
+                    Precio por unidad ($)
+                  </label>
+                  <NumericInput
+                    id="manual-unit-price"
+                    ref={priceInputRef}
+                    value={priceRaw}
+                    onChange={v => {
+                      setPriceRaw(v)
+                      setManualError('')
+                    }}
+                    placeholder=""
+                    className="w-full rounded-md border border-line bg-app px-2 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
+                  />
+                  {parseNumericInput(weightRaw) != null && parseNumericInput(priceRaw) != null && (
+                    <p className="mt-0.5 text-[9px] text-muted">
+                      Total: {formatARS((parseNumericInput(priceRaw) ?? 0) * (parseNumericInput(weightRaw) ?? 0))}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Precio calculado (solo lectura, sin precio especial) */}
-              {!specialPrice && autoPrice !== null && (
+              {!needsTypedUnitPrice && !specialPrice && autoPrice !== null && (
                 <div className="rounded-md bg-raised px-2 py-1.5 flex justify-between items-center">
                   <span className="text-[10px] text-muted">Precio total</span>
                   <span className="text-xs font-semibold text-ink">{formatARS(autoPrice)}</span>
@@ -476,12 +542,12 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
               )}
 
               {/* Campo de precio por unidad con precio especial */}
-              {specialPrice && (
+              {specialPrice && !needsTypedUnitPrice && (
                 <div>
                   <label className="block text-[9px] text-muted mb-0.5">
                     Precio por unidad ($)
-                    {refPrice && (
-                      <span className="ml-1 text-muted">· Lista: {formatARS(refPrice)}/u.</span>
+                    {usablePrice && (
+                      <span className="ml-1 text-muted">· Lista: {formatARS(usablePrice)}/u.</span>
                     )}
                   </label>
                   <DecimalInput
@@ -521,10 +587,10 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                 </div>
                 {specialPrice ? (
                   <div className="min-w-0 flex-1">
-                    <label htmlFor="manual-kg-kilo" className="block min-w-0 truncate text-[9px] text-muted mb-0.5" title={refPrice ? `Precio por kilo ($). Lista: ${formatARS(refPrice)}/kg` : 'Precio por kilo ($)'}>
+                    <label htmlFor="manual-kg-kilo" className="block min-w-0 truncate text-[9px] text-muted mb-0.5" title={usablePrice ? `Precio por kilo ($). Lista: ${formatARS(usablePrice)}/kg` : 'Precio por kilo ($)'}>
                       Precio por kilo ($)
-                      {refPrice ? (
-                        <span className="ml-1">· Lista: {formatARS(refPrice)}/kg</span>
+                      {usablePrice ? (
+                        <span className="ml-1">· Lista: {formatARS(usablePrice)}/kg</span>
                       ) : null}
                     </label>
                     <NumericInput
@@ -538,10 +604,10 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                   </div>
                 ) : (
                   <div className="min-w-0 flex-1">
-                    <label htmlFor="manual-kg-price" className="block min-w-0 truncate text-[9px] text-muted mb-0.5" title={refPrice ? `Precio total ($). ${formatARS(refPrice)}/kg` : 'Precio total ($)'}>
+                    <label htmlFor="manual-kg-price" className="block min-w-0 truncate text-[9px] text-muted mb-0.5" title={usablePrice ? `Precio total ($). ${formatARS(usablePrice)}/kg` : 'Precio total ($)'}>
                       Precio total ($)
-                      {refPrice ? (
-                        <span className="ml-1">· {formatARS(refPrice)}/kg</span>
+                      {usablePrice ? (
+                        <span className="ml-1">· {formatARS(usablePrice)}/kg</span>
                       ) : null}
                     </label>
                     <DecimalInput
@@ -571,7 +637,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
                   </div>
                 )
               })()}
-              {matchedProduct && !refPrice && (
+              {matchedProduct && !usablePrice && (
                 <p className="text-[10px] text-muted leading-snug">
                   {specialPrice
                     ? 'Sin precio de lista — ingresá el precio por kilo.'
@@ -606,7 +672,7 @@ export default function ScanInput({ onAddItem, products, specialPriceByProductId
             const w = parseDecimalInput(weightRaw)
             const p = parseDecimalInput(priceRaw)
             if (!w || !p) return null
-            const implied = refPrice ? w * refPrice : null
+            const implied = usablePrice ? w * usablePrice : null
             const match = implied !== null && Math.abs(implied - p) < 1
             return (
               <p className={`text-[10px] ${match ? 'text-success' : 'text-ink'}`}>

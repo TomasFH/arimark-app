@@ -126,15 +126,13 @@ export function buildCloseShiftRecapLines(input: CloseRecapInput): CloseRecapLin
       value: formatRecapMoney(input.deliveredAmount),
     })
   }
-  if (input.countedRegister > 0) {
-    lines.push({ label: 'Contado en caja', value: formatRecapMoney(input.countedRegister) })
-    if (input.diff === 0) {
-      lines.push({ label: 'Caja', value: 'Cuadrada', tone: 'ok' })
-    } else if (input.diff > 0) {
-      lines.push({ label: 'Sobrante', value: formatRecapMoney(input.diff), tone: 'info' })
-    } else {
-      lines.push({ label: 'Faltante', value: formatRecapMoney(Math.abs(input.diff)), tone: 'bad' })
-    }
+  lines.push({ label: 'Queda en la caja', value: formatRecapMoney(input.countedRegister) })
+  if (input.diff === 0) {
+    lines.push({ label: 'Caja', value: 'Cuadrada', tone: 'ok' })
+  } else if (input.diff > 0) {
+    lines.push({ label: 'Sobrante', value: formatRecapMoney(input.diff), tone: 'info' })
+  } else {
+    lines.push({ label: 'Faltante', value: formatRecapMoney(Math.abs(input.diff)), tone: 'bad' })
   }
   if (input.notes) {
     lines.push({ label: 'Notas', value: input.notes })

@@ -1,6 +1,6 @@
 {
   "pricesValidFrom": "2026-08-03T12:00:00.000Z",
-  "note": "Lista de PLU del local. Precios de ago 2026 donde están. PLU 500–518 y 550–555 se agregaron en el local en oct 2026 (capturas de la app): sin precio acá porque las capturas no lo traían; no inventar uno. PLU 999 Otros no tiene precio de lista a propósito.",
+  "note": "Lista de PLU alineada al catálogo de ambos locales el 2026-10-21. Precios: los que ya estaban en este archivo, o el de Camarones cuando el PLU no tenía precio acá. PLU 34 Mocho y 35 Media res no tienen precio de lista. PLU 999 Otros ya no está en el catálogo.",
   "products": [
     {
       "plu": 1,
@@ -251,6 +251,30 @@
       "section": "Vacuno"
     },
     {
+      "plu": 33,
+      "name": "Entraña",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": 29000,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 34,
+      "name": "Mocho",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": null,
+      "section": "Vacuno"
+    },
+    {
+      "plu": 35,
+      "name": "Media res",
+      "category": "beef_cut",
+      "unit": "kg",
+      "price": null,
+      "section": "Vacuno"
+    },
+    {
       "plu": 100,
       "name": "Pollo",
       "category": "poultry",
@@ -372,7 +396,7 @@
     },
     {
       "plu": 157,
-      "name": "Patas",
+      "name": "Patas cerdo",
       "category": "pork",
       "unit": "kg",
       "price": 1960,
@@ -414,7 +438,7 @@
       "plu": 203,
       "name": "Chorizo colorado",
       "category": "other",
-      "unit": "kg",
+      "unit": "unit",
       "price": 19000,
       "section": "Embutidos"
     },
@@ -449,6 +473,70 @@
       "unit": "kg",
       "price": 30000,
       "section": "Embutidos"
+    },
+    {
+      "plu": 208,
+      "name": "Morcilla Vasca",
+      "category": "other",
+      "unit": "kg",
+      "price": 8500,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 209,
+      "name": "Chorizo bombón",
+      "category": "other",
+      "unit": "kg",
+      "price": 9900,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 210,
+      "name": "Morcilla bombón",
+      "category": "other",
+      "unit": "kg",
+      "price": 9000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 519,
+      "name": "Salame",
+      "category": "other",
+      "unit": "unit",
+      "price": 5000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 520,
+      "name": "Longaniza",
+      "category": "other",
+      "unit": "unit",
+      "price": 10000,
+      "section": "Embutidos"
+    },
+    {
+      "plu": 211,
+      "name": "Sesos",
+      "category": "other",
+      "unit": "unit",
+      "price": 4000,
+      "section": "Otros"
+    },
+    {
+      "plu": 212,
+      "name": "Corazón",
+      "category": "other",
+      "unit": "kg",
+      "price": 6000,
+      "section": "Otros"
+    },
+    {
+      "plu": 213,
+      "name": "Cuerito",
+      "category": "other",
+      "unit": "unit",
+      "price": 4000,
+      "section": "Otros"
     },
     {
       "plu": 250,
@@ -532,10 +620,26 @@
     },
     {
       "plu": 260,
-      "name": "Maple x30",
+      "name": "Maple",
       "category": "other",
       "unit": "unit",
       "price": 5500,
+      "section": "Otros"
+    },
+    {
+      "plu": 261,
+      "name": "Maple x2",
+      "category": "other",
+      "unit": "unit",
+      "price": 11000,
+      "section": "Otros"
+    },
+    {
+      "plu": 558,
+      "name": "Grasa",
+      "category": "other",
+      "unit": "kg",
+      "price": 1000,
       "section": "Otros"
     },
     {
@@ -739,6 +843,22 @@
       "section": "Ofertas pack"
     },
     {
+      "plu": 342,
+      "name": "Bondiola x2kg",
+      "category": "pork",
+      "unit": "kg",
+      "price": 9250,
+      "section": "Ofertas pack"
+    },
+    {
+      "plu": 343,
+      "name": "Milanesas x3kg",
+      "category": "other",
+      "unit": "kg",
+      "price": 8000,
+      "section": "Ofertas pack"
+    },
+    {
       "plu": 401,
       "name": "Vacío pieza entera",
       "category": "beef_cut",
@@ -804,7 +924,7 @@
     },
     {
       "plu": 409,
-      "name": "2 tapas de nalga",
+      "name": "Tapa de Nalga 2U",
       "category": "beef_cut",
       "unit": "kg",
       "price": 18500,
@@ -829,17 +949,17 @@
     {
       "plu": 500,
       "name": "Patitas de pollo",
-      "category": "poultry",
+      "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 7500,
       "section": "Congelados"
     },
     {
       "plu": 501,
       "name": "Medallón de pollo",
-      "category": "poultry",
+      "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 7500,
       "section": "Congelados"
     },
     {
@@ -847,15 +967,15 @@
       "name": "Medallón Jamón y Queso",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 15500,
       "section": "Congelados"
     },
     {
       "plu": 503,
-      "name": "Papa noisette",
+      "name": "Papa noisset",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 11500,
       "section": "Congelados"
     },
     {
@@ -863,7 +983,7 @@
       "name": "Papa carita",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 11500,
       "section": "Congelados"
     },
     {
@@ -871,7 +991,7 @@
       "name": "Papa tradicional",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 6500,
       "section": "Congelados"
     },
     {
@@ -879,7 +999,7 @@
       "name": "Bastón espinaca",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 5200,
       "section": "Congelados"
     },
     {
@@ -887,7 +1007,7 @@
       "name": "Nugget Brocoli",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 10500,
       "section": "Congelados"
     },
     {
@@ -895,7 +1015,7 @@
       "name": "Nugget crocante",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 10000,
       "section": "Congelados"
     },
     {
@@ -903,7 +1023,7 @@
       "name": "Medallón de merluza",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 5800,
       "section": "Congelados"
     },
     {
@@ -911,7 +1031,7 @@
       "name": "Calabaza",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 8000,
       "section": "Congelados"
     },
     {
@@ -919,7 +1039,7 @@
       "name": "Pochoclo",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 10000,
       "section": "Congelados"
     },
     {
@@ -927,7 +1047,7 @@
       "name": "Filet rebozado",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 13500,
       "section": "Congelados"
     },
     {
@@ -935,7 +1055,7 @@
       "name": "Merluza marinada",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 5200,
       "section": "Congelados"
     },
     {
@@ -943,15 +1063,15 @@
       "name": "Bastón mozzarella",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 13000,
       "section": "Congelados"
     },
     {
       "plu": 515,
       "name": "Chicken finger",
-      "category": "poultry",
+      "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 11500,
       "section": "Congelados"
     },
     {
@@ -959,7 +1079,7 @@
       "name": "Bastón de merluza",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 5800,
       "section": "Congelados"
     },
     {
@@ -967,7 +1087,7 @@
       "name": "Brocoli",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 7000,
       "section": "Congelados"
     },
     {
@@ -975,15 +1095,23 @@
       "name": "Crispy",
       "category": "other",
       "unit": "kg",
-      "price": null,
+      "price": 13000,
       "section": "Congelados"
+    },
+    {
+      "plu": 521,
+      "name": "Queso Pategras",
+      "category": "other",
+      "unit": "unit",
+      "price": 11000,
+      "section": "Almacén"
     },
     {
       "plu": 550,
       "name": "Provoleta",
       "category": "other",
       "unit": "unit",
-      "price": null,
+      "price": 4500,
       "section": "Almacén"
     },
     {
@@ -991,7 +1119,7 @@
       "name": "Carbón chico",
       "category": "other",
       "unit": "unit",
-      "price": null,
+      "price": 7000,
       "section": "Almacén"
     },
     {
@@ -999,7 +1127,7 @@
       "name": "Carbón grande",
       "category": "other",
       "unit": "unit",
-      "price": null,
+      "price": 8000,
       "section": "Almacén"
     },
     {
@@ -1007,7 +1135,7 @@
       "name": "Maderitas",
       "category": "other",
       "unit": "unit",
-      "price": null,
+      "price": 4000,
       "section": "Almacén"
     },
     {
@@ -1015,7 +1143,7 @@
       "name": "Leña",
       "category": "other",
       "unit": "unit",
-      "price": null,
+      "price": 8500,
       "section": "Almacén"
     },
     {
@@ -1023,16 +1151,48 @@
       "name": "Aceite",
       "category": "other",
       "unit": "unit",
-      "price": null,
+      "price": 10000,
       "section": "Almacén"
     },
     {
-      "plu": 999,
-      "name": "Otros",
+      "plu": 556,
+      "name": "Carbón especial",
       "category": "other",
-      "unit": "kg",
-      "price": null,
-      "section": "Otros"
+      "unit": "unit",
+      "price": 11000,
+      "section": "Almacén"
+    },
+    {
+      "plu": 557,
+      "name": "Pan rallado",
+      "category": "other",
+      "unit": "unit",
+      "price": 1400,
+      "section": "Almacén"
+    },
+    {
+      "plu": 900,
+      "name": "Bolsa ecológica",
+      "category": "bags",
+      "unit": "unit",
+      "price": 200,
+      "section": "Bolsas"
+    },
+    {
+      "plu": 901,
+      "name": "Bolsa blanca",
+      "category": "bags",
+      "unit": "unit",
+      "price": 300,
+      "section": "Bolsas"
+    },
+    {
+      "plu": 902,
+      "name": "Bolsa negra",
+      "category": "bags",
+      "unit": "unit",
+      "price": 500,
+      "section": "Bolsas"
     }
   ]
 }

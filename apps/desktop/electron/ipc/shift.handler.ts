@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { eq, and, isNull, desc, count, sum, sql } from 'drizzle-orm'
-import { compactBillLines, isEmptyBillCount, parseBillLines } from '@carniceria/shared'
+import { billLinesTotal, compactBillLines, isEmptyBillCount, parseBillLines } from '@carniceria/shared'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { shifts, sales, salePayments, expenses, debtEvents, orders, users } from '../db/schema'
@@ -32,6 +32,7 @@ const openShiftSchema = z.object({
 })
 
 const closeShiftSchema = z.object({
+  /** Total del cierre (lo que queda + entrega). 0 es un monto declarado. */
   closingCash: z.number().min(0).optional(),
   safeAmount: z.number().min(0).optional(),
   deliveredAmount: z.number().min(0).optional(),
@@ -513,13 +514,26 @@ export function registerShiftHandlers(): void {
         || Boolean(deliveredTo)
         || Boolean(notes)
 
-      if (isArqueoClose) {
+      const hasDeclaredCash = closingCash !== undefined
+      const declaredLeft = hasDeclaredCash ? closingCash - (deliveredAmount ?? 0) : null
+
+      // Con monto declarado (incluido 0) el desglose no es obligatorio.
+      // Sin monto, el cierre de arqueo en producción sigue pidiendo conteo.
+      // La apertura no pasa por acá: sigue exigiendo su conteo.
+      if (isArqueoClose && !hasDeclaredCash) {
         const countError = rejectMissingBillCount(denoms, confirmEmptyRegister)
         if (countError) return countError
       }
 
       const closingBills = parseBillLines(denoms ?? [])
-      const closingCounted = denoms !== undefined || confirmEmptyRegister === true
+      const billsMatchDeclared = hasDeclaredCash
+        && denoms !== undefined
+        && closingBills.length > 0
+        && declaredLeft !== null
+        && billLinesTotal(closingBills) === declaredLeft
+      const closingCounted = hasDeclaredCash
+        ? billsMatchDeclared
+        : denoms !== undefined || confirmEmptyRegister === true
 
       db.transaction(tx => {
         const t = tx as unknown as ReturnType<typeof getDb>

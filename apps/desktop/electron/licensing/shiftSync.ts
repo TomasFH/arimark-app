@@ -29,6 +29,7 @@ import {
 import { getDb } from '../db/client'
 import { shifts, users, stores } from '../db/schema'
 import {
+  cashLeftFromClose,
   insertBillLinesIfNone,
   readBillLines,
   readLastClosedHandover,
@@ -330,6 +331,7 @@ function handoverFromRemoteDoc(id: string, data: RemoteShiftDoc): CashHandoverSn
     fromClosedAt: data.closedAt,
     bills: compactBillLines(bills),
     counted: data.closingBillsCounted === true || bills.length > 0,
+    cashLeft: cashLeftFromClose(data.closingCash, data.deliveredAmount),
   }
 }
 

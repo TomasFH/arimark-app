@@ -127,6 +127,8 @@ export interface CashHandoverSnapshot {
   fromClosedAt: string
   bills: BillLine[]
   counted: boolean
+  /** Efectivo que quedó en la registradora (cierre − entrega). Null si ese cierre no declaró monto. */
+  cashLeft: number | null
 }
 
 export interface OpenShiftPayload {
@@ -204,9 +206,12 @@ export interface CloseShiftPayload {
   deliveredAmount?: number
   deliveredTo?: string
   notes?: string
-  /** Conteo de billetes al cerrar (denominación → cantidad). Array vacío = contó cero. */
+  /**
+   * Desglose de lo que queda en la registradora.
+   * En producción el cierre puede omitirlo: se guarda solo si el total coincide con cierre − entrega.
+   */
   billDenominations?: BillLine[]
-  /** Obligatorio en producción si todas las cantidades son 0. */
+  /** Cierre legado sin monto declarado: en producción, obligatorio si el desglose está vacío. */
   confirmEmptyRegister?: boolean
 }
 

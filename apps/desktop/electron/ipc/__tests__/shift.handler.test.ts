@@ -967,21 +967,73 @@ describe('shift.handler', () => {
       vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
       const handover = await getHandler('ipc:get-cash-handover')({}) as {
         ok: boolean
-        data: { fromShiftId: string; bills: Array<{ quantity: number }> } | null
+        data: { fromShiftId: string; bills: Array<{ quantity: number }>; cashLeft: number | null } | null
       }
       expect(handover.ok).toBe(true)
       expect(handover.data?.fromShiftId).toBe('shift-001')
       expect(handover.data?.bills).toEqual([{ denomination: 1000, quantity: 5 }])
+      expect(handover.data?.cashLeft).toBe(5000)
     })
 
-    it('en producción rechaza cierre de arqueo sin conteo', async () => {
+    it('en producción cierra con monto y sin billetes, también si el monto es 0', async () => {
       process.env['APP_ENV'] = 'production'
+      const db = await seedShiftDb()
       vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
-      vi.mocked(getDb).mockReturnValue({
-        transaction: vi.fn(),
-      } as unknown as ReturnType<typeof getDb>)
-      const result = getHandler('ipc:close-shift')({}, { closingCash: 1200 }) as { ok: boolean; code?: string }
-      expect(result).toMatchObject({ ok: false, code: 'BILLS_REQUIRED' })
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const zero = getHandler('ipc:close-shift')({}, { closingCash: 0 }) as { ok: boolean; code?: string }
+      expect(zero.ok).toBe(true)
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(row?.closingCash).toBe(0)
+      expect(row?.closingCounted).toBe(false)
+      expect(db.select().from(billDenominations).all()).toHaveLength(0)
+    })
+
+    it('guarda billetes solo si el desglose coincide con lo que queda', async () => {
+      process.env['APP_ENV'] = 'production'
+      const db = await seedShiftDb()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const matched = getHandler('ipc:close-shift')({}, {
+        closingCash: 5000,
+        deliveredAmount: 2000,
+        billDenominations: [{ denomination: 1000, quantity: 3 }],
+      }) as { ok: boolean }
+      expect(matched.ok).toBe(true)
+      const saved = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(saved?.closingCash).toBe(5000)
+      expect(saved?.deliveredAmount).toBe(2000)
+      expect(saved?.closingCounted).toBe(true)
+      expect(db.select().from(billDenominations).all()).toEqual([
+        expect.objectContaining({ denomination: 1000, quantity: 3, kind: 'closing' }),
+      ])
+
+      mockLoadCashHandoverForStore.mockRejectedValueOnce(new Error('offline'))
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const handover = await getHandler('ipc:get-cash-handover')({}) as {
+        ok: boolean
+        data: { cashLeft: number; bills: Array<{ quantity: number }> } | null
+      }
+      expect(handover.data?.cashLeft).toBe(3000)
+      expect(handover.data?.bills).toEqual([{ denomination: 1000, quantity: 3 }])
+    })
+
+    it('no guarda billetes si el desglose no coincide con el monto', async () => {
+      process.env['APP_ENV'] = 'production'
+      const db = await seedShiftDb()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+
+      const result = getHandler('ipc:close-shift')({}, {
+        closingCash: 5000,
+        billDenominations: [{ denomination: 1000, quantity: 2 }],
+      }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(row?.closingCash).toBe(5000)
+      expect(row?.closingCounted).toBe(false)
+      expect(db.select().from(billDenominations).all()).toHaveLength(0)
     })
 
     it('en producción rechaza apertura sin conteo', async () => {

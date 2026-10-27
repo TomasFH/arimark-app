@@ -9,6 +9,7 @@ import {
   billRowsCountedTotal,
   billRowsFromLines,
   billRowsToLines,
+  cashAmountToInput,
   emptyBillRows,
   type BillMode,
   type BillRowState,
@@ -45,6 +46,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
   const [forceClosing, setForceClosing] = useState(false)
   const [checking, setChecking] = useState(true)
   const submittingRef = useRef(false)
+  const openingCashTouched = useRef(false)
 
   const [billMode, setBillMode] = useState<BillMode>(loadBillMode)
   const [billRows, setBillRows] = useState<BillRowState[]>(emptyBillRows)
@@ -78,13 +80,16 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
       setChecking(true)
       const resumed = await checkExistingShift()
       if (!resumed) {
+        setChecking(false)
         const handoverRes = await window.hw.getCashHandover()
         if (handoverRes.ok && handoverRes.data) {
-          setHandover(handoverRes.data)
-          const rows = billRowsFromLines(handoverRes.data.bills)
-          setBillRows(rows)
+          const snapshot = handoverRes.data
+          setHandover(snapshot)
+          setBillRows(billRowsFromLines(snapshot.bills))
+          if (!openingCashTouched.current && snapshot.cashLeft != null) {
+            setOpeningCash(cashAmountToInput(snapshot.cashLeft))
+          }
         }
-        setChecking(false)
       }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -273,7 +278,7 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-ink">
+              <label htmlFor="opening-cash" className="block text-sm font-medium text-ink">
                 Efectivo inicial en caja
               </label>
               <div className="relative">
@@ -281,16 +286,17 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
                   $
                 </span>
                 <NumericInput
+                  id="opening-cash"
                   value={openingCash}
-                  onChange={setOpeningCash}
+                  onChange={value => {
+                    openingCashTouched.current = true
+                    setOpeningCash(value)
+                  }}
                   placeholder="0"
                   className="w-full rounded-lg border border-line bg-input py-3 pl-8 pr-4 text-ink placeholder-subtle focus:border-line-accent focus:outline-none"
                   required
                 />
               </div>
-              <p className="text-[11px] text-muted">
-                Lo que arranca el turno: vuelto que te dejaron, lo que te entregaron, o lo que sacaste de la caja fuerte. No es el conteo de la registradora de arriba.
-              </p>
             </div>
 
             {error && (

@@ -147,6 +147,19 @@ const FRAME: Record<ModalFrame, string> = {
 const BODY =
   'min-h-0 min-w-0 flex-auto overflow-y-auto overscroll-contain px-5 py-4 text-ink'
 
+/**
+ * Al cerrar, un input o textarea recupera el foco.
+ * Un botón no: si queda enfocado, el Enter del lector lo vuelve a activar.
+ */
+function restoreFocusOnClose(previous: Element | null): void {
+  if (!(previous instanceof HTMLElement)) return
+  if (previous instanceof HTMLButtonElement) {
+    if (document.activeElement === previous) previous.blur()
+    return
+  }
+  previous.focus()
+}
+
 export function Modal({
   open,
   onClose,
@@ -173,7 +186,7 @@ export function Modal({
     const previous = document.activeElement
     panelRef.current?.focus()
     return () => {
-      if (previous instanceof HTMLElement) previous.focus()
+      restoreFocusOnClose(previous)
     }
   }, [open])
 

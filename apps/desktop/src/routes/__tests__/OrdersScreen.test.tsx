@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within, act } from '@testing-library/react'
+import { render, screen, within, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrdersScreen from '../OrdersScreen'
 import { resetOrderCreateDraft } from '../../lib/orderCreateDraft'
@@ -391,3 +391,195 @@ function menuButton(card: HTMLElement): HTMLElement {
   if (!(button instanceof HTMLElement)) throw new Error('No está el menú del pedido')
   return button
 }
+
+const DEPOSIT_CUSTOMER = 'Restaurante La Esquina del Barrio Norte'
+
+function depositOrder(overrides: Partial<OrderRow> = {}): OrderRow {
+  return order({
+    id: 'dep-1',
+    pickupDate: '2026-09-04',
+    status: 'pending',
+    customerName: DEPOSIT_CUSTOMER,
+    depositAmount: 18500,
+    depositPayments: [
+      { method: 'debit', amount: 5000 },
+      { method: 'credit', amount: 13500 },
+    ],
+    ...overrides,
+  })
+}
+
+describe('OrdersScreen — cancelar pedido con seña', () => {
+  beforeEach(() => {
+    resetOrderCreateDraft()
+    resetOrderChargeDrafts()
+    window.hw = {
+      listOrders: vi.fn().mockResolvedValue({ ok: true, data: [depositOrder()] }),
+      deleteOrder: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+      registerExpense: vi.fn().mockResolvedValue({ ok: true, data: { id: 'exp-1' } }),
+      getProducts: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      getPieceWeights: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      getStores: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      onOrderSyncUpdated: vi.fn(() => () => {}),
+    } as unknown as typeof window.hw
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function openCancel(user: ReturnType<typeof userEvent.setup>, shiftId: string | null) {
+    render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId={shiftId} />)
+    expect(await screen.findByText(DEPOSIT_CUSTOMER)).toBeInTheDocument()
+    await user.click(screen.getByText(DEPOSIT_CUSTOMER))
+    const card = document.getElementById('order-dep-1')
+    if (!card) throw new Error('No está la tarjeta del pedido')
+    await user.click(menuButton(card))
+    await user.click(await screen.findByRole('menuitem', { name: 'Cancelar pedido' }))
+    return screen.findByRole('dialog', { name: '¿Cancelar pedido?' })
+  }
+
+  async function cancelAndOpenRefund(user: ReturnType<typeof userEvent.setup>) {
+    const dialog = await openCancel(user, 'shift-1')
+    await user.click(within(dialog).getByRole('button', { name: 'Sí, cancelar pedido' }))
+    return screen.findByRole('dialog', { name: '¿Devolver la seña?' })
+  }
+
+  it('el primer modal solo cancela y después pregunta si devolver el total de la seña', async () => {
+    const user = userEvent.setup()
+    const dialog = await openCancel(user, 'shift-1')
+
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/Registrar devolución/)).not.toBeInTheDocument()
+    expect(within(dialog).getByTitle(DEPOSIT_CUSTOMER)).toHaveClass('truncate')
+    expect(within(dialog).getByText(/18\.500/)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Sí, cancelar pedido' }).className).toMatch(/bg-danger/)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Sí, cancelar pedido' }))
+
+    const refund = await screen.findByRole('dialog', { name: '¿Devolver la seña?' })
+    expect(screen.queryByRole('dialog', { name: '¿Cancelar pedido?' })).not.toBeInTheDocument()
+    expect(window.hw.registerExpense).not.toHaveBeenCalled()
+    expect(within(refund).getByTitle(DEPOSIT_CUSTOMER)).toHaveClass('truncate')
+
+    const refundButton = within(refund).getByRole('button', { name: 'Devolver la seña' })
+    expect(refundButton).toHaveAttribute('type', 'button')
+    expect(refundButton.className).not.toMatch(/bg-accent|bg-danger/)
+    expect(refundButton).not.toHaveFocus()
+
+    await user.click(refundButton)
+
+    await waitFor(() => {
+      expect(window.hw.registerExpense).toHaveBeenCalledWith({
+        concept: 'Devolución de seña',
+        amount: 18500,
+        notes: `Seña devuelta al cliente: ${DEPOSIT_CUSTOMER}`,
+      })
+    })
+    expect(window.hw.deleteOrder).toHaveBeenCalledWith({ id: 'dep-1' })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '¿Devolver la seña?' })).not.toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('tab', { name: 'Entregados y cancelados' }))
+    expect(await screen.findByText(DEPOSIT_CUSTOMER)).toBeInTheDocument()
+  })
+
+  it('Enter no devuelve la seña si el botón no está enfocado', async () => {
+    const user = userEvent.setup()
+    const refund = await cancelAndOpenRefund(user)
+    const refundButton = within(refund).getByRole('button', { name: 'Devolver la seña' })
+    expect(refundButton).not.toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    expect(window.hw.registerExpense).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: '¿Devolver la seña?' })).toBeInTheDocument()
+  })
+
+  it.each(['Escape', 'Cerrar', 'No devolver'] as const)('%s cierra sin registrar el gasto', async (action) => {
+    const user = userEvent.setup()
+    const refund = await cancelAndOpenRefund(user)
+
+    if (action === 'Escape') await user.keyboard('{Escape}')
+    else await user.click(within(refund).getByRole('button', { name: action }))
+
+    expect(window.hw.registerExpense).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: '¿Devolver la seña?' })).not.toBeInTheDocument()
+    expect(window.hw.deleteOrder).toHaveBeenCalledWith({ id: 'dep-1' })
+  })
+
+  it('sin seña no abre el segundo modal', async () => {
+    vi.mocked(window.hw.listOrders).mockResolvedValue({
+      ok: true,
+      data: [depositOrder({ depositAmount: 0, depositPayments: null })],
+    })
+    const user = userEvent.setup()
+    const dialog = await openCancel(user, 'shift-1')
+    expect(within(dialog).queryByText(/seña/i)).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Sí, cancelar pedido' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(window.hw.deleteOrder).toHaveBeenCalledWith({ id: 'dep-1' })
+    expect(window.hw.registerExpense).not.toHaveBeenCalled()
+  })
+
+  it('sin turno avisa que hay que anotar la seña a mano y no abre el segundo modal', async () => {
+    const user = userEvent.setup()
+    const dialog = await openCancel(user, null)
+    expect(within(dialog).getByText(/No hay turno activo/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Devolución de seña/)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Sí, cancelar pedido' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '¿Cancelar pedido?' })).not.toBeInTheDocument()
+    })
+    expect(window.hw.registerExpense).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: '¿Devolver la seña?' })).not.toBeInTheDocument()
+  })
+
+  it('si cancelar falla no pregunta por la seña', async () => {
+    vi.mocked(window.hw.deleteOrder).mockResolvedValue({ ok: false, error: 'No se pudo cancelar' })
+    const user = userEvent.setup()
+    const dialog = await openCancel(user, 'shift-1')
+    await user.click(within(dialog).getByRole('button', { name: 'Sí, cancelar pedido' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(window.hw.registerExpense).not.toHaveBeenCalled()
+    expect(screen.getByText(DEPOSIT_CUSTOMER)).toBeInTheDocument()
+  })
+
+  it('si el gasto falla muestra el error y el pedido queda cancelado', async () => {
+    vi.mocked(window.hw.registerExpense).mockResolvedValue({ ok: false, error: 'La caja no tiene ese efectivo.' })
+    const user = userEvent.setup()
+    const refund = await cancelAndOpenRefund(user)
+    await user.click(within(refund).getByRole('button', { name: 'Devolver la seña' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('La caja no tiene ese efectivo.')
+    expect(alert).toHaveTextContent('El pedido quedó cancelado.')
+    expect(screen.getByRole('dialog', { name: '¿Devolver la seña?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'No devolver' }))
+    await user.click(screen.getByRole('tab', { name: 'Entregados y cancelados' }))
+    expect(await screen.findByText(DEPOSIT_CUSTOMER)).toBeInTheDocument()
+  })
+
+  it('si el gasto lanza una excepción muestra el mensaje y el pedido sigue cancelado', async () => {
+    vi.mocked(window.hw.registerExpense).mockRejectedValue(new Error('Sin conexión con la caja'))
+    const user = userEvent.setup()
+    const refund = await cancelAndOpenRefund(user)
+    await user.click(within(refund).getByRole('button', { name: 'Devolver la seña' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Sin conexión con la caja')
+    expect(alert).toHaveTextContent('El pedido quedó cancelado.')
+    expect(window.hw.deleteOrder).toHaveBeenCalledWith({ id: 'dep-1' })
+  })
+})

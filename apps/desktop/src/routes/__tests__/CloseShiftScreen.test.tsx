@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CloseShiftScreen from '../CloseShiftScreen'
-import type { ShiftSummary } from '../../types/hw-api'
+import type { CloseShiftPayload, ShiftSummary } from '../../types/hw-api'
 
 const summary: ShiftSummary = {
   shiftId: 'sh1',
@@ -34,7 +34,21 @@ const summary: ShiftSummary = {
   depositsCount: 0,
 }
 
-describe('CloseShiftScreen — resumen post-cierre', () => {
+function billQuantityInput(denomLabel: string): HTMLInputElement {
+  const label = screen.getByText(denomLabel)
+  const input = label.parentElement?.querySelector('input')
+  if (!(input instanceof HTMLInputElement)) throw new Error(`Sin input para ${denomLabel}`)
+  return input
+}
+
+function lastClosePayload(): CloseShiftPayload {
+  const calls = vi.mocked(window.hw.closeShift).mock.calls
+  const payload = calls[calls.length - 1]?.[0]
+  if (!payload) throw new Error('closeShift no fue llamado')
+  return payload
+}
+
+describe('CloseShiftScreen — monto que queda', () => {
   beforeEach(() => {
     window.hw = {
       getShiftSummary: vi.fn().mockResolvedValue({ ok: true, data: summary }),
@@ -47,33 +61,105 @@ describe('CloseShiftScreen — resumen post-cierre', () => {
     vi.restoreAllMocks()
   })
 
-  it('después de confirmar muestra el modal de resumen, no solo la pregunta', async () => {
+  it('exige el monto y no abre el cierre si el campo está vacío', async () => {
+    const user = userEvent.setup()
+    render(<CloseShiftScreen onConfirmed={vi.fn()} onCancel={() => {}} />)
+    await screen.findByRole('heading', { name: 'Cerrar caja' })
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar caja' }))
+
+    expect(screen.getByText('Ingresá cuánto queda en la caja.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '¿Cerrar el turno ahora?' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '¿Caja vacía?' })).not.toBeInTheDocument()
+    expect(window.hw.closeShift).not.toHaveBeenCalled()
+  })
+
+  it('con monto 0 cierra sin modal de caja vacía y sin billetes', async () => {
     const onConfirmed = vi.fn()
     const user = userEvent.setup()
     render(<CloseShiftScreen onConfirmed={onConfirmed} onCancel={() => {}} />)
 
     await screen.findByRole('heading', { name: 'Cerrar caja' })
+    await user.type(screen.getByLabelText('Queda en la caja'), '0')
+    expect(screen.getByText('Faltante $30.000')).toBeInTheDocument()
+    expect(screen.getByText('Esperado $30.000')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Cerrar caja' }))
+    expect(screen.queryByRole('heading', { name: '¿Caja vacía?' })).not.toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: '¿Cerrar el turno ahora?' })).toBeInTheDocument()
-    expect(screen.queryByText('Caja cerrada')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Cerrar turno' }))
 
     expect(await screen.findByRole('heading', { name: 'Caja cerrada' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: '¿Cerrar el turno ahora?' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Cerrar caja' })).not.toBeInTheDocument()
-    expect(screen.getByText('Resumen del cierre')).toBeInTheDocument()
-    expect(screen.getByText('Total vendido')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Finalizar sesión' })).toBeInTheDocument()
+    expect(screen.getByText('Queda en la caja')).toBeInTheDocument()
+    expect(screen.getByText('Faltante')).toBeInTheDocument()
     expect(onConfirmed).not.toHaveBeenCalled()
-    expect(window.hw.closeShift).toHaveBeenCalledOnce()
-    expect(window.hw.closeShift).toHaveBeenCalledWith(expect.objectContaining({
-      billDenominations: [],
-      confirmEmptyRegister: true,
-    }))
+    expect(lastClosePayload()).toMatchObject({ closingCash: 0 })
+    expect(lastClosePayload().billDenominations).toBeUndefined()
+    expect(lastClosePayload().confirmEmptyRegister).toBeUndefined()
 
     await user.click(screen.getByRole('button', { name: 'Finalizar sesión' }))
     expect(onConfirmed).toHaveBeenCalledOnce()
+  })
+
+  it('el conteo completa el monto y, si después se edita, no guarda el desglose', async () => {
+    const user = userEvent.setup()
+    render(<CloseShiftScreen onConfirmed={vi.fn()} onCancel={() => {}} />)
+    await screen.findByRole('heading', { name: 'Cerrar caja' })
+
+    const left = screen.getByLabelText('Queda en la caja')
+    await user.type(billQuantityInput('$1.000'), '2')
+    expect(left).toHaveValue('2.000')
+
+    await user.clear(left)
+    await user.type(left, '1500')
+    expect(left).toHaveValue('1.500')
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar caja' }))
+    await user.click(await screen.findByRole('button', { name: 'Cerrar turno' }))
+
+    expect(lastClosePayload()).toMatchObject({ closingCash: 1500 })
+    expect(lastClosePayload().billDenominations).toBeUndefined()
+  })
+
+  it('guarda el desglose cuando coincide con el monto declarado', async () => {
+    const user = userEvent.setup()
+    render(<CloseShiftScreen onConfirmed={vi.fn()} onCancel={() => {}} />)
+    await screen.findByRole('heading', { name: 'Cerrar caja' })
+
+    await user.type(billQuantityInput('$1.000'), '2')
+    expect(screen.getByLabelText('Queda en la caja')).toHaveValue('2.000')
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar caja' }))
+    await user.click(await screen.findByRole('button', { name: 'Cerrar turno' }))
+
+    expect(lastClosePayload()).toMatchObject({
+      closingCash: 2000,
+      billDenominations: [{ denomination: 1000, quantity: 2 }],
+    })
+  })
+
+  it('la diferencia usa lo declarado contra el esperado menos la entrega', async () => {
+    const user = userEvent.setup()
+    render(<CloseShiftScreen onConfirmed={vi.fn()} onCancel={() => {}} />)
+    await screen.findByRole('heading', { name: 'Cerrar caja' })
+
+    await user.type(screen.getByLabelText('Queda en la caja'), '20000')
+    const deliveryLabel = screen.getByText('Monto a entregar o depositar (opcional)')
+    const delivery = deliveryLabel.parentElement?.querySelector('input')
+    if (!(delivery instanceof HTMLInputElement)) throw new Error('Sin campo de entrega')
+    await user.type(delivery, '5000')
+
+    expect(screen.getByText('Esperado $25.000')).toBeInTheDocument()
+    expect(screen.getByText('Faltante $5.000')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar caja' }))
+    await user.click(await screen.findByRole('button', { name: 'Cerrar turno' }))
+
+    expect(lastClosePayload()).toMatchObject({
+      closingCash: 25000,
+      deliveredAmount: 5000,
+    })
+    expect(lastClosePayload().billDenominations).toBeUndefined()
   })
 })

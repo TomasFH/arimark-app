@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import NumericInput from '../components/NumericInput'
-import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer } from '../components/ui'
+import { ActionMenu, Button, CollapseReveal, Modal, ModalCloseButton, ModalLayer } from '../components/ui'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import DecimalInput from '../components/DecimalInput'
 import OrderFormModal from '../components/OrderFormModal'
@@ -161,8 +161,12 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
   const [confirmStatus, setConfirmStatus] = useState<{ order: OrderRow; status: OrderStatus } | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<OrderRow | null>(null)
   const [confirmHardDelete, setConfirmHardDelete] = useState<OrderRow | null>(null)
-  // Si hay turno activo y el pedido tiene seña, ofrecer registrar la devolución como gasto
-  const [registerRefund, setRegisterRefund] = useState(true)
+  const [refundOrder, setRefundOrder] = useState<OrderRow | null>(null)
+  const [refundError, setRefundError] = useState<string | null>(null)
+  const [refundBusy, setRefundBusy] = useState(false)
+  const [cancelBusy, setCancelBusy] = useState(false)
+  const cancelLockRef = useRef(false)
+  const refundLockRef = useRef(false)
 
   // Modal de cobro mediante inyección en POS (nuevo flujo)
   const [chargeModalOrder, setChargeModalOrder] = useState<OrderRow | null>(null)
@@ -510,23 +514,60 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     setConfirmStatus(null)
   }
 
-  async function executeCancelOrder(order: OrderRow, refund: boolean) {
-    const r = await window.hw.deleteOrder({ id: order.id })
-    if (r.ok) {
-      setOrdersList(prev => prev.map(o => o.id === order.id ? { ...o, status: 'cancelled' as OrderStatus, updatedBy: null } : o))
-      // Registrar devolución como gasto si corresponde
-      if (refund && order.depositAmount > 0 && currentShiftId) {
-        await window.hw.registerExpense({
-          concept: 'Devolución de seña',
-          amount: order.depositAmount,
-          notes: `Seña devuelta al cliente: ${order.customerName}`,
-        }).catch(err => {
-          // El pedido ya fue cancelado; solo registrar el error sin bloquear
-          console.error('[cancel-order] No se pudo registrar la devolución como gasto', err)
-        })
+  async function executeCancelOrder(order: OrderRow) {
+    if (cancelLockRef.current) return
+    cancelLockRef.current = true
+    setCancelBusy(true)
+    try {
+      const r = await window.hw.deleteOrder({ id: order.id })
+      if (r.ok) {
+        setOrdersList(prev => prev.map(o => o.id === order.id ? { ...o, status: 'cancelled' as OrderStatus, updatedBy: null } : o))
+        if (order.depositAmount > 0 && currentShiftId) {
+          setRefundError(null)
+          setRefundOrder(order)
+        }
       }
+      setConfirmCancel(null)
+    } finally {
+      cancelLockRef.current = false
+      setCancelBusy(false)
     }
-    setConfirmCancel(null)
+  }
+
+  function dismissRefund() {
+    if (refundLockRef.current) return
+    setRefundOrder(null)
+    setRefundError(null)
+  }
+
+  async function executeRefund(order: OrderRow) {
+    if (refundLockRef.current) return
+    refundLockRef.current = true
+    setRefundBusy(true)
+    setRefundError(null)
+    try {
+      const result = await window.hw.registerExpense({
+        concept: 'Devolución de seña',
+        amount: order.depositAmount,
+        notes: `Seña devuelta al cliente: ${order.customerName}`,
+      })
+      if (!result.ok) {
+        console.error('[cancel-order] No se pudo registrar la devolución como gasto', result.error)
+        setRefundError(result.error)
+        return
+      }
+      setRefundOrder(null)
+      setRefundError(null)
+    } catch (err) {
+      console.error('[cancel-order] No se pudo registrar la devolución como gasto', err)
+      const message = err instanceof Error && err.message.trim()
+        ? err.message
+        : 'No se pudo registrar la devolución de la seña.'
+      setRefundError(message)
+    } finally {
+      refundLockRef.current = false
+      setRefundBusy(false)
+    }
   }
 
   async function executeHardDelete(order: OrderRow) {
@@ -558,7 +599,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
         onRequestStatusChange={(o, s) => setConfirmStatus({ order: o, status: s })}
         onCharge={openChargeModal}
         onEdit={order.status === 'pending' ? () => openEdit(order) : undefined}
-        onCancel={order.status === 'delivered' ? undefined : () => { setRegisterRefund(true); setConfirmCancel(order) }}
+        onCancel={order.status === 'delivered' ? undefined : () => setConfirmCancel(order)}
         onHardDelete={isAdmin && order.status === 'cancelled' ? () => setConfirmHardDelete(order) : undefined}
         hours={hoursByStore.get(order.storeId) ?? null}
         sortCtx={sortCtx}
@@ -880,47 +921,87 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
         />
       )}
 
-      {/* Modal de cancelación de pedido */}
       {confirmCancel && (
-        <ConfirmModal
+        <Modal
+          open
+          onClose={() => { if (!cancelBusy) setConfirmCancel(null) }}
           title="¿Cancelar pedido?"
-          message={
+          size="sm"
+          closeOnEscape={!cancelBusy}
+          closeOnOverlay={!cancelBusy}
+          footer={(
             <>
-              <p>
-                El pedido de <strong className="text-ink break-all">{confirmCancel.customerName}</strong> pasará a estado cancelado.
-                Esta acción quedará registrada con tu usuario.
-              </p>
-              {confirmCancel.depositAmount > 0 && (
-                <div className="mt-3 space-y-2">
-                  <p className="text-amber-400 text-xs font-medium">
-                    ⚠ Este pedido tenía una seña de <strong>${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong>.
-                  </p>
-                  {currentShiftId ? (
-                    <label className="flex items-start gap-2 cursor-pointer select-none bg-panel rounded-lg p-3">
-                      <input
-                        type="checkbox"
-                        checked={registerRefund}
-                        onChange={e => setRegisterRefund(e.target.checked)}
-                        className="mt-0.5 shrink-0 accent-accent"
-                      />
-                      <span className="text-xs text-ink">
-                        Registrar devolución de <strong className="text-ink">${confirmCancel.depositAmount.toLocaleString('es-AR')}</strong> como gasto de este turno
-                      </span>
-                    </label>
-                  ) : (
-                    <p className="text-xs text-muted bg-panel rounded-lg p-3">
-                      No hay turno activo. Si se devuelve la seña, recordá registrarla manualmente como gasto en el próximo turno (categoría: <em>Devolución de seña</em>).
-                    </p>
-                  )}
-                </div>
-              )}
+              <Button variant="secondary" onClick={() => setConfirmCancel(null)} disabled={cancelBusy}>
+                Cancelar
+              </Button>
+              <Button variant="danger" loading={cancelBusy} onClick={() => void executeCancelOrder(confirmCancel)}>
+                Sí, cancelar pedido
+              </Button>
             </>
-          }
-          confirmLabel="Sí, cancelar pedido"
-          confirmClassName="bg-danger text-accent-fg hover:bg-danger"
-          onConfirm={() => void executeCancelOrder(confirmCancel, registerRefund)}
-          onCancel={() => setConfirmCancel(null)}
-        />
+          )}
+        >
+          <p className="min-w-0 text-sm text-muted">
+            El pedido de{' '}
+            <strong
+              className="inline-block max-w-full min-w-0 truncate align-bottom font-medium text-ink"
+              title={confirmCancel.customerName}
+            >
+              {confirmCancel.customerName}
+            </strong>
+            {' '}pasa a cancelado. Esta acción queda registrada con tu usuario.
+          </p>
+          {confirmCancel.depositAmount > 0 && (
+            <p className="mt-3 text-sm text-ink">
+              Este pedido tenía una seña de{' '}
+              <span className="font-semibold tabular-nums">{formatARS(confirmCancel.depositAmount)}</span>.
+            </p>
+          )}
+          {confirmCancel.depositAmount > 0 && !currentShiftId && (
+            <p className="mt-3 text-sm text-ink">
+              No hay turno activo. Si se devuelve la seña, recordá registrarla manualmente como gasto en el próximo turno (categoría: Devolución de seña).
+            </p>
+          )}
+        </Modal>
+      )}
+
+      {refundOrder && (
+        <Modal
+          open
+          onClose={dismissRefund}
+          title="¿Devolver la seña?"
+          size="sm"
+          footer={(
+            <>
+              <Button
+                variant="ghost"
+                type="button"
+                loading={refundBusy}
+                onClick={() => void executeRefund(refundOrder)}
+              >
+                Devolver la seña
+              </Button>
+              <Button variant="secondary" type="button" onClick={dismissRefund} disabled={refundBusy}>
+                No devolver
+              </Button>
+            </>
+          )}
+        >
+          <div className="flex min-w-0 items-baseline justify-between gap-3">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink" title={refundOrder.customerName}>
+              {refundOrder.customerName}
+            </p>
+            <p className="shrink-0 text-sm font-semibold tabular-nums text-ink">{formatARS(refundOrder.depositAmount)}</p>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            Se anota como gasto de este turno, por el total de la seña.
+          </p>
+          {refundError && (
+            <div className="mt-3 space-y-1" role="alert">
+              <p className="text-sm font-medium text-danger">{refundError}</p>
+              <p className="text-sm text-ink">El pedido quedó cancelado.</p>
+            </div>
+          )}
+        </Modal>
       )}
 
       {/* Modal de eliminación permanente (solo admin) */}
