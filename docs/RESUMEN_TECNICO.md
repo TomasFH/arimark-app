@@ -205,7 +205,7 @@ Tras login, el rol decide el shell (`App.tsx`, sin router URL):
 | `admin` | Hub (locales, empleados, fiados, especiales, pedidos, proveedores, historial) + “Operar como cajera” | Hub requiere internet |
 | `butcher` | Pedidos (Pendientes / Listos / Entregados 7 días) + “Mi semana” | Ver lista en caché; **Listo exige red** |
 
-POS móvil: cobro, fiado por nombre (sin typeahead remoto), gasto/proveedor, ingreso, cebo, vales, liquidación, anular venta, cierre con billetes. **No** cobra pedidos, **no** edita catálogo, **no** habla con la balanza. UI visual del POS celu **desactualizada vs desktop** (post 1.0; Impeccable cuando se retome).
+POS móvil: cobro, fiado por nombre (sin typeahead remoto), gasto/proveedor, ingreso, cebo, vales, liquidación, anular venta, cierre con billetes. **No** cobra pedidos, **no** edita catálogo, **no** habla con la balanza. Lo que queda para después de la 1.0 está en `docs/POST_1.0.md`.
 
 ---
 

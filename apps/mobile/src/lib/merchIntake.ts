@@ -12,10 +12,12 @@ import {
 import { v4 as uuidv4 } from 'uuid'
 import {
   FACTORY_MERCH_RUBROS,
+  addDaysYmd,
   coerceMerchIntakePaymentKind,
   coerceMerchIntakeTemplate,
   merchIntakeExpenseConcept,
   mondayWeekRange,
+  mondayWeeksInRange,
   parseMerchLinesFromUnknown,
   resolveMerchLineFacts,
   snapshotFromFacts,
@@ -156,13 +158,45 @@ export async function listMerchRubros(): Promise<LocalMerchRubro[]> {
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'es'))
 }
 
+/** Semana en curso siempre. Semana cerrada, solo si este celu todavía no la bajó. */
+export function shouldRefreshMerchWeek(weekOffset: number, cachedCount: number): boolean {
+  return weekOffset === 0 || cachedCount === 0
+}
+
+function merchPullId(storeId: string, weekStartIso: string): string {
+  return `${storeId}::${weekStartIso}`
+}
+
+async function merchWeekMarked(storeId: string, weekStartIso: string): Promise<boolean> {
+  const row = await db.merchWeekPulls.get(merchPullId(storeId, weekStartIso))
+  return row != null
+}
+
+async function markMerchWeek(storeId: string, weekStartIso: string): Promise<void> {
+  await db.merchWeekPulls.put({
+    id: merchPullId(storeId, weekStartIso),
+    storeId,
+    weekStartIso,
+    pulledAt: new Date().toISOString(),
+  })
+}
+
+export function weekOffsetForMonday(mondayYmd: string, now = new Date()): number | null {
+  const current = mondayWeekRange(0, now).startYmd
+  for (let offset = -16; offset <= 2; offset += 1) {
+    if (addDaysYmd(current, offset * 7) === mondayYmd) return offset
+  }
+  return null
+}
+
 export async function listWeekMerch(storeId: string, weekOffset = 0): Promise<LocalMerchandiseIntake[]> {
   const bounds = mondayWeekRange(weekOffset)
   const local = await db.merchandiseIntakes.where('storeId').equals(storeId).toArray()
   const inWeek = local.map(normalizeLocal).filter(r => r.createdAt >= bounds.startIso && r.createdAt < bounds.endIso)
   const byId = new Map(inWeek.map(r => [r.id, r]))
+  const alreadyPulled = weekOffset !== 0 && await merchWeekMarked(storeId, bounds.startIso)
 
-  if (inWeek.length === 0 && await isOnline()) {
+  if (!alreadyPulled && shouldRefreshMerchWeek(weekOffset, inWeek.length) && await isOnline()) {
     try {
       const q = query(
         collection(firestore, 'licenses', LICENSE_KEY, 'merchandiseIntakes'),
@@ -182,12 +216,32 @@ export async function listWeekMerch(storeId: string, weekOffset = 0): Promise<Lo
         byId.set(parsed.id, parsed)
         await db.merchandiseIntakes.put(parsed)
       }
+      if (weekOffset !== 0) await markMerchWeek(storeId, bounds.startIso)
     } catch {
       /* offline / reglas / índice pendiente */
     }
   }
 
   return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+/** Semanas del rango. La cerrada no se vuelve a bajar si ya está en el celu. */
+export async function listMerchSpan(
+  storeId: string,
+  startIso: string,
+  endIso: string,
+  now = new Date(),
+): Promise<LocalMerchandiseIntake[]> {
+  const byId = new Map<string, LocalMerchandiseIntake>()
+  for (const week of mondayWeeksInRange(startIso, endIso)) {
+    const offset = weekOffsetForMonday(week.startYmd, now)
+    const rows = offset == null ? [] : await listWeekMerch(storeId, offset)
+    for (const row of rows) {
+      if (row.createdAt < startIso || row.createdAt >= endIso) continue
+      byId.set(row.id, row)
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
 export async function upsertLocalMerch(row: LocalMerchandiseIntake): Promise<void> {

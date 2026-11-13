@@ -297,6 +297,30 @@ export const shifts = sqliteTable(
     handoverFromShiftId: text('handover_from_shift_id'),
     handoverFromCashierName: text('handover_from_cashier_name'),
     handoverFromClosedAt: text('handover_from_closed_at'),
+    /**
+     * «Quedó» en la registradora. Null = no se escribió. 0 es un dato.
+     * No vive dentro de closingCash: ese campo es el total (quedó + se retiró)
+     * y solo se llena cuando los dos montos fueron escritos.
+     */
+    cashLeft: real('cash_left'),
+    /** Quién cerró el turno (puede no ser quien lo abrió). */
+    closedByUserId: text('closed_by_user_id'),
+    closedByName: text('closed_by_name'),
+    /**
+     * true si este SQLite abrió el turno (OPEN_SHIFT).
+     * Una ficha bajada de Firestore queda en false: no tiene las ventas.
+     */
+    openedLocally: integer('opened_locally', { mode: 'boolean' }).notNull().default(false),
+    /** Totales calculados por la PC que tiene las ventas, al adoptar o cerrar. Null = todavía no. */
+    soldTotal: real('sold_total'),
+    cashTotal: real('cash_total'),
+    cardWalletTotal: real('card_wallet_total'),
+    debtTotal: real('debt_total'),
+    expenseTotal: real('expense_total'),
+    contributionTotal: real('contribution_total'),
+    /** Efectivo por digital: no es venta ni gasto ni aporte. */
+    walletCashTotal: real('wallet_cash_total'),
+    moneySnapshottedAt: text('money_snapshotted_at'),
   },
   table => [index('idx_shifts_store').on(table.storeId, table.startedAt)]
 )
@@ -980,6 +1004,53 @@ export const merchWeekPulls = sqliteTable(
   },
   table => [
     primaryKey({ columns: [table.storeId, table.weekStartIso] }),
+  ],
+)
+
+/**
+ * Turnos de resumen ya bajados, por local y semana.
+ * La semana en curso no se marca: al entrar se vuelve a pedir.
+ */
+export const summaryWeekPulls = sqliteTable(
+  'summary_week_pulls',
+  {
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    weekStartIso: text('week_start_iso').notNull(),
+    pulledAt: text('pulled_at').notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.storeId, table.weekStartIso] }),
+  ],
+)
+
+/** Copia local de la ficha que el resumen mostró. No es el turno operativo. */
+export const summaryShiftCache = sqliteTable(
+  'summary_shift_cache',
+  {
+    id: text('id').primaryKey(),
+    storeId: text('store_id')
+      .notNull()
+      .references(() => stores.id),
+    cashierName: text('cashier_name').notNull(),
+    shiftType: text('shift_type', { enum: ['morning', 'evening'] }).notNull(),
+    startedAt: text('started_at').notNull(),
+    closedAt: text('closed_at'),
+    openingCash: real('opening_cash').notNull(),
+    cashLeft: real('cash_left'),
+    deliveredAmount: real('delivered_amount'),
+    soldTotal: real('sold_total'),
+    cashTotal: real('cash_total'),
+    cardWalletTotal: real('card_wallet_total'),
+    debtTotal: real('debt_total'),
+    expenseTotal: real('expense_total'),
+    contributionTotal: real('contribution_total'),
+    walletCashTotal: real('wallet_cash_total'),
+    moneySnapshottedAt: text('money_snapshotted_at'),
+  },
+  table => [
+    index('idx_summary_shift_cache_store').on(table.storeId, table.startedAt),
   ],
 )
 

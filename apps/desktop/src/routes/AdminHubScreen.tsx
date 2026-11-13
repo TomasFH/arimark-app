@@ -23,6 +23,7 @@ interface Props {
   onGoToSpecialCustomers: () => void
   onGoToOrders: () => void
   onGoToHistory: () => void
+  onGoToSummary: () => void
   onGoToIngresos: () => void
   onGoToProviders: () => void
   onGoToStockCounts: () => void
@@ -227,6 +228,7 @@ export default function AdminHubScreen({
   onGoToSpecialCustomers,
   onGoToOrders,
   onGoToHistory,
+  onGoToSummary,
   onGoToIngresos,
   onGoToProviders,
   onGoToStockCounts,
@@ -296,6 +298,7 @@ export default function AdminHubScreen({
           <div>
             <SectionLabel>Análisis</SectionLabel>
             <div className="grid grid-cols-2 items-start gap-2">
+              <Tile icon={ICONS.chart} label="Resumen" description="Plata y medias de la semana" onClick={onGoToSummary} />
               <Tile icon={ICONS.chart} label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
               <Tile icon={ICONS.inbox} label="Ingresos" description="Mercadería que entró, por semana" onClick={onGoToIngresos} />
               {SHOW_ATTENDANCE_UI && (

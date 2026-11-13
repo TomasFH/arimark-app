@@ -60,6 +60,9 @@ class MobileDb extends Dexie {
   merchRubros!: EntityTable<LocalMerchRubro, 'id'>
   merchVisitDrafts!: EntityTable<LocalMerchVisitDraft, 'shiftId'>
   providerPurchasePrices!: EntityTable<LocalProviderPurchasePrices, 'providerId'>
+  merchWeekPulls!: EntityTable<WeekPullRecord, 'id'>
+  summaryWeekPulls!: EntityTable<WeekPullRecord, 'id'>
+  summaryShifts!: EntityTable<CachedSummaryShift, 'id'>
 
   constructor() {
     super('carniceria-mobile-v1')
@@ -111,7 +114,42 @@ class MobileDb extends Dexie {
       merchVisitDrafts: 'shiftId',
       providerPurchasePrices: 'providerId',
     })
+
+    // v9: semanas de medias y de resumen ya bajadas. No se vuelven a pedir.
+    this.version(9).stores({
+      merchWeekPulls: 'id, storeId',
+      summaryWeekPulls: 'id, storeId',
+      summaryShifts: 'id, storeId, startedAt',
+    })
   }
+}
+
+export interface WeekPullRecord {
+  id: string
+  storeId: string
+  weekStartIso: string
+  pulledAt: string
+}
+
+export interface CachedSummaryShift {
+  id: string
+  storeId: string
+  cashierName: string
+  shiftType: 'morning' | 'evening'
+  startedAt: string
+  closedAt: string | null
+  openingCash: number
+  cashLeft: number | null
+  withdrawn: number | null
+  soldTotal: number | null
+  cashTotal: number | null
+  cardWalletTotal: number | null
+  debtTotal: number | null
+  expenseTotal: number | null
+  contributionTotal: number | null
+  walletCashTotal: number | null
+  moneySnapshottedAt: string | null
+  live: boolean
 }
 
 export const db = new MobileDb()

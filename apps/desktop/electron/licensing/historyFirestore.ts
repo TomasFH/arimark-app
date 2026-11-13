@@ -43,6 +43,7 @@ interface FsShift {
   closedAt: string | null
   openingCash: number
   closingCash: number | null
+  cashLeft?: number | null
   deliveredAmount: number | null
   deliveredTo: string | null
   notes: string | null
@@ -643,6 +644,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
         cashierName: shift.cashierName ?? shift.userId,
         openingCash: shift.openingCash,
         closingCash: shift.closingCash,
+        cashLeft: shift.cashLeft ?? null,
         deliveredAmount: shift.deliveredAmount,
         deliveredTo: shift.deliveredTo,
         notes: shift.notes,

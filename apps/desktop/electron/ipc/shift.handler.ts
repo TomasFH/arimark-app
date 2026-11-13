@@ -8,6 +8,9 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { shifts, sales, salePayments, expenses, debtEvents, orders, users } from '../db/schema'
 import { insertBillLines, readLastClosedHandover } from '../db/billCountStore'
+import { closingCashFromParts } from '../db/shiftCloseAmounts'
+import { snapshotShiftMoney } from '../db/shiftMoney'
+import { invalidateSummaryWeek } from '../summary/summaryWeekCache'
 import { getActiveSession, updateActiveShift } from '../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from './inactivityDaemon'
 import { getBusinessConfig } from '../businessConfig'
@@ -45,6 +48,30 @@ const closeShiftSchema = z.object({
 const forceCloseOpenShiftSchema = z.object({
   shiftId: z.string().min(1),
 })
+
+/** Monto escrito. Omitir el campo = no se anotó. Null no es cero. */
+const writtenAmountSchema = z.number().min(0)
+
+const closeOtherShiftSchema = z.object({
+  shiftId: z.string().min(1),
+  cashLeft: writtenAmountSchema.optional(),
+  withdrawn: writtenAmountSchema.optional(),
+})
+
+const correctShiftCloseSchema = closeOtherShiftSchema.refine(
+  data => data.cashLeft !== undefined || data.withdrawn !== undefined,
+  { message: 'Falta quedó o se retiró' },
+)
+
+function closerIdentity(userId: string, displayName?: string): { closedByUserId: string; closedByName: string | null } {
+  const row = getDb().select({ name: users.name }).from(users).where(eq(users.id, userId)).get()
+  const fromDb = row?.name?.trim()
+  const fromSession = displayName?.trim()
+  return {
+    closedByUserId: userId,
+    closedByName: fromDb || fromSession || null,
+  }
+}
 
 function isProdEnv(): boolean {
   return (process.env['APP_ENV'] ?? 'dev') === 'production'
@@ -253,6 +280,7 @@ export function registerShiftHandlers(): void {
           openingCash,
           source: 'desktop',
           openingCounted,
+          openedLocally: true,
           handoverFromShiftId: openingCounted ? (handoverFromShiftId ?? null) : null,
           handoverFromCashierName: openingCounted ? (handoverFromCashierName ?? null) : null,
           handoverFromClosedAt: openingCounted ? (handoverFromClosedAt ?? null) : null,
@@ -720,10 +748,13 @@ export function registerShiftHandlers(): void {
       }
 
       const now = new Date().toISOString()
+      const closer = closerIdentity(session.userId)
       db.update(shifts)
         .set({
           closedAt: now,
           notes: shift.notes ?? 'Cerrado por administrador',
+          closedByUserId: closer.closedByUserId,
+          closedByName: closer.closedByName,
           syncedAt: null,
         })
         .where(eq(shifts.id, shiftId))
@@ -747,6 +778,137 @@ export function registerShiftHandlers(): void {
       const message = err instanceof Error ? err.message : String(err)
       log.error('[ipc:force-close-open-shift] Error inesperado', message)
       return { ok: false, error: 'Error al cerrar el turno.' }
+    }
+  })
+
+  // Cierra un turno abierto que no es el de esta sesión: la cajera que llega
+  // o un admin. Solo escribe el cierre. «Quedó» y «se retiró» son opcionales
+  // e independientes. Vacío no es cero.
+  ipcMain.handle(IPC.CLOSE_OTHER_SHIFT, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = closeOtherShiftSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:close-other-shift] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    }
+
+    try {
+      const db = getDb()
+      const { shiftId, cashLeft: cashLeftInput, withdrawn: withdrawnInput } = parsed.data
+      const shift = db.select().from(shifts).where(eq(shifts.id, shiftId)).get()
+      if (!shift) {
+        return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
+      }
+      if (session.role !== 'admin' && shift.storeId !== session.storeId) {
+        return { ok: false, error: 'Ese turno es de otro local.', code: 'WRONG_STORE' }
+      }
+      if (shift.closedAt) {
+        return { ok: false, error: 'Ese turno ya está cerrado.', code: 'ALREADY_CLOSED' }
+      }
+
+      const cashLeft = cashLeftInput ?? null
+      const withdrawn = withdrawnInput ?? null
+      const now = new Date().toISOString()
+      const closer = closerIdentity(session.userId, session.displayName)
+      const money = snapshotShiftMoney(db, shift, now)
+
+      db.update(shifts)
+        .set({
+          closedAt: now,
+          cashLeft,
+          deliveredAmount: withdrawn,
+          closingCash: closingCashFromParts(cashLeft, withdrawn),
+          closedByUserId: closer.closedByUserId,
+          closedByName: closer.closedByName,
+          syncedAt: null,
+          ...(money ?? {}),
+        })
+        .where(eq(shifts.id, shiftId))
+        .run()
+
+      if (session.shiftId === shiftId) {
+        updateActiveShift(null)
+        stopDaemon()
+      }
+
+      const config = getBusinessConfig()
+      await pushUnsyncedShifts(config.tenant_id)
+
+      log.info('[ipc:close-other-shift] Turno ajeno cerrado', {
+        shiftId,
+        previousUserId: shift.userId,
+        by: session.userId,
+        cashLeft,
+        withdrawn,
+      })
+      return { ok: true, data: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:close-other-shift] Error inesperado', message)
+      return { ok: false, error: 'Error al cerrar el turno.' }
+    }
+  })
+
+  // Completa o corrige «quedó» y «se retiró» de un turno ya cerrado.
+  // No cambia el efectivo inicial de un turno que se abrió después, ni quién cerró.
+  ipcMain.handle(IPC.CORRECT_SHIFT_CLOSE, async (_event, payload: unknown): Promise<IpcResult> => {
+    const parsed = correctShiftCloseSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:correct-shift-close] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) {
+      return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo un administrador puede corregir el cierre.', code: 'FORBIDDEN' }
+    }
+
+    try {
+      const db = getDb()
+      const { shiftId, cashLeft: cashLeftInput, withdrawn: withdrawnInput } = parsed.data
+      const shift = db.select().from(shifts).where(eq(shifts.id, shiftId)).get()
+      if (!shift) {
+        return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
+      }
+      if (!shift.closedAt) {
+        return { ok: false, error: 'Ese turno sigue abierto.', code: 'SHIFT_OPEN' }
+      }
+
+      const cashLeft = cashLeftInput !== undefined ? cashLeftInput : shift.cashLeft
+      const withdrawn = withdrawnInput !== undefined ? withdrawnInput : shift.deliveredAmount
+      db.update(shifts)
+        .set({
+          cashLeft,
+          deliveredAmount: withdrawn,
+          closingCash: closingCashFromParts(cashLeft, withdrawn),
+          syncedAt: null,
+        })
+        .where(eq(shifts.id, shiftId))
+        .run()
+
+      invalidateSummaryWeek(db, shift.storeId, shift.startedAt)
+
+      const config = getBusinessConfig()
+      await pushUnsyncedShifts(config.tenant_id)
+
+      log.info('[ipc:correct-shift-close] Montos de cierre corregidos', {
+        shiftId,
+        by: session.userId,
+        cashLeft,
+        withdrawn,
+      })
+      return { ok: true, data: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error('[ipc:correct-shift-close] Error inesperado', message)
+      return { ok: false, error: 'Error al corregir el cierre.' }
     }
   })
 }

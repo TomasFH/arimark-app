@@ -3,7 +3,15 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
-export default defineConfig({
+export default defineConfig(({ command }) => {
+  if (command === 'serve' && process.env['VITE_APP_ENV'] == null) {
+    process.env['VITE_APP_ENV'] = 'dev'
+  }
+  if (command === 'build') delete process.env['VITE_APP_ENV']
+  return {
+  define: command === 'build'
+    ? { 'import.meta.env.VITE_APP_ENV': 'undefined' }
+    : undefined,
   plugins: [
     react(),
     VitePWA({
@@ -49,4 +57,5 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
+  }
 })

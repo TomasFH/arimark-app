@@ -38,6 +38,11 @@ export interface AdminShift {
   closedAt: string | null
   openingCash: number
   closingCash: number | null
+  /** Null si «quedó» no se escribió. 0 es un dato. */
+  cashLeft: number | null
+  deliveredAmount: number | null
+  closedByUserId: string | null
+  closedByName: string | null
   source: 'desktop' | 'mobile'
   openingBills: BillLine[]
   closingBills: BillLine[]
@@ -195,6 +200,10 @@ export async function fetchAdminShifts(
       closedAt?: string | null
       openingCash?: number
       closingCash?: number | null
+      cashLeft?: number | null
+      deliveredAmount?: number | null
+      closedByUserId?: string | null
+      closedByName?: string | null
       source?: string
       openingBills?: unknown
       closingBills?: unknown
@@ -217,6 +226,10 @@ export async function fetchAdminShifts(
       closedAt: data.closedAt ?? null,
       openingCash: data.openingCash ?? 0,
       closingCash: data.closingCash ?? null,
+      cashLeft: typeof data.cashLeft === 'number' && Number.isFinite(data.cashLeft) ? data.cashLeft : null,
+      deliveredAmount: typeof data.deliveredAmount === 'number' && Number.isFinite(data.deliveredAmount) ? data.deliveredAmount : null,
+      closedByUserId: data.closedByUserId ?? null,
+      closedByName: data.closedByName ?? null,
       source: data.source === 'mobile' ? 'mobile' : 'desktop',
       openingBills: parseBillLines(data.openingBills),
       closingBills: parseBillLines(data.closingBills),

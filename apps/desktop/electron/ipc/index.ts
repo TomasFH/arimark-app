@@ -22,6 +22,7 @@ import { registerDebtHandlers } from './debts.handler'
 import { registerSpecialCustomersHandlers } from './specialCustomers.handler'
 import { registerOrderHandlers } from './orders.handler'
 import { registerHistoryHandlers } from './history.handler'
+import { registerSummaryHandlers } from './summary.handler'
 import { registerStoresHandlers } from './stores.handler'
 import { registerDevSeedHandlers } from './devSeed.handler'
 import { registerProvidersHandlers } from './providers.handler'
@@ -59,6 +60,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerSpecialCustomersHandlers()
   registerOrderHandlers()
   registerHistoryHandlers()
+  registerSummaryHandlers()
   registerStoresHandlers()
   registerProvidersHandlers()
   registerEmployeesHandlers()

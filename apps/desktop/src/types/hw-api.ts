@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock, SummaryFiadoSlice, SummaryShiftCard } from '@carniceria/shared'
 
 export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind }
 
@@ -127,7 +127,9 @@ export interface CashHandoverSnapshot {
   fromClosedAt: string
   bills: BillLine[]
   counted: boolean
-  /** Efectivo que quedó en la registradora (cierre − entrega). Null si ese cierre no declaró monto. */
+  /**
+   * «Quedó» escrito en el cierre. Null si ese campo no se escribió.
+   */
   cashLeft: number | null
 }
 
@@ -213,6 +215,24 @@ export interface CloseShiftPayload {
   billDenominations?: BillLine[]
   /** Cierre legado sin monto declarado: en producción, obligatorio si el desglose está vacío. */
   confirmEmptyRegister?: boolean
+}
+
+/** Cierre de un turno que no es el de esta sesión. Los montos se omiten si no se escribieron. */
+export interface CloseOtherShiftPayload {
+  shiftId: string
+  /** Quedó en la caja. Omitir = no se escribió. 0 es un dato. */
+  cashLeft?: number
+  /** Se retiró. Omitir = no se escribió. 0 es un dato. */
+  withdrawn?: number
+}
+
+/** Corrección posterior de quedó / se retiró. Cada campo omitido no se toca. */
+export interface CorrectShiftClosePayload {
+  shiftId: string
+  /** Quedó en la caja. Omitir = dejar el valor guardado. 0 es un dato. */
+  cashLeft?: number
+  /** Se retiró. Omitir = dejar el valor guardado. 0 es un dato. */
+  withdrawn?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,6 +1408,8 @@ export interface HistoryShiftDetail {
     cashierName: string
     openingCash: number
     closingCash: number | null
+    /** Null si «quedó» no se escribió. 0 es un dato. Ausente en detalles viejos en caché. */
+    cashLeft?: number | null
     deliveredAmount: number | null
     deliveredTo: string | null
     notes: string | null
@@ -1414,6 +1436,13 @@ export interface HistoryShiftDetail {
     debtsCount: number
     totalDebts: number
   }
+}
+
+export interface AdminSummaryResult {
+  shifts: SummaryShiftCard[]
+  visits: MediaResVisit[]
+  warning: string | null
+  fiado: SummaryFiadoSlice
 }
 
 export interface GetHistoryShiftsPayload {
@@ -1574,6 +1603,21 @@ export interface HwApi {
    * Sirve para desbloquear el local cuando el turno quedó colgado.
    */
   forceCloseOpenShift: (payload: { shiftId: string }) => Promise<IpcResult>
+
+  /**
+   * Cierra un turno abierto de otra persona en este local (cajera que llega o admin).
+   * Solo escribe el cierre. No recalcula plata si esta PC no tiene las ventas.
+   */
+  closeOtherShift: (payload: CloseOtherShiftPayload) => Promise<IpcResult>
+
+  /**
+   * Completa o corrige «quedó» y «se retiró» de un turno ya cerrado. Solo admin.
+   * No cambia el efectivo inicial del turno que se abrió después.
+   */
+  correctShiftClose: (payload: CorrectShiftClosePayload) => Promise<IpcResult>
+
+  /** Plata y medias reses de un solo local, en el rango pedido. Solo admin. */
+  getAdminSummary: (payload: { storeId: string; startIso: string; endIso: string }) => Promise<IpcResult<AdminSummaryResult>>
 
   /**
    * Suscribe un callback al aviso de inactividad (main → renderer push).

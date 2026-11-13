@@ -19,6 +19,7 @@ import HistoryScreen from './routes/HistoryScreen'
 import IngresosScreen from './routes/IngresosScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
+import SummaryScreen from './routes/SummaryScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
@@ -55,6 +56,7 @@ type AppState =
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
@@ -530,7 +532,6 @@ export default function App() {
                 : handleGoBackFromShiftRequired
             }
             cancelLabel={state.session.role === 'admin' ? '← Volver al hub' : '← Cambiar local'}
-            canForceClose={state.session.role === 'admin'}
             storeId={state.session.storeId}
             userId={state.session.userId}
           />
@@ -577,6 +578,7 @@ export default function App() {
             onGoToSpecialCustomers={() => setState({ screen: 'special-customers', session: state.session, initStatus: state.initStatus })}
             onGoToOrders={() => setState({ screen: 'orders', session: state.session, initStatus: state.initStatus })}
             onGoToHistory={() => setState({ screen: 'history', session: state.session, initStatus: state.initStatus })}
+            onGoToSummary={() => setState({ screen: 'summary', session: state.session, initStatus: state.initStatus })}
             onGoToIngresos={() => setState({ screen: 'ingresos', session: state.session, initStatus: state.initStatus })}
             onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
             onGoToStockCounts={handleGoToStockCounts}
@@ -670,6 +672,12 @@ export default function App() {
       {state.screen === 'history' && (
         <Page>
           <HistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
+        </Page>
+      )}
+
+      {state.screen === 'summary' && (
+        <Page>
+          <SummaryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
         </Page>
       )}
 

@@ -6,6 +6,8 @@ Construir una app de gestión integral para carnicerías sobre **Electron + Reac
 
 Este plan incorpora los **9 ajustes acordados** (críticos + importantes) más la **estrategia de testing automatizado** como pilar innegociable.
 
+Lo que queda para después de la 1.0 está solo en `docs/POST_1.0.md`.
+
 ---
 
 ## Workspace
@@ -182,7 +184,7 @@ Entregado:
 - PLU management completo: probar enlace (cmd 0002), leer (cmd 5005/5001), crear/actualizar (cmd 2005), borrar (cmd 3005). Validado en carnicería con balanza KRETZ REPORT NX (sesión 15/06/2026).
 - Hardware manager: dev sin `KRETZ_PORT` usa mock; dev con `KRETZ_PORT` o producción usa driver real; gestiona conexión, reconexión con backoff exponencial, `setHardwareStatus()`.
 - **Detección automática de puerto (jul 2026):** `portDetect.ts` sondea todos los puertos COM con el protocolo R30 (`0002`) y conecta en caliente al que responde. Validado en campo con dos balanzas REPORT NX idénticas en COM8 y COM11. UI en DevTools → Hardware → "Detectar balanza automáticamente"; el puerto se persiste en `safeStorage`.
-- **Pendiente 1.0 — cambio de balanza en la app oficial (campo 2026-10-02):** tres REPORT NX. Al enchufar la 2.ª y la 3.ª, el instalador no las detecta. Reiniciar la app oficial no alcanzó en la 3.ª. El procedimiento que sí funcionó: cerrar la oficial, confirmar el enlace en DevTools de la versión de pruebas, volver a la oficial. Ese panel no está en el instalador y no puede ser el camino del local. Hay que detectar la balanza recién enchufada desde la app oficial. Alternativa mínima: en el modal «Cargar catálogo en la balanza», un botón que reintente la conexión contra el COM que responda. Ver `CHECKLIST_CIERRE_1_0.md` y `SESION_CAMPO_2026-10-02.md`.
+- **Aviso de balanza, después de la 1.0** (`docs/POST_1.0.md`). La detección en caliente ya existe. El día de campo con tres balanzas está en `SESION_CAMPO_2026-10-02.md`.
 - IPC tipado con zod para todos los comandos de PLU y configuración de puerto.
 - Panel DevTools integrado en la app (solo modo dev) para diagnóstico, log de eventos y gestión de PLUs.
 - Tests de modos de fallo del mock (`timeout`, `garbage`, `disconnect`, `malformed_response`): implementados y testeados.
@@ -731,7 +733,7 @@ Además el Historial (PC y admin celu) **lista también** `source='mobile'` con 
 
 Workaround operativo: cerrar en el celu y abrir otro en la PC. Quedan dos IDs de turno. Cuando se implemente DT-06, el objetivo es **un** turno y varios dispositivos, no fusionar a mano dos cierres viejos.
 
-**Expectativa confirmada 2026-09-22 (post 1.0, no implementar ahora):** corte de luz con la caja ya abierta en la PC → el celu no pide abrir otra caja; sigue las ventas de ese turno. Al volver la luz, esas ventas están en la PC y se sigue la misma sesión. El costo Firestore es el de sincronizar el turno vivo (cada venta), no el de bajar un historial entero.
+**Expectativa (después de la 1.0, ver `docs/POST_1.0.md`):** corte de luz con la caja ya abierta en la PC → el celu no pide abrir otra caja; sigue las ventas de ese turno. Al volver la luz, esas ventas están en la PC y se sigue la misma sesión. El costo Firestore es el de sincronizar el turno vivo (cada venta), no el de bajar un historial entero.
 
 Estadísticas “por turno” en el futuro: o se deja de filtrar `source` y se muestran dos jornadas (Mañana PC + Mañana celu) sumables por día/cajera/local, o se unifica en vivo (esta deuda). No hay un “mismo turno con 2 cajas” en el modelo actual.
 
@@ -998,7 +1000,7 @@ Historial largo y proveedores en celu = admin (ya existe), no el POS de cajera.
 
 Implementado en POS móvil: gastos con proveedor (lista + deuda de este local), ingreso de efectivo, ventas del turno con anular, fiado en el cobro, **vales y liquidación de la semana en curso**. El celu no clona saldar dedicado, deuda cross-local, pedidos ni catálogo. Vales/sueldo del celu quedan en el turno `source=mobile` (DT-06).
 
-**Deuda visual (post 1.0, sin prioridad ahora):** la UI del POS del celu quedó atrás del desktop. El pack de emergencia **funciona**; no rediseñar para el corte 1.0. Cuando se toque: skill Impeccable sobre el POS de `apps/mobile` (no clonar pantallas de PC). Registro 2026-09-21.
+**Deuda visual:** el POS del celu funciona y se ve más viejo que el de la PC. Quedó para después de la 1.0, en `docs/POST_1.0.md`.
 
 ---
 

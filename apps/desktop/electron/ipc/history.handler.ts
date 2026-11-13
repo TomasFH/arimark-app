@@ -617,6 +617,7 @@ export function registerHistoryHandlers(): void {
           cashierName,
           openingCash: shift.openingCash,
           closingCash: shift.closingCash,
+          cashLeft: shift.cashLeft,
           deliveredAmount: shift.deliveredAmount,
           deliveredTo: shift.deliveredTo,
           notes: shift.notes,

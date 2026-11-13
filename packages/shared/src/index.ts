@@ -189,12 +189,95 @@ export type {
 export {
   addDaysYmd,
   calendarMonthRange,
+  firstMondayOfMonth,
   formatWeekRangeLabel,
+  lastMondayOfMonth,
+  mondayWeekContaining,
   mondayWeekRange,
+  mondayWeeksInRange,
+  monthOfWeekMonday,
+  formatSummaryRange,
+  ymdInRange,
+  summaryMonthName,
+  summaryMonthSpan,
+  summaryMonthStep,
+  summaryPeriodDates,
+  summaryPeriodQuery,
   weekdayInTimeZone,
   weekStartMondayYmd,
 } from './weekRange'
-export type { CalendarMonthRange, MondayWeekRange } from './weekRange'
+export type { CalendarMonthRange, MondayWeekRange, SummaryMonthSpan, SummaryPeriod } from './weekRange'
+export {
+  amountPatch,
+  closingCashFromParts,
+  isWrittenAmount,
+  shiftCloseBox,
+  shiftCloseBoxText,
+  summaryBoxTally,
+} from './shiftCloseBox'
+export type { ShiftCloseBox, ShiftCloseBoxInput } from './shiftCloseBox'
+export {
+  boxAporteAmount,
+  expectedRegisterCash,
+  pickWrittenAmount,
+  saleSplitSlices,
+  shiftMoneyAction,
+  summaryBoxLabel,
+  summaryMoneyView,
+  summaryNewDebt,
+  summaryShownAmounts,
+  summarySoldByDay,
+  tallyShiftMoney,
+} from './summaryMoney'
+export type {
+  MoneyLine,
+  SaleSplitSlice,
+  ShiftMoneyAction,
+  ShiftMoneyParts,
+  SoldDayBar,
+  SummaryBoxRow,
+  SummaryMoneyView,
+  SummaryShiftCard,
+  TallyDebtEvent,
+  TallyMovement,
+  TallySale,
+} from './summaryMoney'
+export {
+  MEDIA_RES_RUBRO_ID,
+  filterMediaResProvider,
+  groupMediaResByDay,
+  mediaResAverageKg,
+  mediaResProviders,
+  mediaResTotals,
+  mediaResVisits,
+  mediaResWeekdayBars,
+  onCivilDay,
+} from './mediaResSummary'
+export {
+  collectionNote,
+  combineFiadoSlices,
+  paymentsInCivilRange,
+  storeFiadoBalance,
+  storeFiadoSlice,
+  sumCollections,
+} from './summaryFiado'
+export type {
+  LedgerEvent,
+  PeriodCollections,
+  SummaryFiadoSlice,
+  SummaryPayment,
+} from './summaryFiado'
+export { summaryPreview, summaryPreviewSelection } from './summaryPreview'
+export type { SummaryPreview, SummaryPreviewVisit } from './summaryPreview'
+export type {
+  MediaResDay,
+  MediaResIntakeInput,
+  MediaResLineInput,
+  MediaResPiece,
+  MediaResVisit,
+  MediaResWeekdayBar,
+} from './mediaResSummary'
+export { donutSlicePath, donutSlices } from './pieSlice'
 export {
   isBudgetCartLine,
   normalizeBudgetCartLine,

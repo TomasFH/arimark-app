@@ -63,6 +63,8 @@ describe('migrations', () => {
       'merchandise_intake_rubros',
       'merchandise_intake_lines',
       'merch_week_pulls',
+      'summary_week_pulls',
+      'summary_shift_cache',
       'provider_purchase_prices',
     ]
 
@@ -647,6 +649,37 @@ describe('migrations', () => {
     const { sqlite } = await createInMemoryDb()
     const cols = sqlite.prepare('PRAGMA table_info(merch_week_pulls)').all() as { name: string }[]
     expect(cols.map(c => c.name)).toEqual(['store_id', 'week_start_iso', 'pulled_at'])
+  })
+
+  it('guarda las semanas de resumen ya bajadas (migración 0058)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const pulls = sqlite.prepare('PRAGMA table_info(summary_week_pulls)').all() as { name: string }[]
+    expect(pulls.map(c => c.name)).toEqual(['store_id', 'week_start_iso', 'pulled_at'])
+    const cache = sqlite.prepare('PRAGMA table_info(summary_shift_cache)').all() as { name: string }[]
+    expect(cache.map(c => c.name)).toContain('debt_total')
+    expect(cache.map(c => c.name)).toContain('money_snapshotted_at')
+  })
+
+  it('guarda quedó, quién cerró y la plata del turno (migración 0057)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const cols = sqlite.prepare('PRAGMA table_info(shifts)').all() as { name: string }[]
+    const names = cols.map(c => c.name)
+    for (const column of [
+      'cash_left',
+      'closed_by_user_id',
+      'closed_by_name',
+      'opened_locally',
+      'sold_total',
+      'cash_total',
+      'card_wallet_total',
+      'debt_total',
+      'expense_total',
+      'contribution_total',
+      'wallet_cash_total',
+      'money_snapshotted_at',
+    ]) {
+      expect(names, column).toContain(column)
+    }
   })
 
   it('tiene el índice idx_debt_events_customer', async () => {

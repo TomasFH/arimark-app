@@ -21,11 +21,17 @@ export interface CashHandoverSnapshot {
   fromClosedAt: string
   bills: BillLine[]
   counted: boolean
-  /** Efectivo que quedó en la registradora (cierre − entrega). Null si ese cierre no declaró monto. */
+  /**
+   * «Quedó» escrito en el cierre. Null si ese campo no se escribió:
+   * no se copia un número inventado a partir de un retiro solo.
+   */
   cashLeft: number | null
 }
 
-/** Lo que quedó en la registradora. Null si no hay monto de cierre, o si la resta no es un entero ≥ 0. */
+/**
+ * Resta del cierre propio: closingCash es el total y la entrega ausente vale 0.
+ * No usar para un cierre ajeno que guardó «quedó» aparte (`declaredCashLeft`).
+ */
 export function cashLeftFromClose(
   closingCash: number | null | undefined,
   deliveredAmount: number | null | undefined,
@@ -36,6 +42,22 @@ export function cashLeftFromClose(
   const left = closingCash - delivered
   if (!Number.isFinite(left) || left < 0) return null
   return left
+}
+
+/**
+ * Precarga del turno nuevo.
+ * Si «quedó» fue escrito (incluso 0), ese es el número.
+ * Si no, el cierre propio viejo todavía deriva el total menos la entrega.
+ * Sin ninguno de los dos, null: no se inventa un efectivo.
+ */
+export function declaredCashLeft(
+  cashLeft: number | null | undefined,
+  closingCash: number | null | undefined,
+  deliveredAmount: number | null | undefined,
+): number | null {
+  if (cashLeft != null && Number.isFinite(cashLeft)) return cashLeft
+  if (closingCash == null) return null
+  return cashLeftFromClose(closingCash, deliveredAmount)
 }
 
 export function readBillLines(db: AppDb, shiftId: string, kind: BillCountKind): BillLine[] {
@@ -114,6 +136,6 @@ export function readLastClosedHandover(db: AppDb, storeId: string): CashHandover
     fromClosedAt: shift.closedAt,
     bills,
     counted: Boolean(shift.closingCounted) || bills.length > 0,
-    cashLeft: cashLeftFromClose(shift.closingCash, shift.deliveredAmount),
+    cashLeft: declaredCashLeft(shift.cashLeft, shift.closingCash, shift.deliveredAmount),
   }
 }

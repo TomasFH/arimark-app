@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
+import ShiftCloseCorrection from '../components/ShiftCloseCorrection'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
@@ -177,6 +178,19 @@ export default function HistoryScreen({ onBack, onLogout }: Props) {
     setDetailLoading(false)
   }
 
+  async function reloadSelectedDetail(shiftId: string) {
+    const ticket = ++detailRequest.current
+    const r = await window.hw.getHistoryShiftDetail({ shiftId })
+    if (ticket !== detailRequest.current) return
+    if (!r.ok) {
+      setDetailError(r.error)
+      return
+    }
+    rememberHistoryDetail(r.data)
+    setDetail(r.data)
+    setDetailError(null)
+  }
+
   return (
     <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
       <AdminSectionHeader
@@ -298,7 +312,12 @@ export default function HistoryScreen({ onBack, onLogout }: Props) {
               <p className="text-danger text-sm">{detailError}</p>
             </div>
           )}
-          {detail && <ShiftDetail detail={detail} />}
+          {detail && (
+            <ShiftDetail
+              detail={detail}
+              onCorrected={() => { void reloadSelectedDetail(detail.shift.id) }}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -363,7 +382,7 @@ function saleCountLabel(count: number): string {
   return count === 1 ? '1 venta' : `${count} ventas`
 }
 
-function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
+function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCorrected: () => void }) {
   const { shift, sales, expenses, debts, deposits, summary } = detail
   const vales = detail.vales ?? []
   const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'debts' | 'deposits' | 'vales'>('sales')
@@ -426,6 +445,21 @@ function ShiftDetail({ detail }: { detail: HistoryShiftDetail }) {
 
         {shift.notes && (
           <p className="text-xs text-muted">Notas: <span className="text-ink">{shift.notes}</span></p>
+        )}
+
+        {shift.closedAt && (
+          <div className="border-t border-line pt-3">
+            <ShiftCloseCorrection
+              key={`${shift.id}:${shift.cashLeft ?? ''}:${shift.deliveredAmount ?? ''}`}
+              cashLeft={shift.cashLeft ?? null}
+              withdrawn={shift.deliveredAmount ?? null}
+              onSubmit={async patch => {
+                const r = await window.hw.correctShiftClose({ shiftId: shift.id, ...patch })
+                if (!r.ok) throw new Error(r.error ?? 'No se pudo corregir.')
+                onCorrected()
+              }}
+            />
+          </div>
         )}
       </div>
 

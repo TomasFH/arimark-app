@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, billDenominations } from '../../db/schema'
+import { stores, users, shifts, billDenominations, sales } from '../../db/schema'
 import { isNull, isNotNull, eq } from 'drizzle-orm'
 
 const { mockSetDoc, mockDoc, mockGetDocs, mockGetDoc } = vi.hoisted(() => ({
@@ -302,6 +302,140 @@ describe('shiftSync', () => {
       const pending = db.select().from(shifts).where(isNull(shifts.syncedAt)).all()
       expect(pending.map(s => s.id)).toEqual(['shift-fail'])
     })
+
+    it('no publica closedAt null ni montos null encima de un cierre remoto', async () => {
+      const started = '2026-10-26T08:00:00.000Z'
+      const closed = '2026-10-26T18:00:00.000Z'
+      db.insert(shifts).values({
+        id: 'shift-open-remote',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: started,
+        openingCash: 500,
+        source: 'desktop',
+        closedAt: null,
+        syncedAt: null,
+      }).run()
+
+      mockGetDoc.mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          id: 'shift-open-remote',
+          closedAt: closed,
+          cashLeft: 1500,
+          deliveredAmount: 500,
+          closingCash: null,
+          soldTotal: 99999,
+          notes: 'cerró el admin',
+        }),
+      })
+
+      await pushUnsyncedShifts(TENANT)
+
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-open-remote')).get()
+      expect(row?.closedAt).toBe(closed)
+      expect(row?.cashLeft).toBe(1500)
+      expect(row?.deliveredAmount).toBe(500)
+      expect(row?.closingCash).toBe(2000)
+      expect(row?.soldTotal).toBeNull()
+      expect(row?.moneySnapshottedAt).toBeNull()
+      expect(mockSetDoc).not.toHaveBeenCalled()
+    })
+
+    it('no manda montos null si el local ya está cerrado y la nube tiene números', async () => {
+      const closed = '2026-10-26T18:00:00.000Z'
+      db.insert(shifts).values({
+        id: 'shift-local-closed',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: '2026-10-26T08:00:00.000Z',
+        closedAt: closed,
+        openingCash: 500,
+        closingCash: null,
+        cashLeft: null,
+        deliveredAmount: null,
+        soldTotal: null,
+        notes: null,
+        source: 'desktop',
+        syncedAt: null,
+      }).run()
+
+      mockGetDoc.mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          closedAt: closed,
+          cashLeft: 4000,
+          deliveredAmount: 1000,
+          closingCash: 5000,
+          soldTotal: 8000,
+          notes: 'ya anotado',
+        }),
+      })
+
+      await pushUnsyncedShifts(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledTimes(1)
+      const payload = mockSetDoc.mock.calls[0]?.[1] as Record<string, unknown>
+      expect(payload.closedAt).toBe(closed)
+      expect(payload).not.toHaveProperty('cashLeft')
+      expect(payload).not.toHaveProperty('closingCash')
+      expect(payload).not.toHaveProperty('deliveredAmount')
+      expect(payload).not.toHaveProperty('soldTotal')
+      expect(payload).not.toHaveProperty('notes')
+    })
+
+    it('al adoptar el cierre calcula la plata desde SQLite y no borra la venta', async () => {
+      const started = '2026-10-26T08:00:00.000Z'
+      const closed = '2026-10-26T18:00:00.000Z'
+      db.insert(shifts).values({
+        id: 'shift-with-sale',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'evening',
+        startedAt: started,
+        openingCash: 0,
+        source: 'desktop',
+        closedAt: null,
+        syncedAt: null,
+        openedLocally: true,
+      }).run()
+      db.insert(sales).values({
+        id: 'sale-1',
+        storeId: 'store-001',
+        shiftId: 'shift-with-sale',
+        total: 4200,
+        status: 'confirmed',
+        createdAt: started,
+        createdBy: 'user-001',
+      }).run()
+
+      mockGetDoc.mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          closedAt: closed,
+          cashLeft: 200,
+          soldTotal: 1,
+        }),
+      })
+
+      await pushUnsyncedShifts(TENANT)
+
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-with-sale')).get()
+      expect(row?.closedAt).toBe(closed)
+      expect(row?.cashLeft).toBe(200)
+      expect(row?.soldTotal).toBe(4200)
+      expect(row?.moneySnapshottedAt).toEqual(expect.any(String))
+      expect(db.select().from(sales).all()).toEqual([
+        expect.objectContaining({ id: 'sale-1', total: 4200, status: 'confirmed' }),
+      ])
+      const payload = mockSetDoc.mock.calls[0]?.[1] as Record<string, unknown>
+      expect(payload.closedAt).toBe(closed)
+      expect(payload.soldTotal).toBe(4200)
+      expect(payload.cashLeft).toBe(200)
+      expect(payload.closedAt).not.toBeNull()
+    })
   })
 
   describe('reconcileStoreShifts', () => {
@@ -449,6 +583,55 @@ describe('shiftSync', () => {
         bills: [{ denomination: 2000, quantity: 1 }],
         cashLeft: 2000,
       })
+    })
+
+    it('precarga quedó escrito, incluso cero, y no inventa un número si falta', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      db.insert(shifts).values({
+        id: 'shift-zero',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: '2026-10-26T08:00:00.000Z',
+        closedAt: '2026-10-26T18:00:00.000Z',
+        openingCash: 0,
+        cashLeft: 0,
+        closingCash: null,
+        deliveredAmount: null,
+        source: 'desktop',
+      }).run()
+
+      const zero = await loadCashHandoverForStore(TENANT, 'store-001')
+      expect(zero?.cashLeft).toBe(0)
+
+      db.update(shifts).set({
+        cashLeft: null,
+        deliveredAmount: 900,
+        closingCash: null,
+      }).where(eq(shifts.id, 'shift-zero')).run()
+      const missing = await loadCashHandoverForStore(TENANT, 'store-001')
+      expect(missing?.cashLeft).toBeNull()
+    })
+
+    it('un quedó remoto en cero no se reemplaza por el total viejo', async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        size: 1,
+        docs: [{
+          id: 'shift-explicit-zero',
+          data: () => ({
+            id: 'shift-explicit-zero',
+            userId: 'user-001',
+            cashierName: 'Ana',
+            closedAt: '2026-10-26T18:00:00.000Z',
+            cashLeft: 0,
+            closingCash: 9000,
+            deliveredAmount: 1000,
+          }),
+        }],
+      })
+
+      const result = await loadCashHandoverForStore(TENANT, 'store-001')
+      expect(result?.cashLeft).toBe(0)
     })
   })
 })

@@ -28,6 +28,10 @@ export const IPC = {
   GET_SHIFT_SUMMARY: 'ipc:get-shift-summary',
   CLOSE_SHIFT: 'ipc:close-shift',
   FORCE_CLOSE_OPEN_SHIFT: 'ipc:force-close-open-shift',
+  /** Cierra un turno abierto ajeno escribiendo solo quedó / se retiró. Cajera del local o admin. */
+  CLOSE_OTHER_SHIFT: 'ipc:close-other-shift',
+  /** Corrige quedó / se retiró de un turno ya cerrado. Solo admin. No toca el turno siguiente. */
+  CORRECT_SHIFT_CLOSE: 'ipc:correct-shift-close',
   SHIFT_INACTIVITY_WARNING: 'ipc:shift-inactivity-warning',   // push main → renderer
   /** Sesión offline revalidada con Firebase (push main → renderer). */
   OFFLINE_SESSION_UPGRADED: 'ipc:offline-session-upgraded',
@@ -187,6 +191,8 @@ export const IPC = {
   // Historial completo (Fase 7 — solo admin)
   GET_HISTORY_SHIFTS: 'ipc:get-history-shifts',
   GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',
+  /** Plata y medias reses de un local en un rango. Solo admin. */
+  GET_ADMIN_SUMMARY: 'ipc:get-admin-summary',
   GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)

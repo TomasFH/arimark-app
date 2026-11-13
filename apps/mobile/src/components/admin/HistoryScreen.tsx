@@ -28,14 +28,19 @@ import {
   type StoreDoc,
 } from '../../lib/adminFirestore'
 import { expenseNote, expenseTitle } from '../../lib/adminLedger'
+import { closeRemoteShift, correctRemoteShiftClose, type ShiftAmountFields } from '../../lib/shiftCloseWrite'
+import { invalidateSummaryWeek } from '../../lib/summaryCache'
 import { buildCashHandoverAudit, exceptionalDiscountLabel, formatBillDenomination } from '@carniceria/shared'
 import { formatDepositPaymentsLine } from '../../lib/orderMapping'
 import { todayLocalYmd, addDaysYmd } from '../../lib/week'
-import type { PaymentMethod } from '../../types/pos'
+import type { LocalProfile, PaymentMethod } from '../../types/pos'
+import ShiftCloseAmountsForm from './ShiftCloseAmountsForm'
+import ShiftCloseCorrection from './ShiftCloseCorrection'
 
 interface Props {
   onBack: () => void
   stores: StoreDoc[]
+  profile: LocalProfile
 }
 
 const METHOD_LABEL: Record<PaymentMethod, string> = {
@@ -59,7 +64,7 @@ function formatDateTime(iso: string | null | undefined): string {
   }
 }
 
-export function HistoryScreen({ onBack, stores }: Props) {
+export function HistoryScreen({ onBack, stores, profile }: Props) {
   const online = useOnlineStatus()
   const activeStores = stores.filter(s => !s.archivedAt)
   useBackLayer(true, onBack)
@@ -97,7 +102,12 @@ export function HistoryScreen({ onBack, stores }: Props) {
       <ShiftDetailScreen
         shift={selectedShift}
         online={online}
+        profile={profile}
         onBack={() => setSelectedShift(null)}
+        onShiftChange={next => {
+          setSelectedShift(next)
+          setShifts(rows => rows.map(row => row.id === next.id ? next : row))
+        }}
       />
     )
   }
@@ -217,10 +227,24 @@ export function HistoryScreen({ onBack, stores }: Props) {
 interface ShiftDetailScreenProps {
   shift: AdminShift
   online: boolean
+  profile: LocalProfile
   onBack: () => void
+  onShiftChange: (shift: AdminShift) => void
 }
 
-function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
+function applyAmounts(shift: AdminShift, fields: ShiftAmountFields): AdminShift {
+  return {
+    ...shift,
+    closedAt: fields.closedAt ?? shift.closedAt,
+    cashLeft: fields.cashLeft !== undefined ? fields.cashLeft : shift.cashLeft,
+    deliveredAmount: fields.deliveredAmount !== undefined ? fields.deliveredAmount : shift.deliveredAmount,
+    closingCash: fields.closingCash,
+    closedByUserId: fields.closedByUserId ?? shift.closedByUserId,
+    closedByName: fields.closedByName ?? shift.closedByName,
+  }
+}
+
+function ShiftDetailScreen({ shift, online, profile, onBack, onShiftChange }: ShiftDetailScreenProps) {
   useBackLayer(true, onBack)
   const [sales, setSales] = useState<AdminSale[]>([])
   const [totals, setTotals] = useState<PaymentTotals>(sumPaymentTotals([]))
@@ -276,7 +300,41 @@ function ShiftDetailScreen({ shift, online, onBack }: ShiftDetailScreenProps) {
       />
       {!online && <OfflineBanner />}
 
-      <main className="flex-1 px-4 py-4 space-y-4">
+      <main className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        <section className="rounded-xl border border-zinc-700 bg-zinc-800 p-4">
+          {shift.closedAt ? (
+            <ShiftCloseCorrection
+              key={`${shift.id}:${shift.cashLeft ?? ''}:${shift.deliveredAmount ?? ''}`}
+              cashLeft={shift.cashLeft}
+              withdrawn={shift.deliveredAmount}
+              onSubmit={async patch => {
+                const fields = await correctRemoteShiftClose(shift.id, {
+                  ...patch,
+                  currentCashLeft: shift.cashLeft,
+                  currentWithdrawn: shift.deliveredAmount,
+                })
+                await invalidateSummaryWeek(shift.storeId, shift.startedAt)
+                onShiftChange(applyAmounts(shift, fields))
+              }}
+            />
+          ) : (
+            <ShiftCloseAmountsForm
+              key={`${shift.id}:${shift.closedAt ?? ''}`}
+              mode="close"
+              initialCashLeft={shift.cashLeft}
+              initialWithdrawn={shift.deliveredAmount}
+              submitLabel="Cerrar turno"
+              onSubmit={async patch => {
+                const fields = await closeRemoteShift(shift.id, {
+                  ...patch,
+                  closedByUserId: profile.uid,
+                  closedByName: profile.displayName,
+                })
+                onShiftChange(applyAmounts(shift, fields))
+              }}
+            />
+          )}
+        </section>
         {error && <ErrorBanner message={error} onRetry={load} />}
         {loading && <Spinner />}
 

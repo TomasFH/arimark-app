@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import NumericInput from '../components/NumericInput'
 import BillCountGrid from '../components/BillCountGrid'
+import ShiftCloseAmountsForm from '../components/ShiftCloseAmountsForm'
 import { Button, Modal } from '../components/ui'
 import { detectShiftType } from '../lib/detectShiftType'
 import { civilYmd, hoursForDate, storeHoursSourceFromRecord, isEmptyBillCount } from '@carniceria/shared'
@@ -26,8 +27,6 @@ interface Props {
   storeId?: string
   /** ID del usuario actual (para comparar con el turno abierto del local). */
   userId?: string
-  /** Permite cerrar un turno ajeno colgado. Solo admin. */
-  canForceClose?: boolean
   /** Label del botón de cancelar. Por defecto "← Cambiar local". */
   cancelLabel?: string
 }
@@ -37,13 +36,12 @@ function loadBillMode(): BillMode {
   return stored === 'total' ? 'total' : 'quantity'
 }
 
-export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, userId, canForceClose = false, cancelLabel = '← Cambiar local' }: Props) {
+export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, userId, cancelLabel = '← Cambiar local' }: Props) {
   const [shiftType, setShiftType] = useState<ShiftType>('morning')
   const [openingCash, setOpeningCash] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [blockingShift, setBlockingShift] = useState<{ shiftId: string; userName: string } | null>(null)
-  const [forceClosing, setForceClosing] = useState(false)
   const [checking, setChecking] = useState(true)
   const submittingRef = useRef(false)
   const openingCashTouched = useRef(false)
@@ -66,7 +64,6 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
     if (storeShift.ok && storeShift.data && storeShift.data.userId !== userId) {
       const ownerName = storeShift.data.userName
       setBlockingShift({ shiftId: storeShift.data.shiftId, userName: ownerName })
-      setError(`Ya hay un turno abierto en este local (${ownerName}). Pedile que cierre su turno primero.`)
     }
     return false
   }
@@ -299,49 +296,43 @@ export default function OpenShiftScreen({ onShiftOpened, onCancel, storeId, user
               </div>
             </div>
 
+            {blockingShift && (
+              <ShiftCloseAmountsForm
+                mode="close"
+                submitLabel={`Cerrar el turno de ${blockingShift.userName}`}
+                disabled={checking}
+                onSubmit={async patch => {
+                  const r = await window.hw.closeOtherShift({ shiftId: blockingShift.shiftId, ...patch })
+                  if (!r.ok) throw new Error(r.error ?? 'No se pudo cerrar el turno.')
+                  setBlockingShift(null)
+                  setError('')
+                  const handoverRes = await window.hw.getCashHandover()
+                  if (handoverRes.ok && handoverRes.data) {
+                    const snapshot = handoverRes.data
+                    setHandover(snapshot)
+                    setBillRows(billRowsFromLines(snapshot.bills))
+                    if (!openingCashTouched.current && snapshot.cashLeft != null) {
+                      setOpeningCash(cashAmountToInput(snapshot.cashLeft))
+                    }
+                  }
+                }}
+              />
+            )}
+
             {error && (
               <div className="space-y-2">
                 <p className="rounded-lg border border-danger bg-panel px-3 py-2 text-sm text-danger">{error}</p>
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setChecking(true)
-                      void checkExistingShift().finally(() => setChecking(false))
-                    }}
-                    disabled={checking || forceClosing}
-                    className="w-full rounded-lg border border-line py-2 text-sm text-ink transition-colors hover:bg-hover disabled:opacity-50"
-                  >
-                    {checking ? 'Comprobando…' : 'Volver a comprobar'}
-                  </button>
-                  {canForceClose && blockingShift && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void (async () => {
-                          setForceClosing(true)
-                          setError('')
-                          try {
-                            const r = await window.hw.forceCloseOpenShift({ shiftId: blockingShift.shiftId })
-                            if (!r.ok) {
-                              setError(r.error ?? 'No se pudo cerrar el turno.')
-                              return
-                            }
-                            setBlockingShift(null)
-                          } catch {
-                            setError('Error de comunicación. Reintentar.')
-                          } finally {
-                            setForceClosing(false)
-                          }
-                        })()
-                      }}
-                      disabled={forceClosing || checking}
-                      className="w-full rounded-lg border border-line bg-app py-2 text-sm font-medium text-ink transition-colors hover:bg-hover disabled:opacity-50"
-                    >
-                      {forceClosing ? 'Cerrando turno…' : `Cerrar el turno de ${blockingShift.userName}`}
-                    </button>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChecking(true)
+                    void checkExistingShift().finally(() => setChecking(false))
+                  }}
+                  disabled={checking}
+                  className="w-full rounded-lg border border-line py-2 text-sm text-ink transition-colors hover:bg-hover disabled:opacity-50"
+                >
+                  {checking ? 'Comprobando…' : 'Volver a comprobar'}
+                </button>
               </div>
             )}
 

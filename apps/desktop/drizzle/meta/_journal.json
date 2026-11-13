@@ -400,6 +400,20 @@
       "when": 1792527038401,
       "tag": "0056_merch_week_pulls",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1793076962324,
+      "tag": "0057_shift_close_amounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1793168283485,
+      "tag": "0058_summary_week_cache",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,7 @@ import { SpecialCustomersScreen } from './admin/SpecialCustomersScreen'
 import { StaffScreen } from './admin/StaffScreen'
 import { StoresScreen } from './admin/StoresScreen'
 import { HistoryScreen } from './admin/HistoryScreen'
+import { SummaryScreen } from './admin/SummaryScreen'
 import type { LocalProfile } from '../types/pos'
 import { ChangePasswordModal } from './ChangePasswordModal'
 
@@ -33,6 +34,7 @@ type AdminScreen =
   | { kind: 'staff' }
   | { kind: 'stores' }
   | { kind: 'history' }
+  | { kind: 'summary' }
 
 export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props) {
   const online = useOnlineStatus()
@@ -88,7 +90,10 @@ export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props)
     return <StoresScreen onBack={toHub} />
   }
   if (screen.kind === 'history') {
-    return <HistoryScreen onBack={toHub} stores={activeStores} />
+    return <HistoryScreen onBack={toHub} stores={activeStores} profile={profile} />
+  }
+  if (screen.kind === 'summary') {
+    return <SummaryScreen onBack={toHub} stores={activeStores} />
   }
 
   // ---------------------------------------------------------------------------
@@ -213,7 +218,14 @@ export function AdminDashboard({ profile, onLogout, onOperateAsCashier }: Props)
         </HubSection>
 
         <HubSection title="Análisis">
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <HubTile
+              icon="📊"
+              accent="bg-sky-600/15"
+              label="Resumen"
+              subtitle="Plata y medias de la semana"
+              onClick={() => setScreen({ kind: 'summary' })}
+            />
             <HubTile
               icon="📊"
               accent="bg-sky-600/15"

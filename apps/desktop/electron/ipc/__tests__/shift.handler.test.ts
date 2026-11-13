@@ -47,7 +47,8 @@ import { getActiveSession, updateActiveShift } from '../../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
 import { registerShiftHandlers } from '../shift.handler'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, expenses, sales, salePayments, billDenominations, providerDebtEvents } from '../../db/schema'
+import { mondayWeekContaining, mondayWeekRange } from '@carniceria/shared'
+import { stores, users, shifts, expenses, sales, salePayments, billDenominations, providerDebtEvents, customers, orders, debtEvents, summaryWeekPulls } from '../../db/schema'
 import { eq } from 'drizzle-orm'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown | Promise<unknown>
@@ -1249,6 +1250,387 @@ describe('shift.handler', () => {
       expect(result).toMatchObject({ ok: true })
       expect(mockRun).toHaveBeenCalledOnce()
       expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+  })
+
+  describe('CLOSE_OTHER_SHIFT', () => {
+    const started = '2026-10-26T12:00:00.000Z'
+
+    async function seedOpenShift(storeId = 'store-001', openedLocally = false) {
+      const { db } = await createInMemoryDb()
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: started }).run()
+      if (storeId !== 'store-001') {
+        db.insert(stores).values({ id: storeId, name: 'Otro local', createdAt: started }).run()
+      }
+      db.insert(users).values({
+        id: 'user-001', name: 'Cajera Test', storeId: 'store-001', role: 'cashier', active: true, createdAt: started,
+      }).run()
+      db.insert(users).values({
+        id: 'user-002', name: 'Se fue', storeId, role: 'cashier', active: true, createdAt: started,
+      }).run()
+      db.insert(users).values({
+        id: 'admin-001', name: 'Admin', storeId: 'store-001', role: 'cashier', active: true, createdAt: started,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-open',
+        storeId,
+        userId: 'user-002',
+        shiftType: 'morning',
+        startedAt: started,
+        openingCash: 1000,
+        source: 'desktop',
+        openedLocally,
+      }).run()
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+      return db
+    }
+
+    function savedShift(db: Awaited<ReturnType<typeof seedOpenShift>>) {
+      return db.select().from(shifts).where(eq(shifts.id, 'shift-open')).get()
+    }
+
+    it('rechaza payload malformado', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const cases = [
+        {},
+        { shiftId: '' },
+        { shiftId: 'shift-open', cashLeft: -1 },
+        { shiftId: 'shift-open', withdrawn: -1 },
+        { shiftId: 'shift-open', cashLeft: null },
+        { shiftId: 'shift-open', withdrawn: null },
+        { shiftId: 'shift-open', cashLeft: '1500' },
+      ]
+      for (const payload of cases) {
+        const result = await getHandler('ipc:close-other-shift')({}, payload)
+        expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+      }
+    })
+
+    it('rechaza si no hay sesión', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const result = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open' })
+      expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
+    })
+
+    it('una cajera no cierra el turno de otro local', async () => {
+      await seedOpenShift('store-002')
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open', cashLeft: 100 })
+      expect(result).toMatchObject({ ok: false, code: 'WRONG_STORE' })
+    })
+
+    it('cierra sin montos: vacío no es cero y no inventa la plata si no hay ventas', async () => {
+      const db = await seedOpenShift()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open' })
+      expect(result).toMatchObject({ ok: true })
+      const row = savedShift(db)
+      expect(row?.closedAt).toEqual(expect.any(String))
+      expect(row?.cashLeft).toBeNull()
+      expect(row?.deliveredAmount).toBeNull()
+      expect(row?.closingCash).toBeNull()
+      expect(row?.closedByUserId).toBe('user-001')
+      expect(row?.closedByName).toBe('Cajera Test')
+      expect(row?.soldTotal).toBeNull()
+      expect(row?.moneySnapshottedAt).toBeNull()
+      expect(row?.openingCash).toBe(1000)
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+
+    it('cero escrito es un dato y no se guarda quedó dentro del total si falta el retiro', async () => {
+      const db = await seedOpenShift()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const onlyLeft = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open', cashLeft: 0 })
+      expect(onlyLeft).toMatchObject({ ok: true })
+      expect(savedShift(db)).toMatchObject({ cashLeft: 0, deliveredAmount: null, closingCash: null })
+    })
+
+    it('se retiró solo tampoco arma el total', async () => {
+      const db = await seedOpenShift()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open', withdrawn: 0 })
+      expect(result).toMatchObject({ ok: true })
+      expect(savedShift(db)).toMatchObject({
+        cashLeft: null,
+        deliveredAmount: 0,
+        closingCash: null,
+        closedByUserId: 'admin-001',
+        closedByName: 'Admin',
+      })
+    })
+
+    it('con los dos montos el total es la suma', async () => {
+      const db = await seedOpenShift()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = await getHandler('ipc:close-other-shift')({}, {
+        shiftId: 'shift-open',
+        cashLeft: 1500,
+        withdrawn: 4000,
+      })
+      expect(result).toMatchObject({ ok: true })
+      expect(savedShift(db)).toMatchObject({ cashLeft: 1500, deliveredAmount: 4000, closingCash: 5500 })
+    })
+
+    it('no reescribe ventas, gastos, señas ni fiados, y anota la plata si están en esta PC', async () => {
+      const db = await seedOpenShift()
+      const now = started
+      db.insert(customers).values({
+        id: 'cust-1', storeId: 'store-001', name: 'Cliente', createdAt: now, createdBy: 'user-002',
+      }).run()
+      db.insert(sales).values([
+        {
+          id: 'sale-cash', storeId: 'store-001', shiftId: 'shift-open', total: 10000,
+          isDebt: false, status: 'confirmed', createdAt: now, createdBy: 'user-002',
+        },
+        {
+          id: 'sale-fiado', storeId: 'store-001', shiftId: 'shift-open', total: 2500,
+          isDebt: true, status: 'confirmed', customerId: 'cust-1', createdAt: now, createdBy: 'user-002',
+        },
+      ]).run()
+      db.insert(salePayments).values([
+        { id: 'pay-cash', saleId: 'sale-cash', paymentMethod: 'cash', amount: 4000, createdAt: now, createdBy: 'user-002' },
+        { id: 'pay-debit', saleId: 'sale-cash', paymentMethod: 'debit', amount: 6000, createdAt: now, createdBy: 'user-002' },
+      ]).run()
+      db.insert(expenses).values([
+        { id: 'exp-1', storeId: 'store-001', shiftId: 'shift-open', amount: 500, kind: 'expense', createdAt: now, createdBy: 'user-002' },
+        { id: 'inj-1', storeId: 'store-001', shiftId: 'shift-open', amount: 2000, kind: 'inject', injectReason: 'aporte', createdAt: now, createdBy: 'user-002' },
+        { id: 'inj-2', storeId: 'store-001', shiftId: 'shift-open', amount: 300, kind: 'inject', injectReason: 'wallet_cash', concept: 'Efectivo por digital', createdAt: now, createdBy: 'user-002' },
+      ]).run()
+      db.insert(orders).values({
+        id: 'ord-1', storeId: 'store-001', customerName: 'Ana', items: 'asado', pickupDate: '2026-10-27',
+        status: 'pending', depositAmount: 1000, depositMethod: 'cash', depositShiftId: 'shift-open',
+        createdAt: now, createdBy: 'user-002',
+      }).run()
+      db.insert(debtEvents).values({
+        id: 'debt-1', customerId: 'cust-1', saleId: 'sale-fiado', storeId: 'store-001',
+        eventType: 'created', amount: 2500, shiftId: 'shift-open', createdAt: now, createdBy: 'user-002',
+      }).run()
+
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = await getHandler('ipc:close-other-shift')({}, {
+        shiftId: 'shift-open',
+        cashLeft: 100,
+        withdrawn: 50,
+      })
+      expect(result).toMatchObject({ ok: true })
+
+      expect(db.select().from(sales).all()).toEqual([
+        expect.objectContaining({ id: 'sale-cash', total: 10000, status: 'confirmed' }),
+        expect.objectContaining({ id: 'sale-fiado', total: 2500, isDebt: true }),
+      ])
+      expect(db.select().from(expenses).all()).toHaveLength(3)
+      expect(db.select().from(orders).all()).toEqual([
+        expect.objectContaining({ id: 'ord-1', depositAmount: 1000 }),
+      ])
+      expect(db.select().from(debtEvents).all()).toEqual([
+        expect.objectContaining({ id: 'debt-1', amount: 2500, eventType: 'created' }),
+      ])
+
+      expect(savedShift(db)).toMatchObject({
+        cashLeft: 100,
+        deliveredAmount: 50,
+        closingCash: 150,
+        soldTotal: 12500,
+        cashTotal: 5000,
+        cardWalletTotal: 6000,
+        debtTotal: 2500,
+        expenseTotal: 500,
+        contributionTotal: 2000,
+        walletCashTotal: 300,
+      })
+      expect(savedShift(db)?.moneySnapshottedAt).toEqual(expect.any(String))
+    })
+
+    it('la PC que abrió el turno anota ceros si no hubo movimientos', async () => {
+      const db = await seedOpenShift('store-001', true)
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      const result = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open' })
+      expect(result).toMatchObject({ ok: true })
+      expect(savedShift(db)).toMatchObject({
+        soldTotal: 0,
+        cashTotal: 0,
+        cardWalletTotal: 0,
+        debtTotal: 0,
+        expenseTotal: 0,
+        contributionTotal: 0,
+        walletCashTotal: 0,
+      })
+      expect(savedShift(db)?.moneySnapshottedAt).toEqual(expect.any(String))
+    })
+
+    it('no vuelve a cerrar un turno que ya se cerró', async () => {
+      const db = await seedOpenShift()
+      db.update(shifts).set({
+        closedAt: started,
+        cashLeft: 10,
+        closedByUserId: 'user-002',
+      }).where(eq(shifts.id, 'shift-open')).run()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open', cashLeft: 99 })
+      expect(result).toMatchObject({ ok: false, code: 'ALREADY_CLOSED' })
+      expect(savedShift(db)?.cashLeft).toBe(10)
+      expect(savedShift(db)?.closedByUserId).toBe('user-002')
+    })
+
+    it('la precarga usa quedó solo cuando fue escrito', async () => {
+      const db = await seedOpenShift()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open', withdrawn: 800 })
+      mockLoadCashHandoverForStore.mockRejectedValueOnce(new Error('offline'))
+      const onlyWithdrawn = await getHandler('ipc:get-cash-handover')({}) as {
+        ok: boolean
+        data: { cashLeft: number | null } | null
+      }
+      expect(onlyWithdrawn.ok).toBe(true)
+      expect(onlyWithdrawn.data?.cashLeft).toBeNull()
+
+      db.update(shifts).set({ closedAt: null, deliveredAmount: null, syncedAt: null }).where(eq(shifts.id, 'shift-open')).run()
+      await getHandler('ipc:close-other-shift')({}, { shiftId: 'shift-open', cashLeft: 0 })
+      mockLoadCashHandoverForStore.mockRejectedValueOnce(new Error('offline'))
+      const writtenZero = await getHandler('ipc:get-cash-handover')({}) as {
+        data: { cashLeft: number | null } | null
+      }
+      expect(writtenZero.data?.cashLeft).toBe(0)
+    })
+  })
+
+  describe('CORRECT_SHIFT_CLOSE', () => {
+    const started = '2026-10-26T12:00:00.000Z'
+
+    async function seedClosedAndNext() {
+      const { db } = await createInMemoryDb()
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: started }).run()
+      db.insert(users).values({
+        id: 'user-001', name: 'Cajera Test', storeId: 'store-001', role: 'cashier', active: true, createdAt: started,
+      }).run()
+      db.insert(users).values({
+        id: 'admin-001', name: 'Admin', storeId: 'store-001', role: 'cashier', active: true, createdAt: started,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-closed',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: started,
+        closedAt: '2026-10-26T18:00:00.000Z',
+        openingCash: 400,
+        cashLeft: 1000,
+        deliveredAmount: 200,
+        closingCash: 1200,
+        closedByUserId: 'user-001',
+        closedByName: 'Cajera Test',
+        source: 'desktop',
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-next',
+        storeId: 'store-001',
+        userId: 'admin-001',
+        shiftType: 'evening',
+        startedAt: '2026-10-26T18:05:00.000Z',
+        openingCash: 1000,
+        source: 'desktop',
+        openedLocally: true,
+      }).run()
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+      return db
+    }
+
+    it('rechaza payload malformado', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const cases = [
+        {},
+        { shiftId: 'shift-closed' },
+        { shiftId: 'shift-closed', cashLeft: -1 },
+        { shiftId: 'shift-closed', withdrawn: null },
+      ]
+      for (const payload of cases) {
+        const result = await getHandler('ipc:correct-shift-close')({}, payload)
+        expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+      }
+    })
+
+    it('rechaza si no hay sesión o no es admin', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      expect(await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', cashLeft: 1 }))
+        .toMatchObject({ ok: false, code: 'NO_SESSION' })
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_NO_SHIFT)
+      expect(await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', cashLeft: 1 }))
+        .toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    })
+
+    it('actualiza quedó y no cambia el efectivo inicial del turno que ya se abrió', async () => {
+      const db = await seedClosedAndNext()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', cashLeft: 50 })
+      expect(result).toMatchObject({ ok: true })
+
+      const closed = db.select().from(shifts).where(eq(shifts.id, 'shift-closed')).get()
+      const next = db.select().from(shifts).where(eq(shifts.id, 'shift-next')).get()
+      expect(closed).toMatchObject({
+        cashLeft: 50,
+        deliveredAmount: 200,
+        closingCash: 250,
+        openingCash: 400,
+        closedByUserId: 'user-001',
+        closedByName: 'Cajera Test',
+        closedAt: '2026-10-26T18:00:00.000Z',
+      })
+      expect(next?.openingCash).toBe(1000)
+      expect(next?.closedAt).toBeNull()
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+
+    it('olvida la semana de ese turno y deja las otras marcas', async () => {
+      const db = await seedClosedAndNext()
+      const week = mondayWeekContaining(started)
+      const other = mondayWeekRange(-8, new Date(started))
+      db.insert(summaryWeekPulls).values({
+        storeId: 'store-001', weekStartIso: week.startIso, pulledAt: started,
+      }).run()
+      db.insert(summaryWeekPulls).values({
+        storeId: 'store-001', weekStartIso: other.startIso, pulledAt: started,
+      }).run()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', cashLeft: 50 })
+      expect(result).toMatchObject({ ok: true })
+      const marks = db.select().from(summaryWeekPulls).all().map(row => row.weekStartIso)
+      expect(marks).toEqual([other.startIso])
+    })
+
+    it('corregir solo el retiro no inventa quedó dentro del total', async () => {
+      const db = await seedClosedAndNext()
+      db.update(shifts).set({
+        cashLeft: null,
+        deliveredAmount: null,
+        closingCash: 5000,
+      }).where(eq(shifts.id, 'shift-closed')).run()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', withdrawn: 1000 })
+      expect(result).toMatchObject({ ok: true })
+      const closed = db.select().from(shifts).where(eq(shifts.id, 'shift-closed')).get()
+      const next = db.select().from(shifts).where(eq(shifts.id, 'shift-next')).get()
+      expect(closed).toMatchObject({ cashLeft: null, deliveredAmount: 1000, closingCash: null, openingCash: 400 })
+      expect(next?.openingCash).toBe(1000)
+    })
+
+    it('cero escrito reemplaza un monto anterior', async () => {
+      const db = await seedClosedAndNext()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', withdrawn: 0 })
+      expect(result).toMatchObject({ ok: true })
+      expect(db.select().from(shifts).where(eq(shifts.id, 'shift-closed')).get()).toMatchObject({
+        cashLeft: 1000,
+        deliveredAmount: 0,
+        closingCash: 1000,
+      })
+    })
+
+    it('rechaza un turno que sigue abierto', async () => {
+      const db = await seedClosedAndNext()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-next', cashLeft: 10 })
+      expect(result).toMatchObject({ ok: false, code: 'SHIFT_OPEN' })
+      expect(db.select().from(shifts).where(eq(shifts.id, 'shift-next')).get()?.openingCash).toBe(1000)
     })
   })
 })
