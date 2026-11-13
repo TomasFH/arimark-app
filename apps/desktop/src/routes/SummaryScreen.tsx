@@ -25,6 +25,7 @@ import {
   summaryMoneyView,
   summaryMonthStep,
   summaryNewDebt,
+  summaryPaymentBreakdown,
   summaryPeriodDates,
   summaryPeriodQuery,
   ymdInRange,
@@ -213,6 +214,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     [shownVisits, providerFilter],
   )
   const money = useMemo(() => summaryMoneyView(shownShifts), [shownShifts])
+  const payment = useMemo(() => summaryPaymentBreakdown(shownShifts), [shownShifts])
   const shown = summaryShownAmounts(money)
   const soldDays = useMemo(
     () => summarySoldByDay(shownShifts, dates.startYmd, dates.endYmd),
@@ -338,6 +340,26 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                     <MoneyRow label="Tarjeta y billetera" amount={shown.tarjeta} />
                     <MoneyRow label="Gastos" amount={shown.gastos} />
                     <MoneyRow label="Efectivo por digital" amount={shown.digital} />
+                    <MoneyRow label="Efectivo" amount={shown.efectivo} />
+                    <MoneyRow label="Débito" amount={payment.debit} empty="sin dato" />
+                    <MoneyRow label="Billetera virtual" amount={payment.wallet} empty="sin dato" />
+                    <MoneyRow label="Crédito" amount={payment.credit} empty="sin dato" />
+                    {payment.totalOnlyCount > 0 && (
+                      <p className="text-sm text-muted">
+                        {payment.totalOnlyCount === 1
+                          ? '1 turno solo tiene el total'
+                          : `${payment.totalOnlyCount} turnos solo tienen el total`}
+                      </p>
+                    )}
+                    {payment.gaps.map(gap => {
+                      const who = shownShifts.find(shift => shift.id === gap.shiftId)?.cashierName ?? 'Un turno'
+                      const text = `${who}: diferencia ${formatARS(gap.difference)}. ${gap.cause}`
+                      return (
+                        <p key={gap.shiftId} className="min-w-0 truncate text-sm text-muted" title={text}>
+                          {text}
+                        </p>
+                      )
+                    })}
                   </div>
                   <SaleSplitChart pending={!moneyReady} cash={shown.efectivo ?? 0} card={shown.tarjeta ?? 0} />
                 </section>

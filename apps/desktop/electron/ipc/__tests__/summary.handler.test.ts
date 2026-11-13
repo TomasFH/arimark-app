@@ -6,6 +6,8 @@ import {
   merchandiseIntakeLines,
   merchandiseIntakes,
   merchWeekPulls,
+  salePayments,
+  sales,
   shifts,
   stores,
   users,
@@ -299,6 +301,71 @@ describe('summary.handler', () => {
     })])
     expect(res.data?.visits).toEqual([expect.objectContaining({ count: 2, kg: 188, pieces: [] })])
     expect(pullMerchandiseIntakesForStoreWeek).not.toHaveBeenCalled()
+  })
+
+  it('deja el total de la ficha si las filas no coinciden, y no inventa desglose sin filas', async () => {
+    const week = mondayWeekRange(-30)
+    const at = week.startIso
+    db.insert(shifts).values({
+      id: 'shift-distinto',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: at,
+      closedAt: at,
+      openingCash: 0,
+      soldTotal: 5000,
+      cashTotal: 0,
+      cardWalletTotal: 5000,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: at,
+    }).run()
+    db.insert(shifts).values({
+      id: 'shift-solo',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'evening',
+      startedAt: at,
+      closedAt: at,
+      openingCash: 0,
+      soldTotal: 2000,
+      cashTotal: 0,
+      cardWalletTotal: 2000,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: at,
+    }).run()
+    db.insert(sales).values({
+      id: 'sale-distinto',
+      storeId: STORE_ID,
+      shiftId: 'shift-distinto',
+      total: 1000,
+      status: 'confirmed',
+      createdAt: at,
+      createdBy: USER_ID,
+    }).run()
+    db.insert(salePayments).values({
+      id: 'pay-distinto',
+      saleId: 'sale-distinto',
+      paymentMethod: 'debit',
+      amount: 1000,
+      createdAt: at,
+      createdBy: USER_ID,
+    }).run()
+
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    const distinto = res.data?.shifts.find(shift => shift.id === 'shift-distinto')
+    const solo = res.data?.shifts.find(shift => shift.id === 'shift-solo')
+    expect(distinto?.cardWalletTotal).toBe(5000)
+    expect(distinto?.paymentSplit).toEqual({ debit: 1000, wallet: 0, credit: 0 })
+    expect(solo?.cardWalletTotal).toBe(2000)
+    expect(solo?.paymentSplit).toBeNull()
   })
 
   it('la semana en curso se vuelve a pedir aunque ya esté marcada', async () => {

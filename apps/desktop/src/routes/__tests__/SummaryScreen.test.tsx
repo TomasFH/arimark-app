@@ -301,4 +301,108 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('17 cajones · 344.300 kg brutos')).toBeInTheDocument()
     expect(screen.queryByText('No hay pollo en este período.')).not.toBeInTheDocument()
   })
+
+  it('muestra débito sin corregirlo y avisa el turno que solo tiene el total', async () => {
+    const base = {
+      cashierName: 'Ana',
+      shiftType: 'morning' as const,
+      startedAt: '2026-11-10T12:00:00.000Z',
+      closedAt: '2026-11-10T20:00:00.000Z',
+      openingCash: 0,
+      cashLeft: null,
+      withdrawn: null,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: '2026-11-10T20:00:00.000Z',
+      live: false,
+    }
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [
+            {
+              ...base,
+              id: 'con-filas',
+              soldTotal: 7000,
+              cashTotal: 2000,
+              cardWalletTotal: 5000,
+              paymentSplit: { debit: 1000, wallet: 0, credit: 0 },
+            },
+            {
+              ...base,
+              id: 'solo-total',
+              soldTotal: 3000,
+              cashTotal: 0,
+              cardWalletTotal: 3000,
+              paymentSplit: null,
+            },
+            {
+              ...base,
+              id: 'sin-ficha',
+              soldTotal: null,
+              cashTotal: null,
+              cardWalletTotal: null,
+              debtTotal: null,
+              expenseTotal: null,
+              contributionTotal: null,
+              walletCashTotal: null,
+              moneySnapshottedAt: null,
+              paymentSplit: null,
+            },
+          ]
+          : [],
+        visits: [],
+        chicken: [],
+        warning: null,
+      },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('1 turno solo tiene el total')).toBeInTheDocument()
+    expect(screen.getByText('Débito').parentElement?.textContent?.replace(/\D/g, '')).toBe('1000')
+    expect(screen.getByText(/no suman el total de la ficha/)).toBeInTheDocument()
+    expect(screen.getAllByText('Tarjeta y billetera').length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('2 turnos solo tienen el total')).not.toBeInTheDocument()
+  })
+
+  it('si ningún turno tiene filas, el medio dice sin dato y no cero', async () => {
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [{
+            id: 'solo',
+            cashierName: 'Ana',
+            shiftType: 'morning',
+            startedAt: '2026-11-10T12:00:00.000Z',
+            closedAt: '2026-11-10T20:00:00.000Z',
+            openingCash: 0,
+            cashLeft: null,
+            withdrawn: null,
+            soldTotal: 4000,
+            cashTotal: 1000,
+            cardWalletTotal: 3000,
+            debtTotal: 0,
+            expenseTotal: 0,
+            contributionTotal: 0,
+            walletCashTotal: 0,
+            moneySnapshottedAt: '2026-11-10T20:00:00.000Z',
+            live: false,
+            paymentSplit: null,
+          }]
+          : [],
+        visits: [],
+        chicken: [],
+        warning: null,
+      },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('1 turno solo tiene el total')).toBeInTheDocument()
+    expect(screen.getByText('Débito').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('Billetera virtual').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('Crédito').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('Efectivo').parentElement?.textContent?.replace(/\D/g, '')).toBe('1000')
+  })
 })

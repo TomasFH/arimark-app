@@ -43,6 +43,17 @@ export interface SummaryShiftCard {
   moneySnapshottedAt: string | null
   /** Turno abierto sumado para esta pantalla, sin sellar la ficha. */
   live: boolean
+  /**
+   * Débito, billetera y crédito leídos de las filas.
+   * Null = este turno solo tiene el total agrupado.
+   */
+  paymentSplit?: PaymentSplit | null
+}
+
+export interface PaymentSplit {
+  debit: number
+  wallet: number
+  credit: number
 }
 
 /**
@@ -62,8 +73,6 @@ export function expectedRegisterCash(parts: {
     + parts.walletCashTotal
     - parts.expenseTotal
 }
-
-const CARD_METHODS = new Set(['debit', 'wallet', 'credit'])
 
 export interface TallySale {
   status: string
@@ -96,13 +105,41 @@ function isCreatedDebt(eventType: string): boolean {
  * Misma cuenta que la PC arma desde SQLite al adoptar el cierre.
  * El efectivo por digital no es venta ni gasto.
  */
+export interface TallyDeposit {
+  method: string
+  amount: number
+}
+
+function emptyPaymentSplit(): PaymentSplit {
+  return { debit: 0, wallet: 0, credit: 0 }
+}
+
+function addToSplit(split: PaymentSplit, method: string, amount: number): boolean {
+  if (method === 'debit') {
+    split.debit += amount
+    return true
+  }
+  if (method === 'wallet') {
+    split.wallet += amount
+    return true
+  }
+  if (method === 'credit') {
+    split.credit += amount
+    return true
+  }
+  return false
+}
+
 export function tallyShiftMoney(input: {
   sales: TallySale[]
-  cashDeposits: number
-  cardDeposits: number
+  cashDeposits?: number
+  cardDeposits?: number
+  /** Si viene, reemplaza cashDeposits y cardDeposits y parte la seña por medio. */
+  deposits?: TallyDeposit[]
   debtEvents: TallyDebtEvent[]
   movements: TallyMovement[]
-}): ShiftMoneyParts {
+}): ShiftMoneyParts & { paymentSplit: PaymentSplit } {
+  const paymentSplit = emptyPaymentSplit()
   let soldTotal = 0
   let cashSales = 0
   let cardSales = 0
@@ -112,7 +149,19 @@ export function tallyShiftMoney(input: {
     for (const payment of sale.payments) {
       const amount = Number(payment.amount) || 0
       if (payment.method === 'cash') cashSales += amount
-      else if (CARD_METHODS.has(payment.method)) cardSales += amount
+      else if (addToSplit(paymentSplit, payment.method, amount)) cardSales += amount
+    }
+  }
+
+  let cashDeposits = input.cashDeposits ?? 0
+  let cardDeposits = input.cardDeposits ?? 0
+  if (input.deposits) {
+    cashDeposits = 0
+    cardDeposits = 0
+    for (const deposit of input.deposits) {
+      const amount = Number(deposit.amount) || 0
+      if (deposit.method === 'cash') cashDeposits += amount
+      else if (addToSplit(paymentSplit, deposit.method, amount)) cardDeposits += amount
     }
   }
 
@@ -123,7 +172,7 @@ export function tallyShiftMoney(input: {
     if (event.paymentMethod) {
       const amount = Math.abs(Number(event.amount) || 0)
       if (event.paymentMethod === 'cash') cashDebt += amount
-      else if (CARD_METHODS.has(event.paymentMethod)) cardDebt += amount
+      else if (addToSplit(paymentSplit, event.paymentMethod, amount)) cardDebt += amount
       continue
     }
     if (isCreatedDebt(event.eventType)) debtTotal += Number(event.amount) || 0
@@ -144,12 +193,13 @@ export function tallyShiftMoney(input: {
 
   return {
     soldTotal,
-    cashTotal: cashSales + input.cashDeposits + cashDebt,
-    cardWalletTotal: cardSales + input.cardDeposits + cardDebt,
+    cashTotal: cashSales + cashDeposits + cashDebt,
+    cardWalletTotal: cardSales + cardDeposits + cardDebt,
     debtTotal,
     expenseTotal,
     contributionTotal,
     walletCashTotal,
+    paymentSplit,
   }
 }
 
@@ -370,6 +420,61 @@ export function summaryShownAmounts(view: SummaryMoneyView): {
  * Fiado nuevo del período: debtTotal de las fichas que llegaron.
  * Un turno sin ficha no suma cero. Si no llegó ninguna, null.
  */
+export const PAYMENT_SPLIT_GAP_CAUSE =
+  'Las filas de débito, billetera y crédito no suman el total de la ficha.'
+
+export interface PaymentGap {
+  shiftId: string
+  /** Total de la ficha menos la suma del desglose. No se corrige el número. */
+  difference: number
+  cause: string
+}
+
+export interface SummaryPaymentBreakdown {
+  /** Null = ningún turno con ficha tiene las filas. No es un cero. */
+  debit: number | null
+  wallet: number | null
+  credit: number | null
+  /** Turnos con ficha y sin filas. Los que no tienen ficha no entran. */
+  totalOnlyCount: number
+  gaps: PaymentGap[]
+}
+
+/** Débito, billetera y crédito de las fichas que tienen filas. */
+export function summaryPaymentBreakdown(cards: SummaryShiftCard[]): SummaryPaymentBreakdown {
+  let debit = 0
+  let wallet = 0
+  let credit = 0
+  let known = 0
+  let totalOnlyCount = 0
+  const gaps: PaymentGap[] = []
+  for (const card of cards) {
+    const parts = partsOf(card)
+    if (!cardHasMoney(card) || !parts) continue
+    const split = card.paymentSplit
+    if (split == null) {
+      totalOnlyCount += 1
+      continue
+    }
+    known += 1
+    debit += split.debit
+    wallet += split.wallet
+    credit += split.credit
+    const splitTotal = split.debit + split.wallet + split.credit
+    if (Math.round(splitTotal) !== Math.round(parts.cardWalletTotal)) {
+      gaps.push({
+        shiftId: card.id,
+        difference: parts.cardWalletTotal - splitTotal,
+        cause: PAYMENT_SPLIT_GAP_CAUSE,
+      })
+    }
+  }
+  if (known === 0) {
+    return { debit: null, wallet: null, credit: null, totalOnlyCount, gaps }
+  }
+  return { debit, wallet, credit, totalOnlyCount, gaps }
+}
+
 export function summaryNewDebt(cards: SummaryShiftCard[]): number | null {
   let arrived = 0
   let total = 0

@@ -9,6 +9,7 @@
 import { and, eq } from 'drizzle-orm'
 import { getDb } from './client'
 import { debtEvents, expenses, orders, sales, salePayments } from './schema'
+import type { PaymentSplit } from '@carniceria/shared'
 import { addDepositToTotals, emptyDepositTotals } from '../lib/depositPayments'
 
 type AppDb = ReturnType<typeof getDb>
@@ -23,8 +24,6 @@ export interface ShiftMoneySnapshot {
   walletCashTotal: number
   moneySnapshottedAt: string
 }
-
-const CARD_METHODS = new Set(['debit', 'wallet', 'credit'])
 
 function isWalletCash(row: { injectReason: string | null; concept: string | null }): boolean {
   return row.injectReason === 'wallet_cash' || row.concept === 'Efectivo por digital'
@@ -58,7 +57,10 @@ export function shouldSnapshotShiftMoney(
  * Gastos: salidas. Aportes: ingresos de los dueños.
  * Efectivo por digital queda aparte: no es venta, ni gasto, ni aporte.
  */
-export function computeShiftMoney(db: AppDb, shiftId: string): Omit<ShiftMoneySnapshot, 'moneySnapshottedAt'> {
+export function computeShiftMoney(
+  db: AppDb,
+  shiftId: string,
+): Omit<ShiftMoneySnapshot, 'moneySnapshottedAt'> & { paymentSplit: PaymentSplit } {
   const confirmed = db
     .select({ total: sales.total })
     .from(sales)
@@ -75,10 +77,11 @@ export function computeShiftMoney(db: AppDb, shiftId: string): Omit<ShiftMoneySn
 
   let cashSales = 0
   let cardSales = 0
+  const paymentSplit = { debit: 0, wallet: 0, credit: 0 }
   for (const row of paymentRows) {
     const amount = Number(row.amount ?? 0)
     if (row.method === 'cash') cashSales += amount
-    else if (CARD_METHODS.has(row.method)) cardSales += amount
+    else if (addCardMethod(paymentSplit, row.method, amount)) cardSales += amount
   }
 
   const depositOrders = db
@@ -110,7 +113,7 @@ export function computeShiftMoney(db: AppDb, shiftId: string): Omit<ShiftMoneySn
     if (row.paymentMethod == null) continue
     const amount = Math.abs(Number(row.amount ?? 0))
     if (row.paymentMethod === 'cash') cashDebt += amount
-    else if (CARD_METHODS.has(row.paymentMethod)) cardDebt += amount
+    else if (addCardMethod(paymentSplit, row.paymentMethod, amount)) cardDebt += amount
   }
 
   const createdDebts = db
@@ -145,6 +148,10 @@ export function computeShiftMoney(db: AppDb, shiftId: string): Omit<ShiftMoneySn
     }
   }
 
+  paymentSplit.debit += depositTotals.debit
+  paymentSplit.wallet += depositTotals.wallet
+  paymentSplit.credit += depositTotals.credit
+
   return {
     soldTotal,
     cashTotal: cashSales + depositTotals.cash + cashDebt,
@@ -153,7 +160,28 @@ export function computeShiftMoney(db: AppDb, shiftId: string): Omit<ShiftMoneySn
     expenseTotal,
     contributionTotal,
     walletCashTotal,
+    paymentSplit,
   }
+}
+
+function addCardMethod(
+  split: { debit: number; wallet: number; credit: number },
+  method: string,
+  amount: number,
+): boolean {
+  if (method === 'debit') {
+    split.debit += amount
+    return true
+  }
+  if (method === 'wallet') {
+    split.wallet += amount
+    return true
+  }
+  if (method === 'credit') {
+    split.credit += amount
+    return true
+  }
+  return false
 }
 
 /** Null si esta base no tiene los movimientos del turno. */
@@ -163,5 +191,8 @@ export function snapshotShiftMoney(
   at: string,
 ): ShiftMoneySnapshot | null {
   if (!shouldSnapshotShiftMoney(db, shift)) return null
-  return { ...computeShiftMoney(db, shift.id), moneySnapshottedAt: at }
+  const computed = computeShiftMoney(db, shift.id)
+  const { paymentSplit, ...parts } = computed
+  void paymentSplit
+  return { ...parts, moneySnapshottedAt: at }
 }

@@ -16,6 +16,7 @@ import {
   shiftMoneyAction,
   type ChickenVisit,
   type MediaResVisit,
+  type PaymentSplit,
   type ShiftMoneyParts,
   type SummaryFiadoSlice,
   type SummaryShiftCard,
@@ -121,6 +122,7 @@ function cardFrom(
   cashLeft: number | null,
   withdrawn: number | null,
   parts: ShiftMoneyParts | null,
+  paymentSplit: PaymentSplit | null,
   moneySnapshottedAt: string | null,
   live: boolean,
 ): SummaryShiftCard {
@@ -142,7 +144,14 @@ function cardFrom(
     walletCashTotal: parts?.walletCashTotal ?? null,
     moneySnapshottedAt: live ? null : moneySnapshottedAt,
     live,
+    paymentSplit: parts ? paymentSplit : null,
   }
+}
+
+function moneyPartsOnly(computed: ShiftMoneyParts & { paymentSplit?: PaymentSplit }): ShiftMoneyParts {
+  const { paymentSplit, ...parts } = computed
+  void paymentSplit
+  return parts
 }
 
 async function loadShifts(
@@ -199,7 +208,7 @@ async function loadShifts(
     if (action === 'backfill') backfillIds.push(id)
   }
 
-  let remoteMoney = new Map<string, ShiftMoneyParts>()
+  let remoteMoney = new Map<string, ShiftMoneyParts & { paymentSplit?: PaymentSplit }>()
   const needRemote = [...liveIds, ...backfillIds]
   if (needRemote.length > 0 && isFirebaseAvailable()) {
     try {
@@ -236,7 +245,8 @@ async function loadShifts(
     })
 
     if (action === 'recompute' && local) {
-      const parts = computeShiftMoney(db, local.id)
+      const computed = computeShiftMoney(db, local.id)
+      const parts = moneyPartsOnly(computed)
       saveOriginMoney(db, local, parts, at)
       if (isFirebaseAvailable()) {
         try {
@@ -245,18 +255,20 @@ async function loadShifts(
           log.warn('[summary] No se pudo publicar la plata del turno', { id: local.id, err })
         }
       }
-      cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, at, false))
+      cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, computed.paymentSplit, at, false))
       continue
     }
 
     if (action === 'live' && hasLocalLedger && local) {
-      const parts = computeShiftMoney(db, local.id)
-      cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, null, true))
+      const computed = computeShiftMoney(db, local.id)
+      const parts = moneyPartsOnly(computed)
+      cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, computed.paymentSplit, null, true))
       continue
     }
 
     if (action === 'live') {
-      const parts = remoteMoney.get(id) ?? null
+      const remote = remoteMoney.get(id) ?? null
+      const parts = remote ? moneyPartsOnly(remote) : null
       cards.push(cardFrom(
         id,
         cashierName,
@@ -267,6 +279,7 @@ async function loadShifts(
         cashLeft,
         withdrawn,
         parts,
+        remote?.paymentSplit ?? null,
         null,
         parts != null,
       ))
@@ -274,8 +287,9 @@ async function loadShifts(
     }
 
     if (action === 'backfill') {
-      const parts = remoteMoney.get(id) ?? null
-      if (parts) {
+      const remote = remoteMoney.get(id) ?? null
+      const parts = remote ? moneyPartsOnly(remote) : null
+      if (parts && remote) {
         if (isFirebaseAvailable()) {
           try {
             await writeRemoteShiftMoney(id, parts, at)
@@ -284,13 +298,16 @@ async function loadShifts(
           }
         }
         if (local) cacheFilledMoney(db, local, parts, at)
-        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, at, false))
+        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, remote.paymentSplit, at, false))
       } else {
-        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, null, null, false))
+        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, null, null, null, false))
       }
       continue
     }
 
+    const keptSplit = hasLocalLedger && local && kept
+      ? computeShiftMoney(db, local.id).paymentSplit
+      : null
     cards.push(cardFrom(
       id,
       cashierName,
@@ -301,6 +318,7 @@ async function loadShifts(
       cashLeft,
       withdrawn,
       kept,
+      keptSplit,
       snapshotAt,
       false,
     ))

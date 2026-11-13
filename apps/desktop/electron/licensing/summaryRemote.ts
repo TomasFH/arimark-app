@@ -5,6 +5,7 @@
 import { collection, doc, getDocs, getFirestore, orderBy, query, setDoc, where } from 'firebase/firestore'
 import {
   tallyShiftMoney,
+  type PaymentSplit,
   type ShiftMoneyParts,
 } from '@carniceria/shared'
 import { getFirebaseApp } from './firebase'
@@ -147,7 +148,7 @@ function readSale(data: Record<string, unknown>, id: string): SaleDoc | null {
  */
 export async function fetchRemoteShiftMoney(
   shiftIds: string[],
-): Promise<Map<string, ShiftMoneyParts>> {
+): Promise<Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>> {
   const result = new Map<string, ShiftMoneyParts>()
   if (shiftIds.length === 0) return result
   const tenant = getBusinessConfig().tenant_id
@@ -192,7 +193,7 @@ export async function fetchRemoteShiftMoney(
     }
   }
 
-  const deposits = new Map<string, { cash: number; card: number }>()
+  const deposits = new Map<string, { cash: number; debit: number; wallet: number; credit: number }>()
   for (const ids of chunk(shiftIds)) {
     const snap = await getDocs(query(ordersCol, where('depositShiftId', 'in', ids)))
     for (const docSnap of snap.docs) {
@@ -206,9 +207,11 @@ export async function fetchRemoteShiftMoney(
         depositMethod: text(data['depositMethod']),
         depositPayments: depositPaymentsToJson(data['depositPayments']),
       }, totals)
-      const prev = deposits.get(shiftId) ?? { cash: 0, card: 0 }
+      const prev = deposits.get(shiftId) ?? emptyDepositTotals()
       prev.cash += totals.cash
-      prev.card += totals.debit + totals.wallet + totals.credit
+      prev.debit += totals.debit
+      prev.wallet += totals.wallet
+      prev.credit += totals.credit
       deposits.set(shiftId, prev)
     }
   }
@@ -246,15 +249,19 @@ export async function fetchRemoteShiftMoney(
   }
 
   for (const shiftId of shiftIds) {
-    const deposit = deposits.get(shiftId) ?? { cash: 0, card: 0 }
+    const deposit = deposits.get(shiftId) ?? emptyDepositTotals()
     result.set(shiftId, tallyShiftMoney({
       sales: (salesByShift.get(shiftId) ?? []).map(sale => ({
         status: sale.status,
         total: sale.total,
         payments: sale.payments,
       })),
-      cashDeposits: deposit.cash,
-      cardDeposits: deposit.card,
+      deposits: [
+        { method: 'cash', amount: deposit.cash },
+        { method: 'debit', amount: deposit.debit },
+        { method: 'wallet', amount: deposit.wallet },
+        { method: 'credit', amount: deposit.credit },
+      ],
       debtEvents: debts.get(shiftId) ?? [],
       movements: movements.get(shiftId) ?? [],
     }))
