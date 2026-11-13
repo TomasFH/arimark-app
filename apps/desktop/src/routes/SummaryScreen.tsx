@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   boxAporteAmount,
+  chickenTotals,
   civilYmd,
   collectionNote,
   combineFiadoSlices,
@@ -32,6 +33,7 @@ import {
   summaryShownAmounts,
   summarySoldByDay,
   sumCollections,
+  type ChickenVisit,
   type SummaryFiadoSlice,
   type SummaryPeriod,
   type SummaryPreviewVisit,
@@ -149,6 +151,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       }
       const shifts: SummaryShiftCard[] = []
       const visits: AdminSummaryResult['visits'] = []
+      const chicken: ChickenVisit[] = []
       const slices: SummaryFiadoSlice[] = []
       for (const item of loaded) {
         if (!item.result.ok) continue
@@ -156,9 +159,12 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
           shifts.push({ ...shift, storeName: item.store.name })
         }
         visits.push(...item.result.data.visits)
+        for (const visit of item.result.data.chicken ?? []) {
+          chicken.push({ ...visit, storeName: item.store.name })
+        }
         slices.push(item.result.data.fiado ?? EMPTY_FIADO)
       }
-      setData({ shifts, visits, warning: null, fiado: combineFiadoSlices(slices) })
+      setData({ shifts, visits, chicken, warning: null, fiado: combineFiadoSlices(slices) })
       setOpenDay(null)
       setLoading(false)
     }).catch(() => {
@@ -191,6 +197,14 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     if (!selected) return period === 'today' ? visits.filter(visit => visit.ymd === civilYmd()) : visits
     return visits.filter(visit => ymdInRange(visit.ymd, dates.startYmd, dates.endYmd))
   }, [selected, data, period, dates.startYmd, dates.endYmd])
+
+  const shownChicken = useMemo(() => {
+    if (selected) return []
+    const rows = data?.chicken ?? []
+    if (period === 'today') return rows.filter(visit => visit.ymd === civilYmd())
+    return rows
+  }, [selected, data, period])
+  const chicken = chickenTotals(shownChicken)
 
   const providers = useMemo(() => mediaResProviders(shownVisits), [shownVisits])
   const providerFilter = provider && providers.includes(provider) ? provider : null
@@ -403,6 +417,52 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                 )}
               </section>
 
+              <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-ink">Pollo</h2>
+                  {shownChicken.length > 0 && (
+                    <p className="min-w-0 truncate text-right text-sm font-semibold text-ink" title={chickenHeading(chicken)}>
+                      {chickenHeading(chicken)}
+                    </p>
+                  )}
+                </div>
+                {shownChicken.length === 0 ? (
+                  <p className="text-sm text-muted">No hay pollo en este período.</p>
+                ) : (
+                  <div>
+                    <div className="grid grid-cols-[4.5rem_minmax(0,1.2fr)_minmax(0,1fr)_auto_auto] gap-2 px-1 text-xs font-medium text-muted">
+                      <span>Fecha</span>
+                      <span>Proveedor</span>
+                      <span>Local</span>
+                      <span className="text-right">Cajones</span>
+                      <span className="text-right">Kilos brutos</span>
+                    </div>
+                    <ul>
+                      {shownChicken.map(visit => {
+                        const label = `${visit.ymd.slice(8, 10)}/${visit.ymd.slice(5, 7)}`
+                        const storeLabel = visit.storeName?.trim() ?? ''
+                        return (
+                          <li
+                            key={visit.id}
+                            className="grid grid-cols-[4.5rem_minmax(0,1.2fr)_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-line px-1 py-2"
+                          >
+                            <span className="text-sm font-medium text-ink">{label}</span>
+                            <span className="min-w-0 truncate text-sm text-ink" title={visit.providerName}>
+                              {visit.providerName}
+                            </span>
+                            <span className="min-w-0 truncate text-sm text-muted" title={storeLabel}>
+                              {storeLabel}
+                            </span>
+                            <span className="text-right text-sm tabular-nums text-ink">{visit.crates}</span>
+                            <span className="text-right text-sm tabular-nums text-ink">{formatKg3(visit.grossKg)}</span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </section>
+
               {SHOW_SUMMARY_BOXES && <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
                 <h2 className="text-sm font-semibold text-ink">Cajas</h2>
                 {money.boxes.length === 0 ? (
@@ -449,6 +509,11 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
 
 function amountText(amount: number | null): string {
   return amount == null ? 'todavía no llegó' : formatARS(amount)
+}
+
+function chickenHeading(totals: { crates: number; grossKg: number }): string {
+  const crates = `${totals.crates} ${totals.crates === 1 ? 'cajón' : 'cajones'}`
+  return `${crates} · ${formatKg3(totals.grossKg)} brutos`
 }
 
 function mediaHeading(

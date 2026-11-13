@@ -209,6 +209,95 @@ describe('summary.handler', () => {
     expect(res.data?.visits).toHaveLength(1)
     expect(res.data?.visits[0]?.count).toBe(2)
     expect(res.data?.visits[0]?.kg).toBe(80)
+    expect(res.data?.chicken).toEqual([expect.objectContaining({ crates: 1, grossKg: 10 })])
+    expect(pullMerchandiseIntakesForStoreWeek).not.toHaveBeenCalled()
+  })
+
+  it('suma el cajón de pollo y la media res del catálogo, y deja afuera el corte por kilo', async () => {
+    const week = mondayWeekRange(-30)
+    db.insert(shifts).values({
+      id: 'shift-pollo',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: week.startIso,
+      closedAt: week.startIso,
+      openingCash: 0,
+    }).run()
+    db.insert(merchandiseIntakes).values({
+      id: 'ing-pollo',
+      storeId: STORE_ID,
+      shiftId: 'shift-pollo',
+      paymentKind: 'none',
+      paidAmount: 0,
+      debtAmount: 0,
+      providerName: 'Avícola',
+      createdBy: USER_ID,
+      createdAt: week.startIso,
+      status: 'confirmed',
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-cajon',
+      intakeId: 'ing-pollo',
+      rubroId: 'custom:cajon de pollo',
+      rubroName: 'Cajón de Pollo',
+      nameKey: 'cajon de pollo',
+      template: 'pieces_weight',
+      costUnit: 'pack',
+      packCount: 15,
+      sortOrder: 0,
+      count: 15,
+      grossKg: 304.3,
+      netKg: 304.3,
+      weightsJson: null,
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-mila',
+      intakeId: 'ing-pollo',
+      rubroId: 'prod-mila',
+      rubroName: 'Milanesa de pollo',
+      nameKey: 'milanesa de pollo',
+      template: 'weight',
+      costUnit: 'kg',
+      sortOrder: 1,
+      count: 1,
+      netKg: 4,
+      weightsJson: '[4]',
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-catalogo',
+      intakeId: 'ing-pollo',
+      rubroId: 'prod-media-res',
+      rubroName: 'Media res',
+      nameKey: 'media res',
+      template: 'pieces_weight',
+      sortOrder: 2,
+      count: 2,
+      netKg: 188,
+      weightsJson: null,
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-corte',
+      intakeId: 'ing-pollo',
+      rubroId: 'prod-asado',
+      rubroName: 'Asado media res',
+      nameKey: 'asado media res',
+      template: 'weight',
+      costUnit: 'kg',
+      sortOrder: 3,
+      count: 1,
+      netKg: 6.5,
+      weightsJson: '[6.5]',
+    }).run()
+
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    expect(res.data?.chicken).toEqual([expect.objectContaining({
+      providerName: 'Avícola',
+      crates: 15,
+      grossKg: 304.3,
+    })])
+    expect(res.data?.visits).toEqual([expect.objectContaining({ count: 2, kg: 188, pieces: [] })])
     expect(pullMerchandiseIntakesForStoreWeek).not.toHaveBeenCalled()
   })
 

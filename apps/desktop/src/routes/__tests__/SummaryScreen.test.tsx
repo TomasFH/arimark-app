@@ -257,4 +257,48 @@ describe('SummaryScreen', () => {
     expect(screen.queryByText(/Hay cobros sin turno/)).not.toBeInTheDocument()
     vi.unstubAllEnvs()
   })
+
+  it('sin pollo dice que no hay, y no muestra cero', async () => {
+    render(<SummaryScreen onBack={vi.fn()} />)
+    const empty = await screen.findByText('No hay pollo en este período.')
+    const section = empty.closest('section')
+    expect(section?.textContent).not.toMatch(/0 caj/)
+    expect(section?.textContent).not.toMatch(/0\.000/)
+    expect(screen.queryByText('Kilos brutos')).not.toBeInTheDocument()
+  })
+
+  it('muestra el pollo de cada local, con cajones y kilos brutos', async () => {
+    const visit = {
+      id: 'cajon',
+      createdAt: '2026-11-10T15:00:00.000Z',
+      ymd: '2026-11-10',
+      providerName: 'Avícola del Norte',
+      receivedByName: 'Luis',
+      storeName: null,
+      crates: 15,
+      grossKg: 304.3,
+      crateKg: [],
+    }
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: [],
+        visits: [],
+        warning: null,
+        chicken: payload.storeId === 'norte'
+          ? [visit]
+          : [{ ...visit, id: 'cajon-sur', providerName: 'Avícola del Sur', crates: 2, grossKg: 40 }],
+      },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('Kilos brutos')).toBeInTheDocument()
+    expect(screen.getByText('Avícola del Norte')).toBeInTheDocument()
+    expect(screen.getByText('Avícola del Sur')).toBeInTheDocument()
+    expect(screen.getByText('Local Norte')).toBeInTheDocument()
+    expect(screen.getByText('Local Sur')).toBeInTheDocument()
+    expect(screen.getByText('15')).toBeInTheDocument()
+    expect(screen.getByText('304.300 kg')).toBeInTheDocument()
+    expect(screen.getByText('17 cajones · 344.300 kg brutos')).toBeInTheDocument()
+    expect(screen.queryByText('No hay pollo en este período.')).not.toBeInTheDocument()
+  })
 })

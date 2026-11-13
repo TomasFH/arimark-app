@@ -1,10 +1,12 @@
 /**
- * Resumen de un local: fichas de turno en el rango y medias reses.
+ * Resumen de un local: fichas de turno, medias reses y pollo en cajones.
  * La semana en curso de mercadería se vuelve a pedir. Una semana cerrada, una vez.
+ * Pollo y medias salen de las mismas visitas ya leídas. No hay otra lectura.
  */
 import { and, eq, gte, inArray, lt } from 'drizzle-orm'
 import log from 'electron-log'
 import {
+  chickenVisits,
   civilYmd,
   mediaResVisits,
   mondayWeekRange,
@@ -12,6 +14,7 @@ import {
   parseMerchWeightsJson,
   pickWrittenAmount,
   shiftMoneyAction,
+  type ChickenVisit,
   type MediaResVisit,
   type ShiftMoneyParts,
   type SummaryFiadoSlice,
@@ -50,6 +53,7 @@ type ShiftRow = typeof shifts.$inferSelect
 export interface AdminSummaryData {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
+  chicken: ChickenVisit[]
   warning: string | null
   fiado: SummaryFiadoSlice
 }
@@ -396,7 +400,7 @@ async function loadVisits(
   startIso: string,
   endIso: string,
   now: Date,
-): Promise<{ visits: MediaResVisit[]; warning: string | null }> {
+): Promise<{ visits: MediaResVisit[]; chicken: ChickenVisit[]; warning: string | null }> {
   const currentStart = mondayWeekRange(0, now).startIso
   let warning: string | null = null
   const tenant = isFirebaseAvailable() ? getBusinessConfig().tenant_id : null
@@ -439,19 +443,25 @@ async function loadVisits(
       if (nameIds.includes(user.id)) names.set(user.id, user.name)
     }
   }
-  const visits = mediaResVisits(intakes.map(row => ({
+  const mapped = intakes.map(row => ({
     id: row.id,
     createdAt: row.createdAt,
     providerName: row.providerName,
     receivedByName: names.get(row.createdBy) ?? '',
     lines: (linesByIntake.get(row.id) ?? []).map(line => ({
       rubroId: line.rubroId,
+      rubroName: line.rubroName,
+      nameKey: line.nameKey,
+      template: line.template,
       count: line.count,
       netKg: line.netKg,
+      grossKg: line.grossKg,
+      costUnit: line.costUnit,
+      packCount: line.packCount,
       weightsKg: parseMerchWeightsJson(line.weightsJson),
     })),
-  })))
-  return { visits, warning }
+  }))
+  return { visits: mediaResVisits(mapped), chicken: chickenVisits(mapped), warning }
 }
 
 export async function loadAdminSummary(input: {
@@ -467,5 +477,11 @@ export async function loadAdminSummary(input: {
   const shifts = await loadShifts(db, input.storeId, input.startIso, input.endIso, now)
   const visitResult = await loadVisits(db, input.storeId, input.startIso, input.endIso, now)
   const fiado = loadStoreFiado(db, input.storeId, input.startIso, input.endIso)
-  return { shifts, visits: visitResult.visits, warning: visitResult.warning, fiado }
+  return {
+    shifts,
+    visits: visitResult.visits,
+    chicken: visitResult.chicken,
+    warning: visitResult.warning,
+    fiado,
+  }
 }
