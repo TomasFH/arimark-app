@@ -1,18 +1,26 @@
 /**
- * Medias reses del resumen. Se filtra por rubro, no por el formato de la línea:
- * otro rubro puede pesar pieza por pieza y no ser media res.
+ * Medias reses del resumen. Entra el rubro de fábrica, el renglón custom de la visita,
+ * o un producto cuyo nombre normalizado es media res y que se mide en piezas.
+ * Un corte por kilo, aunque el nombre diga media res, no entra.
  */
+import { merchNameKey } from './merchIntake'
 import { civilYmd, DISPLAY_TIMEZONE } from './pickupHours'
 import { WEEKDAY_SHORT_LABELS, WEEKDAY_UI_ORDER, weekdayFromYmd } from './storeHours'
 import type { Weekday } from './storeHours'
 
 export const MEDIA_RES_RUBRO_ID = 'rubro_media_res'
+/** Lo que escribe hoy la visita de media res. No es el rubro de fábrica. */
+export const MEDIA_RES_CUSTOM_RUBRO_ID = 'custom:media res'
 
 export interface MediaResLineInput {
   rubroId: string
   count: number
   netKg: number | null
   weightsKg: number[]
+  rubroName?: string | null
+  nameKey?: string | null
+  /** pieces_weight cuenta como piezas. weight, packs y count no. */
+  template?: string | null
 }
 
 export interface MediaResIntakeInput {
@@ -56,8 +64,35 @@ function roundKg(value: number): number {
   return Math.round(value * 1000) / 1000
 }
 
+function lineNameKey(line: MediaResLineInput): string {
+  const stored = line.nameKey?.trim()
+  if (stored) return merchNameKey(stored)
+  return merchNameKey(line.rubroName ?? '')
+}
+
+function mentionsMediaRes(key: string): boolean {
+  return key === 'media res' || key.includes('media res')
+}
+
+function positiveWeights(line: MediaResLineInput): number[] {
+  return line.weightsKg.filter(weight => Number.isFinite(weight) && weight > 0)
+}
+
+/** Varias piezas, o el formato de pesar cada pieza. Un corte de un solo kilo no. */
+function measuredInPieces(line: MediaResLineInput): boolean {
+  if (line.template === 'pieces_weight') return true
+  if (line.template === 'weight' || line.template === 'packs' || line.template === 'count') return false
+  if (positiveWeights(line).length > 1) return true
+  return Number.isFinite(line.count) && line.count > 1
+}
+
+function isMediaResLine(line: MediaResLineInput): boolean {
+  if (line.rubroId === MEDIA_RES_RUBRO_ID || line.rubroId === MEDIA_RES_CUSTOM_RUBRO_ID) return true
+  return mentionsMediaRes(lineNameKey(line)) && measuredInPieces(line)
+}
+
 function linePieces(line: MediaResLineInput): { pieces: MediaResPiece[]; count: number; kg: number } {
-  const weights = line.weightsKg.filter(weight => Number.isFinite(weight) && weight > 0)
+  const weights = positiveWeights(line)
   if (weights.length > 0) {
     const pieces = weights.map(kg => ({ kg: roundKg(kg) }))
     const kg = roundKg(pieces.reduce((sum, piece) => sum + piece.kg, 0))
@@ -80,7 +115,7 @@ export function mediaResVisits(
     let count = 0
     let kg = 0
     for (const line of intake.lines) {
-      if (line.rubroId !== MEDIA_RES_RUBRO_ID) continue
+      if (!isMediaResLine(line)) continue
       const part = linePieces(line)
       pieces.push(...part.pieces)
       count += part.count

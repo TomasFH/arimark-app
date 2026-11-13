@@ -243,6 +243,20 @@ export type {
   TallySale,
 } from './summaryMoney'
 export {
+  CHICKEN_FACTORY_RUBRO_ID,
+  chickenTotals,
+  chickenVisits,
+  groupChickenByDay,
+  isChickenCrateLine,
+} from './chickenSummary'
+export type {
+  ChickenDay,
+  ChickenIntakeInput,
+  ChickenLineInput,
+  ChickenVisit,
+} from './chickenSummary'
+export {
+  MEDIA_RES_CUSTOM_RUBRO_ID,
   MEDIA_RES_RUBRO_ID,
   filterMediaResProvider,
   groupMediaResByDay,
