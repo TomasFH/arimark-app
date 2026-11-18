@@ -1087,3 +1087,17 @@ export const providerPurchasePrices = sqliteTable(
     index('idx_purchase_price_provider').on(table.providerId),
   ],
 )
+
+/**
+ * Gastos ya leídos para un turno de una semana cerrada.
+ * La semana en curso no se guarda: cada vez que se pide, se vuelve a leer.
+ */
+export const summaryExpenseCache = sqliteTable('summary_expense_cache', {
+  shiftId: text('shift_id').primaryKey(),
+  storeId: text('store_id')
+    .notNull()
+    .references(() => stores.id),
+  weekStartIso: text('week_start_iso').notNull(),
+  linesJson: text('lines_json').notNull(),
+  pulledAt: text('pulled_at').notNull(),
+})

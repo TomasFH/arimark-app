@@ -64,6 +64,8 @@ const hw: HwApi = {
   correctShiftClose: payload => ipcRenderer.invoke(IPC.CORRECT_SHIFT_CLOSE, payload),
   getAdminSummary: payload => ipcRenderer.invoke(IPC.GET_ADMIN_SUMMARY, payload),
 
+  getSummaryExpenses: payload => ipcRenderer.invoke(IPC.GET_SUMMARY_EXPENSES, payload),
+
   onShiftInactivityWarning: cb => {
     const listener = () => cb()
     ipcRenderer.on(IPC.SHIFT_INACTIVITY_WARNING, listener)

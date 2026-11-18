@@ -65,6 +65,7 @@ describe('migrations', () => {
       'merch_week_pulls',
       'summary_week_pulls',
       'summary_shift_cache',
+      'summary_expense_cache',
       'provider_purchase_prices',
     ]
 
@@ -658,6 +659,18 @@ describe('migrations', () => {
     const cache = sqlite.prepare('PRAGMA table_info(summary_shift_cache)').all() as { name: string }[]
     expect(cache.map(c => c.name)).toContain('debt_total')
     expect(cache.map(c => c.name)).toContain('money_snapshotted_at')
+  })
+
+  it('guarda el detalle de gastos de una semana cerrada (migración 0060)', async () => {
+    const { sqlite } = await createInMemoryDb()
+    const cols = sqlite.prepare('PRAGMA table_info(summary_expense_cache)').all() as { name: string }[]
+    expect(cols.map(c => c.name)).toEqual([
+      'shift_id',
+      'store_id',
+      'week_start_iso',
+      'lines_json',
+      'pulled_at',
+    ])
   })
 
   it('guarda quedó, quién cerró y la plata del turno (migración 0057)', async () => {

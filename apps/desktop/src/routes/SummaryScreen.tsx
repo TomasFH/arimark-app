@@ -38,6 +38,7 @@ import {
   type ChickenVisit,
   type ExpenseRow,
   type ExpenseSummaryView,
+  type SummaryExpenseInput,
   type SummaryFiadoSlice,
   type SummaryPeriod,
   type SummaryPreviewVisit,
@@ -78,6 +79,9 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [period, setPeriod] = useState<SummaryPeriod>('week')
   const [refreshToken, setRefreshToken] = useState(0)
   const [data, setData] = useState<AdminSummaryResult | null>(null)
+  const [loadedExpenses, setLoadedExpenses] = useState<SummaryExpenseInput[] | null>(null)
+  const [expenseLoading, setExpenseLoading] = useState(false)
+  const [expenseError, setExpenseError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [storesError, setStoresError] = useState<string | null>(null)
@@ -137,6 +141,8 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     const range = summaryPeriodQuery(queried)
     let cancelled = false
     setLoading(true)
+    setLoadedExpenses(null)
+    setExpenseError(null)
     setError(null)
     void Promise.all(targets.map(async store => ({
       store,
@@ -154,7 +160,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
         setLoading(false)
         return
       }
-      const shifts: SummaryShiftCard[] = []
+      const shifts: Array<SummaryShiftCard & { storeId: string }> = []
       const visits: AdminSummaryResult['visits'] = []
       const chicken: ChickenVisit[] = []
       const expenseLines: AdminSummaryResult['expenses'] = []
@@ -162,7 +168,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       for (const item of loaded) {
         if (!item.result.ok) continue
         for (const shift of item.result.data.shifts) {
-          shifts.push({ ...shift, storeName: item.store.name })
+          shifts.push({ ...shift, storeName: item.store.name, storeId: item.store.id })
         }
         visits.push(...item.result.data.visits)
         for (const visit of item.result.data.chicken ?? []) {
@@ -226,9 +232,37 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const expenseDetail = useMemo(() => {
     if (selected) return summarizeExpenses([], [])
     const ids = new Set(shownShifts.map(shift => shift.id))
-    const lines = (data?.expenses ?? []).filter(line => ids.has(line.shiftId))
-    return summarizeExpenses(lines, shownShifts)
-  }, [selected, data, shownShifts])
+    const byId = new Map<string, SummaryExpenseInput>()
+    for (const line of data?.expenses ?? []) {
+      if (ids.has(line.shiftId)) byId.set(line.id, line)
+    }
+    for (const line of loadedExpenses ?? []) {
+      if (ids.has(line.shiftId)) byId.set(line.id, line)
+    }
+    return summarizeExpenses([...byId.values()], shownShifts)
+  }, [selected, data, shownShifts, loadedExpenses])
+
+  async function loadExpenseDetail(): Promise<void> {
+    const shifts = shownShifts.flatMap(shift => {
+      const storeId = (shift as SummaryShiftCard & { storeId?: string }).storeId ?? ''
+      if (!storeId) return []
+      return [{ id: shift.id, storeId, startedAt: shift.startedAt }]
+    })
+    setExpenseLoading(true)
+    setExpenseError(null)
+    try {
+      const result = await window.hw.getSummaryExpenses({ shifts })
+      if (!result.ok) {
+        setExpenseError(result.error ?? 'No se pudieron leer los gastos.')
+        return
+      }
+      setLoadedExpenses(result.data)
+    } catch {
+      setExpenseError('No se pudieron leer los gastos.')
+    } finally {
+      setExpenseLoading(false)
+    }
+  }
   const shown = summaryShownAmounts(money)
   const soldDays = useMemo(
     () => summarySoldByDay(shownShifts, dates.startYmd, dates.endYmd),
@@ -381,8 +415,18 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
 
               <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
                 <div className="flex min-w-0 items-center justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-ink">Detalle de gastos</h2>
-                  <div className="flex shrink-0 gap-2">
+                  <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Detalle de gastos</h2>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {!previewOn && (
+                      <button
+                        type="button"
+                        onClick={() => { void loadExpenseDetail() }}
+                        disabled={expenseLoading || shownShifts.length === 0}
+                        className="rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
+                      >
+                        Ver detalle de gastos
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setExpenseView('fecha')}
@@ -399,6 +443,10 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                     </button>
                   </div>
                 </div>
+                {expenseError && (
+                  <p className="min-w-0 truncate text-sm text-danger" title={expenseError}>{expenseError}</p>
+                )}
+                {expenseLoading && <p className="text-sm text-muted">Leyendo gastos…</p>}
                 {expenseDetail.gap && (
                   <p className="min-w-0 truncate text-sm text-muted" title={`${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}>
                     {`Diferencia ${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}

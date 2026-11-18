@@ -275,6 +275,51 @@ export async function fetchRemoteShiftMoney(
   return result
 }
 
+export interface RemoteExpenseLine {
+  id: string
+  shiftId: string
+  createdAt: string
+  concept: string | null
+  providerName: string | null
+  amount: number
+  notes: string | null
+  kind: string
+}
+
+/**
+ * Gastos de esos turnos, de a 30. La misma consulta por shiftId.
+ * kind inject no entra: no es un gasto. No baja la colección.
+ */
+export async function fetchRemoteExpenseLines(shiftIds: string[]): Promise<RemoteExpenseLine[]> {
+  const lines: RemoteExpenseLine[] = []
+  if (shiftIds.length === 0) return lines
+  const wanted = new Set(shiftIds)
+  const tenant = getBusinessConfig().tenant_id
+  const firestore = getFirestore(getFirebaseApp())
+  const expensesCol = collection(firestore, 'licenses', tenant, 'expenses')
+  for (const ids of chunk(shiftIds)) {
+    const snap = await getDocs(query(expensesCol, where('shiftId', 'in', ids)))
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data() as Record<string, unknown>
+      if (data['deleted'] === true) continue
+      if (data['kind'] === 'inject') continue
+      const shiftId = text(data['shiftId'])
+      if (!shiftId || !wanted.has(shiftId)) continue
+      lines.push({
+        id: text(data['id']) ?? docSnap.id,
+        shiftId,
+        createdAt: text(data['createdAt']) ?? '',
+        concept: text(data['concept']),
+        providerName: text(data['providerName']),
+        amount: finiteAmount(data['amount']) ?? 0,
+        notes: text(data['notes']),
+        kind: 'expense',
+      })
+    }
+  }
+  return lines
+}
+
 /** Escribe solo la plata. No toca ventas ni el cierre. */
 export async function writeRemoteShiftMoney(
   shiftId: string,

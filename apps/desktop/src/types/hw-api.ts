@@ -1622,6 +1622,14 @@ export interface HwApi {
   getAdminSummary: (payload: { storeId: string; startIso: string; endIso: string }) => Promise<IpcResult<AdminSummaryResult>>
 
   /**
+   * Gastos de los turnos que están en pantalla. Solo admin.
+   * La PC del local los lee de SQLite. La otra pide solo esos turnos.
+   */
+  getSummaryExpenses: (payload: {
+    shifts: Array<{ id: string; storeId: string; startedAt: string }>
+  }) => Promise<IpcResult<SummaryExpenseInput[]>>
+
+  /**
    * Suscribe un callback al aviso de inactividad (main → renderer push).
    * Retorna función de cleanup para desuscribir.
    */

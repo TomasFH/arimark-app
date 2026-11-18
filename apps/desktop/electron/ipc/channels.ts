@@ -193,6 +193,8 @@ export const IPC = {
   GET_HISTORY_SHIFT_DETAIL: 'ipc:get-history-shift-detail',
   /** Plata y medias reses de un local en un rango. Solo admin. */
   GET_ADMIN_SUMMARY: 'ipc:get-admin-summary',
+  /** Gastos de los turnos que están en pantalla. Solo admin. */
+  GET_SUMMARY_EXPENSES: 'ipc:get-summary-expenses',
   GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)

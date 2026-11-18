@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   addDaysYmd,
+  civilYmd,
   mondayWeekRange,
   summaryMonthStep,
   summaryPeriodQuery,
@@ -480,5 +481,37 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('Por origen')).toBeInTheDocument()
     expect(screen.getByText('Por concepto')).toBeInTheDocument()
     expect(screen.getAllByText('Gastos').length).toBeGreaterThan(0)
+  })
+
+  it('el botón pide solo los gastos de los turnos que están en pantalla', async () => {
+    const user = userEvent.setup()
+    const todayId = '11111111-1111-4111-8111-111111111111'
+    const otherDayId = '22222222-2222-4222-8222-222222222222'
+    const today = `${civilYmd()}T15:00:00.000Z`
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [
+            withMoney(todayId, 1000, today, 'morning'),
+            withMoney(otherDayId, 2000, '2026-10-01T15:00:00.000Z', 'morning'),
+          ]
+          : [],
+        visits: [],
+        expenses: [],
+        warning: null,
+      },
+    }))
+    window.hw.getSummaryExpenses = vi.fn().mockResolvedValue({ ok: true, data: [] })
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ver detalle de gastos' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Ver detalle de gastos' }))
+
+    expect(window.hw.getSummaryExpenses).toHaveBeenCalledTimes(1)
+    expect(window.hw.getSummaryExpenses).toHaveBeenCalledWith({
+      shifts: [{ id: todayId, storeId: 'norte', startedAt: today }],
+    })
   })
 })

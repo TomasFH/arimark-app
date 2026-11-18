@@ -534,7 +534,7 @@ export async function loadAdminSummary(input: {
   const now = input.now ?? new Date()
   const shifts = await loadShifts(db, input.storeId, input.startIso, input.endIso, now)
   const visitResult = await loadVisits(db, input.storeId, input.startIso, input.endIso, now)
-  const expenseLines = loadExpenseLines(db, shifts.map(shift => shift.id))
+  const expenseLines = readExpenseLines(db, shifts.map(shift => shift.id))
   const fiado = loadStoreFiado(db, input.storeId, input.startIso, input.endIso)
   return {
     shifts,
@@ -546,7 +546,7 @@ export async function loadAdminSummary(input: {
   }
 }
 
-function loadExpenseLines(db: AppDb, shiftIds: string[]): SummaryExpenseInput[] {
+export function readExpenseLines(db: AppDb, shiftIds: string[]): SummaryExpenseInput[] {
   if (shiftIds.length === 0) return []
   const rows = db.select().from(expenses).where(inArray(expenses.shiftId, shiftIds)).all()
   const providerIds = [...new Set(rows.map(row => row.providerId).filter((id): id is string => Boolean(id)))]

@@ -56,6 +56,7 @@ vi.mock('../../licensing/merchIntakeSync', () => ({
 vi.mock('../../licensing/summaryRemote', () => ({
   fetchRemoteSummaryShifts: vi.fn(async () => []),
   fetchRemoteShiftMoney: vi.fn(async () => new Map()),
+  fetchRemoteExpenseLines: vi.fn(async () => []),
   writeRemoteShiftMoney: vi.fn(async () => {}),
 }))
 
@@ -67,6 +68,7 @@ import { pullMerchandiseIntakesForStoreWeek } from '../../licensing/merchIntakeS
 import { registerSummaryHandlers } from '../summary.handler'
 import type { AdminSummaryData } from '../../summary/loadAdminSummary'
 import {
+  fetchRemoteExpenseLines,
   fetchRemoteShiftMoney,
   fetchRemoteSummaryShifts,
   writeRemoteShiftMoney,
@@ -78,6 +80,12 @@ type HandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; 
 function getHandler(): HandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-admin-summary')
   if (!call) throw new Error('Handler no registrado')
+  return call[1] as HandlerFn
+}
+
+function getExpenseHandler(): HandlerFn {
+  const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-summary-expenses')
+  if (!call) throw new Error('Handler de gastos no registrado')
   return call[1] as HandlerFn
 }
 
@@ -843,6 +851,120 @@ describe('summary.handler', () => {
     })
     expect(empty.ok).toBe(true)
     expect(empty.data?.fiado).toEqual({ debtNow: null, payments: null })
+  })
+
+  describe('get-summary-expenses', () => {
+    const visible = '11111111-1111-4111-8111-111111111111'
+    const alsoVisible = '22222222-2222-4222-8222-222222222222'
+    const notOnScreen = '33333333-3333-4333-8333-333333333333'
+
+    it('rechaza un payload malformado', async () => {
+      const res = await getExpenseHandler()(null, { shifts: [{ id: 'no-es-uuid', storeId: STORE_ID, startedAt: '2026-10-01T12:00:00.000Z' }] })
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('INVALID_PAYLOAD')
+    })
+
+    it('apretar el botón lee solo expenses de los turnos visibles', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const week = mondayWeekRange(-8)
+      vi.mocked(fetchRemoteExpenseLines).mockResolvedValue([
+        {
+          id: 'hielo',
+          shiftId: visible,
+          createdAt: week.startIso,
+          concept: 'Hielo',
+          providerName: null,
+          amount: 100,
+          notes: null,
+          kind: 'expense',
+        },
+      ])
+
+      const res = await getExpenseHandler()(null, {
+        shifts: [
+          { id: visible, storeId: STORE_ID, startedAt: week.startIso },
+          { id: alsoVisible, storeId: STORE_ID, startedAt: week.startIso },
+        ],
+      })
+
+      expect(res.ok).toBe(true)
+      expect(fetchRemoteExpenseLines).toHaveBeenCalledTimes(1)
+      expect(fetchRemoteExpenseLines).toHaveBeenCalledWith([visible, alsoVisible])
+      expect(fetchRemoteExpenseLines).not.toHaveBeenCalledWith(expect.arrayContaining([notOnScreen]))
+      expect(res.data?.map(row => row.id)).toEqual(['hielo'])
+    })
+
+    it('una semana cerrada no vuelve a leer los gastos', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const week = mondayWeekRange(-8)
+      vi.mocked(fetchRemoteExpenseLines).mockResolvedValue([])
+      const payload = { shifts: [{ id: visible, storeId: STORE_ID, startedAt: week.startIso }] }
+
+      await getExpenseHandler()(null, payload)
+      await getExpenseHandler()(null, payload)
+
+      expect(fetchRemoteExpenseLines).toHaveBeenCalledTimes(1)
+    })
+
+    it('la semana en curso se lee de nuevo al apretar', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const week = mondayWeekRange(0)
+      vi.mocked(fetchRemoteExpenseLines).mockResolvedValue([])
+      const payload = { shifts: [{ id: visible, storeId: STORE_ID, startedAt: week.startIso }] }
+
+      await getExpenseHandler()(null, payload)
+      await getExpenseHandler()(null, payload)
+
+      expect(fetchRemoteExpenseLines).toHaveBeenCalledTimes(2)
+      expect(fetchRemoteExpenseLines).toHaveBeenNthCalledWith(1, [visible])
+      expect(fetchRemoteExpenseLines).toHaveBeenNthCalledWith(2, [visible])
+    })
+
+    it('la PC del local no lee gastos en Firestore', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const week = mondayWeekRange(-8)
+      db.insert(shifts).values({
+        id: visible,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'morning',
+        startedAt: week.startIso,
+        openingCash: 0,
+        source: 'desktop',
+        openedLocally: true,
+      }).run()
+      db.insert(expenses).values([
+        {
+          id: 'hielo',
+          storeId: STORE_ID,
+          shiftId: visible,
+          concept: 'Hielo',
+          amount: 100,
+          kind: 'expense',
+          createdAt: week.startIso,
+          createdBy: USER_ID,
+        },
+        {
+          id: 'aporte',
+          storeId: STORE_ID,
+          shiftId: visible,
+          concept: 'Aporte',
+          amount: 999,
+          kind: 'inject',
+          injectReason: 'aporte',
+          createdAt: week.startIso,
+          createdBy: USER_ID,
+        },
+      ]).run()
+
+      const res = await getExpenseHandler()(null, {
+        shifts: [{ id: visible, storeId: STORE_ID, startedAt: week.startIso }],
+      })
+
+      expect(res.ok).toBe(true)
+      expect(fetchRemoteExpenseLines).not.toHaveBeenCalled()
+      expect(res.data?.map(row => row.id)).toEqual(['hielo'])
+    })
   })
 })
 

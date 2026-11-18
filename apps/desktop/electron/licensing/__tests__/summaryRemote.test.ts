@@ -32,7 +32,7 @@ vi.mock('firebase/firestore', () => ({
   getDocs: (...args: unknown[]) => mockGetDocs(...args),
 }))
 
-import { fetchRemoteSummaryShifts } from '../summaryRemote'
+import { fetchRemoteExpenseLines, fetchRemoteSummaryShifts } from '../summaryRemote'
 
 describe('fetchRemoteSummaryShifts', () => {
   beforeEach(() => {
@@ -83,5 +83,64 @@ describe('fetchRemoteSummaryShifts', () => {
     expect(mockWhere).toHaveBeenCalledWith('storeId', '==', 'camarones')
     expect(mockWhere).toHaveBeenCalledWith('startedAt', '>=', october.startIso)
     expect(mockWhere).toHaveBeenCalledWith('startedAt', '<', october.endIso)
+  })
+})
+
+describe('fetchRemoteExpenseLines', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('pide solo los turnos visibles, de a 30, y deja afuera los aportes', async () => {
+    const visible = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+    ]
+    mockGetDocs.mockResolvedValue({
+      docs: [
+        {
+          id: 'hielo',
+          data: () => ({
+            id: 'hielo',
+            shiftId: visible[0],
+            kind: 'expense',
+            amount: 100,
+            concept: 'Hielo',
+            createdAt: '2026-10-20T12:00:00.000Z',
+          }),
+        },
+        {
+          id: 'aporte',
+          data: () => ({ id: 'aporte', shiftId: visible[0], kind: 'inject', amount: 999 }),
+        },
+        {
+          id: 'borrado',
+          data: () => ({ id: 'borrado', shiftId: visible[0], kind: 'expense', amount: 5, deleted: true }),
+        },
+        {
+          id: 'ajeno',
+          data: () => ({ id: 'ajeno', shiftId: '33333333-3333-4333-8333-333333333333', kind: 'expense', amount: 1 }),
+        },
+      ],
+    })
+
+    const lines = await fetchRemoteExpenseLines(visible)
+
+    expect(mockWhere).toHaveBeenCalledTimes(1)
+    expect(mockWhere).toHaveBeenCalledWith('shiftId', 'in', visible)
+    expect(lines.map(line => line.id)).toEqual(['hielo'])
+  })
+
+  it('parte la consulta en tandas de 30', async () => {
+    const ids = Array.from({ length: 31 }, (_, index) => {
+      const n = String(index).padStart(12, '0')
+      return `44444444-4444-4444-8444-${n}`
+    })
+    mockGetDocs.mockResolvedValue({ docs: [] })
+
+    await fetchRemoteExpenseLines(ids)
+
+    expect(mockWhere).toHaveBeenNthCalledWith(1, 'shiftId', 'in', ids.slice(0, 30))
+    expect(mockWhere).toHaveBeenNthCalledWith(2, 'shiftId', 'in', ids.slice(30))
   })
 })
