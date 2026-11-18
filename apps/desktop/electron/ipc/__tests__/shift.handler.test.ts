@@ -1437,6 +1437,9 @@ describe('shift.handler', () => {
         expenseTotal: 500,
         contributionTotal: 2000,
         walletCashTotal: 300,
+        debitTotal: 6000,
+        walletTotal: 0,
+        creditTotal: 0,
       })
       expect(savedShift(db)?.moneySnapshottedAt).toEqual(expect.any(String))
     })
@@ -1454,6 +1457,9 @@ describe('shift.handler', () => {
         expenseTotal: 0,
         contributionTotal: 0,
         walletCashTotal: 0,
+        debitTotal: 0,
+        walletTotal: 0,
+        creditTotal: 0,
       })
       expect(savedShift(db)?.moneySnapshottedAt).toEqual(expect.any(String))
     })

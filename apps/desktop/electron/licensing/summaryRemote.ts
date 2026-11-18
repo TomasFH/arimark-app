@@ -35,6 +35,9 @@ export interface RemoteSummaryShift {
   expenseTotal: number | null
   contributionTotal: number | null
   walletCashTotal: number | null
+  debitTotal: number | null
+  walletTotal: number | null
+  creditTotal: number | null
   moneySnapshottedAt: string | null
 }
 
@@ -104,6 +107,9 @@ export async function fetchRemoteSummaryShifts(
       expenseTotal: parts?.expenseTotal ?? null,
       contributionTotal: parts?.contributionTotal ?? null,
       walletCashTotal: parts?.walletCashTotal ?? null,
+      debitTotal: finiteAmount(data['debitTotal']),
+      walletTotal: finiteAmount(data['walletTotal']),
+      creditTotal: finiteAmount(data['creditTotal']),
       moneySnapshottedAt: parts ? text(data['moneySnapshottedAt']) : null,
     })
   }
@@ -149,7 +155,7 @@ function readSale(data: Record<string, unknown>, id: string): SaleDoc | null {
 export async function fetchRemoteShiftMoney(
   shiftIds: string[],
 ): Promise<Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>> {
-  const result = new Map<string, ShiftMoneyParts>()
+  const result = new Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>()
   if (shiftIds.length === 0) return result
   const tenant = getBusinessConfig().tenant_id
   const firestore = getFirestore(getFirebaseApp())
@@ -272,11 +278,12 @@ export async function fetchRemoteShiftMoney(
 /** Escribe solo la plata. No toca ventas ni el cierre. */
 export async function writeRemoteShiftMoney(
   shiftId: string,
-  parts: ShiftMoneyParts,
+  parts: ShiftMoneyParts & { paymentSplit?: PaymentSplit | null },
   at: string,
 ): Promise<void> {
   const tenant = getBusinessConfig().tenant_id
   const firestore = getFirestore(getFirebaseApp())
+  const split = parts.paymentSplit
   await setDoc(doc(firestore, 'licenses', tenant, 'shifts', shiftId), {
     soldTotal: parts.soldTotal,
     cashTotal: parts.cashTotal,
@@ -285,6 +292,13 @@ export async function writeRemoteShiftMoney(
     expenseTotal: parts.expenseTotal,
     contributionTotal: parts.contributionTotal,
     walletCashTotal: parts.walletCashTotal,
+    ...(split
+      ? {
+        debitTotal: split.debit,
+        walletTotal: split.wallet,
+        creditTotal: split.credit,
+      }
+      : {}),
     moneySnapshottedAt: at,
   }, { merge: true })
 }

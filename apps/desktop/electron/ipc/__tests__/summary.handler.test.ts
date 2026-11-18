@@ -69,6 +69,7 @@ import type { AdminSummaryData } from '../../summary/loadAdminSummary'
 import {
   fetchRemoteShiftMoney,
   fetchRemoteSummaryShifts,
+  writeRemoteShiftMoney,
   type RemoteSummaryShift,
 } from '../../licensing/summaryRemote'
 
@@ -564,7 +565,10 @@ describe('summary.handler', () => {
       remoteCard('ayer', yStart, 'evening', null, yEnd),
       remoteCard('hoy', tStart, 'morning', null, tEnd),
     ])
-    vi.mocked(fetchRemoteShiftMoney).mockResolvedValue(new Map([['ayer', parts(5_000)]]))
+    vi.mocked(fetchRemoteShiftMoney).mockResolvedValue(new Map([[
+      'ayer',
+      { ...parts(5_000), paymentSplit: { debit: 100, wallet: 0, credit: 0 } },
+    ]]))
 
     const res = await getHandler()(null, {
       storeId: STORE_ID,
@@ -574,12 +578,51 @@ describe('summary.handler', () => {
     expect(res.ok).toBe(true)
     const byId = new Map((res.data?.shifts ?? []).map(shift => [shift.id, shift]))
     expect(byId.get('ayer')?.soldTotal).toBe(5_000)
+    expect(byId.get('ayer')?.cardWalletTotal).toBe(0)
+    expect(byId.get('ayer')?.paymentSplit).toEqual({ debit: 100, wallet: 0, credit: 0 })
     expect(byId.get('hoy')?.soldTotal).toBeNull()
     expect(fetchRemoteShiftMoney).toHaveBeenCalledWith(['ayer'])
+    expect(writeRemoteShiftMoney).toHaveBeenCalledWith('ayer', expect.objectContaining({
+      soldTotal: 5_000,
+      cardWalletTotal: 0,
+      paymentSplit: { debit: 100, wallet: 0, credit: 0 },
+    }), expect.any(String))
     const view = summaryMoneyView(res.data?.shifts ?? [])
     expect(view.lines[0]?.amount).toBe(5_000)
     expect(view.boxes).toHaveLength(2)
     expect(view.boxes.find(row => row.id === 'hoy')?.box.kind).toBe('pending')
+  })
+
+  it('un mes con fichas completas no lee ventas ni gastos', async () => {
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const october = summaryMonthSpan(2026, 10)
+    vi.mocked(fetchRemoteSummaryShifts).mockImplementation(async (_store, start) => [
+      remoteCard(`ficha-${start}`, start, 'morning', 1000),
+    ])
+    const res = await getHandler()(null, {
+      storeId: STORE_ID,
+      startIso: october.startIso,
+      endIso: october.endIso,
+    })
+    expect(res.ok).toBe(true)
+    expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
+    expect(res.data?.shifts.length).toBeGreaterThan(0)
+    expect(res.data?.shifts.every(shift => shift.paymentSplit == null)).toBe(true)
+    expect(res.data?.shifts.every(shift => shift.cardWalletTotal === 0)).toBe(true)
+  })
+
+  it('usa el desglose de la ficha sin ajustarlo y sin leer las filas', async () => {
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const week = mondayWeekRange(-8)
+    vi.mocked(fetchRemoteSummaryShifts).mockResolvedValue([
+      remoteCard('con-corte', week.startIso, 'morning', 5000, undefined, { debit: 1000, wallet: 0, credit: 0 }),
+    ])
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
+    const card = res.data?.shifts.find(shift => shift.id === 'con-corte')
+    expect(card?.cardWalletTotal).toBe(0)
+    expect(card?.paymentSplit).toEqual({ debit: 1000, wallet: 0, credit: 0 })
   })
 
   it('si no se pueden leer los turnos remotos no devuelve el total de uno solo', async () => {
@@ -821,6 +864,7 @@ function remoteCard(
   shiftType: 'morning' | 'evening',
   sold: number | null,
   closedAt?: string,
+  split?: { debit: number; wallet: number; credit: number } | null,
 ): RemoteSummaryShift {
   const at = new Date(startedAt).toISOString()
   return {
@@ -839,6 +883,9 @@ function remoteCard(
     expenseTotal: sold == null ? null : 0,
     contributionTotal: sold == null ? null : 0,
     walletCashTotal: sold == null ? null : 0,
+    debitTotal: split?.debit ?? null,
+    walletTotal: split?.wallet ?? null,
+    creditTotal: split?.credit ?? null,
     moneySnapshottedAt: sold == null ? null : at,
   }
 }

@@ -99,19 +99,52 @@ function sameMoney(row: ShiftRow, parts: ShiftMoneyParts): boolean {
   )
 }
 
-function saveOriginMoney(db: AppDb, row: ShiftRow, parts: ShiftMoneyParts, at: string): void {
-  if (sameMoney(row, parts)) return
+function splitOf(row: {
+  debitTotal: number | null
+  walletTotal: number | null
+  creditTotal: number | null
+} | null | undefined): PaymentSplit | null {
+  if (!row || row.debitTotal == null || row.walletTotal == null || row.creditTotal == null) return null
+  return { debit: row.debitTotal, wallet: row.walletTotal, credit: row.creditTotal }
+}
+
+function saveOriginMoney(
+  db: AppDb,
+  row: ShiftRow,
+  parts: ShiftMoneyParts,
+  split: PaymentSplit,
+  at: string,
+): void {
+  const splitSame = row.debitTotal != null
+    && row.walletTotal != null
+    && row.creditTotal != null
+    && Math.round(row.debitTotal) === Math.round(split.debit)
+    && Math.round(row.walletTotal) === Math.round(split.wallet)
+    && Math.round(row.creditTotal) === Math.round(split.credit)
+  if (sameMoney(row, parts) && splitSame) return
   db.update(shifts).set({
     ...parts,
+    debitTotal: split.debit,
+    walletTotal: split.wallet,
+    creditTotal: split.credit,
     moneySnapshottedAt: at,
     syncedAt: null,
   }).where(eq(shifts.id, row.id)).run()
 }
 
-function cacheFilledMoney(db: AppDb, row: ShiftRow, parts: ShiftMoneyParts, at: string): void {
+function cacheFilledMoney(
+  db: AppDb,
+  row: ShiftRow,
+  parts: ShiftMoneyParts,
+  split: PaymentSplit,
+  at: string,
+): void {
   if (row.openedLocally || row.moneySnapshottedAt) return
   db.update(shifts).set({
     ...parts,
+    debitTotal: split.debit,
+    walletTotal: split.wallet,
+    creditTotal: split.credit,
     moneySnapshottedAt: at,
   }).where(eq(shifts.id, row.id)).run()
 }
@@ -212,7 +245,7 @@ async function loadShifts(
     if (action === 'backfill') backfillIds.push(id)
   }
 
-  let remoteMoney = new Map<string, ShiftMoneyParts & { paymentSplit?: PaymentSplit }>()
+  let remoteMoney = new Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>()
   const needRemote = [...liveIds, ...backfillIds]
   if (needRemote.length > 0 && isFirebaseAvailable()) {
     try {
@@ -251,10 +284,10 @@ async function loadShifts(
     if (action === 'recompute' && local) {
       const computed = computeShiftMoney(db, local.id)
       const parts = moneyPartsOnly(computed)
-      saveOriginMoney(db, local, parts, at)
+      saveOriginMoney(db, local, parts, computed.paymentSplit, at)
       if (isFirebaseAvailable()) {
         try {
-          await writeRemoteShiftMoney(local.id, parts, at)
+          await writeRemoteShiftMoney(local.id, computed, at)
         } catch (err) {
           log.warn('[summary] No se pudo publicar la plata del turno', { id: local.id, err })
         }
@@ -296,22 +329,22 @@ async function loadShifts(
       if (parts && remote) {
         if (isFirebaseAvailable()) {
           try {
-            await writeRemoteShiftMoney(id, parts, at)
+            await writeRemoteShiftMoney(id, remote, at)
           } catch (err) {
             log.warn('[summary] No se pudo guardar la plata del turno', { id, err })
           }
         }
-        if (local) cacheFilledMoney(db, local, parts, at)
-        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, remote.paymentSplit, at, false))
+        if (local) cacheFilledMoney(db, local, parts, remote.paymentSplit, at)
+        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, remote.paymentSplit ?? null, at, false))
       } else {
         cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, null, null, null, false))
       }
       continue
     }
 
-    const keptSplit = hasLocalLedger && local && kept
-      ? computeShiftMoney(db, local.id).paymentSplit
-      : null
+    const storedSplit = splitOf(local) ?? splitOf(cloud)
+    const keptSplit = storedSplit
+      ?? (hasLocalLedger && local && kept ? computeShiftMoney(db, local.id).paymentSplit : null)
     cards.push(cardFrom(
       id,
       cashierName,
@@ -396,6 +429,9 @@ function applyResolved(shifts: RemoteSummaryShift[], cards: SummaryShiftCard[]):
       expenseTotal: card.expenseTotal,
       contributionTotal: card.contributionTotal,
       walletCashTotal: card.walletCashTotal,
+      debitTotal: card.paymentSplit?.debit ?? shift.debitTotal,
+      walletTotal: card.paymentSplit?.wallet ?? shift.walletTotal,
+      creditTotal: card.paymentSplit?.credit ?? shift.creditTotal,
       moneySnapshottedAt: card.moneySnapshottedAt,
     }
   })

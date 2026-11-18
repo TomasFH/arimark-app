@@ -22,6 +22,9 @@ export interface ShiftMoneySnapshot {
   expenseTotal: number
   contributionTotal: number
   walletCashTotal: number
+  debitTotal: number
+  walletTotal: number
+  creditTotal: number
   moneySnapshottedAt: string
 }
 
@@ -193,6 +196,11 @@ export function snapshotShiftMoney(
   if (!shouldSnapshotShiftMoney(db, shift)) return null
   const computed = computeShiftMoney(db, shift.id)
   const { paymentSplit, ...parts } = computed
-  void paymentSplit
-  return { ...parts, moneySnapshottedAt: at }
+  return {
+    ...parts,
+    debitTotal: paymentSplit.debit,
+    walletTotal: paymentSplit.wallet,
+    creditTotal: paymentSplit.credit,
+    moneySnapshottedAt: at,
+  }
 }

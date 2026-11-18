@@ -11,7 +11,7 @@ import {
   stores,
   users,
 } from '../schema'
-import { computeShiftMoney } from '../shiftMoney'
+import { computeShiftMoney, snapshotShiftMoney } from '../shiftMoney'
 
 describe('computeShiftMoney desglose', () => {
   it('lee venta mixta, seña, fiado y deja afuera la anulada, el aporte y el efectivo por digital', async () => {
@@ -123,6 +123,13 @@ describe('computeShiftMoney desglose', () => {
     const money = computeShiftMoney(db as never, 'shift-1')
     expect(money.paymentSplit).toEqual({ debit: 3000, wallet: 900, credit: 700 })
     expect(money.cardWalletTotal).toBe(4600)
+    const snap = snapshotShiftMoney(db as never, { id: 'shift-1', openedLocally: true }, now)
+    expect(snap).toMatchObject({
+      cardWalletTotal: 4600,
+      debitTotal: 3000,
+      walletTotal: 900,
+      creditTotal: 700,
+    })
     expect(money.cashTotal).toBe(2000)
     expect(money.contributionTotal).toBe(1000)
     expect(money.walletCashTotal).toBe(50)

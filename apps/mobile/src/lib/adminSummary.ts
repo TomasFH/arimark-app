@@ -20,6 +20,7 @@ import {
   shiftMoneyAction,
   tallyShiftMoney,
   type MediaResVisit,
+  type PaymentSplit,
   type ShiftMoneyParts,
   type SummaryShiftCard,
   type TallyDebtEvent,
@@ -117,7 +118,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
-async function tallyRemoteShift(shiftId: string): Promise<ShiftMoneyParts> {
+async function tallyRemoteShift(shiftId: string): Promise<ShiftMoneyParts & { paymentSplit: PaymentSplit }> {
   const db = getFirestore(firebaseApp)
   const base = ['licenses', LICENSE_KEY] as const
   const salesSnap = await getDocs(query(collection(db, ...base, 'sales'), where('shiftId', '==', shiftId)))
@@ -194,7 +195,11 @@ async function tallyRemoteShift(shiftId: string): Promise<ShiftMoneyParts> {
   return tallyShiftMoney({ sales, cashDeposits, cardDeposits, debtEvents, movements })
 }
 
-async function writeShiftMoney(shiftId: string, parts: ShiftMoneyParts, at: string): Promise<void> {
+async function writeShiftMoney(
+  shiftId: string,
+  parts: ShiftMoneyParts & { paymentSplit: PaymentSplit },
+  at: string,
+): Promise<void> {
   const db = getFirestore(firebaseApp)
   await updateDoc(doc(db, 'licenses', LICENSE_KEY, 'shifts', shiftId), {
     soldTotal: parts.soldTotal,
@@ -204,6 +209,9 @@ async function writeShiftMoney(shiftId: string, parts: ShiftMoneyParts, at: stri
     expenseTotal: parts.expenseTotal,
     contributionTotal: parts.contributionTotal,
     walletCashTotal: parts.walletCashTotal,
+    debitTotal: parts.paymentSplit.debit,
+    walletTotal: parts.paymentSplit.wallet,
+    creditTotal: parts.paymentSplit.credit,
     moneySnapshottedAt: at,
   })
 }

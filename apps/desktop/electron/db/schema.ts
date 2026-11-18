@@ -320,6 +320,13 @@ export const shifts = sqliteTable(
     contributionTotal: real('contribution_total'),
     /** Efectivo por digital: no es venta ni gasto ni aporte. */
     walletCashTotal: real('wallet_cash_total'),
+    /**
+     * Débito, billetera y crédito. Null = la ficha solo tiene el total.
+     * No se rellenan para que sumen cardWalletTotal.
+     */
+    debitTotal: real('debit_total'),
+    walletTotal: real('wallet_total'),
+    creditTotal: real('credit_total'),
     moneySnapshottedAt: text('money_snapshotted_at'),
   },
   table => [index('idx_shifts_store').on(table.storeId, table.startedAt)]
@@ -1047,6 +1054,9 @@ export const summaryShiftCache = sqliteTable(
     expenseTotal: real('expense_total'),
     contributionTotal: real('contribution_total'),
     walletCashTotal: real('wallet_cash_total'),
+    debitTotal: real('debit_total'),
+    walletTotal: real('wallet_total'),
+    creditTotal: real('credit_total'),
     moneySnapshottedAt: text('money_snapshotted_at'),
   },
   table => [

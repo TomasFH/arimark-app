@@ -45,6 +45,9 @@ export function readCachedSummaryWeek(
     expenseTotal: row.expenseTotal,
     contributionTotal: row.contributionTotal,
     walletCashTotal: row.walletCashTotal,
+    debitTotal: row.debitTotal,
+    walletTotal: row.walletTotal,
+    creditTotal: row.creditTotal,
     moneySnapshottedAt: row.moneySnapshottedAt,
   }))
 }
@@ -82,6 +85,9 @@ export function replaceSummaryWeek(
         expenseTotal: shift.expenseTotal,
         contributionTotal: shift.contributionTotal,
         walletCashTotal: shift.walletCashTotal,
+        debitTotal: shift.debitTotal,
+        walletTotal: shift.walletTotal,
+        creditTotal: shift.creditTotal,
         moneySnapshottedAt: shift.moneySnapshottedAt,
       }).run()
     }
@@ -108,6 +114,13 @@ export function patchCachedSummaryShift(db: AppDb, card: SummaryShiftCard): void
     expenseTotal: card.expenseTotal,
     contributionTotal: card.contributionTotal,
     walletCashTotal: card.walletCashTotal,
+    ...(card.paymentSplit
+      ? {
+        debitTotal: card.paymentSplit.debit,
+        walletTotal: card.paymentSplit.wallet,
+        creditTotal: card.paymentSplit.credit,
+      }
+      : {}),
     moneySnapshottedAt: card.moneySnapshottedAt,
   }).where(eq(summaryShiftCache.id, card.id)).run()
 }

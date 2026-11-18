@@ -414,6 +414,13 @@
       "when": 1793168283485,
       "tag": "0058_summary_week_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1794978292885,
+      "tag": "0059_shift_payment_split",
+      "breakpoints": true
     }
   ]
 }

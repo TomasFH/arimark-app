@@ -76,6 +76,9 @@ interface RemoteShiftDoc {
   expenseTotal?: number | null
   contributionTotal?: number | null
   walletCashTotal?: number | null
+  debitTotal?: number | null
+  walletTotal?: number | null
+  creditTotal?: number | null
   moneySnapshottedAt?: string | null
 }
 
@@ -257,6 +260,9 @@ function shiftPushPayload(
       expenseTotal: amountForPush(row.expenseTotal, remote?.expenseTotal),
       contributionTotal: amountForPush(row.contributionTotal, remote?.contributionTotal),
       walletCashTotal: amountForPush(row.walletCashTotal, remote?.walletCashTotal),
+      debitTotal: amountForPush(row.debitTotal, remote?.debitTotal),
+      walletTotal: amountForPush(row.walletTotal, remote?.walletTotal),
+      creditTotal: amountForPush(row.creditTotal, remote?.creditTotal),
       moneySnapshottedAt: textForPush(row.moneySnapshottedAt, remote?.moneySnapshottedAt),
       openingBills,
       closingBills,
@@ -437,6 +443,9 @@ export async function reconcileStoreShifts(
           expenseTotal: finiteAmount(data.expenseTotal),
           contributionTotal: finiteAmount(data.contributionTotal),
           walletCashTotal: finiteAmount(data.walletCashTotal),
+          debitTotal: finiteAmount(data.debitTotal),
+          walletTotal: finiteAmount(data.walletTotal),
+          creditTotal: finiteAmount(data.creditTotal),
           moneySnapshottedAt: remoteText(data.moneySnapshottedAt),
         }).run()
         applyRemoteShiftBills(id, data, false, false)
