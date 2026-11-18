@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock, SummaryFiadoSlice, SummaryShiftCard } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock, SummaryExpenseInput, SummaryFiadoSlice, SummaryShiftCard } from '@carniceria/shared'
 
 export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind }
 
@@ -1442,6 +1442,7 @@ export interface AdminSummaryResult {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
   chicken: ChickenVisit[]
+  expenses: SummaryExpenseInput[]
   warning: string | null
   fiado: SummaryFiadoSlice
 }

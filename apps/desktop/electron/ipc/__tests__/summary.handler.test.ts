@@ -5,6 +5,7 @@ import {
   debtEvents,
   merchandiseIntakeLines,
   merchandiseIntakes,
+  expenses,
   merchWeekPulls,
   salePayments,
   sales,
@@ -17,6 +18,7 @@ import {
   addDaysYmd,
   civilYmd,
   mondayWeekRange,
+  summarizeExpenses,
   summaryMoneyView,
   summaryMonthSpan,
   sumCollections,
@@ -366,6 +368,67 @@ describe('summary.handler', () => {
     expect(distinto?.paymentSplit).toEqual({ debit: 1000, wallet: 0, credit: 0 })
     expect(solo?.cardWalletTotal).toBe(2000)
     expect(solo?.paymentSplit).toBeNull()
+  })
+
+  it('devuelve los gastos de los turnos del rango y no arma filas que no están', async () => {
+    const week = mondayWeekRange(-30)
+    const at = week.startIso
+    db.insert(shifts).values({
+      id: 'shift-gastos',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: at,
+      closedAt: at,
+      openingCash: 0,
+      soldTotal: 0,
+      cashTotal: 0,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 300,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: at,
+    }).run()
+    db.insert(shifts).values({
+      id: 'shift-sin-filas',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'evening',
+      startedAt: at,
+      closedAt: at,
+      openingCash: 0,
+      soldTotal: 0,
+      cashTotal: 0,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 800,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: at,
+    }).run()
+    db.insert(shifts).values({
+      id: 'shift-otro-fuera',
+      storeId: OTHER_STORE,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: at,
+      openingCash: 0,
+    }).run()
+    db.insert(expenses).values([
+      { id: 'exp-hielo', storeId: STORE_ID, shiftId: 'shift-gastos', concept: 'Hielo', amount: 100, kind: 'expense', createdAt: at, createdBy: USER_ID },
+      { id: 'exp-vale', storeId: STORE_ID, shiftId: 'shift-gastos', concept: 'Vale: Ana', amount: 200, kind: 'expense', createdAt: at, createdBy: USER_ID },
+      { id: 'exp-aporte', storeId: STORE_ID, shiftId: 'shift-gastos', concept: 'Aporte', amount: 999, kind: 'inject', injectReason: 'aporte', createdAt: at, createdBy: USER_ID },
+      { id: 'exp-otro', storeId: OTHER_STORE, shiftId: 'shift-otro-fuera', concept: 'Ajeno', amount: 50, kind: 'expense', createdAt: at, createdBy: USER_ID },
+    ]).run()
+
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    expect(res.data?.expenses.map(row => row.id).sort()).toEqual(['exp-aporte', 'exp-hielo', 'exp-vale'])
+    const view = summarizeExpenses(res.data?.expenses ?? [], res.data?.shifts ?? [])
+    expect(view.rows.map(row => row.concept)).toEqual(['Hielo', 'Vale: Ana'])
+    expect(view.rowTotal).toBe(300)
+    expect(view.gap).toMatchObject({ difference: 800, shiftIds: ['shift-sin-filas'] })
   })
 
   it('la semana en curso se vuelve a pedir aunque ya esté marcada', async () => {

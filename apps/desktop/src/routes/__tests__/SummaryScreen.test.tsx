@@ -405,4 +405,80 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('Crédito').nextElementSibling).toHaveTextContent('sin dato')
     expect(screen.getByText('Efectivo').parentElement?.textContent?.replace(/\D/g, '')).toBe('1000')
   })
+
+  it('muestra el detalle de gastos y la diferencia si la ficha no tiene filas', async () => {
+    const user = userEvent.setup()
+    const at = '2026-11-10T15:00:00.000Z'
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [
+            {
+              id: 'con-gasto',
+              cashierName: 'Ana',
+              shiftType: 'morning',
+              startedAt: at,
+              closedAt: at,
+              openingCash: 0,
+              cashLeft: null,
+              withdrawn: null,
+              soldTotal: 0,
+              cashTotal: 0,
+              cardWalletTotal: 0,
+              debtTotal: 0,
+              expenseTotal: 100,
+              contributionTotal: 0,
+              walletCashTotal: 0,
+              moneySnapshottedAt: at,
+              live: false,
+            },
+            {
+              id: 'sin-gasto',
+              cashierName: 'Ana',
+              shiftType: 'evening',
+              startedAt: at,
+              closedAt: at,
+              openingCash: 0,
+              cashLeft: null,
+              withdrawn: null,
+              soldTotal: 0,
+              cashTotal: 0,
+              cardWalletTotal: 0,
+              debtTotal: 0,
+              expenseTotal: 800,
+              contributionTotal: 0,
+              walletCashTotal: 0,
+              moneySnapshottedAt: at,
+              live: false,
+            },
+          ]
+          : [],
+        visits: [],
+        chicken: [],
+        expenses: payload.storeId === 'norte'
+          ? [{
+            id: 'hielo',
+            shiftId: 'con-gasto',
+            createdAt: at,
+            concept: 'Hielo',
+            providerName: null,
+            amount: 100,
+            notes: 'barra',
+            kind: 'expense',
+          }]
+          : [],
+        warning: null,
+      },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('Hielo')).toBeInTheDocument()
+    expect(screen.getByText('Gasto')).toBeInTheDocument()
+    expect(screen.getByText('Sin proveedor')).toBeInTheDocument()
+    expect(screen.getByText(/La ficha llegó sin las filas de gastos/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Agrupado' }))
+    expect(screen.getByText('Por origen')).toBeInTheDocument()
+    expect(screen.getByText('Por concepto')).toBeInTheDocument()
+    expect(screen.getAllByText('Gastos').length).toBeGreaterThan(0)
+  })
 })

@@ -25,6 +25,7 @@ import {
   summaryMoneyView,
   summaryMonthStep,
   summaryNewDebt,
+  summarizeExpenses,
   summaryPaymentBreakdown,
   summaryPeriodDates,
   summaryPeriodQuery,
@@ -35,6 +36,8 @@ import {
   summarySoldByDay,
   sumCollections,
   type ChickenVisit,
+  type ExpenseRow,
+  type ExpenseSummaryView,
   type SummaryFiadoSlice,
   type SummaryPeriod,
   type SummaryPreviewVisit,
@@ -79,6 +82,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [storesError, setStoresError] = useState<string | null>(null)
   const [openDay, setOpenDay] = useState<string | null>(null)
+  const [expenseView, setExpenseView] = useState<'fecha' | 'grupo'>('fecha')
   const [provider, setProvider] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
 
@@ -153,6 +157,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       const shifts: SummaryShiftCard[] = []
       const visits: AdminSummaryResult['visits'] = []
       const chicken: ChickenVisit[] = []
+      const expenseLines: AdminSummaryResult['expenses'] = []
       const slices: SummaryFiadoSlice[] = []
       for (const item of loaded) {
         if (!item.result.ok) continue
@@ -163,9 +168,12 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
         for (const visit of item.result.data.chicken ?? []) {
           chicken.push({ ...visit, storeName: item.store.name })
         }
+        for (const expense of item.result.data.expenses ?? []) {
+          expenseLines.push({ ...expense, storeName: item.store.name })
+        }
         slices.push(item.result.data.fiado ?? EMPTY_FIADO)
       }
-      setData({ shifts, visits, chicken, warning: null, fiado: combineFiadoSlices(slices) })
+      setData({ shifts, visits, chicken, expenses: expenseLines, warning: null, fiado: combineFiadoSlices(slices) })
       setOpenDay(null)
       setLoading(false)
     }).catch(() => {
@@ -215,6 +223,12 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   )
   const money = useMemo(() => summaryMoneyView(shownShifts), [shownShifts])
   const payment = useMemo(() => summaryPaymentBreakdown(shownShifts), [shownShifts])
+  const expenseDetail = useMemo(() => {
+    if (selected) return summarizeExpenses([], [])
+    const ids = new Set(shownShifts.map(shift => shift.id))
+    const lines = (data?.expenses ?? []).filter(line => ids.has(line.shiftId))
+    return summarizeExpenses(lines, shownShifts)
+  }, [selected, data, shownShifts])
   const shown = summaryShownAmounts(money)
   const soldDays = useMemo(
     () => summarySoldByDay(shownShifts, dates.startYmd, dates.endYmd),
@@ -364,6 +378,40 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                   <SaleSplitChart pending={!moneyReady} cash={shown.efectivo ?? 0} card={shown.tarjeta ?? 0} />
                 </section>
               </div>
+
+              <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-ink">Detalle de gastos</h2>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setExpenseView('fecha')}
+                      className={`rounded-lg px-2 py-1 text-xs ${expenseView === 'fecha' ? 'bg-hover text-ink' : 'text-muted'}`}
+                    >
+                      Por fecha
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExpenseView('grupo')}
+                      className={`rounded-lg px-2 py-1 text-xs ${expenseView === 'grupo' ? 'bg-hover text-ink' : 'text-muted'}`}
+                    >
+                      Agrupado
+                    </button>
+                  </div>
+                </div>
+                {expenseDetail.gap && (
+                  <p className="min-w-0 truncate text-sm text-muted" title={`${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}>
+                    {`Diferencia ${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}
+                  </p>
+                )}
+                {expenseDetail.rows.length === 0 ? (
+                  expenseDetail.gap ? null : <p className="text-sm text-muted">No hay gastos en este período.</p>
+                ) : expenseView === 'fecha' ? (
+                  <ExpenseChronological rows={expenseDetail.rows} />
+                ) : (
+                  <ExpenseGrouped view={expenseDetail} />
+                )}
+              </section>
 
               <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
                 <div className="flex min-w-0 items-baseline justify-between gap-3">
@@ -525,6 +573,78 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function ExpenseChronological({ rows }: { rows: ExpenseRow[] }) {
+  return (
+    <div>
+      <div className="grid grid-cols-[4.5rem_minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto_minmax(0,1fr)_auto] gap-2 px-1 text-xs font-medium text-muted">
+        <span>Fecha</span>
+        <span>Local</span>
+        <span>Concepto</span>
+        <span>Proveedor</span>
+        <span className="text-right">Monto</span>
+        <span>Nota</span>
+        <span>Origen</span>
+      </div>
+      <ul>
+        {rows.map(row => {
+          const date = `${row.ymd.slice(8, 10)}/${row.ymd.slice(5, 7)}`
+          const note = row.notes ?? ''
+          return (
+            <li
+              key={row.id}
+              className="grid grid-cols-[4.5rem_minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 border-t border-line px-1 py-2"
+            >
+              <span className="text-sm font-medium text-ink">{date}</span>
+              <span className="min-w-0 truncate text-sm text-muted" title={row.storeName}>{row.storeName}</span>
+              <span className="min-w-0 truncate text-sm text-ink" title={row.concept}>{row.concept}</span>
+              <span className="min-w-0 truncate text-sm text-muted" title={row.providerName}>{row.providerName}</span>
+              <span className="text-right text-sm tabular-nums text-ink">{formatARS(row.amount)}</span>
+              <span className="min-w-0 truncate text-sm text-muted" title={note}>{note}</span>
+              <span className="shrink-0 text-sm text-ink">{row.origin}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function ExpenseGrouped({ view }: { view: ExpenseSummaryView }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="mb-1 text-xs font-medium text-muted">Por origen</p>
+        <ul>
+          {view.byOrigin.map(item => (
+            <li key={item.origin} className="flex min-w-0 items-baseline gap-3 border-t border-line py-1">
+              <span className="min-w-0 flex-1 truncate text-sm text-ink" title={item.origin}>{item.origin}</span>
+              <span className="shrink-0 text-sm tabular-nums text-ink">{formatARS(item.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <ExpenseGroupList title="Por proveedor" groups={view.byProvider} />
+      <ExpenseGroupList title="Por concepto" groups={view.byConcept} />
+    </div>
+  )
+}
+
+function ExpenseGroupList({ title, groups }: { title: string; groups: ExpenseSummaryView['byProvider'] }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium text-muted">{title}</p>
+      <ul>
+        {groups.map(group => (
+          <li key={group.key} className="flex min-w-0 items-baseline gap-3 border-t border-line py-1">
+            <span className="min-w-0 flex-1 truncate text-sm text-ink" title={group.label}>{group.label}</span>
+            <span className="shrink-0 text-sm tabular-nums text-ink">{formatARS(group.amount)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

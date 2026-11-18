@@ -16,6 +16,7 @@ import {
   shiftMoneyAction,
   type ChickenVisit,
   type MediaResVisit,
+  type SummaryExpenseInput,
   type PaymentSplit,
   type ShiftMoneyParts,
   type SummaryFiadoSlice,
@@ -23,9 +24,11 @@ import {
 } from '@carniceria/shared'
 import { getDb } from '../db/client'
 import {
+  expenses,
   merchandiseIntakeLines,
   merchandiseIntakes,
   merchWeekPulls,
+  providers,
   shifts,
   stores,
   users,
@@ -55,6 +58,7 @@ export interface AdminSummaryData {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
   chicken: ChickenVisit[]
+  expenses: SummaryExpenseInput[]
   warning: string | null
   fiado: SummaryFiadoSlice
 }
@@ -494,12 +498,36 @@ export async function loadAdminSummary(input: {
   const now = input.now ?? new Date()
   const shifts = await loadShifts(db, input.storeId, input.startIso, input.endIso, now)
   const visitResult = await loadVisits(db, input.storeId, input.startIso, input.endIso, now)
+  const expenseLines = loadExpenseLines(db, shifts.map(shift => shift.id))
   const fiado = loadStoreFiado(db, input.storeId, input.startIso, input.endIso)
   return {
     shifts,
     visits: visitResult.visits,
     chicken: visitResult.chicken,
+    expenses: expenseLines,
     warning: visitResult.warning,
     fiado,
   }
+}
+
+function loadExpenseLines(db: AppDb, shiftIds: string[]): SummaryExpenseInput[] {
+  if (shiftIds.length === 0) return []
+  const rows = db.select().from(expenses).where(inArray(expenses.shiftId, shiftIds)).all()
+  const providerIds = [...new Set(rows.map(row => row.providerId).filter((id): id is string => Boolean(id)))]
+  const names = new Map<string, string>()
+  if (providerIds.length > 0) {
+    for (const provider of db.select({ id: providers.id, name: providers.name }).from(providers).where(inArray(providers.id, providerIds)).all()) {
+      names.set(provider.id, provider.name)
+    }
+  }
+  return rows.map(row => ({
+    id: row.id,
+    shiftId: row.shiftId,
+    createdAt: row.createdAt,
+    concept: row.concept,
+    providerName: row.providerId ? names.get(row.providerId) ?? null : null,
+    amount: row.amount,
+    notes: row.notes,
+    kind: row.kind,
+  }))
 }

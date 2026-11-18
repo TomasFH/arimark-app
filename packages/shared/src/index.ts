@@ -248,6 +248,24 @@ export type {
   TallySale,
 } from './summaryMoney'
 export {
+  EXPENSE_GAP_NO_ROWS,
+  EXPENSE_GAP_OVER,
+  EXPENSE_GAP_SHORT,
+  EXPENSE_ORIGINS,
+  expenseGroupKey,
+  expenseOrigin,
+  summarizeExpenses,
+} from './expenseSummary'
+export type {
+  ExpenseGap,
+  ExpenseGroup,
+  ExpenseOrigin,
+  ExpenseOriginTotal,
+  ExpenseRow,
+  ExpenseSummaryView,
+  SummaryExpenseInput,
+} from './expenseSummary'
+export {
   CHICKEN_FACTORY_RUBRO_ID,
   chickenTotals,
   chickenVisits,
