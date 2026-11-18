@@ -589,6 +589,8 @@ export function registerShiftHandlers(): void {
       updateActiveShift(null)
       stopDaemon()
 
+      sealClosedShiftMoney(db, closedShiftId, now)
+
       // Push a Firestore con datos de cierre. Fire-and-forget.
       const config = getBusinessConfig()
       pushUnsyncedShifts(config.tenant_id).catch(err =>
@@ -765,6 +767,8 @@ export function registerShiftHandlers(): void {
         stopDaemon()
       }
 
+      sealClosedShiftMoney(db, shiftId, now)
+
       const config = getBusinessConfig()
       await pushUnsyncedShifts(config.tenant_id)
 
@@ -911,6 +915,30 @@ export function registerShiftHandlers(): void {
       return { ok: false, error: 'Error al corregir el cierre.' }
     }
   })
+}
+
+/**
+ * Anota la ficha desde SQLite después de que el cierre ya quedó escrito
+ * y antes de subirlo. Si esta PC no tiene el libro, no inventa ceros.
+ * Un error acá no deshace el cierre.
+ */
+function sealClosedShiftMoney(
+  db: ReturnType<typeof getDb>,
+  shiftId: string,
+  at: string,
+): void {
+  try {
+    const shift = db.select().from(shifts).where(eq(shifts.id, shiftId)).get()
+    if (!shift) return
+    const money = snapshotShiftMoney(db, shift, at)
+    if (!money) return
+    db.update(shifts)
+      .set({ ...money, syncedAt: null })
+      .where(eq(shifts.id, shiftId))
+      .run()
+  } catch (err) {
+    log.error('[shift] No se pudo sellar la ficha de plata', { shiftId, err })
+  }
 }
 
 function _getInactivityThreshold(): number {

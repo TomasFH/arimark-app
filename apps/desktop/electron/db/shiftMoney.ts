@@ -63,7 +63,7 @@ export function shouldSnapshotShiftMoney(
 export function computeShiftMoney(
   db: AppDb,
   shiftId: string,
-): Omit<ShiftMoneySnapshot, 'moneySnapshottedAt'> & { paymentSplit: PaymentSplit } {
+): Omit<ShiftMoneySnapshot, 'moneySnapshottedAt' | 'debitTotal' | 'walletTotal' | 'creditTotal'> & { paymentSplit: PaymentSplit } {
   const confirmed = db
     .select({ total: sales.total })
     .from(sales)

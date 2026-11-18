@@ -436,6 +436,40 @@ describe('shiftSync', () => {
       expect(payload.cashLeft).toBe(200)
       expect(payload.closedAt).not.toBeNull()
     })
+
+    it('sube débito, billetera y crédito de la ficha', async () => {
+      const now = '2026-11-18T06:36:23.930Z'
+      db.insert(shifts).values({
+        id: 'shift-split',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: '2026-11-18T06:33:06.197Z',
+        closedAt: now,
+        openingCash: 0,
+        source: 'desktop',
+        syncedAt: null,
+        soldTotal: 141300,
+        cashTotal: 30000,
+        cardWalletTotal: 111300,
+        debtTotal: 0,
+        expenseTotal: 0,
+        contributionTotal: 0,
+        walletCashTotal: 0,
+        debitTotal: 40000,
+        walletTotal: 36800,
+        creditTotal: 34500,
+        moneySnapshottedAt: now,
+      }).run()
+
+      await pushUnsyncedShifts(TENANT)
+
+      const payload = mockSetDoc.mock.calls[0]?.[1] as Record<string, unknown>
+      expect(payload.debitTotal).toBe(40000)
+      expect(payload.walletTotal).toBe(36800)
+      expect(payload.creditTotal).toBe(34500)
+      expect(payload.cardWalletTotal).toBe(111300)
+    })
   })
 
   describe('reconcileStoreShifts', () => {

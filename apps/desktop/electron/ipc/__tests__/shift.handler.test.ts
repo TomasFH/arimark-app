@@ -41,8 +41,10 @@ vi.mock('../../licensing/shiftSync', () => ({
   loadCashHandoverForStore: mockLoadCashHandoverForStore,
 }))
 
+import log from 'electron-log'
 import { ipcMain, net } from 'electron'
 import { getDb } from '../../db/client'
+import * as shiftMoney from '../../db/shiftMoney'
 import { getActiveSession, updateActiveShift } from '../../activeSession'
 import { startDaemon, stopDaemon, dismissWarning } from '../inactivityDaemon'
 import { registerShiftHandlers } from '../shift.handler'
@@ -890,6 +892,108 @@ describe('shift.handler', () => {
       expect(mockTx).toHaveBeenCalledOnce()
       expect(stopDaemon).toHaveBeenCalledOnce()
     })
+
+    async function seedOwnShift(openedLocally: boolean) {
+      const { db } = await createInMemoryDb()
+      const now = '2026-11-18T06:33:06.197Z'
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-001', name: 'Cajera Test', storeId: 'store-001', role: 'cashier', active: true, createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-001',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 1000,
+        source: 'desktop',
+        openedLocally,
+      }).run()
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_WITH_SHIFT)
+      return db
+    }
+
+    it('sella débito, billetera y crédito antes de subir el turno', async () => {
+      const db = await seedOwnShift(true)
+      const now = '2026-11-18T06:33:06.197Z'
+      db.insert(sales).values({
+        id: 'sale-mix', storeId: 'store-001', shiftId: 'shift-001', total: 141300,
+        isDebt: false, status: 'confirmed', createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(salePayments).values([
+        { id: 'pay-cash', saleId: 'sale-mix', paymentMethod: 'cash', amount: 30000, createdAt: now, createdBy: 'user-001' },
+        { id: 'pay-debit', saleId: 'sale-mix', paymentMethod: 'debit', amount: 40000, createdAt: now, createdBy: 'user-001' },
+        { id: 'pay-wallet', saleId: 'sale-mix', paymentMethod: 'wallet', amount: 36800, createdAt: now, createdBy: 'user-001' },
+        { id: 'pay-credit', saleId: 'sale-mix', paymentMethod: 'credit', amount: 34500, createdAt: now, createdBy: 'user-001' },
+      ]).run()
+
+      mockPushUnsyncedShifts.mockImplementationOnce(() => {
+        const duringPush = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+        expect(duringPush).toMatchObject({
+          debitTotal: 40000,
+          walletTotal: 36800,
+          creditTotal: 34500,
+          cardWalletTotal: 111300,
+        })
+        expect(duringPush?.moneySnapshottedAt).toEqual(expect.any(String))
+        return Promise.resolve()
+      })
+
+      const result = getHandler('ipc:close-shift')({}, { closingCash: 1000 })
+      expect(result).toMatchObject({ ok: true })
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+
+    it('cierra igual si sellar la ficha falla', async () => {
+      const db = await seedOwnShift(true)
+      vi.spyOn(shiftMoney, 'snapshotShiftMoney').mockImplementationOnce(() => {
+        throw new Error('falló la suma')
+      })
+
+      const result = getHandler('ipc:close-shift')({}, {})
+      expect(result).toMatchObject({ ok: true })
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(row?.closedAt).toEqual(expect.any(String))
+      expect(row?.debitTotal).toBeNull()
+      expect(row?.cardWalletTotal).toBeNull()
+      expect(row?.moneySnapshottedAt).toBeNull()
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+      expect(log.error).toHaveBeenCalled()
+    })
+
+    it('la PC que abrió el turno anota ceros si no hubo movimientos', async () => {
+      const db = await seedOwnShift(true)
+      const result = getHandler('ipc:close-shift')({}, {})
+      expect(result).toMatchObject({ ok: true })
+      expect(db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()).toMatchObject({
+        soldTotal: 0,
+        cashTotal: 0,
+        cardWalletTotal: 0,
+        debtTotal: 0,
+        expenseTotal: 0,
+        contributionTotal: 0,
+        walletCashTotal: 0,
+        debitTotal: 0,
+        walletTotal: 0,
+        creditTotal: 0,
+      })
+    })
+
+    it('no inventa la ficha si esta PC no tiene el libro', async () => {
+      const db = await seedOwnShift(false)
+      const result = getHandler('ipc:close-shift')({}, {})
+      expect(result).toMatchObject({ ok: true })
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(row?.closedAt).toEqual(expect.any(String))
+      expect(row?.soldTotal).toBeNull()
+      expect(row?.debitTotal).toBeNull()
+      expect(row?.walletTotal).toBeNull()
+      expect(row?.creditTotal).toBeNull()
+      expect(row?.cardWalletTotal).toBeNull()
+      expect(row?.moneySnapshottedAt).toBeNull()
+    })
   })
 
   describe('CASH_HANDOVER', () => {
@@ -1251,6 +1355,64 @@ describe('shift.handler', () => {
       expect(mockRun).toHaveBeenCalledOnce()
       expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
     })
+
+    async function seedForceShift(openedLocally: boolean, withSale: boolean) {
+      const { db } = await createInMemoryDb()
+      const now = '2026-11-18T06:33:06.197Z'
+      db.insert(stores).values({ id: 'store-001', name: 'Local 1', createdAt: now }).run()
+      db.insert(users).values({
+        id: 'user-002', name: 'Se fue', storeId: 'store-001', role: 'cashier', active: true, createdAt: now,
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-1',
+        storeId: 'store-001',
+        userId: 'user-002',
+        shiftType: 'morning',
+        startedAt: now,
+        openingCash: 0,
+        source: 'desktop',
+        openedLocally,
+      }).run()
+      if (withSale) {
+        db.insert(sales).values({
+          id: 'sale-debit', storeId: 'store-001', shiftId: 'shift-1', total: 6000,
+          isDebt: false, status: 'confirmed', createdAt: now, createdBy: 'user-002',
+        }).run()
+        db.insert(salePayments).values({
+          id: 'pay-debit', saleId: 'sale-debit', paymentMethod: 'debit', amount: 6000, createdAt: now, createdBy: 'user-002',
+        }).run()
+      }
+      vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+      return db
+    }
+
+    it('sella los tres números si esta PC tiene el libro', async () => {
+      const db = await seedForceShift(false, true)
+      mockPushUnsyncedShifts.mockImplementationOnce(async () => {
+        const duringPush = db.select().from(shifts).where(eq(shifts.id, 'shift-1')).get()
+        expect(duringPush?.debitTotal).toBe(6000)
+        expect(duringPush?.walletTotal).toBe(0)
+        expect(duringPush?.creditTotal).toBe(0)
+        expect(duringPush?.cardWalletTotal).toBe(6000)
+      })
+      const result = await getHandler('ipc:force-close-open-shift')({}, { shiftId: 'shift-1' })
+      expect(result).toMatchObject({ ok: true })
+      expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+
+    it('no inventa la ficha si no tiene el libro', async () => {
+      const db = await seedForceShift(false, false)
+      const result = await getHandler('ipc:force-close-open-shift')({}, { shiftId: 'shift-1' })
+      expect(result).toMatchObject({ ok: true })
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-1')).get()
+      expect(row?.closedAt).toEqual(expect.any(String))
+      expect(row?.debitTotal).toBeNull()
+      expect(row?.walletTotal).toBeNull()
+      expect(row?.creditTotal).toBeNull()
+      expect(row?.cardWalletTotal).toBeNull()
+      expect(row?.moneySnapshottedAt).toBeNull()
+    })
   })
 
   describe('CLOSE_OTHER_SHIFT', () => {
@@ -1584,6 +1746,35 @@ describe('shift.handler', () => {
       expect(next?.openingCash).toBe(1000)
       expect(next?.closedAt).toBeNull()
       expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+
+    it('corregir quedó no cambia los números de la ficha', async () => {
+      const db = await seedClosedAndNext()
+      db.update(shifts).set({
+        soldTotal: 141300,
+        cashTotal: 30000,
+        cardWalletTotal: 111300,
+        debtTotal: 0,
+        expenseTotal: 0,
+        contributionTotal: 0,
+        walletCashTotal: 0,
+        debitTotal: 40000,
+        walletTotal: 36800,
+        creditTotal: 34500,
+        moneySnapshottedAt: started,
+      }).where(eq(shifts.id, 'shift-closed')).run()
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', cashLeft: 50 })
+      expect(result).toMatchObject({ ok: true })
+      expect(db.select().from(shifts).where(eq(shifts.id, 'shift-closed')).get()).toMatchObject({
+        cashLeft: 50,
+        debitTotal: 40000,
+        walletTotal: 36800,
+        creditTotal: 34500,
+        cardWalletTotal: 111300,
+        moneySnapshottedAt: started,
+      })
     })
 
     it('olvida la semana de ese turno y deja las otras marcas', async () => {
