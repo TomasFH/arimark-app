@@ -12,6 +12,7 @@ import {
   soldHoursAmount,
   soldHoursFromAmounts,
   soldHoursJson,
+  summaryHoursView,
   summarySoldByHour,
 } from '../summaryHours'
 
@@ -173,5 +174,108 @@ describe('ventas por hora', () => {
     expect(result.average[10]?.amount).toBe(1000)
     expect(result.average[18]?.amount).toBe(500)
     expect(peakSoldHour(result.average)?.hour).toBe(10)
+  })
+})
+
+describe('gráfico del resumen', () => {
+  const hoursAt = (hour: number, amount: number) => soldHoursFromAmounts(
+    Array.from({ length: 24 }, (_, index) => (index === hour ? amount : 0)),
+  )
+
+  it('un turno abierto no entra y el aviso lo nombra', () => {
+    const view = summaryHoursView([
+      {
+        id: 'cerrado',
+        cashierName: 'Ana',
+        shiftType: 'morning',
+        startedAt: '2026-11-18T15:00:00.000Z',
+        closedAt: '2026-11-18T18:00:00.000Z',
+        live: false,
+        soldHours: hoursAt(12, 1500),
+      },
+      {
+        id: 'abierto',
+        cashierName: 'Luis',
+        shiftType: 'evening',
+        storeName: 'Local Norte',
+        startedAt: '2026-11-18T21:00:00.000Z',
+        closedAt: null,
+        live: true,
+        soldHours: hoursAt(19, 9000),
+      },
+    ], 'today', true)
+    expect(view.missing).toBe(false)
+    expect(view.buckets?.[12]?.amount).toBe(1500)
+    expect(view.buckets?.[19]?.amount).toBe(0)
+    expect(view.openNotices).toEqual([
+      { id: 'abierto', text: 'Tarde · Local Norte · Luis: Disponible cuando se cierre el turno' },
+    ])
+  })
+
+  it('una ficha sin horas es sin dato y veinticuatro ceros son un día vacío', () => {
+    const old = summaryHoursView([
+      {
+        id: 'vieja',
+        cashierName: 'Ana',
+        shiftType: 'morning',
+        startedAt: '2026-11-18T15:00:00.000Z',
+        closedAt: '2026-11-18T18:00:00.000Z',
+        live: false,
+        soldHours: null,
+      },
+    ], 'today', false)
+    expect(old.missing).toBe(true)
+    expect(old.buckets).toBeNull()
+
+    const empty = summaryHoursView([
+      {
+        id: 'vacia',
+        cashierName: 'Ana',
+        shiftType: 'morning',
+        startedAt: '2026-11-18T15:00:00.000Z',
+        closedAt: '2026-11-18T18:00:00.000Z',
+        live: false,
+        soldHours: soldHoursFromAmounts(Array.from({ length: 24 }, () => 0)),
+      },
+    ], 'today', false)
+    expect(empty.missing).toBe(false)
+    expect(empty.buckets).toHaveLength(24)
+    expect(empty.buckets?.every(bucket => bucket.amount === 0)).toBe(true)
+  })
+
+  it('el promedio deja afuera el día incompleto y el pico sale de lo que entró', () => {
+    const view = summaryHoursView([
+      {
+        id: 'lun',
+        cashierName: 'Ana',
+        shiftType: 'morning',
+        startedAt: '2026-11-16T15:00:00.000Z',
+        closedAt: '2026-11-16T18:00:00.000Z',
+        live: false,
+        soldHours: hoursAt(10, 2000),
+      },
+      {
+        id: 'mar',
+        cashierName: 'Ana',
+        shiftType: 'morning',
+        startedAt: '2026-11-17T15:00:00.000Z',
+        closedAt: '2026-11-17T18:00:00.000Z',
+        live: false,
+        soldHours: hoursAt(18, 9000),
+      },
+      {
+        id: 'mar-tarde',
+        cashierName: 'Luis',
+        shiftType: 'evening',
+        startedAt: '2026-11-17T21:00:00.000Z',
+        closedAt: null,
+        live: true,
+      },
+    ], 'average', false)
+    expect(view.countedDayCount).toBe(1)
+    expect(view.incompleteDayCount).toBe(1)
+    expect(view.buckets?.[10]?.amount).toBe(2000)
+    expect(view.buckets?.[18]?.amount).toBe(0)
+    expect(view.peak?.hour).toBe(10)
   })
 })

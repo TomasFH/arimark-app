@@ -243,9 +243,18 @@ export {
   soldHoursAmount,
   soldHoursFromAmounts,
   soldHoursJson,
+  summaryHoursView,
   summarySoldByHour,
 } from './summaryHours'
-export type { CompleteDayAverage, SaleHourStamp, ShiftDayHours, SoldHourBucket } from './summaryHours'
+export type {
+  CompleteDayAverage,
+  SaleHourStamp,
+  ShiftDayHours,
+  SoldHourBucket,
+  SummaryHoursNotice,
+  SummaryHoursShift,
+  SummaryHoursView,
+} from './summaryHours'
 export type {
   MoneyLine,
   PaymentGap,

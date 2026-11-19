@@ -24,7 +24,6 @@ import {
   summaryMonthSpan,
   sumCollections,
   type ShiftMoneyParts,
-  type SoldHourBucket,
   type SummaryExpenseInput,
 } from '@carniceria/shared'
 
@@ -60,7 +59,6 @@ vi.mock('../../licensing/summaryRemote', () => ({
   fetchRemoteSummaryShifts: vi.fn(async () => []),
   fetchRemoteShiftMoney: vi.fn(async () => new Map()),
   fetchRemoteExpenseLines: vi.fn(async () => []),
-  fetchRemoteSaleStamps: vi.fn(async () => []),
   writeRemoteShiftMoney: vi.fn(async () => {}),
 }))
 
@@ -73,7 +71,6 @@ import { registerSummaryHandlers } from '../summary.handler'
 import type { AdminSummaryData } from '../../summary/loadAdminSummary'
 import {
   fetchRemoteExpenseLines,
-  fetchRemoteSaleStamps,
   fetchRemoteShiftMoney,
   fetchRemoteSummaryShifts,
   writeRemoteShiftMoney,
@@ -93,14 +90,6 @@ function getExpenseHandler(): ExpenseHandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-summary-expenses')
   if (!call) throw new Error('Handler de gastos no registrado')
   return call[1] as ExpenseHandlerFn
-}
-
-type SaleHourHandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; data?: SoldHourBucket[]; code?: string }>
-
-function getSaleHourHandler(): SaleHourHandlerFn {
-  const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-summary-sale-hours')
-  if (!call) throw new Error('Handler de horas no registrado')
-  return call[1] as SaleHourHandlerFn
 }
 
 const STORE_ID = 'store-001'
@@ -685,7 +674,6 @@ describe('summary.handler', () => {
     const res = await getHandler()(null, range)
     expect(res.ok).toBe(true)
     expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
-    expect(fetchRemoteSaleStamps).not.toHaveBeenCalled()
     const byId = new Map((res.data?.shifts ?? []).map(shift => [shift.id, shift]))
     expect(byId.get('con-horas')?.soldHours?.[10]).toEqual({ hour: 10, amount: 4000, saleCount: 1 })
     expect(byId.get('con-horas')?.soldHours).toHaveLength(24)
@@ -785,7 +773,6 @@ describe('summary.handler', () => {
     const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
     expect(res.ok).toBe(true)
     expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
-    expect(fetchRemoteSaleStamps).not.toHaveBeenCalled()
     const row = db.select().from(shifts).where(eq(shifts.id, 'sin-ficha')).get()
     const hours = JSON.parse(row?.soldHoursJson ?? 'null') as number[]
     expect(hours).toHaveLength(24)
@@ -1072,108 +1059,6 @@ describe('summary.handler', () => {
     })
   })
 
-  describe('get-summary-sale-hours', () => {
-    const visible = '11111111-1111-4111-8111-111111111111'
-    const alsoVisible = '22222222-2222-4222-8222-222222222222'
-    const notOnScreen = '33333333-3333-4333-8333-333333333333'
-    const ymd = '2026-11-18'
-
-    it('rechaza un día mal escrito', async () => {
-      const res = await getSaleHourHandler()(null, {
-        ymd: 'hoy',
-        shifts: [{ id: visible, storeId: STORE_ID, startedAt: '2026-11-18T15:00:00.000Z' }],
-      })
-      expect(res.ok).toBe(false)
-      expect(res.code).toBe('INVALID_PAYLOAD')
-    })
-
-    it('Hoy lee solo las ventas de los turnos que están en pantalla', async () => {
-      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
-      vi.mocked(fetchRemoteSaleStamps).mockResolvedValue([
-        { createdAt: '2026-11-18T15:00:00.000Z', total: 1000 },
-        { createdAt: '2026-11-18T22:30:00.000Z', total: 800 },
-      ])
-
-      const res = await getSaleHourHandler()(null, {
-        ymd,
-        shifts: [
-          { id: visible, storeId: STORE_ID, startedAt: '2026-11-18T11:00:00.000Z' },
-          { id: alsoVisible, storeId: STORE_ID, startedAt: '2026-11-18T21:00:00.000Z' },
-        ],
-      })
-
-      expect(res.ok).toBe(true)
-      expect(fetchRemoteSaleStamps).toHaveBeenCalledTimes(1)
-      expect(fetchRemoteSaleStamps).toHaveBeenCalledWith([visible, alsoVisible])
-      expect(fetchRemoteSaleStamps).not.toHaveBeenCalledWith(expect.arrayContaining([notOnScreen]))
-      expect(res.data?.[12]).toEqual({ hour: 12, amount: 1000, saleCount: 1 })
-      expect(res.data?.[19]).toEqual({ hour: 19, amount: 800, saleCount: 1 })
-      expect(res.data).toHaveLength(24)
-    })
-
-    it('la PC del local no lee ventas en Firestore', async () => {
-      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
-      db.insert(shifts).values({
-        id: visible,
-        storeId: STORE_ID,
-        userId: USER_ID,
-        shiftType: 'morning',
-        startedAt: '2026-11-18T11:00:00.000Z',
-        openingCash: 0,
-        source: 'desktop',
-        openedLocally: true,
-      }).run()
-      db.insert(sales).values([
-        {
-          id: 'mediodia',
-          storeId: STORE_ID,
-          shiftId: visible,
-          total: 1000,
-          status: 'confirmed',
-          createdAt: '2026-11-18T15:00:00.000Z',
-          createdBy: USER_ID,
-        },
-        {
-          id: 'otra',
-          storeId: STORE_ID,
-          shiftId: visible,
-          total: 500,
-          status: 'confirmed',
-          createdAt: '2026-11-18T15:40:00.000Z',
-          createdBy: USER_ID,
-        },
-        {
-          id: 'anulada',
-          storeId: STORE_ID,
-          shiftId: visible,
-          total: 9000,
-          status: 'cancelled',
-          createdAt: '2026-11-18T15:20:00.000Z',
-          createdBy: USER_ID,
-        },
-        {
-          id: 'noche',
-          storeId: STORE_ID,
-          shiftId: visible,
-          total: 800,
-          status: 'confirmed',
-          createdAt: '2026-11-18T22:30:00.000Z',
-          createdBy: USER_ID,
-        },
-      ]).run()
-
-      const res = await getSaleHourHandler()(null, {
-        ymd,
-        shifts: [{ id: visible, storeId: STORE_ID, startedAt: '2026-11-18T11:00:00.000Z' }],
-      })
-
-      expect(res.ok).toBe(true)
-      expect(fetchRemoteSaleStamps).not.toHaveBeenCalled()
-      expect(res.data?.[12]).toEqual({ hour: 12, amount: 1500, saleCount: 2 })
-      expect(res.data?.[19]).toEqual({ hour: 19, amount: 800, saleCount: 1 })
-      expect(res.data?.[15]).toEqual({ hour: 15, amount: 0, saleCount: 0 })
-    })
-  })
 })
 
 function parts(sold: number): ShiftMoneyParts {

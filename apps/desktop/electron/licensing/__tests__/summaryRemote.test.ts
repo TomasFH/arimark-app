@@ -33,7 +33,7 @@ vi.mock('firebase/firestore', () => ({
 }))
 
 import { setDoc } from 'firebase/firestore'
-import { fetchRemoteExpenseLines, fetchRemoteSaleStamps, fetchRemoteShiftMoney, fetchRemoteSummaryShifts, writeRemoteShiftMoney } from '../summaryRemote'
+import { fetchRemoteExpenseLines, fetchRemoteShiftMoney, fetchRemoteSummaryShifts, writeRemoteShiftMoney } from '../summaryRemote'
 
 describe('fetchRemoteSummaryShifts', () => {
   beforeEach(() => {
@@ -205,55 +205,6 @@ describe('fetchRemoteExpenseLines', () => {
 
     expect(mockWhere).toHaveBeenNthCalledWith(1, 'shiftId', 'in', ids.slice(0, 30))
     expect(mockWhere).toHaveBeenNthCalledWith(2, 'shiftId', 'in', ids.slice(30))
-  })
-})
-
-describe('fetchRemoteSaleStamps', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('pide solo los turnos visibles y deja las ventas que no están confirmadas', async () => {
-    const visible = [
-      '11111111-1111-4111-8111-111111111111',
-      '22222222-2222-4222-8222-222222222222',
-    ]
-    mockGetDocs.mockResolvedValue({
-      docs: [
-        {
-          id: 'ok',
-          data: () => ({
-            shiftId: visible[0],
-            status: 'confirmed',
-            total: 1000,
-            createdAt: '2026-11-18T15:00:00.000Z',
-          }),
-        },
-        {
-          id: 'anulada',
-          data: () => ({
-            shiftId: visible[0],
-            status: 'cancelled',
-            total: 9000,
-            createdAt: '2026-11-18T15:10:00.000Z',
-          }),
-        },
-        {
-          id: 'ajena',
-          data: () => ({
-            shiftId: '33333333-3333-4333-8333-333333333333',
-            status: 'confirmed',
-            total: 50,
-            createdAt: '2026-11-18T16:00:00.000Z',
-          }),
-        },
-      ],
-    })
-
-    const stamps = await fetchRemoteSaleStamps(visible)
-
-    expect(mockWhere).toHaveBeenCalledWith('shiftId', 'in', visible)
-    expect(stamps).toEqual([{ createdAt: '2026-11-18T15:00:00.000Z', total: 1000 }])
   })
 })
 

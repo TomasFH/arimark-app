@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   addDaysYmd,
@@ -7,7 +7,7 @@ import {
   mondayWeekRange,
   summaryMonthStep,
   summaryPeriodQuery,
-  summarySoldByHour,
+  soldHoursFromAmounts,
   type SummaryShiftCard,
 } from '@carniceria/shared'
 import SummaryScreen from '../SummaryScreen'
@@ -49,6 +49,43 @@ function withMoney(id: string, sold: number, startedAt: string, shiftType: 'morn
   })
 }
 
+function hourAmounts(hour: number, amount: number): number[] {
+  return Array.from({ length: 24 }, (_, index) => (index === hour ? amount : 0))
+}
+
+function withHours(
+  id: string,
+  startedAt: string,
+  shiftType: 'morning' | 'evening',
+  amounts: number[] | null,
+  extra: Partial<SummaryShiftCard> = {},
+): SummaryShiftCard {
+  const sold = amounts?.reduce((acc, value) => acc + value, 0) ?? null
+  return card({
+    id,
+    startedAt,
+    shiftType,
+    closedAt: startedAt,
+    soldTotal: sold,
+    cashTotal: sold,
+    cardWalletTotal: sold == null ? null : 0,
+    debtTotal: sold == null ? null : 0,
+    expenseTotal: sold == null ? null : 0,
+    contributionTotal: sold == null ? null : 0,
+    walletCashTotal: sold == null ? null : 0,
+    moneySnapshottedAt: sold == null ? null : startedAt,
+    soldHours: amounts ? soldHoursFromAmounts(amounts) : null,
+    ...extra,
+  })
+}
+
+async function hourSection(): Promise<HTMLElement> {
+  const heading = await screen.findByRole('heading', { name: 'Ventas por hora' })
+  const section = heading.closest('section')
+  if (!section) throw new Error('Falta la sección de horas')
+  return section
+}
+
 describe('SummaryScreen', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -68,7 +105,6 @@ describe('SummaryScreen', () => {
         ok: true,
         data: { shifts: [], visits: [], warning: null },
       }),
-      getSummarySaleHours: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     } as unknown as typeof window.hw
   })
 
@@ -524,44 +560,150 @@ describe('SummaryScreen', () => {
     })
   })
 
-  it('Hoy muestra las ventas por hora de los turnos de ese día', async () => {
+  it('Hoy arma las horas con la ficha y no pide las ventas', async () => {
     const user = userEvent.setup()
-    const todayId = '11111111-1111-4111-8111-111111111111'
-    const otherDayId = '22222222-2222-4222-8222-222222222222'
     const today = `${civilYmd()}T15:00:00.000Z`
-    const ymd = civilYmd()
+    const amounts = hourAmounts(12, 1500)
+    amounts[19] = 800
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [withHours('hoy', today, 'morning', amounts, { cashierName: 'Ana' })]
+          : [],
+        visits: [],
+        warning: null,
+      },
+    }))
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+
+    expect(await screen.findByRole('heading', { name: 'Ventas por hora' })).toBeInTheDocument()
+    expect(screen.getByText('12h')).toBeInTheDocument()
+    expect(screen.getByText('15h')).toBeInTheDocument()
+    expect(screen.getByText('19h')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Ventas por día' })).not.toBeInTheDocument()
+    expect('getSummarySaleHours' in window.hw).toBe(false)
+  })
+
+  it('un turno abierto avisa y no muestra el gráfico', async () => {
+    const user = userEvent.setup()
+    const today = `${civilYmd()}T15:00:00.000Z`
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [withHours('abierto', today, 'evening', hourAmounts(12, 5000), {
+            cashierName: 'Ana',
+            closedAt: null,
+            live: true,
+          })]
+          : [],
+        visits: [],
+        warning: null,
+      },
+    }))
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+    const section = within(await hourSection())
+    expect(section.getByText('Tarde · Local Norte · Ana: Disponible cuando se cierre el turno')).toBeInTheDocument()
+    expect(section.queryByText('12h')).not.toBeInTheDocument()
+    expect(section.queryByText('sin dato')).not.toBeInTheDocument()
+    expect(section.queryByText('No hay ventas en este día')).not.toBeInTheDocument()
+  })
+
+  it('una ficha vieja dice sin dato', async () => {
+    const user = userEvent.setup()
+    const today = `${civilYmd()}T15:00:00.000Z`
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [withMoney('vieja', 1000, today, 'morning')]
+          : [],
+        visits: [],
+        warning: null,
+      },
+    }))
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+    const section = within(await hourSection())
+    expect(section.getByText('sin dato')).toBeInTheDocument()
+    expect(section.queryByText('12h')).not.toBeInTheDocument()
+  })
+
+  it('veinticuatro ceros dicen que no hubo ventas', async () => {
+    const user = userEvent.setup()
+    const today = `${civilYmd()}T15:00:00.000Z`
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [withHours('vacia', today, 'morning', Array.from({ length: 24 }, () => 0))]
+          : [],
+        visits: [],
+        warning: null,
+      },
+    }))
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+    const section = within(await hourSection())
+    expect(section.getByText('No hay ventas en este día')).toBeInTheDocument()
+    expect(section.queryByText('sin dato')).not.toBeInTheDocument()
+  })
+
+  it('el día con un turno cerrado y otro abierto grafica el cerrado y nombra al abierto', async () => {
+    const user = userEvent.setup()
+    const today = `${civilYmd()}T15:00:00.000Z`
     window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
       ok: true,
       data: {
         shifts: payload.storeId === 'norte'
           ? [
-            withMoney(todayId, 2300, today, 'morning'),
-            withMoney(otherDayId, 2000, '2026-10-01T15:00:00.000Z', 'morning'),
+            withHours('manana', today, 'morning', hourAmounts(12, 1500), { cashierName: 'Ana' }),
+            withHours('tarde', today, 'evening', null, { cashierName: 'Luis', closedAt: null, live: true }),
           ]
           : [],
         visits: [],
         warning: null,
       },
     }))
-    window.hw.getSummarySaleHours = vi.fn().mockResolvedValue({
-      ok: true,
-      data: summarySoldByHour([
-        { createdAt: `${ymd}T15:00:00.000Z`, total: 1500 },
-        { createdAt: `${ymd}T22:30:00.000Z`, total: 800 },
-      ], ymd),
-    })
 
     render(<SummaryScreen onBack={vi.fn()} />)
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+    const section = within(await hourSection())
+    expect(section.getByText('12h')).toBeInTheDocument()
+    expect(section.getByText('Tarde · Local Norte · Luis: Disponible cuando se cierre el turno')).toBeInTheDocument()
+  })
 
-    expect(await screen.findByRole('heading', { name: 'Ventas por hora' })).toBeInTheDocument()
-    await waitFor(() => expect(window.hw.getSummarySaleHours).toHaveBeenCalledWith({
-      ymd,
-      shifts: [{ id: todayId, storeId: 'norte', startedAt: today }],
+  it('la semana no cuenta el día incompleto y muestra cuántos quedaron afuera', async () => {
+    const week = mondayWeekRange(0)
+    const at = (offset: number) => new Date(`${addDaysYmd(week.startYmd, offset)}T12:00:00.000-03:00`).toISOString()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [
+            withHours('lun', at(0), 'morning', hourAmounts(10, 2000), { cashierName: 'Ana' }),
+            withHours('mar', at(1), 'morning', hourAmounts(18, 9000), { cashierName: 'Ana' }),
+            withHours('mar-tarde', at(1), 'evening', null, { cashierName: 'Luis', closedAt: null, live: true }),
+          ]
+          : [],
+        visits: [],
+        warning: null,
+      },
     }))
-    expect(screen.getByText('12h')).toBeInTheDocument()
-    expect(screen.getByText('15h')).toBeInTheDocument()
-    expect(screen.getByText('19h')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Ventas por día' })).not.toBeInTheDocument()
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    const section = within(await hourSection())
+    expect(section.getByText('10h')).toBeInTheDocument()
+    expect(section.queryByText('18h')).not.toBeInTheDocument()
+    expect(section.getByText('1 día no se contó por estar incompleto')).toBeInTheDocument()
+    expect(section.getByText(/Pico: 10h/)).toBeInTheDocument()
+    expect(section.getByText('Tarde · Local Norte · Luis: Disponible cuando se cierre el turno')).toBeInTheDocument()
   })
 })

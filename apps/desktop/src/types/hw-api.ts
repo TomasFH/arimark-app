@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock, SoldHourBucket, SummaryExpenseInput, SummaryFiadoSlice, SummaryShiftCard } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock, SummaryExpenseInput, SummaryFiadoSlice, SummaryShiftCard } from '@carniceria/shared'
 
 export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind }
 
@@ -1628,12 +1628,6 @@ export interface HwApi {
   getSummaryExpenses: (payload: {
     shifts: Array<{ id: string; storeId: string; startedAt: string }>
   }) => Promise<IpcResult<SummaryExpenseInput[]>>
-
-  /** 24 horas del día civil. La misma hora se puede promediar entre días. */
-  getSummarySaleHours: (payload: {
-    ymd: string
-    shifts: Array<{ id: string; storeId: string; startedAt: string }>
-  }) => Promise<IpcResult<SoldHourBucket[]>>
 
   /**
    * Suscribe un callback al aviso de inactividad (main → renderer push).

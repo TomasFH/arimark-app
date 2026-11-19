@@ -239,6 +239,103 @@ export function averageCompleteShiftDays(shifts: ShiftDayHours[]): CompleteDayAv
   }
 }
 
+const OPEN_SHIFT_NOTICE = 'Disponible cuando se cierre el turno'
+
+export interface SummaryHoursShift {
+  id: string
+  cashierName: string
+  shiftType: 'morning' | 'evening'
+  storeName?: string | null
+  startedAt: string
+  closedAt: string | null
+  live: boolean
+  soldHours?: SoldHourBucket[] | null
+}
+
+export interface SummaryHoursNotice {
+  id: string
+  text: string
+}
+
+export interface SummaryHoursView {
+  /** Null = no hay horas selladas para graficar. No son veinticuatro ceros. */
+  buckets: SoldHourBucket[] | null
+  /** Un turno cerrado no trajo las 24 horas, o ningún día del promedio entró. */
+  missing: boolean
+  openNotices: SummaryHoursNotice[]
+  incompleteDayCount: number
+  countedDayCount: number
+  peak: SoldHourBucket | null
+}
+
+function isOpenSummaryShift(shift: SummaryHoursShift): boolean {
+  return shift.live || shift.closedAt == null
+}
+
+function openShiftNotice(shift: SummaryHoursShift, showStore: boolean): SummaryHoursNotice {
+  const turn = shift.shiftType === 'morning' ? 'Mañana' : 'Tarde'
+  const who = showStore && shift.storeName
+    ? `${shift.storeName} · ${shift.cashierName}`
+    : shift.cashierName
+  return { id: shift.id, text: `${turn} · ${who}: ${OPEN_SHIFT_NOTICE}` }
+}
+
+/**
+ * Hoy suma los turnos cerrados que ya traen las 24 horas.
+ * Un turno abierto no entra al gráfico: el aviso lo nombra.
+ * Semana o mes promedian solo los días completos.
+ */
+export function summaryHoursView(
+  shifts: SummaryHoursShift[],
+  mode: 'today' | 'average',
+  showStore: boolean,
+): SummaryHoursView {
+  const openNotices = shifts.filter(isOpenSummaryShift).map(shift => openShiftNotice(shift, showStore))
+  if (mode === 'average') {
+    const averaged = averageCompleteShiftDays(shifts.map(shift => ({
+      ymd: civilYmd(new Date(shift.startedAt)),
+      open: isOpenSummaryShift(shift),
+      hours: isOpenSummaryShift(shift) ? null : (shift.soldHours ?? null),
+    })))
+    const buckets = averaged.average.length === 24 ? averaged.average : null
+    return {
+      buckets,
+      missing: averaged.countedDayCount === 0 && averaged.incompleteDayCount > 0,
+      openNotices,
+      incompleteDayCount: averaged.incompleteDayCount,
+      countedDayCount: averaged.countedDayCount,
+      peak: buckets ? peakSoldHour(buckets) : null,
+    }
+  }
+
+  const closed = shifts.filter(shift => !isOpenSummaryShift(shift))
+  const missing = closed.some(shift => !isSealedSoldHours(shift.soldHours ?? null))
+  if (closed.length === 0 || missing) {
+    return {
+      buckets: null,
+      missing,
+      openNotices,
+      incompleteDayCount: 0,
+      countedDayCount: 0,
+      peak: null,
+    }
+  }
+  const sealed: SoldHourBucket[][] = []
+  for (const shift of closed) {
+    const hours = shift.soldHours ?? null
+    if (isSealedSoldHours(hours)) sealed.push(hours)
+  }
+  const buckets = sumHourDays(sealed)
+  return {
+    buckets,
+    missing: false,
+    openNotices,
+    incompleteDayCount: 0,
+    countedDayCount: 1,
+    peak: peakSoldHour(buckets),
+  }
+}
+
 /** Hora con más plata. Si empatan, queda la más temprana. */
 export function peakSoldHour(buckets: SoldHourBucket[]): SoldHourBucket | null {
   let best: SoldHourBucket | null = null

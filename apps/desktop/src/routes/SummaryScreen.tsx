@@ -34,14 +34,14 @@ import {
   summaryPreviewSelection,
   summaryShownAmounts,
   soldHourChartBars,
+  summaryHoursView,
   summarySoldByDay,
-  summarySoldByHour,
   sumCollections,
   type ChickenVisit,
   type ExpenseRow,
   type ExpenseSummaryView,
-  type SoldHourBucket,
   type SummaryExpenseInput,
+  type SummaryHoursView,
   type SummaryFiadoSlice,
   type SummaryPeriod,
   type SummaryPreviewVisit,
@@ -91,9 +91,6 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [expenseView, setExpenseView] = useState<'fecha' | 'grupo'>('fecha')
   const [expenseOpen, setExpenseOpen] = useState(false)
-  const [hourBuckets, setHourBuckets] = useState<SoldHourBucket[] | null>(null)
-  const [hourLoading, setHourLoading] = useState(false)
-  const [hourError, setHourError] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
 
@@ -303,47 +300,10 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     ? !loading
     : !loading && !storesError && !error && data != null
   const showHours = period === 'today' && !previewOn
-  const hourBars = soldHourChartBars(hourBuckets ?? [])
-
-  useEffect(() => {
-    if (!showHours || !ready) {
-      setHourBuckets(null)
-      setHourError(null)
-      setHourLoading(false)
-      return
-    }
-    const ymd = civilYmd()
-    const requested = shownShifts.flatMap(shift => {
-      const storeOfShift = (shift as SummaryShiftCard & { storeId?: string }).storeId ?? ''
-      if (!storeOfShift) return []
-      return [{ id: shift.id, storeId: storeOfShift, startedAt: shift.startedAt }]
-    })
-    if (requested.length === 0) {
-      setHourBuckets(summarySoldByHour([], ymd))
-      setHourError(null)
-      setHourLoading(false)
-      return
-    }
-    let cancelled = false
-    setHourLoading(true)
-    setHourError(null)
-    void window.hw.getSummarySaleHours({ ymd, shifts: requested }).then(result => {
-      if (cancelled) return
-      if (!result.ok) {
-        setHourError(result.error ?? 'No se pudieron leer las ventas.')
-        setHourBuckets(null)
-        return
-      }
-      setHourBuckets(result.data ?? [])
-    }).catch(() => {
-      if (cancelled) return
-      setHourError('No se pudieron leer las ventas.')
-      setHourBuckets(null)
-    }).finally(() => {
-      if (!cancelled) setHourLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [showHours, ready, shownShifts])
+  const hourView = useMemo(
+    () => summaryHoursView(shownShifts, showHours ? 'today' : 'average', showStore),
+    [shownShifts, showHours, showStore],
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app text-ink">
@@ -442,17 +402,17 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                 <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
                   <h2 className="text-sm font-semibold text-ink">{showHours ? 'Ventas por hora' : 'Ventas por día'}</h2>
                   {showHours ? (
-                    hourError ? (
-                      <p className="min-w-0 truncate text-sm text-danger" title={hourError}>{hourError}</p>
-                    ) : hourLoading && hourBars.length === 0 ? (
-                      <p className="text-sm text-muted">Leyendo ventas…</p>
-                    ) : hourBars.length === 0 ? (
-                      <p className="text-sm text-muted">No hay ventas en este día.</p>
-                    ) : (
-                      <SoldDayBars bars={hourBars} caption="Vendido por hora" />
-                    )
+                    <HourChart view={hourView} emptyLabel="No hay ventas en este día" showAverage={false} />
                   ) : (
-                    <SoldDayBars bars={soldDays} />
+                    <>
+                      <SoldDayBars bars={soldDays} />
+                      {!previewOn && (
+                        <div className="space-y-2 border-t border-line pt-3">
+                          <h3 className="text-sm font-semibold text-ink">Ventas por hora</h3>
+                          <HourChart view={hourView} emptyLabel="No hay ventas en estos días" showAverage />
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
                 <section className="min-w-0 space-y-4 rounded-xl border border-line bg-panel p-4">
@@ -800,6 +760,51 @@ function ExpenseAmountList({
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+function incompleteDayText(count: number): string | null {
+  if (count <= 0) return null
+  if (count === 1) return '1 día no se contó por estar incompleto'
+  return `${count} días no se contaron por estar incompletos`
+}
+
+function HourChart({
+  view,
+  emptyLabel,
+  showAverage,
+}: {
+  view: SummaryHoursView
+  emptyLabel: string
+  showAverage: boolean
+}) {
+  const bars = view.buckets ? soldHourChartBars(view.buckets) : []
+  const showChart = !view.missing && bars.length > 0
+  const showEmpty = !view.missing && !showChart && (view.buckets != null || view.openNotices.length === 0)
+  const peak = showAverage && view.peak && view.peak.amount > 0
+    ? `Pico: ${view.peak.hour}h · ${formatARS(view.peak.amount)}`
+    : null
+  const incomplete = showAverage ? incompleteDayText(view.incompleteDayCount) : null
+  return (
+    <div className="space-y-2">
+      {view.missing && <p className="text-sm text-muted">sin dato</p>}
+      {showEmpty && <p className="text-sm text-muted">{emptyLabel}</p>}
+      {showChart && (
+        <>
+          {showAverage && (
+            <p className="text-sm text-muted">Cada hora es la media de los días completos</p>
+          )}
+          <SoldDayBars bars={bars} caption="Vendido por hora" />
+        </>
+      )}
+      {peak && <p className="text-sm text-muted">{peak}</p>}
+      {incomplete && <p className="text-sm text-muted">{incomplete}</p>}
+      {view.openNotices.map(notice => (
+        <p key={notice.id} className="min-w-0 truncate text-sm text-muted" title={notice.text}>
+          {notice.text}
+        </p>
+      ))}
     </div>
   )
 }
