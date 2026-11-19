@@ -8,8 +8,8 @@
  */
 import { and, eq } from 'drizzle-orm'
 import { getDb } from './client'
-import { debtEvents, expenses, orders, sales, salePayments } from './schema'
-import type { PaymentSplit } from '@carniceria/shared'
+import { debtEvents, expenses, orders, sales, salePayments, shifts } from './schema'
+import { sealedSoldHoursJson, type PaymentSplit } from '@carniceria/shared'
 import { addDepositToTotals, emptyDepositTotals } from '../lib/depositPayments'
 
 type AppDb = ReturnType<typeof getDb>
@@ -26,6 +26,8 @@ export interface ShiftMoneySnapshot {
   walletTotal: number
   creditTotal: number
   moneySnapshottedAt: string
+  /** 24 montos. Veinticuatro ceros son un turno sin ventas. */
+  soldHoursJson: string
 }
 
 function isWalletCash(row: { injectReason: string | null; concept: string | null }): boolean {
@@ -65,11 +67,13 @@ export function computeShiftMoney(
   shiftId: string,
 ): Omit<ShiftMoneySnapshot, 'moneySnapshottedAt' | 'debitTotal' | 'walletTotal' | 'creditTotal'> & { paymentSplit: PaymentSplit } {
   const confirmed = db
-    .select({ total: sales.total })
+    .select({ status: sales.status, createdAt: sales.createdAt, total: sales.total })
     .from(sales)
     .where(and(eq(sales.shiftId, shiftId), eq(sales.status, 'confirmed')))
     .all()
   const soldTotal = confirmed.reduce((acc, row) => acc + Number(row.total ?? 0), 0)
+  const startedAt = db.select({ startedAt: shifts.startedAt }).from(shifts).where(eq(shifts.id, shiftId)).get()?.startedAt ?? ''
+  const hoursJson = sealedSoldHoursJson(confirmed, startedAt)
 
   const paymentRows = db
     .select({ method: salePayments.paymentMethod, amount: salePayments.amount })
@@ -164,6 +168,7 @@ export function computeShiftMoney(
     contributionTotal,
     walletCashTotal,
     paymentSplit,
+    soldHoursJson: hoursJson,
   }
 }
 

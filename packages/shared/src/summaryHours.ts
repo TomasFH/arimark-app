@@ -156,6 +156,21 @@ export function soldHoursJson(buckets: SoldHourBucket[] | null | undefined): str
   return JSON.stringify(amounts)
 }
 
+/**
+ * JSON de 24 montos para sellar la ficha.
+ * Usa las mismas ventas confirmadas que el total vendido.
+ * Sin ventas, son 24 ceros: eso es un dato.
+ */
+export function sealedSoldHoursJson(
+  sales: Array<{ status: string; createdAt: string; total: number }>,
+  startedAt: string,
+): string {
+  const at = new Date(startedAt)
+  const ymd = Number.isNaN(at.getTime()) ? '' : civilYmd(at)
+  return soldHoursJson(summarySoldByHour(confirmedSaleHourStamps(sales), ymd))
+    ?? JSON.stringify(Array.from({ length: 24 }, () => 0))
+}
+
 export function parseSoldHoursJson(raw: string | null | undefined): SoldHourBucket[] | null {
   if (raw == null || raw.trim() === '') return null
   try {

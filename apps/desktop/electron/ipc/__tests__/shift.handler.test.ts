@@ -938,6 +938,10 @@ describe('shift.handler', () => {
           cardWalletTotal: 111300,
         })
         expect(duringPush?.moneySnapshottedAt).toEqual(expect.any(String))
+        const hours = JSON.parse(duringPush?.soldHoursJson ?? 'null') as number[]
+        expect(hours).toHaveLength(24)
+        expect(hours[3]).toBe(141300)
+        expect(hours.reduce((acc, amount) => acc + amount, 0)).toBe(141300)
         return Promise.resolve()
       })
 
@@ -959,6 +963,7 @@ describe('shift.handler', () => {
       expect(row?.debitTotal).toBeNull()
       expect(row?.cardWalletTotal).toBeNull()
       expect(row?.moneySnapshottedAt).toBeNull()
+      expect(row?.soldHoursJson).toBeNull()
       expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
       expect(log.error).toHaveBeenCalled()
     })
@@ -967,7 +972,8 @@ describe('shift.handler', () => {
       const db = await seedOwnShift(true)
       const result = getHandler('ipc:close-shift')({}, {})
       expect(result).toMatchObject({ ok: true })
-      expect(db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()).toMatchObject({
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-001')).get()
+      expect(row).toMatchObject({
         soldTotal: 0,
         cashTotal: 0,
         cardWalletTotal: 0,
@@ -979,6 +985,7 @@ describe('shift.handler', () => {
         walletTotal: 0,
         creditTotal: 0,
       })
+      expect(JSON.parse(row?.soldHoursJson ?? 'null')).toEqual(Array.from({ length: 24 }, () => 0))
     })
 
     it('no inventa la ficha si esta PC no tiene el libro', async () => {
@@ -993,6 +1000,7 @@ describe('shift.handler', () => {
       expect(row?.creditTotal).toBeNull()
       expect(row?.cardWalletTotal).toBeNull()
       expect(row?.moneySnapshottedAt).toBeNull()
+      expect(row?.soldHoursJson).toBeNull()
     })
   })
 
@@ -1395,6 +1403,9 @@ describe('shift.handler', () => {
         expect(duringPush?.walletTotal).toBe(0)
         expect(duringPush?.creditTotal).toBe(0)
         expect(duringPush?.cardWalletTotal).toBe(6000)
+        const hours = JSON.parse(duringPush?.soldHoursJson ?? 'null') as number[]
+        expect(hours[3]).toBe(6000)
+        expect(hours.reduce((acc, amount) => acc + amount, 0)).toBe(6000)
       })
       const result = await getHandler('ipc:force-close-open-shift')({}, { shiftId: 'shift-1' })
       expect(result).toMatchObject({ ok: true })
@@ -1412,6 +1423,7 @@ describe('shift.handler', () => {
       expect(row?.creditTotal).toBeNull()
       expect(row?.cardWalletTotal).toBeNull()
       expect(row?.moneySnapshottedAt).toBeNull()
+      expect(row?.soldHoursJson).toBeNull()
     })
   })
 
@@ -1623,6 +1635,7 @@ describe('shift.handler', () => {
         walletTotal: 0,
         creditTotal: 0,
       })
+      expect(JSON.parse(savedShift(db)?.soldHoursJson ?? 'null')).toEqual(Array.from({ length: 24 }, () => 0))
       expect(savedShift(db)?.moneySnapshottedAt).toEqual(expect.any(String))
     })
 
@@ -1775,6 +1788,39 @@ describe('shift.handler', () => {
         cardWalletTotal: 111300,
         moneySnapshottedAt: started,
       })
+    })
+
+    it('corregir quedó no vuelve a sellar las horas', async () => {
+      const db = await seedClosedAndNext()
+      const hours = JSON.stringify([7, ...Array.from({ length: 23 }, () => 0)])
+      db.update(shifts).set({
+        openedLocally: true,
+        soldHoursJson: hours,
+        soldTotal: 141300,
+        moneySnapshottedAt: started,
+      }).where(eq(shifts.id, 'shift-closed')).run()
+      db.insert(sales).values({
+        id: 'sale-nueva',
+        storeId: 'store-001',
+        shiftId: 'shift-closed',
+        total: 999,
+        isDebt: false,
+        status: 'confirmed',
+        createdAt: started,
+        createdBy: 'user-001',
+      }).run()
+      const snapshot = vi.spyOn(shiftMoney, 'snapshotShiftMoney')
+      vi.mocked(getActiveSession).mockReturnValue(SESSION_ADMIN)
+
+      const result = await getHandler('ipc:correct-shift-close')({}, { shiftId: 'shift-closed', cashLeft: 50 })
+      expect(result).toMatchObject({ ok: true })
+      expect(snapshot).not.toHaveBeenCalled()
+      expect(db.select().from(shifts).where(eq(shifts.id, 'shift-closed')).get()).toMatchObject({
+        cashLeft: 50,
+        soldHoursJson: hours,
+        soldTotal: 141300,
+      })
+      snapshot.mockRestore()
     })
 
     it('olvida la semana de ese turno y deja las otras marcas', async () => {

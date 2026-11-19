@@ -28,6 +28,7 @@ import { eq, isNull } from 'drizzle-orm'
 import {
   compactBillLines,
   parseBillLines,
+  parseSoldHoursJson,
   type BillLine,
 } from '@carniceria/shared'
 import { getDb } from '../db/client'
@@ -80,6 +81,7 @@ interface RemoteShiftDoc {
   walletTotal?: number | null
   creditTotal?: number | null
   moneySnapshottedAt?: string | null
+  soldHoursJson?: string | null
 }
 
 export interface ReconcileShiftsFilter {
@@ -264,6 +266,7 @@ function shiftPushPayload(
       walletTotal: amountForPush(row.walletTotal, remote?.walletTotal),
       creditTotal: amountForPush(row.creditTotal, remote?.creditTotal),
       moneySnapshottedAt: textForPush(row.moneySnapshottedAt, remote?.moneySnapshottedAt),
+      soldHoursJson: textForPush(row.soldHoursJson, remote?.soldHoursJson),
       openingBills,
       closingBills,
       handoverExpectedBills: expectedBills,
@@ -447,6 +450,7 @@ export async function reconcileStoreShifts(
           walletTotal: finiteAmount(data.walletTotal),
           creditTotal: finiteAmount(data.creditTotal),
           moneySnapshottedAt: remoteText(data.moneySnapshottedAt),
+          soldHoursJson: parseSoldHoursJson(data.soldHoursJson) ? data.soldHoursJson ?? null : null,
         }).run()
         applyRemoteShiftBills(id, data, false, false)
         applied++

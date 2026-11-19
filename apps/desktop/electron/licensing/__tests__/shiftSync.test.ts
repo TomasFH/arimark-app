@@ -328,6 +328,7 @@ describe('shiftSync', () => {
           closingCash: null,
           soldTotal: 99999,
           notes: 'cerró el admin',
+          soldHoursJson: JSON.stringify([4, ...Array.from({ length: 23 }, () => 0)]),
         }),
       })
 
@@ -339,6 +340,7 @@ describe('shiftSync', () => {
       expect(row?.deliveredAmount).toBe(500)
       expect(row?.closingCash).toBe(2000)
       expect(row?.soldTotal).toBeNull()
+      expect(row?.soldHoursJson).toBeNull()
       expect(row?.moneySnapshottedAt).toBeNull()
       expect(mockSetDoc).not.toHaveBeenCalled()
     })
@@ -371,6 +373,7 @@ describe('shiftSync', () => {
           closingCash: 5000,
           soldTotal: 8000,
           notes: 'ya anotado',
+          soldHoursJson: JSON.stringify([9, ...Array.from({ length: 23 }, () => 0)]),
         }),
       })
 
@@ -384,6 +387,7 @@ describe('shiftSync', () => {
       expect(payload).not.toHaveProperty('deliveredAmount')
       expect(payload).not.toHaveProperty('soldTotal')
       expect(payload).not.toHaveProperty('notes')
+      expect(payload).not.toHaveProperty('soldHoursJson')
     })
 
     it('al adoptar el cierre calcula la plata desde SQLite y no borra la venta', async () => {
@@ -434,6 +438,8 @@ describe('shiftSync', () => {
       expect(payload.closedAt).toBe(closed)
       expect(payload.soldTotal).toBe(4200)
       expect(payload.cashLeft).toBe(200)
+      const adoptedHours = JSON.parse(String(payload.soldHoursJson)) as number[]
+      expect(adoptedHours.reduce((acc, amount) => acc + amount, 0)).toBe(4200)
       expect(payload.closedAt).not.toBeNull()
     })
 
@@ -469,6 +475,64 @@ describe('shiftSync', () => {
       expect(payload.walletTotal).toBe(36800)
       expect(payload.creditTotal).toBe(34500)
       expect(payload.cardWalletTotal).toBe(111300)
+    })
+
+    it('sube 24 ceros cuando el turno no tuvo ventas y no pisa horas remotas si acá está vacío', async () => {
+      const zeros = JSON.stringify(Array.from({ length: 24 }, () => 0))
+      db.insert(shifts).values({
+        id: 'shift-zeros',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: '2026-11-18T06:33:06.197Z',
+        closedAt: '2026-11-18T18:00:00.000Z',
+        openingCash: 0,
+        source: 'desktop',
+        syncedAt: null,
+        soldTotal: 0,
+        cashTotal: 0,
+        cardWalletTotal: 0,
+        debtTotal: 0,
+        expenseTotal: 0,
+        contributionTotal: 0,
+        walletCashTotal: 0,
+        soldHoursJson: zeros,
+        moneySnapshottedAt: '2026-11-18T18:00:00.000Z',
+      }).run()
+      db.insert(shifts).values({
+        id: 'shift-vacio',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'evening',
+        startedAt: '2026-11-18T18:00:00.000Z',
+        closedAt: '2026-11-18T22:00:00.000Z',
+        openingCash: 0,
+        source: 'desktop',
+        syncedAt: null,
+        soldHoursJson: null,
+      }).run()
+
+      mockGetDoc.mockImplementation(async (_ref: unknown) => {
+        const path = String((_ref as { path?: string } | undefined)?.path ?? '')
+        if (path.includes('shift-vacio')) {
+          return {
+            exists: () => true,
+            data: () => ({
+              closedAt: '2026-11-18T22:00:00.000Z',
+              soldHoursJson: JSON.stringify([3, ...Array.from({ length: 23 }, () => 0)]),
+            }),
+          }
+        }
+        return { exists: () => false, data: () => ({}) }
+      })
+
+      await pushUnsyncedShifts(TENANT)
+
+      const payloads = mockSetDoc.mock.calls.map(call => call[1] as Record<string, unknown>)
+      const zerosPayload = payloads.find(payload => payload.id === 'shift-zeros')
+      const emptyPayload = payloads.find(payload => payload.id === 'shift-vacio')
+      expect(zerosPayload?.soldHoursJson).toBe(zeros)
+      expect(emptyPayload).not.toHaveProperty('soldHoursJson')
     })
   })
 

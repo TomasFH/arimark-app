@@ -133,5 +133,39 @@ describe('computeShiftMoney desglose', () => {
     expect(money.cashTotal).toBe(2000)
     expect(money.contributionTotal).toBe(1000)
     expect(money.walletCashTotal).toBe(50)
+    const hours = JSON.parse(money.soldHoursJson) as number[]
+    expect(hours).toHaveLength(24)
+    expect(hours.reduce((acc, amount) => acc + amount, 0)).toBe(money.soldTotal)
+    expect(money.soldTotal).toBe(5000)
+  })
+
+  it('sin ventas guarda 24 ceros y sin libro no inventa el dato', async () => {
+    const { db } = await createInMemoryDb()
+    const now = '2026-10-20T12:00:00.000Z'
+    db.insert(stores).values({ id: 'store-1', name: 'Centro', address: 'Calle 1', createdAt: now }).run()
+    db.insert(users).values({ id: 'user-1', storeId: 'store-1', name: 'Ana', active: true, createdAt: now }).run()
+    db.insert(shifts).values({
+      id: 'shift-vacio',
+      storeId: 'store-1',
+      userId: 'user-1',
+      shiftType: 'morning',
+      startedAt: now,
+      openingCash: 0,
+      openedLocally: true,
+    }).run()
+    db.insert(shifts).values({
+      id: 'shift-ajeno',
+      storeId: 'store-1',
+      userId: 'user-1',
+      shiftType: 'evening',
+      startedAt: now,
+      openingCash: 0,
+      openedLocally: false,
+    }).run()
+
+    const empty = snapshotShiftMoney(db as never, { id: 'shift-vacio', openedLocally: true }, now)
+    expect(JSON.parse(empty?.soldHoursJson ?? 'null')).toEqual(Array.from({ length: 24 }, () => 0))
+    expect(empty?.soldTotal).toBe(0)
+    expect(snapshotShiftMoney(db as never, { id: 'shift-ajeno', openedLocally: false }, now)).toBeNull()
   })
 })

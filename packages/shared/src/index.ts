@@ -237,6 +237,7 @@ export {
   confirmedSaleHourStamps,
   parseSoldHoursJson,
   peakSoldHour,
+  sealedSoldHoursJson,
   soldHourAmounts,
   soldHourChartBars,
   soldHoursAmount,

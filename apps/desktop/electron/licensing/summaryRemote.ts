@@ -4,6 +4,7 @@
  */
 import { collection, doc, getDocs, getFirestore, orderBy, query, setDoc, where } from 'firebase/firestore'
 import {
+  sealedSoldHoursJson,
   tallyShiftMoney,
   type PaymentSplit,
   type SaleHourStamp,
@@ -122,6 +123,7 @@ interface SaleDoc {
   shiftId: string
   status: string
   total: number
+  createdAt: string
   payments: { method: string; amount: number }[]
 }
 
@@ -145,6 +147,7 @@ function readSale(data: Record<string, unknown>, id: string): SaleDoc | null {
     shiftId,
     status: text(data['status']) ?? '',
     total: finiteAmount(data['total']) ?? 0,
+    createdAt: text(data['createdAt']) ?? '',
     payments,
   }
 }
@@ -155,7 +158,8 @@ function readSale(data: Record<string, unknown>, id: string): SaleDoc | null {
  */
 export async function fetchRemoteShiftMoney(
   shiftIds: string[],
-): Promise<Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>> {
+  startedAtById: Readonly<Record<string, string>> = {},
+): Promise<Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit; soldHoursJson: string | null }>> {
   const result = new Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>()
   if (shiftIds.length === 0) return result
   const tenant = getBusinessConfig().tenant_id
@@ -257,21 +261,28 @@ export async function fetchRemoteShiftMoney(
 
   for (const shiftId of shiftIds) {
     const deposit = deposits.get(shiftId) ?? emptyDepositTotals()
-    result.set(shiftId, tallyShiftMoney({
-      sales: (salesByShift.get(shiftId) ?? []).map(sale => ({
-        status: sale.status,
-        total: sale.total,
-        payments: sale.payments,
-      })),
-      deposits: [
-        { method: 'cash', amount: deposit.cash },
-        { method: 'debit', amount: deposit.debit },
-        { method: 'wallet', amount: deposit.wallet },
-        { method: 'credit', amount: deposit.credit },
-      ],
-      debtEvents: debts.get(shiftId) ?? [],
-      movements: movements.get(shiftId) ?? [],
-    }))
+    const shiftSales = salesByShift.get(shiftId) ?? []
+    const startedAt = startedAtById[shiftId]
+    result.set(shiftId, {
+      ...tallyShiftMoney({
+        sales: shiftSales.map(sale => ({
+          status: sale.status,
+          total: sale.total,
+          payments: sale.payments,
+        })),
+        deposits: [
+          { method: 'cash', amount: deposit.cash },
+          { method: 'debit', amount: deposit.debit },
+          { method: 'wallet', amount: deposit.wallet },
+          { method: 'credit', amount: deposit.credit },
+        ],
+        debtEvents: debts.get(shiftId) ?? [],
+        movements: movements.get(shiftId) ?? [],
+      }),
+      soldHoursJson: startedAt
+        ? sealedSoldHoursJson(shiftSales, startedAt)
+        : null,
+    })
   }
   return result
 }
@@ -324,12 +335,15 @@ export async function fetchRemoteExpenseLines(shiftIds: string[]): Promise<Remot
 /** Escribe solo la plata. No toca ventas ni el cierre. */
 export async function writeRemoteShiftMoney(
   shiftId: string,
-  parts: ShiftMoneyParts & { paymentSplit?: PaymentSplit | null },
+  parts: ShiftMoneyParts & { paymentSplit?: PaymentSplit | null; soldHoursJson?: string | null },
   at: string,
 ): Promise<void> {
   const tenant = getBusinessConfig().tenant_id
   const firestore = getFirestore(getFirebaseApp())
   const split = parts.paymentSplit
+  const hoursJson = typeof parts.soldHoursJson === 'string' && parts.soldHoursJson.length > 0
+    ? parts.soldHoursJson
+    : null
   await setDoc(doc(firestore, 'licenses', tenant, 'shifts', shiftId), {
     soldTotal: parts.soldTotal,
     cashTotal: parts.cashTotal,
@@ -345,6 +359,7 @@ export async function writeRemoteShiftMoney(
         creditTotal: split.credit,
       }
       : {}),
+    ...(hoursJson ? { soldHoursJson: hoursJson } : {}),
     moneySnapshottedAt: at,
   }, { merge: true })
 }

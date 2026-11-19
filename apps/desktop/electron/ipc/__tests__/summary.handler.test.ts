@@ -588,7 +588,11 @@ describe('summary.handler', () => {
     ])
     vi.mocked(fetchRemoteShiftMoney).mockResolvedValue(new Map([[
       'ayer',
-      { ...parts(5_000), paymentSplit: { debit: 100, wallet: 0, credit: 0 } },
+      {
+        ...parts(5_000),
+        paymentSplit: { debit: 100, wallet: 0, credit: 0 },
+        soldHoursJson: JSON.stringify([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+      },
     ]]))
 
     const res = await getHandler()(null, {
@@ -602,11 +606,12 @@ describe('summary.handler', () => {
     expect(byId.get('ayer')?.cardWalletTotal).toBe(0)
     expect(byId.get('ayer')?.paymentSplit).toEqual({ debit: 100, wallet: 0, credit: 0 })
     expect(byId.get('hoy')?.soldTotal).toBeNull()
-    expect(fetchRemoteShiftMoney).toHaveBeenCalledWith(['ayer'])
+    expect(fetchRemoteShiftMoney).toHaveBeenCalledWith(['ayer'], { ayer: yStart })
     expect(writeRemoteShiftMoney).toHaveBeenCalledWith('ayer', expect.objectContaining({
       soldTotal: 5_000,
       cardWalletTotal: 0,
       paymentSplit: { debit: 100, wallet: 0, credit: 0 },
+      soldHoursJson: JSON.stringify([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
     }), expect.any(String))
     const view = summaryMoneyView(res.data?.shifts ?? [])
     expect(view.lines[0]?.amount).toBe(5_000)
@@ -699,6 +704,39 @@ describe('summary.handler', () => {
     const row = db.select().from(shifts).where(eq(shifts.id, 'viejo')).get()
     expect(row?.debtTotal).toBe(190000)
     expect(row?.soldTotal).toBe(1000)
+  })
+
+  it('el recálculo guarda las 24 horas sin leer ventas en Firestore', async () => {
+    const week = mondayWeekRange(-4)
+    db.insert(shifts).values({
+      id: 'sin-ficha',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: week.startIso,
+      closedAt: week.startIso,
+      openingCash: 0,
+      openedLocally: true,
+    }).run()
+    db.insert(sales).values({
+      id: 'sale-hora',
+      storeId: STORE_ID,
+      shiftId: 'sin-ficha',
+      total: 1500,
+      status: 'confirmed',
+      createdAt: week.startIso,
+      createdBy: USER_ID,
+    }).run()
+
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
+    expect(fetchRemoteSaleStamps).not.toHaveBeenCalled()
+    const row = db.select().from(shifts).where(eq(shifts.id, 'sin-ficha')).get()
+    const hours = JSON.parse(row?.soldHoursJson ?? 'null') as number[]
+    expect(hours).toHaveLength(24)
+    expect(hours.reduce((acc, amount) => acc + amount, 0)).toBe(1500)
+    expect(row?.soldTotal).toBe(1500)
   })
 
   it('abrir dos veces una semana cerrada no vuelve a bajar los turnos, y corregir refresca solo esa semana', async () => {
