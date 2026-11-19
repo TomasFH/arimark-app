@@ -2,8 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Activación de equipos: fuera de la 1.0. Estas dos funciones quedan
-    // solo para activity_log. No abren datos operativos.
+    // Activación de equipos: fuera de la 1.0. No abre datos operativos.
+    // activity_log ya no la usa.
     function isActiveInstallation(licenseKey) {
       return request.auth != null &&
         exists(/databases/$(database)/documents/licenses/$(licenseKey)/installations/$(request.auth.uid)) &&
@@ -117,9 +117,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Alta de la cajera o el admin, sin equipo activado. El admin lee.
+    // Nadie modifica ni borra.
     match /licenses/{licenseKey}/activity_log/{entry} {
-      allow create: if isActiveInstallation(licenseKey);
-      allow read, update, delete: if false;
+      allow create: if isActiveMember(licenseKey);
+      allow read: if isAdmin(licenseKey);
+      allow update, delete: if false;
     }
 
     match /licenses/{licenseKey}/catalog/{storeId} {

@@ -302,14 +302,24 @@ describe('reglas por rol', () => {
     }
   }, 60_000)
 
-  it('el registro de actividad no lo escribe la cajera ni el admin', async () => {
-    for (const uid of ['cashier-a', 'admin-a'] as const) {
-      const database = db(uid)
-      await assertFails(setDoc(doc(database, 'licenses', TENANT, 'activity_log', `log-${uid}`), {
-        role: uid === 'admin-a' ? 'admin' : 'cashier',
-        offline: false,
-      }))
-    }
+  it('la cajera y el admin crean actividad, y solo el admin la lee', async () => {
+    const cashier = db('cashier-a')
+    const admin = db('admin-a')
+    const cashierLog = doc(cashier, 'licenses', TENANT, 'activity_log', 'log-cashier')
+    const adminLog = doc(admin, 'licenses', TENANT, 'activity_log', 'log-admin')
+    await assertSucceeds(setDoc(cashierLog, { role: 'cashier', offline: false, store_id: 'local-1' }))
+    await assertSucceeds(setDoc(adminLog, { role: 'admin', offline: true, store_id: 'local-1' }))
+    await assertFails(getDoc(cashierLog))
+    await assertFails(getDocs(collection(cashier, 'licenses', TENANT, 'activity_log')))
+    await assertSucceeds(getDoc(doc(admin, 'licenses', TENANT, 'activity_log', 'log-cashier')))
+    await assertSucceeds(getDocs(collection(admin, 'licenses', TENANT, 'activity_log')))
+    await assertFails(updateDoc(cashierLog, { offline: true }))
+    await assertFails(updateDoc(doc(admin, 'licenses', TENANT, 'activity_log', 'log-cashier'), { offline: true }))
+    await assertFails(deleteDoc(cashierLog))
+    await assertFails(deleteDoc(doc(admin, 'licenses', TENANT, 'activity_log', 'log-admin')))
+    await assertFails(setDoc(doc(db('butcher-a'), 'licenses', TENANT, 'activity_log', 'log-butcher'), { role: 'butcher' }))
+    await assertFails(setDoc(doc(db('cashier-off'), 'licenses', TENANT, 'activity_log', 'log-off'), { role: 'cashier' }))
+    await assertFails(setDoc(doc(db('sin-ficha'), 'licenses', TENANT, 'activity_log', 'log-ghost'), { role: 'cashier' }))
   })
 
   it('la cajera y el admin leen la licencia y actualizan su instalación', async () => {
