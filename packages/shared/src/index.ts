@@ -230,6 +230,14 @@ export {
   summarySoldByDay,
   tallyShiftMoney,
 } from './summaryMoney'
+export { coverageAccount } from './coverageAccount'
+export type {
+  CoverageAccount,
+  CoverageFicha,
+  CoverageIntake,
+  CoveragePurchaseLine,
+  SummaryPurchaseIntake,
+} from './coverageAccount'
 export {
   averageCompleteShiftDays,
   averageSoldHours,
@@ -307,6 +315,7 @@ export {
   MEDIA_RES_CUSTOM_RUBRO_ID,
   MEDIA_RES_RUBRO_ID,
   filterMediaResProvider,
+  isMediaResLine,
   groupMediaResByDay,
   mediaResAverageKg,
   mediaResProviders,

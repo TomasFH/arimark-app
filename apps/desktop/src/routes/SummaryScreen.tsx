@@ -10,6 +10,7 @@ import {
   civilYmd,
   collectionNote,
   combineFiadoSlices,
+  coverageAccount,
   filterMediaResProvider,
   formatKg3,
   formatSummaryRange,
@@ -41,6 +42,7 @@ import {
   type ExpenseRow,
   type ExpenseSummaryView,
   type SummaryExpenseInput,
+  type SummaryPurchaseIntake,
   type SummaryHoursView,
   type SummaryFiadoSlice,
   type SummaryPeriod,
@@ -168,6 +170,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       const shifts: Array<SummaryShiftCard & { storeId: string }> = []
       const visits: AdminSummaryResult['visits'] = []
       const chicken: ChickenVisit[] = []
+      const purchases: SummaryPurchaseIntake[] = []
       const expenseLines: AdminSummaryResult['expenses'] = []
       const slices: SummaryFiadoSlice[] = []
       for (const item of loaded) {
@@ -176,6 +179,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
           shifts.push({ ...shift, storeName: item.store.name, storeId: item.store.id })
         }
         visits.push(...item.result.data.visits)
+        purchases.push(...item.result.data.purchases ?? [])
         for (const visit of item.result.data.chicken ?? []) {
           chicken.push({ ...visit, storeName: item.store.name })
         }
@@ -184,7 +188,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
         }
         slices.push(item.result.data.fiado ?? EMPTY_FIADO)
       }
-      setData({ shifts, visits, chicken, expenses: expenseLines, warning: null, fiado: combineFiadoSlices(slices) })
+      setData({ shifts, visits, chicken, purchases, expenses: expenseLines, warning: null, fiado: combineFiadoSlices(slices) })
       setOpenDay(null)
       setLoading(false)
     }).catch(() => {
@@ -232,6 +236,27 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     () => filterMediaResProvider(shownVisits, providerFilter),
     [shownVisits, providerFilter],
   )
+  const account = useMemo(() => {
+    const today = civilYmd()
+    const intakes = selected
+      ? shownVisits.map(visit => ({
+          createdAt: visit.createdAt,
+          lines: [{
+            costTotal: visit.cost ?? 0,
+            moneyRole: visit.cost != null && visit.cost > 0 ? 'informed' as const : 'none' as const,
+            mediaRes: true,
+          }],
+        }))
+      : (data?.purchases ?? []).filter(row => period !== 'today' || onCivilDay(row.createdAt, today))
+    return coverageAccount({
+      fichas: shownShifts.map(shift => ({
+        soldTotal: shift.soldTotal,
+        expenseTotal: shift.expenseTotal,
+        providerExpenseTotal: shift.providerExpenseTotal ?? null,
+      })),
+      intakes,
+    })
+  }, [selected, shownVisits, data, period, shownShifts])
   const money = useMemo(() => summaryMoneyView(shownShifts), [shownShifts])
   const payment = useMemo(() => summaryPaymentBreakdown(shownShifts), [shownShifts])
   const expenseDetail = useMemo(() => {
@@ -397,6 +422,20 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                   value={`${totals.count} ${totals.count === 1 ? 'media' : 'medias'} · ${formatKg3(totals.kg)}`}
                 />
               </div>
+
+              <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
+                <h2 className="text-sm font-semibold text-ink">Cuenta</h2>
+                <MoneyRow label="Ventas" amount={account.sales} empty="sin dato" />
+                <MoneyRow label="Compras" amount={account.purchases} />
+                <MoneyRow label="Otros gastos" amount={account.otherExpenses} empty="sin dato" />
+                <MoneyRow label="Ventas menos compras y gastos" amount={account.difference} empty="sin dato" />
+                {account.shiftsLeftOut > 0 && (
+                  <p className="text-sm text-muted">{shiftsLeftOutText(account.shiftsLeftOut)}</p>
+                )}
+                {account.mediaResWithoutPrice > 0 && (
+                  <p className="text-sm text-muted">{mediaResUnpricedText(account.mediaResWithoutPrice)}</p>
+                )}
+              </section>
 
               <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(17rem,1fr)]">
                 <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
@@ -567,6 +606,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                                     ) : (
                                       <p className="text-sm text-muted">{visit.count} · {formatKg3(visit.kg)}</p>
                                     )}
+                                    <p className="text-sm text-muted">{mediaResPriceText(visit.cost)}</p>
                                   </li>
                                 ))}
                               </ul>
@@ -811,6 +851,20 @@ function HourChart({
 
 function amountText(amount: number | null): string {
   return amount == null ? 'todavía no llegó' : formatARS(amount)
+}
+
+function mediaResPriceText(cost: number | null | undefined): string {
+  return cost != null && cost > 0 ? formatARS(cost) : 'sin precio'
+}
+
+function shiftsLeftOutText(count: number): string {
+  return count === 1 ? '1 turno quedó afuera' : `${count} turnos quedaron afuera`
+}
+
+function mediaResUnpricedText(count: number): string {
+  return count === 1
+    ? '1 ingreso de media res sin precio no suma'
+    : `${count} ingresos de media res sin precio no suman`
 }
 
 function chickenHeading(totals: { crates: number; grossKg: number }): string {

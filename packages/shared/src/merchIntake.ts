@@ -465,6 +465,20 @@ function purchaseUnitCostOrZero(value: unknown): number {
   return Number.isFinite(rounded) ? rounded : 0
 }
 
+/**
+ * Pesos de una línea que entran en Compras.
+ * Pagada o no, y también el costo informado. Sin precio o `none` no es cero: no entra.
+ */
+export function linePurchaseCost(line: {
+  costTotal?: number | null
+  moneyRole?: string | null
+}): number {
+  if (line.moneyRole === 'none') return 0
+  const cost = Math.round(Number(line.costTotal ?? 0))
+  if (!Number.isFinite(cost) || cost <= 0) return 0
+  return cost
+}
+
 export function parseMerchLineSnapshot(raw: unknown, index: number, intakeId: string): MerchIntakeLineSnapshot | null {
   if (!raw || typeof raw !== 'object') return null
   const data = raw as Record<string, unknown>

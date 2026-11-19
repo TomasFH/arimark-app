@@ -127,6 +127,9 @@ export function patchCachedSummaryShift(db: AppDb, card: SummaryShiftCard): void
       : {}),
     moneySnapshottedAt: card.moneySnapshottedAt,
     soldHoursJson: soldHoursJson(card.soldHours),
+    ...(typeof card.providerExpenseTotal === 'number'
+      ? { providerExpenseTotal: card.providerExpenseTotal }
+      : {}),
   }).where(eq(summaryShiftCache.id, card.id)).run()
 }
 

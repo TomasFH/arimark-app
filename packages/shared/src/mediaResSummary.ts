@@ -3,7 +3,7 @@
  * o un producto cuyo nombre normalizado es media res y que se mide en piezas.
  * Un corte por kilo, aunque el nombre diga media res, no entra.
  */
-import { merchNameKey } from './merchIntake'
+import { linePurchaseCost, merchNameKey } from './merchIntake'
 import { civilYmd, DISPLAY_TIMEZONE } from './pickupHours'
 import { WEEKDAY_SHORT_LABELS, WEEKDAY_UI_ORDER, weekdayFromYmd } from './storeHours'
 import type { Weekday } from './storeHours'
@@ -21,6 +21,8 @@ export interface MediaResLineInput {
   nameKey?: string | null
   /** pieces_weight cuenta como piezas. weight, packs y count no. */
   template?: string | null
+  costTotal?: number | null
+  moneyRole?: 'payable' | 'informed' | 'none' | null
 }
 
 export interface MediaResIntakeInput {
@@ -44,6 +46,8 @@ export interface MediaResVisit {
   pieces: MediaResPiece[]
   count: number
   kg: number
+  /** Null o ausente = este ingreso no tiene precio. No es un costo en cero. */
+  cost?: number | null
 }
 
 export interface MediaResDay {
@@ -86,7 +90,7 @@ function measuredInPieces(line: MediaResLineInput): boolean {
   return Number.isFinite(line.count) && line.count > 1
 }
 
-function isMediaResLine(line: MediaResLineInput): boolean {
+export function isMediaResLine(line: MediaResLineInput): boolean {
   if (line.rubroId === MEDIA_RES_RUBRO_ID || line.rubroId === MEDIA_RES_CUSTOM_RUBRO_ID) return true
   return mentionsMediaRes(lineNameKey(line)) && measuredInPieces(line)
 }
@@ -114,12 +118,14 @@ export function mediaResVisits(
     const pieces: MediaResPiece[] = []
     let count = 0
     let kg = 0
+    let cost = 0
     for (const line of intake.lines) {
       if (!isMediaResLine(line)) continue
       const part = linePieces(line)
       pieces.push(...part.pieces)
       count += part.count
       kg = roundKg(kg + part.kg)
+      cost += linePurchaseCost(line)
     }
     if (count === 0 && kg === 0) continue
     visits.push({
@@ -131,6 +137,7 @@ export function mediaResVisits(
       pieces,
       count,
       kg,
+      cost: cost > 0 ? cost : null,
     })
   }
   visits.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))

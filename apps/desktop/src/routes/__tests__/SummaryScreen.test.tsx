@@ -706,4 +706,134 @@ describe('SummaryScreen', () => {
     expect(section.getByText(/Pico: 10h/)).toBeInTheDocument()
     expect(section.getByText('Tarde · Local Norte · Luis: Disponible cuando se cierre el turno')).toBeInTheDocument()
   })
+
+  it('la cuenta resta los gastos a proveedores y no los vuelve a sumar', async () => {
+    const week = mondayWeekRange(0)
+    const at = new Date(`${week.startYmd}T12:00:00.000-03:00`).toISOString()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: payload.storeId === 'norte'
+        ? {
+          shifts: [card({
+            id: 'lun',
+            startedAt: at,
+            shiftType: 'morning',
+            soldTotal: 10_000,
+            cashTotal: 10_000,
+            cardWalletTotal: 0,
+            debtTotal: 0,
+            expenseTotal: 800,
+            contributionTotal: 0,
+            walletCashTotal: 0,
+            moneySnapshottedAt: at,
+            providerExpenseTotal: 700,
+          })],
+          visits: [],
+          purchases: [{
+            createdAt: at,
+            lines: [{ costTotal: 500, moneyRole: 'payable' as const }],
+          }],
+          warning: null,
+          fiado: { debtNow: null, payments: null },
+        }
+        : { shifts: [], visits: [], purchases: [], warning: null, fiado: { debtNow: null, payments: null } },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Cuenta' })).toBeInTheDocument()
+    expect(screen.getByText('Ventas').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('10000')
+    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('500')
+    expect(screen.getByText('Otros gastos').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('100')
+    expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('9400')
+    expect(screen.queryByText(/ganancia|pérdida|perdida/i)).not.toBeInTheDocument()
+    expect(window.hw.getSummaryExpenses).toBeUndefined()
+  })
+
+  it('la ficha sin el número queda sin dato y la media res sin precio avisa', async () => {
+    const user = userEvent.setup()
+    const week = mondayWeekRange(0)
+    const at = new Date(`${week.startYmd}T12:00:00.000-03:00`).toISOString()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: payload.storeId === 'norte'
+        ? {
+          shifts: [card({
+            id: 'vieja',
+            startedAt: at,
+            shiftType: 'morning',
+            soldTotal: 9_000,
+            cashTotal: 9_000,
+            cardWalletTotal: 0,
+            debtTotal: 0,
+            expenseTotal: 100,
+            contributionTotal: 0,
+            walletCashTotal: 0,
+            moneySnapshottedAt: at,
+            providerExpenseTotal: null,
+          })],
+          visits: [{
+            id: 'media',
+            createdAt: at,
+            ymd: week.startYmd,
+            providerName: 'Frigorífico',
+            receivedByName: 'Ana',
+            pieces: [{ kg: 90 }],
+            count: 1,
+            kg: 90,
+            cost: null,
+          }],
+          purchases: [{
+            createdAt: at,
+            lines: [{ costTotal: 0, moneyRole: 'none' as const, mediaRes: true }],
+          }],
+          warning: null,
+          fiado: { debtNow: null, payments: null },
+        }
+        : { shifts: [], visits: [], purchases: [], warning: null, fiado: { debtNow: null, payments: null } },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('1 turno quedó afuera')).toBeInTheDocument()
+    expect(screen.getByText('Ventas').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('Otros gastos').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('1 ingreso de media res sin precio no suma')).toBeInTheDocument()
+    const day = `${week.startYmd.slice(8, 10)}/${week.startYmd.slice(5, 7)}`
+    await user.click(screen.getByRole('button', { name: new RegExp(day) }))
+    expect(screen.getByText('sin precio')).toBeInTheDocument()
+    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('0')
+  })
+
+  it('sin ingresos de mercadería, Compras es cero y no sin dato', async () => {
+    const week = mondayWeekRange(0)
+    const at = new Date(`${week.startYmd}T12:00:00.000-03:00`).toISOString()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: payload.storeId === 'norte'
+        ? {
+          shifts: [card({
+            id: 'lun',
+            startedAt: at,
+            shiftType: 'morning',
+            soldTotal: 2_000,
+            cashTotal: 2_000,
+            cardWalletTotal: 0,
+            debtTotal: 0,
+            expenseTotal: 40,
+            contributionTotal: 0,
+            walletCashTotal: 0,
+            moneySnapshottedAt: at,
+            providerExpenseTotal: 0,
+          })],
+          visits: [],
+          purchases: [],
+          warning: null,
+          fiado: { debtNow: null, payments: null },
+        }
+        : { shifts: [], visits: [], purchases: [], warning: null, fiado: { debtNow: null, payments: null } },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('Compras')).toBeInTheDocument()
+    const compras = screen.getByText('Compras').nextElementSibling?.textContent ?? ''
+    expect(compras).not.toMatch(/sin dato/i)
+    expect(compras.replace(/\D/g, '')).toBe('0')
+  })
 })

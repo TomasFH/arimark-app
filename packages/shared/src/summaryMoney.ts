@@ -54,6 +54,11 @@ export interface SummaryShiftCard {
    * Null o ausente = sin dato. Veinticuatro ceros son un día sin ventas.
    */
   soldHours?: SoldHourBucket[] | null
+  /**
+   * Gastos a proveedores sellados en la ficha.
+   * Ausente o null = esta ficha no entra en la cuenta. 0 es un dato.
+   */
+  providerExpenseTotal?: number | null
 }
 
 export interface PaymentSplit {

@@ -18,6 +18,7 @@ import { eq } from 'drizzle-orm'
 import {
   addDaysYmd,
   civilYmd,
+  coverageAccount,
   mondayWeekRange,
   summarizeExpenses,
   summaryMoneyView,
@@ -225,8 +226,93 @@ describe('summary.handler', () => {
     expect(res.data?.visits).toHaveLength(1)
     expect(res.data?.visits[0]?.count).toBe(2)
     expect(res.data?.visits[0]?.kg).toBe(80)
+    expect(res.data?.visits[0]?.cost).toBeNull()
+    expect(res.data?.purchases?.[0]?.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ mediaRes: true, costTotal: 0 }),
+      expect.objectContaining({ mediaRes: false, costTotal: 0 }),
+    ]))
+    expect(res.data?.shifts[0]?.providerExpenseTotal).toBeNull()
     expect(res.data?.chicken).toEqual([expect.objectContaining({ crates: 1, grossKg: 10 })])
     expect(pullMerchandiseIntakesForStoreWeek).not.toHaveBeenCalled()
+  })
+
+  it('arma la cuenta con las líneas y la ficha, sin leer gastos', async () => {
+    const week = mondayWeekRange(-30)
+    db.insert(shifts).values({
+      id: 'shift-cuenta',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: week.startIso,
+      closedAt: week.startIso,
+      openingCash: 0,
+      soldTotal: 10_000,
+      cashTotal: 10_000,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 1_600,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: week.startIso,
+      providerExpenseTotal: 800,
+    }).run()
+    db.insert(merchandiseIntakes).values({
+      id: 'ing-cuenta',
+      storeId: STORE_ID,
+      shiftId: 'shift-cuenta',
+      paymentKind: 'on_account',
+      paidAmount: 0,
+      debtAmount: 500,
+      providerName: 'Frigorífico',
+      createdBy: USER_ID,
+      createdAt: week.startIso,
+      status: 'confirmed',
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-costo',
+      intakeId: 'ing-cuenta',
+      rubroId: 'rubro_vacio',
+      rubroName: 'Vacío',
+      template: 'weight',
+      sortOrder: 0,
+      count: 1,
+      netKg: 10,
+      costTotal: 500,
+      moneyRole: 'payable',
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-media',
+      intakeId: 'ing-cuenta',
+      rubroId: 'rubro_media_res',
+      rubroName: 'Media res',
+      template: 'pieces_weight',
+      sortOrder: 1,
+      count: 2,
+      netKg: 80,
+      weightsJson: '[40,40]',
+      costTotal: 0,
+      moneyRole: 'none',
+    }).run()
+
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    if (!res.ok || !res.data) return
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(res.data.visits[0]?.cost).toBeNull()
+    expect(res.data.shifts[0]?.providerExpenseTotal).toBe(800)
+    const account = coverageAccount({
+      fichas: res.data.shifts.map(shift => ({
+        soldTotal: shift.soldTotal,
+        expenseTotal: shift.expenseTotal,
+        providerExpenseTotal: shift.providerExpenseTotal ?? null,
+      })),
+      intakes: res.data.purchases,
+    })
+    expect(account.purchases).toBe(500)
+    expect(account.otherExpenses).toBe(800)
+    expect((account.otherExpenses ?? 0) + account.purchases).toBe(1_300)
+    expect(account.mediaResWithoutPrice).toBe(1)
+    expect(account.sales).toBe(10_000)
   })
 
   it('suma el cajón de pollo y la media res del catálogo, y deja afuera el corte por kilo', async () => {

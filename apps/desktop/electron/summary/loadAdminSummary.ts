@@ -8,6 +8,7 @@ import log from 'electron-log'
 import {
   chickenVisits,
   civilYmd,
+  isMediaResLine,
   mediaResVisits,
   mondayWeekRange,
   mondayWeeksInRange,
@@ -17,6 +18,7 @@ import {
   shiftMoneyAction,
   soldHoursJson,
   type ChickenVisit,
+  type SummaryPurchaseIntake,
   type MediaResVisit,
   type SummaryExpenseInput,
   type PaymentSplit,
@@ -61,6 +63,8 @@ export interface AdminSummaryData {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
   chicken: ChickenVisit[]
+  /** Líneas ya bajadas con las visitas. La cuenta no lee la tabla de gastos. */
+  purchases: SummaryPurchaseIntake[]
   expenses: SummaryExpenseInput[]
   warning: string | null
   fiado: SummaryFiadoSlice
@@ -179,6 +183,7 @@ function cardFrom(
   moneySnapshottedAt: string | null,
   live: boolean,
   soldHours: SoldHourBucket[] | null,
+  providerExpenseTotal: number | null,
 ): SummaryShiftCard {
   return {
     id,
@@ -200,7 +205,15 @@ function cardFrom(
     live,
     paymentSplit: parts ? paymentSplit : null,
     soldHours,
+    providerExpenseTotal,
   }
+}
+
+function knownProvider(...values: Array<number | null | undefined>): number | null {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
 }
 
 function moneyPartsOnly(
@@ -331,6 +344,7 @@ async function loadShifts(
       cards.push(cardFrom(
         id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
         parts, computed.paymentSplit, at, false, hoursFrom(computed.soldHoursJson),
+        computed.providerExpenseTotal,
       ))
       continue
     }
@@ -341,6 +355,7 @@ async function loadShifts(
       cards.push(cardFrom(
         id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
         parts, computed.paymentSplit, null, true, null,
+        computed.providerExpenseTotal,
       ))
       continue
     }
@@ -362,6 +377,7 @@ async function loadShifts(
         null,
         parts != null,
         null,
+        knownProvider(local?.providerExpenseTotal, cloud?.providerExpenseTotal),
       ))
       continue
     }
@@ -381,11 +397,13 @@ async function loadShifts(
         cards.push(cardFrom(
           id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
           parts, remote.paymentSplit ?? null, at, false, hoursFrom(remote.soldHoursJson),
+          knownProvider(local?.providerExpenseTotal, cloud?.providerExpenseTotal),
         ))
       } else {
         cards.push(cardFrom(
           id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
           null, null, null, false, null,
+          knownProvider(local?.providerExpenseTotal, cloud?.providerExpenseTotal),
         ))
       }
       continue
@@ -408,6 +426,7 @@ async function loadShifts(
       snapshotAt,
       false,
       hoursFrom(local?.soldHoursJson) ?? hoursFrom(cloud?.soldHoursJson),
+      knownProvider(local?.providerExpenseTotal, cloud?.providerExpenseTotal),
     ))
   }
 
@@ -484,6 +503,9 @@ function applyResolved(shifts: RemoteSummaryShift[], cards: SummaryShiftCard[]):
       creditTotal: card.paymentSplit?.credit ?? shift.creditTotal,
       moneySnapshottedAt: card.moneySnapshottedAt,
       soldHoursJson: soldHoursJson(card.soldHours),
+      ...(typeof card.providerExpenseTotal === 'number'
+        ? { providerExpenseTotal: card.providerExpenseTotal }
+        : {}),
     }
   })
 }
@@ -509,7 +531,12 @@ async function loadVisits(
   startIso: string,
   endIso: string,
   now: Date,
-): Promise<{ visits: MediaResVisit[]; chicken: ChickenVisit[]; warning: string | null }> {
+): Promise<{
+  visits: MediaResVisit[]
+  chicken: ChickenVisit[]
+  purchases: SummaryPurchaseIntake[]
+  warning: string | null
+}> {
   const currentStart = mondayWeekRange(0, now).startIso
   let warning: string | null = null
   const tenant = isFirebaseAvailable() ? getBusinessConfig().tenant_id : null
@@ -557,20 +584,44 @@ async function loadVisits(
     createdAt: row.createdAt,
     providerName: row.providerName,
     receivedByName: names.get(row.createdBy) ?? '',
-    lines: (linesByIntake.get(row.id) ?? []).map(line => ({
-      rubroId: line.rubroId,
-      rubroName: line.rubroName,
-      nameKey: line.nameKey,
-      template: line.template,
-      count: line.count,
-      netKg: line.netKg,
-      grossKg: line.grossKg,
-      costUnit: line.costUnit,
-      packCount: line.packCount,
-      weightsKg: parseMerchWeightsJson(line.weightsJson),
+    lines: (linesByIntake.get(row.id) ?? []).map(line => {
+      const weightsKg = parseMerchWeightsJson(line.weightsJson)
+      const moneyRole: 'payable' | 'informed' | 'none' =
+        line.moneyRole === 'informed' || line.moneyRole === 'none' ? line.moneyRole : 'payable'
+      return {
+        rubroId: line.rubroId,
+        rubroName: line.rubroName,
+        nameKey: line.nameKey,
+        template: line.template,
+        count: line.count,
+        netKg: line.netKg,
+        grossKg: line.grossKg,
+        costUnit: line.costUnit,
+        packCount: line.packCount,
+        weightsKg,
+        costTotal: line.costTotal,
+        moneyRole,
+        mediaRes: isMediaResLine({
+          rubroId: line.rubroId,
+          rubroName: line.rubroName,
+          nameKey: line.nameKey,
+          template: line.template,
+          count: line.count,
+          netKg: line.netKg,
+          weightsKg,
+        }),
+      }
+    }),
+  }))
+  const purchases: SummaryPurchaseIntake[] = mapped.map(row => ({
+    createdAt: row.createdAt,
+    lines: row.lines.map(line => ({
+      costTotal: line.costTotal,
+      moneyRole: line.moneyRole,
+      mediaRes: line.mediaRes,
     })),
   }))
-  return { visits: mediaResVisits(mapped), chicken: chickenVisits(mapped), warning }
+  return { visits: mediaResVisits(mapped), chicken: chickenVisits(mapped), purchases, warning }
 }
 
 export async function loadAdminSummary(input: {
@@ -591,6 +642,7 @@ export async function loadAdminSummary(input: {
     shifts,
     visits: visitResult.visits,
     chicken: visitResult.chicken,
+    purchases: visitResult.purchases,
     expenses: expenseLines,
     warning: visitResult.warning,
     fiado,

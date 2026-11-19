@@ -78,6 +78,7 @@ function filled(
     walletCashTotal: money.walletCashTotal,
     moneySnapshottedAt: startedAt,
     live: false,
+    providerExpenseTotal: 0,
   }
 }
 
