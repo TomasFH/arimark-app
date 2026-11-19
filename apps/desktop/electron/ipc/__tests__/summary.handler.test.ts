@@ -11,6 +11,7 @@ import {
   sales,
   shifts,
   stores,
+  summaryShiftCache,
   users,
 } from '../../db/schema'
 import { eq } from 'drizzle-orm'
@@ -606,6 +607,8 @@ describe('summary.handler', () => {
     expect(byId.get('ayer')?.cardWalletTotal).toBe(0)
     expect(byId.get('ayer')?.paymentSplit).toEqual({ debit: 100, wallet: 0, credit: 0 })
     expect(byId.get('hoy')?.soldTotal).toBeNull()
+    expect(byId.get('ayer')?.soldHours?.[12]).toEqual({ hour: 12, amount: 5000, saleCount: 1 })
+    expect(byId.get('hoy')?.soldHours ?? null).toBeNull()
     expect(fetchRemoteShiftMoney).toHaveBeenCalledWith(['ayer'], { ayer: yStart })
     expect(writeRemoteShiftMoney).toHaveBeenCalledWith('ayer', expect.objectContaining({
       soldTotal: 5_000,
@@ -649,6 +652,57 @@ describe('summary.handler', () => {
     const card = res.data?.shifts.find(shift => shift.id === 'con-corte')
     expect(card?.cardWalletTotal).toBe(0)
     expect(card?.paymentSplit).toEqual({ debit: 1000, wallet: 0, credit: 0 })
+  })
+
+  it('la ficha remota trae las horas y abrir el resumen no lee ventas', async () => {
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const week = mondayWeekRange(-8)
+    const hours = JSON.stringify([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    db.insert(shifts).values({
+      id: 'con-horas',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'morning',
+      startedAt: week.startIso,
+      closedAt: week.startIso,
+      openingCash: 0,
+      soldTotal: 4000,
+      cashTotal: 4000,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: week.startIso,
+      openedLocally: false,
+    }).run()
+    vi.mocked(fetchRemoteSummaryShifts).mockResolvedValue([
+      remoteCard('con-horas', week.startIso, 'morning', 4000, undefined, null, hours),
+      remoteCard('vieja', week.endInclusiveYmd + 'T18:00:00.000Z', 'evening', 1000),
+    ])
+
+    const range = { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso }
+    const res = await getHandler()(null, range)
+    expect(res.ok).toBe(true)
+    expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
+    expect(fetchRemoteSaleStamps).not.toHaveBeenCalled()
+    const byId = new Map((res.data?.shifts ?? []).map(shift => [shift.id, shift]))
+    expect(byId.get('con-horas')?.soldHours?.[10]).toEqual({ hour: 10, amount: 4000, saleCount: 1 })
+    expect(byId.get('con-horas')?.soldHours).toHaveLength(24)
+    expect(byId.get('vieja')?.soldHours ?? null).toBeNull()
+    const cached = db.select().from(summaryShiftCache).where(eq(summaryShiftCache.id, 'con-horas')).get()
+    expect(cached?.soldHoursJson).toBe(hours)
+    const oldCached = db.select().from(summaryShiftCache).where(eq(summaryShiftCache.id, 'vieja')).get()
+    expect(oldCached?.soldHoursJson ?? null).toBeNull()
+
+    vi.mocked(fetchRemoteSummaryShifts).mockClear()
+    vi.mocked(fetchRemoteShiftMoney).mockClear()
+    const second = await getHandler()(null, range)
+    expect(second.ok).toBe(true)
+    expect(fetchRemoteSummaryShifts).not.toHaveBeenCalled()
+    expect(fetchRemoteShiftMoney).not.toHaveBeenCalled()
+    const again = second.data?.shifts.find(shift => shift.id === 'con-horas')
+    expect(again?.soldHours?.[10]?.amount).toBe(4000)
   })
 
   it('si no se pueden leer los turnos remotos no devuelve el total de uno solo', async () => {
@@ -1141,6 +1195,7 @@ function remoteCard(
   sold: number | null,
   closedAt?: string,
   split?: { debit: number; wallet: number; credit: number } | null,
+  hoursJson?: string | null,
 ): RemoteSummaryShift {
   const at = new Date(startedAt).toISOString()
   return {
@@ -1163,5 +1218,6 @@ function remoteCard(
     walletTotal: split?.wallet ?? null,
     creditTotal: split?.credit ?? null,
     moneySnapshottedAt: sold == null ? null : at,
+    soldHoursJson: hoursJson ?? null,
   }
 }

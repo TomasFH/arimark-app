@@ -4,6 +4,7 @@
  */
 import { collection, doc, getDocs, getFirestore, orderBy, query, setDoc, where } from 'firebase/firestore'
 import {
+  parseSoldHoursJson,
   sealedSoldHoursJson,
   tallyShiftMoney,
   type PaymentSplit,
@@ -41,6 +42,14 @@ export interface RemoteSummaryShift {
   walletTotal: number | null
   creditTotal: number | null
   moneySnapshottedAt: string | null
+  /** 24 montos. Null = la ficha no los tiene. */
+  soldHoursJson: string | null
+}
+
+function sealedHoursField(value: unknown): string | null {
+  const raw = text(value)
+  if (!raw || !parseSoldHoursJson(raw)) return null
+  return raw
 }
 
 function chunk<T>(items: T[], size = IN_LIMIT): T[][] {
@@ -113,6 +122,7 @@ export async function fetchRemoteSummaryShifts(
       walletTotal: finiteAmount(data['walletTotal']),
       creditTotal: finiteAmount(data['creditTotal']),
       moneySnapshottedAt: parts ? text(data['moneySnapshottedAt']) : null,
+      soldHoursJson: sealedHoursField(data['soldHoursJson']),
     })
   }
   return shifts
@@ -160,7 +170,7 @@ export async function fetchRemoteShiftMoney(
   shiftIds: string[],
   startedAtById: Readonly<Record<string, string>> = {},
 ): Promise<Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit; soldHoursJson: string | null }>> {
-  const result = new Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit }>()
+  const result = new Map<string, ShiftMoneyParts & { paymentSplit: PaymentSplit; soldHoursJson: string | null }>()
   if (shiftIds.length === 0) return result
   const tenant = getBusinessConfig().tenant_id
   const firestore = getFirestore(getFirebaseApp())

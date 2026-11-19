@@ -12,13 +12,16 @@ import {
   mondayWeekRange,
   mondayWeeksInRange,
   parseMerchWeightsJson,
+  parseSoldHoursJson,
   pickWrittenAmount,
   shiftMoneyAction,
+  soldHoursJson,
   type ChickenVisit,
   type MediaResVisit,
   type SummaryExpenseInput,
   type PaymentSplit,
   type ShiftMoneyParts,
+  type SoldHourBucket,
   type SummaryFiadoSlice,
   type SummaryShiftCard,
 } from '@carniceria/shared'
@@ -153,6 +156,10 @@ function cacheFilledMoney(
   }).where(eq(shifts.id, row.id)).run()
 }
 
+function hoursFrom(raw: string | null | undefined): SoldHourBucket[] | null {
+  return parseSoldHoursJson(raw)
+}
+
 function cardFrom(
   id: string,
   cashierName: string,
@@ -166,6 +173,7 @@ function cardFrom(
   paymentSplit: PaymentSplit | null,
   moneySnapshottedAt: string | null,
   live: boolean,
+  soldHours: SoldHourBucket[] | null,
 ): SummaryShiftCard {
   return {
     id,
@@ -186,6 +194,7 @@ function cardFrom(
     moneySnapshottedAt: live ? null : moneySnapshottedAt,
     live,
     paymentSplit: parts ? paymentSplit : null,
+    soldHours,
   }
 }
 
@@ -304,14 +313,20 @@ async function loadShifts(
           log.warn('[summary] No se pudo publicar la plata del turno', { id: local.id, err })
         }
       }
-      cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, computed.paymentSplit, at, false))
+      cards.push(cardFrom(
+        id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
+        parts, computed.paymentSplit, at, false, hoursFrom(computed.soldHoursJson),
+      ))
       continue
     }
 
     if (action === 'live' && hasLocalLedger && local) {
       const computed = computeShiftMoney(db, local.id)
       const parts = moneyPartsOnly(computed)
-      cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, computed.paymentSplit, null, true))
+      cards.push(cardFrom(
+        id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
+        parts, computed.paymentSplit, null, true, null,
+      ))
       continue
     }
 
@@ -331,6 +346,7 @@ async function loadShifts(
         remote?.paymentSplit ?? null,
         null,
         parts != null,
+        null,
       ))
       continue
     }
@@ -347,9 +363,15 @@ async function loadShifts(
           }
         }
         if (local) cacheFilledMoney(db, local, parts, remote.paymentSplit, remote.soldHoursJson, at)
-        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, parts, remote.paymentSplit ?? null, at, false))
+        cards.push(cardFrom(
+          id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
+          parts, remote.paymentSplit ?? null, at, false, hoursFrom(remote.soldHoursJson),
+        ))
       } else {
-        cards.push(cardFrom(id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn, null, null, null, false))
+        cards.push(cardFrom(
+          id, cashierName, shiftType, startedAt, closedAt, openingCash, cashLeft, withdrawn,
+          null, null, null, false, null,
+        ))
       }
       continue
     }
@@ -370,6 +392,7 @@ async function loadShifts(
       keptSplit,
       snapshotAt,
       false,
+      hoursFrom(local?.soldHoursJson) ?? hoursFrom(cloud?.soldHoursJson),
     ))
   }
 
@@ -445,6 +468,7 @@ function applyResolved(shifts: RemoteSummaryShift[], cards: SummaryShiftCard[]):
       walletTotal: card.paymentSplit?.wallet ?? shift.walletTotal,
       creditTotal: card.paymentSplit?.credit ?? shift.creditTotal,
       moneySnapshottedAt: card.moneySnapshottedAt,
+      soldHoursJson: soldHoursJson(card.soldHours),
     }
   })
 }

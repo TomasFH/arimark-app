@@ -80,10 +80,72 @@ describe('fetchRemoteSummaryShifts', () => {
     const rows = await fetchRemoteSummaryShifts('camarones', october.startIso, october.endIso)
     expect(rows.map(row => row.id)).toEqual(['tarde-22', 'manana-22', 'tarde-21'])
     expect(rows.every(row => row.soldTotal == null)).toBe(true)
+    expect(rows.every(row => row.soldHoursJson == null)).toBe(true)
+    expect(mockGetDocs).toHaveBeenCalledTimes(1)
     expect(mockOrderBy).toHaveBeenCalledWith('startedAt', 'desc')
     expect(mockWhere).toHaveBeenCalledWith('storeId', '==', 'camarones')
     expect(mockWhere).toHaveBeenCalledWith('startedAt', '>=', october.startIso)
     expect(mockWhere).toHaveBeenCalledWith('startedAt', '<', october.endIso)
+  })
+
+  it('copia las horas de la misma ficha y no pide otra lectura', async () => {
+    const october = summaryMonthSpan(2026, 10)
+    const hours = JSON.stringify([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    const money = {
+      moneySnapshottedAt: '2026-10-22T16:00:00.000Z',
+      soldTotal: 4000,
+      cashTotal: 4000,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+    }
+    mockGetDocs.mockResolvedValue({
+      docs: [
+        {
+          id: 'con-horas',
+          data: () => ({
+            storeId: 'camarones',
+            shiftType: 'morning',
+            cashierName: 'Ana',
+            startedAt: '2026-10-22T11:00:00.000Z',
+            closedAt: '2026-10-22T16:00:00.000Z',
+            soldHoursJson: hours,
+            ...money,
+          }),
+        },
+        {
+          id: 'vieja',
+          data: () => ({
+            storeId: 'camarones',
+            shiftType: 'evening',
+            cashierName: 'Ana',
+            startedAt: '2026-10-22T21:00:00.000Z',
+            closedAt: '2026-10-22T23:00:00.000Z',
+            ...money,
+          }),
+        },
+        {
+          id: 'rota',
+          data: () => ({
+            storeId: 'camarones',
+            shiftType: 'morning',
+            cashierName: 'Ana',
+            startedAt: '2026-10-21T11:00:00.000Z',
+            closedAt: '2026-10-21T16:00:00.000Z',
+            soldHoursJson: '[1,2]',
+            ...money,
+          }),
+        },
+      ],
+    })
+
+    const rows = await fetchRemoteSummaryShifts('camarones', october.startIso, october.endIso)
+    expect(mockGetDocs).toHaveBeenCalledTimes(1)
+    expect(rows.find(row => row.id === 'con-horas')?.soldHoursJson).toBe(hours)
+    expect(rows.find(row => row.id === 'vieja')?.soldHoursJson).toBeNull()
+    expect(rows.find(row => row.id === 'rota')?.soldHoursJson).toBeNull()
   })
 })
 

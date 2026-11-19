@@ -3,7 +3,7 @@
  * La semana en curso no se marca. Corregir un cierre borra solo la marca de esa semana.
  */
 import { and, eq, gte, lt } from 'drizzle-orm'
-import { mondayWeekContaining, type SummaryShiftCard } from '@carniceria/shared'
+import { mondayWeekContaining, soldHoursJson, type SummaryShiftCard } from '@carniceria/shared'
 import { getDb } from '../db/client'
 import { summaryShiftCache, summaryWeekPulls } from '../db/schema'
 import type { RemoteSummaryShift } from '../licensing/summaryRemote'
@@ -49,6 +49,7 @@ export function readCachedSummaryWeek(
     walletTotal: row.walletTotal,
     creditTotal: row.creditTotal,
     moneySnapshottedAt: row.moneySnapshottedAt,
+    soldHoursJson: row.soldHoursJson,
   }))
 }
 
@@ -89,6 +90,7 @@ export function replaceSummaryWeek(
         walletTotal: shift.walletTotal,
         creditTotal: shift.creditTotal,
         moneySnapshottedAt: shift.moneySnapshottedAt,
+        soldHoursJson: shift.soldHoursJson,
       }).run()
     }
     tx.insert(summaryWeekPulls).values({ storeId, weekStartIso, pulledAt }).onConflictDoUpdate({
@@ -122,6 +124,7 @@ export function patchCachedSummaryShift(db: AppDb, card: SummaryShiftCard): void
       }
       : {}),
     moneySnapshottedAt: card.moneySnapshottedAt,
+    soldHoursJson: soldHoursJson(card.soldHours),
   }).where(eq(summaryShiftCache.id, card.id)).run()
 }
 

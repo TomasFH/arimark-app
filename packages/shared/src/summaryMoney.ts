@@ -3,6 +3,7 @@
  * La PC que tiene las ventas escribe esos números. Acá solo se suman.
  */
 import { civilYmd, DISPLAY_TIMEZONE } from './pickupHours'
+import type { SoldHourBucket } from './summaryHours'
 import { addDaysYmd } from './weekRange'
 import { WEEKDAY_SHORT_LABELS, weekdayFromYmd } from './storeHours'
 import {
@@ -48,6 +49,11 @@ export interface SummaryShiftCard {
    * Null = este turno solo tiene el total agrupado.
    */
   paymentSplit?: PaymentSplit | null
+  /**
+   * 24 horas selladas en la ficha.
+   * Null o ausente = sin dato. Veinticuatro ceros son un día sin ventas.
+   */
+  soldHours?: SoldHourBucket[] | null
 }
 
 export interface PaymentSplit {
