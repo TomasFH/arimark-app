@@ -522,31 +522,34 @@ export function registerAuthHandlers(): void {
 
     stopOfflineSessionWatch()
 
-    if (role === 'cashier') {
-      stopMobileSyncListener()
-      stopProviderSyncListener()
-      stopStoreSyncListener()
-      stopEmployeeSyncListener()
-      stopOrderSyncListener()
-      stopCustomerDebtSyncListener()
-      stopSpecialCustomerSyncListener()
-      stopMerchRubroSyncListener()
-      stopCatalogSyncListener()
-      stopDebtBalanceLiveSync()
-      stopDebtCheckpointJob()
+    try {
+      if (role === 'cashier') {
+        stopMobileSyncListener()
+        stopProviderSyncListener()
+        stopStoreSyncListener()
+        stopEmployeeSyncListener()
+        stopOrderSyncListener()
+        stopCustomerDebtSyncListener()
+        stopSpecialCustomerSyncListener()
+        stopMerchRubroSyncListener()
+        stopCatalogSyncListener()
+        stopDebtBalanceLiveSync()
+        stopDebtCheckpointJob()
+      } else if (role === 'admin') {
+        stopProviderSyncListener()
+        stopStoreSyncListener()
+        stopEmployeeSyncListener()
+        stopOrderSyncListener()
+        stopCustomerDebtSyncListener()
+        stopSpecialCustomerSyncListener()
+        stopMerchRubroSyncListener()
+        stopCatalogSyncListener()
+        stopDebtBalanceLiveSync()
+        stopDebtCheckpointJob()
+        await logoutAdmin()
+      }
+    } finally {
       setActiveSession(null)
-    } else if (role === 'admin') {
-      stopProviderSyncListener()
-      stopStoreSyncListener()
-      stopEmployeeSyncListener()
-      stopOrderSyncListener()
-      stopCustomerDebtSyncListener()
-      stopSpecialCustomerSyncListener()
-      stopMerchRubroSyncListener()
-      stopCatalogSyncListener()
-      stopDebtBalanceLiveSync()
-      stopDebtCheckpointJob()
-      await logoutAdmin()
     }
 
     return { ok: true, data: undefined }
