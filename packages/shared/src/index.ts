@@ -231,13 +231,20 @@ export {
   tallyShiftMoney,
 } from './summaryMoney'
 export {
+  averageCompleteShiftDays,
   averageSoldHours,
   civilHour,
+  confirmedSaleHourStamps,
+  parseSoldHoursJson,
   peakSoldHour,
+  soldHourAmounts,
   soldHourChartBars,
+  soldHoursAmount,
+  soldHoursFromAmounts,
+  soldHoursJson,
   summarySoldByHour,
 } from './summaryHours'
-export type { SaleHourStamp, SoldHourBucket } from './summaryHours'
+export type { CompleteDayAverage, SaleHourStamp, ShiftDayHours, SoldHourBucket } from './summaryHours'
 export type {
   MoneyLine,
   PaymentGap,

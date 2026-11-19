@@ -1,6 +1,7 @@
 /**
  * Ventas confirmadas de un día, cortadas por hora civil.
- * El promedio de varios días se hace hora por hora.
+ * El promedio de varios días se hace hora por hora, y un día entra
+ * solo si todos los turnos que existieron ese día traen las 24 horas.
  * El horario pico es la hora con más plata en ese promedio,
  * no el promedio de los relojes pico.
  */
@@ -17,6 +18,40 @@ export interface SoldHourBucket {
   hour: number
   amount: number
   saleCount: number
+}
+
+/** Un turno del día, para decidir si ese día entra al promedio. */
+export interface ShiftDayHours {
+  ymd: string
+  /** Abierto: el día queda incompleto aunque el otro turno ya tenga horas. */
+  open: boolean
+  /** Null = sin dato. Veinticuatro ceros son un día real sin ventas. */
+  hours: SoldHourBucket[] | null
+}
+
+export interface CompleteDayAverage {
+  /** Vacío si ningún día entró. No son veinticuatro ceros. */
+  average: SoldHourBucket[]
+  countedDayCount: number
+  /** Días que tuvieron turnos y quedaron afuera. No se promedian como cero. */
+  incompleteDayCount: number
+}
+
+/**
+ * La misma venta que el total vendido: estado confirmed y el total de la venta.
+ * Una anulada no entra. La seña y la cobranza de un fiado tampoco: no son esta fila.
+ * El fiado vendido en el turno sí entra, porque la venta está confirmada.
+ */
+export function confirmedSaleHourStamps(
+  sales: Array<{ status: string; createdAt: string; total: number }>,
+): SaleHourStamp[] {
+  const stamps: SaleHourStamp[] = []
+  for (const sale of sales) {
+    if (sale.status !== 'confirmed') continue
+    if (!Number.isFinite(sale.total)) continue
+    stamps.push({ createdAt: sale.createdAt, total: sale.total })
+  }
+  return stamps
 }
 
 export function civilHour(at: Date, timeZone = DISPLAY_TIMEZONE): number {
@@ -74,6 +109,119 @@ export function soldHourChartBars(buckets: SoldHourBucket[]): SoldDayBar[] {
     label: `${bucket.hour}h`,
     amount: bucket.amount,
   }))
+}
+
+export function soldHoursAmount(buckets: SoldHourBucket[]): number {
+  return buckets.reduce((acc, bucket) => acc + bucket.amount, 0)
+}
+
+function isSealedSoldHours(hours: SoldHourBucket[] | null): hours is SoldHourBucket[] {
+  if (!hours || hours.length !== 24) return false
+  return hours.every((bucket, index) =>
+    bucket.hour === index
+    && Number.isFinite(bucket.amount)
+    && Number.isFinite(bucket.saleCount))
+}
+
+/** 24 montos para guardar en la ficha. Si el dato no está sellado, null. */
+export function soldHourAmounts(buckets: SoldHourBucket[] | null | undefined): number[] | null {
+  const sealed = buckets ?? null
+  if (!isSealedSoldHours(sealed)) return null
+  return sealed.map(bucket => bucket.amount)
+}
+
+/**
+ * Lee los 24 montos. Null, otra cantidad o un número inválido es sin dato,
+ * nunca un día en cero.
+ */
+export function soldHoursFromAmounts(
+  amounts: readonly unknown[] | null | undefined,
+): SoldHourBucket[] | null {
+  if (!amounts || amounts.length !== 24) return null
+  const buckets = emptyDay()
+  for (let hour = 0; hour < 24; hour += 1) {
+    const amount = amounts[hour]
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
+    const bucket = buckets[hour]
+    if (!bucket) return null
+    bucket.amount = amount
+    bucket.saleCount = amount > 0 ? 1 : 0
+  }
+  return buckets
+}
+
+export function soldHoursJson(buckets: SoldHourBucket[] | null | undefined): string | null {
+  const amounts = soldHourAmounts(buckets)
+  if (!amounts) return null
+  return JSON.stringify(amounts)
+}
+
+export function parseSoldHoursJson(raw: string | null | undefined): SoldHourBucket[] | null {
+  if (raw == null || raw.trim() === '') return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    return soldHoursFromAmounts(parsed)
+  } catch {
+    return null
+  }
+}
+
+function sumHourDays(days: SoldHourBucket[][]): SoldHourBucket[] {
+  const totals = emptyDay()
+  for (const day of days) {
+    for (const bucket of day) {
+      const slot = totals[bucket.hour]
+      if (!slot) continue
+      slot.amount += bucket.amount
+      slot.saleCount += bucket.saleCount
+    }
+  }
+  return totals
+}
+
+/**
+ * Promedio de semana o mes.
+ * Un día entra si todos los turnos de esa lista tienen las 24 horas.
+ * Un turno que no está en la lista no existió para esta cuenta
+ * (la tarde del domingo, o un local que no se eligió).
+ * Los días que no entran quedan afuera y no se suman como cero.
+ */
+export function averageCompleteShiftDays(shifts: ShiftDayHours[]): CompleteDayAverage {
+  const byDay = new Map<string, ShiftDayHours[]>()
+  for (const shift of shifts) {
+    const list = byDay.get(shift.ymd) ?? []
+    list.push(shift)
+    byDay.set(shift.ymd, list)
+  }
+
+  const complete: SoldHourBucket[][] = []
+  let incompleteDayCount = 0
+  for (const dayShifts of byDay.values()) {
+    const sealed: SoldHourBucket[][] = []
+    let missing = false
+    for (const shift of dayShifts) {
+      if (shift.open || !isSealedSoldHours(shift.hours)) {
+        missing = true
+        break
+      }
+      sealed.push(shift.hours)
+    }
+    if (missing) {
+      incompleteDayCount += 1
+      continue
+    }
+    complete.push(sumHourDays(sealed))
+  }
+
+  if (complete.length === 0) {
+    return { average: [], countedDayCount: 0, incompleteDayCount }
+  }
+  return {
+    average: averageSoldHours(complete),
+    countedDayCount: complete.length,
+    incompleteDayCount,
+  }
 }
 
 /** Hora con más plata. Si empatan, queda la más temprana. */
