@@ -65,10 +65,25 @@ pnpm dev:hw           # modo pruebas con balanza real (detecta el COM; no fuerza
 pnpm dev:prod         # modo producción desde fuente (requiere business.json y Firebase)
 pnpm build:prod       # compilar instalador de producción (.exe)
 pnpm test             # ejecutar suite completa
+pnpm test:rules       # reglas de Firestore en el emulador local (Java 21; no publica)
 pnpm test:coverage    # suite + reporte de cobertura
 pnpm db:generate      # generar migraciones desde schema.ts
 pnpm seed:dev         # poblar DB de dev con datos de prueba (cajeras, productos)
 ```
+
+## Reglas de Firestore
+
+`pnpm test:rules` corre las reglas contra el emulador local. No publica nada y no hace `firebase deploy`.
+
+firebase-tools 15 exige **Java 21 o superior**. Java 17 no alcanza. Si `java -version` no es 21, apuntá `JAVA_HOME` a un JDK 21 antes de correr el script. En esta máquina:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.13.102-hotspot"
+$env:Path = "$env:JAVA_HOME\bin;" + $env:Path
+pnpm test:rules
+```
+
+Si el JDK 21 está en otra carpeta, cambiá esa ruta.
 
 ## Build de producción (instalador `.exe`)
 
