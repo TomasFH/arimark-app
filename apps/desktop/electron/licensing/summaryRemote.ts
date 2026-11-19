@@ -6,6 +6,7 @@ import { collection, doc, getDocs, getFirestore, orderBy, query, setDoc, where }
 import {
   tallyShiftMoney,
   type PaymentSplit,
+  type SaleHourStamp,
   type ShiftMoneyParts,
 } from '@carniceria/shared'
 import { getFirebaseApp } from './firebase'
@@ -346,4 +347,31 @@ export async function writeRemoteShiftMoney(
       : {}),
     moneySnapshottedAt: at,
   }, { merge: true })
+}
+
+/**
+ * Hora y total de las ventas confirmadas de esos turnos.
+ * La misma consulta por shiftId, de a 30. No baja la colección.
+ */
+export async function fetchRemoteSaleStamps(shiftIds: string[]): Promise<SaleHourStamp[]> {
+  const stamps: SaleHourStamp[] = []
+  if (shiftIds.length === 0) return stamps
+  const wanted = new Set(shiftIds)
+  const tenant = getBusinessConfig().tenant_id
+  const firestore = getFirestore(getFirebaseApp())
+  const salesCol = collection(firestore, 'licenses', tenant, 'sales')
+  for (const ids of chunk(shiftIds)) {
+    const snap = await getDocs(query(salesCol, where('shiftId', 'in', ids)))
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data() as Record<string, unknown>
+      if (data['deleted'] === true) continue
+      if (data['status'] !== 'confirmed') continue
+      const shiftId = text(data['shiftId'])
+      const createdAt = text(data['createdAt'])
+      const total = finiteAmount(data['total'])
+      if (!shiftId || !wanted.has(shiftId) || !createdAt || total == null) continue
+      stamps.push({ createdAt, total })
+    }
+  }
+  return stamps
 }

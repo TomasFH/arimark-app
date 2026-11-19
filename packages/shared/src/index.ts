@@ -230,6 +230,14 @@ export {
   summarySoldByDay,
   tallyShiftMoney,
 } from './summaryMoney'
+export {
+  averageSoldHours,
+  civilHour,
+  peakSoldHour,
+  soldHourChartBars,
+  summarySoldByHour,
+} from './summaryHours'
+export type { SaleHourStamp, SoldHourBucket } from './summaryHours'
 export type {
   MoneyLine,
   PaymentGap,

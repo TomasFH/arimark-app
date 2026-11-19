@@ -33,11 +33,14 @@ import {
   summaryPreview,
   summaryPreviewSelection,
   summaryShownAmounts,
+  soldHourChartBars,
   summarySoldByDay,
+  summarySoldByHour,
   sumCollections,
   type ChickenVisit,
   type ExpenseRow,
   type ExpenseSummaryView,
+  type SoldHourBucket,
   type SummaryExpenseInput,
   type SummaryFiadoSlice,
   type SummaryPeriod,
@@ -47,7 +50,7 @@ import {
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { SaleSplitChart, SoldDayBars } from '../components/SummaryCharts'
-import { Button } from '../components/ui'
+import { Button, CollapseReveal, cx } from '../components/ui'
 import { formatARS } from '../lib/datetime'
 import type { AdminSummaryResult, StoreRow } from '../types/hw-api'
 
@@ -87,6 +90,10 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [storesError, setStoresError] = useState<string | null>(null)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [expenseView, setExpenseView] = useState<'fecha' | 'grupo'>('fecha')
+  const [expenseOpen, setExpenseOpen] = useState(false)
+  const [hourBuckets, setHourBuckets] = useState<SoldHourBucket[] | null>(null)
+  const [hourLoading, setHourLoading] = useState(false)
+  const [hourError, setHourError] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
 
@@ -143,6 +150,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     setLoading(true)
     setLoadedExpenses(null)
     setExpenseError(null)
+    setExpenseOpen(false)
     setError(null)
     void Promise.all(targets.map(async store => ({
       store,
@@ -241,6 +249,18 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     }
     return summarizeExpenses([...byId.values()], shownShifts)
   }, [selected, data, shownShifts, loadedExpenses])
+  const expenseTally = expenseDetail.rowTotal == null
+    ? null
+    : `${expenseDetail.rows.length} ${expenseDetail.rows.length === 1 ? 'gasto' : 'gastos'} · ${formatARS(expenseDetail.rowTotal)}`
+
+  function toggleExpenseDetail(): void {
+    if (expenseOpen) {
+      setExpenseOpen(false)
+      return
+    }
+    setExpenseOpen(true)
+    if (!previewOn) void loadExpenseDetail()
+  }
 
   async function loadExpenseDetail(): Promise<void> {
     const shifts = shownShifts.flatMap(shift => {
@@ -282,6 +302,48 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const ready = previewOn
     ? !loading
     : !loading && !storesError && !error && data != null
+  const showHours = period === 'today' && !previewOn
+  const hourBars = soldHourChartBars(hourBuckets ?? [])
+
+  useEffect(() => {
+    if (!showHours || !ready) {
+      setHourBuckets(null)
+      setHourError(null)
+      setHourLoading(false)
+      return
+    }
+    const ymd = civilYmd()
+    const requested = shownShifts.flatMap(shift => {
+      const storeOfShift = (shift as SummaryShiftCard & { storeId?: string }).storeId ?? ''
+      if (!storeOfShift) return []
+      return [{ id: shift.id, storeId: storeOfShift, startedAt: shift.startedAt }]
+    })
+    if (requested.length === 0) {
+      setHourBuckets(summarySoldByHour([], ymd))
+      setHourError(null)
+      setHourLoading(false)
+      return
+    }
+    let cancelled = false
+    setHourLoading(true)
+    setHourError(null)
+    void window.hw.getSummarySaleHours({ ymd, shifts: requested }).then(result => {
+      if (cancelled) return
+      if (!result.ok) {
+        setHourError(result.error ?? 'No se pudieron leer las ventas.')
+        setHourBuckets(null)
+        return
+      }
+      setHourBuckets(result.data ?? [])
+    }).catch(() => {
+      if (cancelled) return
+      setHourError('No se pudieron leer las ventas.')
+      setHourBuckets(null)
+    }).finally(() => {
+      if (!cancelled) setHourLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [showHours, ready, shownShifts])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app text-ink">
@@ -378,8 +440,20 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
 
               <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(17rem,1fr)]">
                 <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">Ventas por día</h2>
-                  <SoldDayBars bars={soldDays} />
+                  <h2 className="text-sm font-semibold text-ink">{showHours ? 'Ventas por hora' : 'Ventas por día'}</h2>
+                  {showHours ? (
+                    hourError ? (
+                      <p className="min-w-0 truncate text-sm text-danger" title={hourError}>{hourError}</p>
+                    ) : hourLoading && hourBars.length === 0 ? (
+                      <p className="text-sm text-muted">Leyendo ventas…</p>
+                    ) : hourBars.length === 0 ? (
+                      <p className="text-sm text-muted">No hay ventas en este día.</p>
+                    ) : (
+                      <SoldDayBars bars={hourBars} caption="Vendido por hora" />
+                    )
+                  ) : (
+                    <SoldDayBars bars={soldDays} />
+                  )}
                 </section>
                 <section className="min-w-0 space-y-4 rounded-xl border border-line bg-panel p-4">
                   <h2 className="text-sm font-semibold text-ink">Efectivo y tarjeta</h2>
@@ -413,52 +487,62 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                 </section>
               </div>
 
-              <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
+              <section className="rounded-xl border border-line bg-panel p-4">
                 <div className="flex min-w-0 items-center justify-between gap-3">
-                  <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Detalle de gastos</h2>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate text-sm font-semibold text-ink">Detalle de gastos</h2>
+                    {expenseTally && (
+                      <p className="mt-0.5 truncate text-xs tabular-nums text-muted" title={expenseTally}>{expenseTally}</p>
+                    )}
+                  </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {!previewOn && (
-                      <button
-                        type="button"
-                        onClick={() => { void loadExpenseDetail() }}
-                        disabled={expenseLoading || shownShifts.length === 0}
-                        className="rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
-                      >
-                        Ver detalle de gastos
-                      </button>
+                    {expenseOpen && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setExpenseView('fecha')}
+                          className={`rounded-lg px-2 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${expenseView === 'fecha' ? 'bg-hover text-ink' : 'text-muted'}`}
+                        >
+                          Por fecha
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExpenseView('grupo')}
+                          className={`rounded-lg px-2 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${expenseView === 'grupo' ? 'bg-hover text-ink' : 'text-muted'}`}
+                        >
+                          Agrupado
+                        </button>
+                      </>
                     )}
                     <button
                       type="button"
-                      onClick={() => setExpenseView('fecha')}
-                      className={`rounded-lg px-2 py-1 text-xs ${expenseView === 'fecha' ? 'bg-hover text-ink' : 'text-muted'}`}
+                      aria-expanded={expenseOpen}
+                      onClick={toggleExpenseDetail}
+                      disabled={!previewOn && (expenseLoading || shownShifts.length === 0)}
+                      className="rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
                     >
-                      Por fecha
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setExpenseView('grupo')}
-                      className={`rounded-lg px-2 py-1 text-xs ${expenseView === 'grupo' ? 'bg-hover text-ink' : 'text-muted'}`}
-                    >
-                      Agrupado
+                      {expenseOpen ? 'Ocultar detalle' : 'Ver detalle de gastos'}
                     </button>
                   </div>
                 </div>
                 {expenseError && (
-                  <p className="min-w-0 truncate text-sm text-danger" title={expenseError}>{expenseError}</p>
+                  <p className="mt-3 min-w-0 truncate text-sm text-danger" title={expenseError}>{expenseError}</p>
                 )}
-                {expenseLoading && <p className="text-sm text-muted">Leyendo gastos…</p>}
                 {expenseDetail.gap && (
-                  <p className="min-w-0 truncate text-sm text-muted" title={`${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}>
+                  <p className="mt-3 min-w-0 truncate text-sm text-muted" title={`${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}>
                     {`Diferencia ${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}
                   </p>
                 )}
-                {expenseDetail.rows.length === 0 ? (
-                  expenseDetail.gap ? null : <p className="text-sm text-muted">No hay gastos en este período.</p>
-                ) : expenseView === 'fecha' ? (
-                  <ExpenseChronological rows={expenseDetail.rows} />
-                ) : (
-                  <ExpenseGrouped view={expenseDetail} />
-                )}
+                <CollapseReveal open={expenseOpen} className="pt-3">
+                  {expenseLoading && <p className="text-sm text-muted">Leyendo gastos…</p>}
+                  {expenseDetail.rows.length === 0 ? (
+                    expenseDetail.gap ? null : <p className="text-sm text-muted">No hay gastos en este período.</p>
+                  ) : expenseView === 'fecha' ? (
+                    <ExpenseChronological rows={expenseDetail.rows} showStore={showStore} />
+                  ) : (
+                    <ExpenseGrouped view={expenseDetail} />
+                  )}
+                </CollapseReveal>
               </section>
 
               <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
@@ -625,38 +709,62 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   )
 }
 
-function ExpenseChronological({ rows }: { rows: ExpenseRow[] }) {
+const EXPENSE_COLS = 'grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_9.25rem_7.5rem_minmax(0,0.9fr)_minmax(4.5rem,0.7fr)]'
+const EXPENSE_COLS_ONE_STORE = 'grid-cols-[minmax(0,1.8fr)_minmax(0,1.15fr)_9.25rem_7.5rem_minmax(0,1fr)]'
+const EXPENSE_AMOUNT_COL = 'grid-cols-[minmax(0,1fr)_9.25rem]'
+
+function expenseDayLabel(ymd: string): string {
+  return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`
+}
+
+function expenseDays(rows: ExpenseRow[]): { ymd: string; rows: ExpenseRow[] }[] {
+  const days: { ymd: string; rows: ExpenseRow[] }[] = []
+  for (const row of rows) {
+    const last = days[days.length - 1]
+    if (!last || last.ymd !== row.ymd) days.push({ ymd: row.ymd, rows: [row] })
+    else last.rows.push(row)
+  }
+  return days
+}
+
+function ExpenseChronological({ rows, showStore }: { rows: ExpenseRow[]; showStore: boolean }) {
+  const cols = showStore ? EXPENSE_COLS : EXPENSE_COLS_ONE_STORE
   return (
-    <div>
-      <div className="grid grid-cols-[4.5rem_minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto_minmax(0,1fr)_auto] gap-2 px-1 text-xs font-medium text-muted">
-        <span>Fecha</span>
-        <span>Local</span>
+    <div className={cx('grid gap-x-3', cols)} role="table">
+      <div className={cx('col-span-full grid grid-cols-subgrid items-end px-1 pb-1 text-xs font-medium text-muted')} role="row">
         <span>Concepto</span>
         <span>Proveedor</span>
         <span className="text-right">Monto</span>
-        <span>Nota</span>
         <span>Origen</span>
+        <span>Nota</span>
+        {showStore && <span>Local</span>}
       </div>
-      <ul>
-        {rows.map(row => {
-          const date = `${row.ymd.slice(8, 10)}/${row.ymd.slice(5, 7)}`
-          const note = row.notes ?? ''
-          return (
-            <li
-              key={row.id}
-              className="grid grid-cols-[4.5rem_minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 border-t border-line px-1 py-2"
-            >
-              <span className="text-sm font-medium text-ink">{date}</span>
-              <span className="min-w-0 truncate text-sm text-muted" title={row.storeName}>{row.storeName}</span>
-              <span className="min-w-0 truncate text-sm text-ink" title={row.concept}>{row.concept}</span>
-              <span className="min-w-0 truncate text-sm text-muted" title={row.providerName}>{row.providerName}</span>
-              <span className="text-right text-sm tabular-nums text-ink">{formatARS(row.amount)}</span>
-              <span className="min-w-0 truncate text-sm text-muted" title={note}>{note}</span>
-              <span className="shrink-0 text-sm text-ink">{row.origin}</span>
-            </li>
-          )
-        })}
-      </ul>
+      {expenseDays(rows).map(day => (
+        <div key={day.ymd} className="col-span-full grid grid-cols-subgrid">
+          <p className="col-span-full border-t border-line px-1 pb-1 pt-2 text-xs font-medium tabular-nums text-muted">
+            {expenseDayLabel(day.ymd)}
+          </p>
+          {day.rows.map(row => {
+            const note = row.notes ?? ''
+            return (
+              <div
+                key={row.id}
+                role="row"
+                className="col-span-full grid grid-cols-subgrid items-center border-t border-line px-1 py-1.5"
+              >
+                <span className="min-w-0 truncate text-sm text-ink" title={row.concept}>{row.concept}</span>
+                <span className="min-w-0 truncate text-sm text-muted" title={row.providerName}>{row.providerName}</span>
+                <span className="whitespace-nowrap text-right text-sm tabular-nums text-ink">{formatARS(row.amount)}</span>
+                <span className="min-w-0 truncate text-sm text-ink" title={row.origin}>{row.origin}</span>
+                <span className="min-w-0 truncate text-sm text-muted" title={note}>{note}</span>
+                {showStore && (
+                  <span className="min-w-0 truncate text-sm text-muted" title={row.storeName}>{row.storeName}</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ))}
     </div>
   )
 }
@@ -664,32 +772,31 @@ function ExpenseChronological({ rows }: { rows: ExpenseRow[] }) {
 function ExpenseGrouped({ view }: { view: ExpenseSummaryView }) {
   return (
     <div className="space-y-4">
-      <div>
-        <p className="mb-1 text-xs font-medium text-muted">Por origen</p>
-        <ul>
-          {view.byOrigin.map(item => (
-            <li key={item.origin} className="flex min-w-0 items-baseline gap-3 border-t border-line py-1">
-              <span className="min-w-0 flex-1 truncate text-sm text-ink" title={item.origin}>{item.origin}</span>
-              <span className="shrink-0 text-sm tabular-nums text-ink">{formatARS(item.amount)}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <ExpenseGroupList title="Por proveedor" groups={view.byProvider} />
-      <ExpenseGroupList title="Por concepto" groups={view.byConcept} />
+      <ExpenseAmountList
+        title="Por origen"
+        rows={view.byOrigin.map(item => ({ key: item.origin, label: item.origin, amount: item.amount }))}
+      />
+      <ExpenseAmountList title="Por proveedor" rows={view.byProvider} />
+      <ExpenseAmountList title="Por concepto" rows={view.byConcept} />
     </div>
   )
 }
 
-function ExpenseGroupList({ title, groups }: { title: string; groups: ExpenseSummaryView['byProvider'] }) {
+function ExpenseAmountList({
+  title,
+  rows,
+}: {
+  title: string
+  rows: { key: string; label: string; amount: number }[]
+}) {
   return (
     <div>
-      <p className="mb-1 text-xs font-medium text-muted">{title}</p>
-      <ul>
-        {groups.map(group => (
-          <li key={group.key} className="flex min-w-0 items-baseline gap-3 border-t border-line py-1">
-            <span className="min-w-0 flex-1 truncate text-sm text-ink" title={group.label}>{group.label}</span>
-            <span className="shrink-0 text-sm tabular-nums text-ink">{formatARS(group.amount)}</span>
+      <p className="mb-1 px-1 text-xs font-medium text-muted">{title}</p>
+      <ul className={cx('grid gap-x-3', EXPENSE_AMOUNT_COL)}>
+        {rows.map(row => (
+          <li key={row.key} className="col-span-2 grid grid-cols-subgrid items-baseline border-t border-line px-1 py-1.5">
+            <span className="min-w-0 truncate text-sm text-ink" title={row.label}>{row.label}</span>
+            <span className="whitespace-nowrap text-right text-sm tabular-nums text-ink">{formatARS(row.amount)}</span>
           </li>
         ))}
       </ul>

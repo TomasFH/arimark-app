@@ -46,7 +46,7 @@ export function SaleSplitChart({
   )
 }
 
-export function SoldDayBars({ bars }: { bars: SoldDayBar[] }) {
+export function SoldDayBars({ bars, caption = 'Vendido por día' }: { bars: SoldDayBar[]; caption?: string }) {
   const known = bars.flatMap(bar => (bar.amount != null && bar.amount > 0 ? [bar.amount] : []))
   const max = Math.max(1, ...known)
   const wide = bars.length > 10
@@ -56,7 +56,7 @@ export function SoldDayBars({ bars }: { bars: SoldDayBar[] }) {
         className="flex h-36 items-end gap-1"
         style={wide ? { minWidth: `${bars.length * 2.25}rem` } : undefined}
         role="img"
-        aria-label="Vendido por día"
+        aria-label={caption}
       >
         {bars.map((bar, index) => {
           const missing = bar.amount == null

@@ -195,6 +195,7 @@ export const IPC = {
   GET_ADMIN_SUMMARY: 'ipc:get-admin-summary',
   /** Gastos de los turnos que están en pantalla. Solo admin. */
   GET_SUMMARY_EXPENSES: 'ipc:get-summary-expenses',
+  GET_SUMMARY_SALE_HOURS: 'ipc:get-summary-sale-hours',
   GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)

@@ -7,6 +7,7 @@ import {
   mondayWeekRange,
   summaryMonthStep,
   summaryPeriodQuery,
+  summarySoldByHour,
   type SummaryShiftCard,
 } from '@carniceria/shared'
 import SummaryScreen from '../SummaryScreen'
@@ -67,6 +68,7 @@ describe('SummaryScreen', () => {
         ok: true,
         data: { shifts: [], visits: [], warning: null },
       }),
+      getSummarySaleHours: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     } as unknown as typeof window.hw
   })
 
@@ -472,11 +474,18 @@ describe('SummaryScreen', () => {
         warning: null,
       },
     }))
+    window.hw.getSummaryExpenses = vi.fn().mockResolvedValue({ ok: true, data: [] })
     render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText(/La ficha llegó sin las filas de gastos/)).toBeInTheDocument()
+    expect(screen.getByText('Hielo').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'true')
+    await user.click(await screen.findByRole('button', { name: 'Ver detalle de gastos' }))
     expect(await screen.findByText('Hielo')).toBeInTheDocument()
+    expect(screen.getByText('Hielo').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'false')
     expect(screen.getByText('Gasto')).toBeInTheDocument()
     expect(screen.getByText('Sin proveedor')).toBeInTheDocument()
-    expect(screen.getByText(/La ficha llegó sin las filas de gastos/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Ocultar detalle' }))
+    expect(screen.getByText('Hielo').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'true')
+    await user.click(screen.getByRole('button', { name: 'Ver detalle de gastos' }))
     await user.click(screen.getByRole('button', { name: 'Agrupado' }))
     expect(screen.getByText('Por origen')).toBeInTheDocument()
     expect(screen.getByText('Por concepto')).toBeInTheDocument()
@@ -513,5 +522,46 @@ describe('SummaryScreen', () => {
     expect(window.hw.getSummaryExpenses).toHaveBeenCalledWith({
       shifts: [{ id: todayId, storeId: 'norte', startedAt: today }],
     })
+  })
+
+  it('Hoy muestra las ventas por hora de los turnos de ese día', async () => {
+    const user = userEvent.setup()
+    const todayId = '11111111-1111-4111-8111-111111111111'
+    const otherDayId = '22222222-2222-4222-8222-222222222222'
+    const today = `${civilYmd()}T15:00:00.000Z`
+    const ymd = civilYmd()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: payload.storeId === 'norte'
+          ? [
+            withMoney(todayId, 2300, today, 'morning'),
+            withMoney(otherDayId, 2000, '2026-10-01T15:00:00.000Z', 'morning'),
+          ]
+          : [],
+        visits: [],
+        warning: null,
+      },
+    }))
+    window.hw.getSummarySaleHours = vi.fn().mockResolvedValue({
+      ok: true,
+      data: summarySoldByHour([
+        { createdAt: `${ymd}T15:00:00.000Z`, total: 1500 },
+        { createdAt: `${ymd}T22:30:00.000Z`, total: 800 },
+      ], ymd),
+    })
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+
+    expect(await screen.findByRole('heading', { name: 'Ventas por hora' })).toBeInTheDocument()
+    await waitFor(() => expect(window.hw.getSummarySaleHours).toHaveBeenCalledWith({
+      ymd,
+      shifts: [{ id: todayId, storeId: 'norte', startedAt: today }],
+    }))
+    expect(screen.getByText('12h')).toBeInTheDocument()
+    expect(screen.getByText('15h')).toBeInTheDocument()
+    expect(screen.getByText('19h')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Ventas por día' })).not.toBeInTheDocument()
   })
 })
