@@ -328,6 +328,8 @@ export const shifts = sqliteTable(
     walletTotal: real('wallet_total'),
     creditTotal: real('credit_total'),
     moneySnapshottedAt: text('money_snapshotted_at'),
+    /** 24 montos por hora civil. Null = sin dato. */
+    soldHoursJson: text('sold_hours_json'),
   },
   table => [index('idx_shifts_store').on(table.storeId, table.startedAt)]
 )
@@ -1058,6 +1060,8 @@ export const summaryShiftCache = sqliteTable(
     walletTotal: real('wallet_total'),
     creditTotal: real('credit_total'),
     moneySnapshottedAt: text('money_snapshotted_at'),
+    /** 24 montos por hora civil. Null = sin dato. */
+    soldHoursJson: text('sold_hours_json'),
   },
   table => [
     index('idx_summary_shift_cache_store').on(table.storeId, table.startedAt),

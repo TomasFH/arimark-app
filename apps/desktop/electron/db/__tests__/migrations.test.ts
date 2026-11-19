@@ -661,6 +661,39 @@ describe('migrations', () => {
     expect(cache.map(c => c.name)).toContain('money_snapshotted_at')
   })
 
+  it('guarda las horas vendidas en la ficha (migración 0061)', async () => {
+    const journal = JSON.parse(fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/meta/_journal.json'),
+      'utf8',
+    )) as { entries: { tag: string; when: number }[] }
+    const previous = journal.entries.find(entry => entry.tag === '0060_summary_expense_cache')
+    const current = journal.entries.find(entry => entry.tag === '0061_shift_sold_hours')
+    expect(previous?.when).toBe(1794993468431)
+    expect(current?.when).toBeGreaterThan(1794993468431)
+
+    const migrationSql = fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/0061_shift_sold_hours.sql'),
+      'utf8',
+    )
+    expect(migrationSql).toContain('ALTER TABLE `shifts` ADD `sold_hours_json` text;')
+    expect(migrationSql).toContain('ALTER TABLE `summary_shift_cache` ADD `sold_hours_json` text;')
+    expect(migrationSql.toLowerCase()).not.toContain('default')
+    expect(migrationSql.toLowerCase()).not.toContain('not null')
+
+    const { sqlite } = await createInMemoryDb()
+    for (const table of ['shifts', 'summary_shift_cache']) {
+      const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as {
+        name: string
+        type: string
+        notnull: number
+        dflt_value: string | null
+      }[]
+      const column = cols.find(col => col.name === 'sold_hours_json')
+      expect(column?.type.toLowerCase(), table).toBe('text')
+      expect(column, table).toMatchObject({ notnull: 0, dflt_value: null })
+    }
+  })
+
   it('guarda el detalle de gastos de una semana cerrada (migración 0060)', async () => {
     const { sqlite } = await createInMemoryDb()
     const cols = sqlite.prepare('PRAGMA table_info(summary_expense_cache)').all() as { name: string }[]

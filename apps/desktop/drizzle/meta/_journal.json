@@ -428,6 +428,13 @@
       "when": 1794993468431,
       "tag": "0060_summary_expense_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1795062321949,
+      "tag": "0061_shift_sold_hours",
+      "breakpoints": true
     }
   ]
 }
