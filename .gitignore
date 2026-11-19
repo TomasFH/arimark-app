@@ -36,6 +36,8 @@ userData/
 *.log
 firebase-debug.log
 firestore-debug.log
+ui-debug.log
+.firebase/
 
 # Lock files from other package managers — pnpm only
 package-lock.json

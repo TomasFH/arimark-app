@@ -39,7 +39,7 @@ Leyenda: `[C]` = crítico, `[ ]` = pendiente, `[x]` = verificado.
 - [C] [ ] Las pantallas de administración (Admin Hub, Resumen) solo están disponibles para el rol admin, y **se valida en el proceso principal**, no solo ocultando botones.
 - [ ] Las contraseñas no se guardan en texto plano ni se muestran en pantalla.
 - [ ] Las sesiones se cierran al cerrar sesión y no quedan datos de otro usuario visibles.
-- [ ] Está decidido qué pasa con la activación de licencias y los usuarios anónimos por PC (ver hallazgos abiertos).
+- [x] Está decidido qué pasa con la activación de licencias y los usuarios anónimos por PC: queda fuera de la 1.0, sin límite de dispositivos (hallazgo 2).
 
 ## D. App de escritorio (Electron)
 
@@ -102,7 +102,7 @@ Leyenda: `[C]` = crítico, `[ ]` = pendiente, `[x]` = verificado.
 *Reportados durante el desarrollo del Resumen (nov 2026). Confirmar y cerrar antes del lanzamiento.*
 
 1. **Reglas de Firestore flojas (sección B):** según el análisis del agente, `firestore.rules` deja leer y actualizar `shifts` y leer `expenses` a cualquier usuario autenticado, sin lista de campos y sin distinguir roles.
-2. **Activación de licencias apagada (sección C):** cada PC usa un usuario anónimo y el control de activación está apagado; la licencia no limita la cantidad de dispositivos de un local.
+2. **Activación de equipos (sección C) — decisión tomada, no es un pendiente:** queda fuera de la 1.0 porque la app es familiar. No se limita la cantidad de dispositivos. El arranque puede seguir con una sesión anónima y el control de activación sigue apagado a propósito. Esa sesión no entra a los datos operativos: eso lo resuelven las reglas (hallazgo 1), no la activación.
 3. **Escrituras en producción por backfill (sección E):** abrir el Resumen en un período con turnos cerrados sin ficha escribe la ficha en Firestore.
 4. **Migración `0059` (sección E):** probar sobre una copia de la base real y confirmar que las columnas nuevas aceptan vacío.
 5. **Ficha corta con dos PC (sección H):** si dos PC vendieran en el mismo turno, la ficha podría quedar baja sin aviso. Hoy no ocurre porque hay una sola PC por local y la app rechaza abrir un turno si ya hay uno abierto.
