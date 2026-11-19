@@ -82,6 +82,7 @@ interface RemoteShiftDoc {
   creditTotal?: number | null
   moneySnapshottedAt?: string | null
   soldHoursJson?: string | null
+  providerExpenseTotal?: number | null
 }
 
 export interface ReconcileShiftsFilter {
@@ -267,6 +268,7 @@ function shiftPushPayload(
       creditTotal: amountForPush(row.creditTotal, remote?.creditTotal),
       moneySnapshottedAt: textForPush(row.moneySnapshottedAt, remote?.moneySnapshottedAt),
       soldHoursJson: textForPush(row.soldHoursJson, remote?.soldHoursJson),
+      providerExpenseTotal: amountForPush(row.providerExpenseTotal, remote?.providerExpenseTotal),
       openingBills,
       closingBills,
       handoverExpectedBills: expectedBills,
@@ -451,6 +453,7 @@ export async function reconcileStoreShifts(
           creditTotal: finiteAmount(data.creditTotal),
           moneySnapshottedAt: remoteText(data.moneySnapshottedAt),
           soldHoursJson: parseSoldHoursJson(data.soldHoursJson) ? data.soldHoursJson ?? null : null,
+          providerExpenseTotal: finiteAmount(data.providerExpenseTotal),
         }).run()
         applyRemoteShiftBills(id, data, false, false)
         applied++

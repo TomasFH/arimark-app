@@ -330,6 +330,11 @@ export const shifts = sqliteTable(
     moneySnapshottedAt: text('money_snapshotted_at'),
     /** 24 montos por hora civil. Null = sin dato. */
     soldHoursJson: text('sold_hours_json'),
+    /**
+     * Gastos a proveedores de este turno: el gasto del ingreso (expenseId)
+     * más el pago posterior de deuda. Null = la ficha no lo tiene. 0 es un dato.
+     */
+    providerExpenseTotal: real('provider_expense_total'),
   },
   table => [index('idx_shifts_store').on(table.storeId, table.startedAt)]
 )
@@ -1062,6 +1067,8 @@ export const summaryShiftCache = sqliteTable(
     moneySnapshottedAt: text('money_snapshotted_at'),
     /** 24 montos por hora civil. Null = sin dato. */
     soldHoursJson: text('sold_hours_json'),
+    /** Copia del número de la ficha. Null = esa semana no lo traía. */
+    providerExpenseTotal: real('provider_expense_total'),
   },
   table => [
     index('idx_summary_shift_cache_store').on(table.storeId, table.startedAt),

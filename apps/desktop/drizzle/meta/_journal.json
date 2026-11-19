@@ -435,6 +435,13 @@
       "when": 1795062321949,
       "tag": "0061_shift_sold_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1795126557193,
+      "tag": "0062_shift_provider_expense",
+      "breakpoints": true
     }
   ]
 }

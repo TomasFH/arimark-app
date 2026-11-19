@@ -50,6 +50,7 @@ export function readCachedSummaryWeek(
     creditTotal: row.creditTotal,
     moneySnapshottedAt: row.moneySnapshottedAt,
     soldHoursJson: row.soldHoursJson,
+    providerExpenseTotal: row.providerExpenseTotal,
   }))
 }
 
@@ -91,6 +92,7 @@ export function replaceSummaryWeek(
         creditTotal: shift.creditTotal,
         moneySnapshottedAt: shift.moneySnapshottedAt,
         soldHoursJson: shift.soldHoursJson,
+        providerExpenseTotal: shift.providerExpenseTotal,
       }).run()
     }
     tx.insert(summaryWeekPulls).values({ storeId, weekStartIso, pulledAt }).onConflictDoUpdate({

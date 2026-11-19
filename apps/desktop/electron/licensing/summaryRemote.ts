@@ -43,6 +43,8 @@ export interface RemoteSummaryShift {
   moneySnapshottedAt: string | null
   /** 24 montos. Null = la ficha no los tiene. */
   soldHoursJson: string | null
+  /** Null = la ficha no trajo el número. 0 es un dato. */
+  providerExpenseTotal: number | null
 }
 
 function sealedHoursField(value: unknown): string | null {
@@ -122,6 +124,7 @@ export async function fetchRemoteSummaryShifts(
       creditTotal: finiteAmount(data['creditTotal']),
       moneySnapshottedAt: parts ? text(data['moneySnapshottedAt']) : null,
       soldHoursJson: sealedHoursField(data['soldHoursJson']),
+      providerExpenseTotal: finiteAmount(data['providerExpenseTotal']),
     })
   }
   return shifts
@@ -344,7 +347,11 @@ export async function fetchRemoteExpenseLines(shiftIds: string[]): Promise<Remot
 /** Escribe solo la plata. No toca ventas ni el cierre. */
 export async function writeRemoteShiftMoney(
   shiftId: string,
-  parts: ShiftMoneyParts & { paymentSplit?: PaymentSplit | null; soldHoursJson?: string | null },
+  parts: ShiftMoneyParts & {
+    paymentSplit?: PaymentSplit | null
+    soldHoursJson?: string | null
+    providerExpenseTotal?: number | null
+  },
   at: string,
 ): Promise<void> {
   const tenant = getBusinessConfig().tenant_id
@@ -369,6 +376,7 @@ export async function writeRemoteShiftMoney(
       }
       : {}),
     ...(hoursJson ? { soldHoursJson: hoursJson } : {}),
+    ...(typeof parts.providerExpenseTotal === 'number' ? { providerExpenseTotal: parts.providerExpenseTotal } : {}),
     moneySnapshottedAt: at,
   }, { merge: true })
 }

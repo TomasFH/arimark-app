@@ -7,10 +7,12 @@
  * quedaría corto para siempre.
  */
 import { and, eq } from 'drizzle-orm'
+import log from 'electron-log'
 import { getDb } from './client'
 import { debtEvents, expenses, orders, sales, salePayments, shifts } from './schema'
 import { sealedSoldHoursJson, type PaymentSplit } from '@carniceria/shared'
 import { addDepositToTotals, emptyDepositTotals } from '../lib/depositPayments'
+import { readProviderExpenseTotal } from './providerExpenseTotal'
 
 type AppDb = ReturnType<typeof getDb>
 
@@ -28,6 +30,11 @@ export interface ShiftMoneySnapshot {
   moneySnapshottedAt: string
   /** 24 montos. Veinticuatro ceros son un turno sin ventas. */
   soldHoursJson: string
+  /**
+   * Gastos a proveedores. Null solo si no se pudo calcular:
+   * el resto de la ficha se sella igual.
+   */
+  providerExpenseTotal: number | null
 }
 
 function isWalletCash(row: { injectReason: string | null; concept: string | null }): boolean {
@@ -159,6 +166,14 @@ export function computeShiftMoney(
   paymentSplit.wallet += depositTotals.wallet
   paymentSplit.credit += depositTotals.credit
 
+  let providerExpenseTotal: number | null = 0
+  try {
+    providerExpenseTotal = readProviderExpenseTotal(db, shiftId)
+  } catch (err) {
+    providerExpenseTotal = null
+    log.error('[shiftMoney] No se pudieron calcular los gastos a proveedores', { shiftId, err })
+  }
+
   return {
     soldTotal,
     cashTotal: cashSales + depositTotals.cash + cashDebt,
@@ -169,6 +184,7 @@ export function computeShiftMoney(
     walletCashTotal,
     paymentSplit,
     soldHoursJson: hoursJson,
+    providerExpenseTotal,
   }
 }
 

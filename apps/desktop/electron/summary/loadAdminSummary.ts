@@ -118,6 +118,7 @@ function saveOriginMoney(
   split: PaymentSplit,
   hoursJson: string | null,
   at: string,
+  providerExpenseTotal: number | null,
 ): void {
   const splitSame = row.debitTotal != null
     && row.walletTotal != null
@@ -125,13 +126,17 @@ function saveOriginMoney(
     && Math.round(row.debitTotal) === Math.round(split.debit)
     && Math.round(row.walletTotal) === Math.round(split.wallet)
     && Math.round(row.creditTotal) === Math.round(split.credit)
-  if (sameMoney(row, parts) && splitSame && row.soldHoursJson === hoursJson) return
+  const providerSame = typeof providerExpenseTotal === 'number'
+    ? row.providerExpenseTotal != null && Math.round(row.providerExpenseTotal) === Math.round(providerExpenseTotal)
+    : row.providerExpenseTotal == null
+  if (sameMoney(row, parts) && splitSame && row.soldHoursJson === hoursJson && providerSame) return
   db.update(shifts).set({
     ...parts,
     debitTotal: split.debit,
     walletTotal: split.wallet,
     creditTotal: split.credit,
     ...(hoursJson ? { soldHoursJson: hoursJson } : {}),
+    ...(typeof providerExpenseTotal === 'number' ? { providerExpenseTotal } : {}),
     moneySnapshottedAt: at,
     syncedAt: null,
   }).where(eq(shifts.id, row.id)).run()
@@ -199,11 +204,16 @@ function cardFrom(
 }
 
 function moneyPartsOnly(
-  computed: ShiftMoneyParts & { paymentSplit?: PaymentSplit; soldHoursJson?: string | null },
+  computed: ShiftMoneyParts & {
+    paymentSplit?: PaymentSplit
+    soldHoursJson?: string | null
+    providerExpenseTotal?: number | null
+  },
 ): ShiftMoneyParts {
-  const { paymentSplit, soldHoursJson, ...parts } = computed
+  const { paymentSplit, soldHoursJson, providerExpenseTotal, ...parts } = computed
   void paymentSplit
   void soldHoursJson
+  void providerExpenseTotal
   return parts
 }
 
@@ -305,7 +315,12 @@ async function loadShifts(
     if (action === 'recompute' && local) {
       const computed = computeShiftMoney(db, local.id)
       const parts = moneyPartsOnly(computed)
-      saveOriginMoney(db, local, parts, computed.paymentSplit, computed.soldHoursJson, at)
+      saveOriginMoney(
+        db, local, parts, computed.paymentSplit, computed.soldHoursJson, at, computed.providerExpenseTotal,
+      )
+      if (cloud && typeof computed.providerExpenseTotal === 'number') {
+        cloud.providerExpenseTotal = computed.providerExpenseTotal
+      }
       if (isFirebaseAvailable()) {
         try {
           await writeRemoteShiftMoney(local.id, computed, at)

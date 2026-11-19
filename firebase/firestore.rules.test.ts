@@ -131,9 +131,11 @@ describe('reglas por rol', () => {
     const cashier = db('cashier-a')
     await assertSucceeds(updateDoc(shift(cashier, 'open'), {
       soldTotal: 400,
+      providerExpenseTotal: 0,
       moneySnapshottedAt: SEAL,
     }))
     await assertFails(updateDoc(shift(cashier, 'sealed'), { soldTotal: 1 }))
+    await assertFails(updateDoc(shift(cashier, 'sealed'), { providerExpenseTotal: 99 }))
   })
 
   it('un reenvío con los mismos valores de plata no se rechaza', async () => {

@@ -661,6 +661,78 @@ describe('migrations', () => {
     expect(cache.map(c => c.name)).toContain('money_snapshotted_at')
   })
 
+  it('deja vacío el gasto a proveedores en una copia con turnos viejos (migración 0062)', async () => {
+    const journal = JSON.parse(fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/meta/_journal.json'),
+      'utf8',
+    )) as { entries: { tag: string; when: number }[] }
+    const previous = journal.entries.find(entry => entry.tag === '0061_shift_sold_hours')
+    const current = journal.entries.find(entry => entry.tag === '0062_shift_provider_expense')
+    expect(previous?.when).toBe(1795062321949)
+    expect(current?.when).toBeGreaterThan(1795062321949)
+
+    const migrationSql = fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/0062_shift_provider_expense.sql'),
+      'utf8',
+    )
+    expect(migrationSql.toLowerCase()).not.toContain('default')
+    expect(migrationSql.toLowerCase()).not.toContain('not null')
+
+    const initSqlJs = (await import('sql.js')).default
+    const sqlJsDir = path.dirname(require.resolve('sql.js'))
+    const SQL = await initSqlJs({
+      locateFile: (file: string) => path.resolve(sqlJsDir, file),
+    })
+    const original = new SQL.Database()
+    const folder = path.resolve(__dirname, '../../../drizzle')
+    for (const entry of journal.entries) {
+      if (entry.tag === '0062_shift_provider_expense') break
+      const sqlText = fs.readFileSync(path.join(folder, `${entry.tag}.sql`), 'utf8')
+      for (const statement of sqlText.split('--> statement-breakpoint')) {
+        const trimmed = statement.trim()
+        if (trimmed) original.run(trimmed)
+      }
+    }
+    original.run('PRAGMA foreign_keys = OFF')
+    original.run(`INSERT INTO shifts (
+      id, store_id, user_id, shift_type, started_at, opening_cash, source
+    ) VALUES ('shift-viejo', 'store-1', 'user-1', 'morning', '2026-10-01T12:00:00.000Z', 0, 'desktop')`)
+
+    const copy = new SQL.Database(original.export())
+    for (const statement of migrationSql.split('--> statement-breakpoint')) {
+      const trimmed = statement.trim()
+      if (trimmed) copy.run(trimmed)
+    }
+
+    const before = original.exec('PRAGMA table_info(shifts)')[0]?.values.map(row => String(row[1])) ?? []
+    expect(before).not.toContain('provider_expense_total')
+
+    const info = copy.exec('PRAGMA table_info(shifts)')[0]
+    const names = info?.columns ?? []
+    const providerCol = info?.values.find(row => row[names.indexOf('name')] === 'provider_expense_total')
+    expect(providerCol).toBeTruthy()
+    const notNullIndex = names.indexOf('notnull')
+    const defaultIndex = names.indexOf('dflt_value')
+    expect(providerCol?.[notNullIndex]).toBe(0)
+    expect(providerCol?.[defaultIndex] ?? null).toBeNull()
+
+    const stored = copy.exec(`SELECT provider_expense_total FROM shifts WHERE id = 'shift-viejo'`)
+    expect(stored[0]?.values[0]?.[0] ?? null).toBeNull()
+    original.close()
+    copy.close()
+
+    const { sqlite } = await createInMemoryDb()
+    for (const table of ['shifts', 'summary_shift_cache']) {
+      const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as {
+        name: string
+        notnull: number
+        dflt_value: string | null
+      }[]
+      const column = cols.find(col => col.name === 'provider_expense_total')
+      expect(column, table).toMatchObject({ notnull: 0, dflt_value: null })
+    }
+  })
+
   it('guarda las horas vendidas en la ficha (migración 0061)', async () => {
     const journal = JSON.parse(fs.readFileSync(
       path.resolve(__dirname, '../../../drizzle/meta/_journal.json'),

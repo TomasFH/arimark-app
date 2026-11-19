@@ -166,6 +166,7 @@ describe('computeShiftMoney desglose', () => {
     const empty = snapshotShiftMoney(db as never, { id: 'shift-vacio', openedLocally: true }, now)
     expect(JSON.parse(empty?.soldHoursJson ?? 'null')).toEqual(Array.from({ length: 24 }, () => 0))
     expect(empty?.soldTotal).toBe(0)
+    expect(empty?.providerExpenseTotal).toBe(0)
     expect(snapshotShiftMoney(db as never, { id: 'shift-ajeno', openedLocally: false }, now)).toBeNull()
   })
 })

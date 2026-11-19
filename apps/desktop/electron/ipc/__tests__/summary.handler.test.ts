@@ -1104,5 +1104,6 @@ function remoteCard(
     creditTotal: split?.credit ?? null,
     moneySnapshottedAt: sold == null ? null : at,
     soldHoursJson: hoursJson ?? null,
+    providerExpenseTotal: null,
   }
 }
