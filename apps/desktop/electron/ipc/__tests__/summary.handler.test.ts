@@ -23,6 +23,7 @@ import {
   summaryMonthSpan,
   sumCollections,
   type ShiftMoneyParts,
+  type SummaryExpenseInput,
 } from '@carniceria/shared'
 
 vi.mock('electron', () => ({
@@ -76,6 +77,7 @@ import {
 } from '../../licensing/summaryRemote'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; data?: AdminSummaryData; code?: string }>
+type ExpenseHandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; data?: SummaryExpenseInput[]; code?: string }>
 
 function getHandler(): HandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-admin-summary')
@@ -83,10 +85,10 @@ function getHandler(): HandlerFn {
   return call[1] as HandlerFn
 }
 
-function getExpenseHandler(): HandlerFn {
+function getExpenseHandler(): ExpenseHandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-summary-expenses')
   if (!call) throw new Error('Handler de gastos no registrado')
-  return call[1] as HandlerFn
+  return call[1] as ExpenseHandlerFn
 }
 
 const STORE_ID = 'store-001'
