@@ -27,24 +27,41 @@ describe('backupBeforeMigration', () => {
     expect(result.backupPath).toBeUndefined()
   })
 
-  it('crea archivo de backup con prefijo pre-migration-', () => {
+  it('pone la fecha y el número de migración anterior en el nombre', () => {
     const dbPath = createFakeDb(tmpDir)
-    const result = backupBeforeMigration(dbPath)
+    const now = new Date()
+    const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const result = backupBeforeMigration(dbPath, '0060')
 
     expect(result.ok).toBe(true)
     expect(result.backupPath).toBeDefined()
-    expect(fs.existsSync(result.backupPath!)).toBe(true)
-    expect(path.basename(result.backupPath!)).toMatch(/^pre-migration-/)
+    expect(path.dirname(result.backupPath!)).toBe(path.join(tmpDir, 'backups'))
+    expect(path.basename(result.backupPath!)).toMatch(
+      new RegExp(`^pre-migration-${day}-\\d{6}-\\d{3}-0060\\.sqlite$`),
+    )
+    expect(fs.readFileSync(result.backupPath!, 'utf8')).toBe('fake sqlite content')
   })
 
-  it('no supera MAX_PRE_MIGRATION_BACKUPS (10) backups', () => {
+  it('conserva solo las últimas 3 copias y no toca el backup diario', () => {
     const dbPath = createFakeDb(tmpDir)
-    for (let i = 0; i < 15; i++) {
-      backupBeforeMigration(dbPath)
-    }
+    const daily = backupDaily(dbPath)
     const backupsDir = path.join(tmpDir, 'backups')
-    const files = fs.readdirSync(backupsDir).filter(f => f.startsWith('pre-migration-'))
-    expect(files.length).toBeLessThanOrEqual(10)
+    for (let i = 0; i < 3; i++) {
+      const name = `pre-migration-2020-01-0${i + 1}-000000-000-000${i}.sqlite`
+      const full = path.join(backupsDir, name)
+      fs.writeFileSync(full, 'viejo')
+      const when = new Date(2020, 0, i + 1)
+      fs.utimesSync(full, when, when)
+    }
+
+    const created = backupBeforeMigration(dbPath, '0061')
+    const files = fs.readdirSync(backupsDir).filter(name => name.startsWith('pre-migration-'))
+
+    expect(created.ok).toBe(true)
+    expect(files).toHaveLength(3)
+    expect(files.some(name => name.endsWith('-0061.sqlite'))).toBe(true)
+    expect(files.some(name => name.endsWith('-0000.sqlite'))).toBe(false)
+    expect(fs.existsSync(daily.backupPath!)).toBe(true)
   })
 })
 

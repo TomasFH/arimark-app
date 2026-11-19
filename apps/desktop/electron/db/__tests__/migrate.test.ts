@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import log from 'electron-log'
 
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -53,7 +54,7 @@ describe('runMigrations', () => {
     fs.writeFileSync(dbPath, 'contenido-original')
 
     const { runMigrations } = await import('../migrate')
-    const result = await runMigrations(dbPath, path.join(tmpDir, 'drizzle'))
+    const result = await runMigrations(dbPath, path.resolve(__dirname, '../../../drizzle'))
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('migración corrupta')
@@ -61,5 +62,25 @@ describe('runMigrations', () => {
 
     const { closeDb } = await import('../client')
     closeDb()
+  })
+
+  it('sigue con la migración si la copia falla', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'migrate-copy-fail-'))
+    const dbPath = path.join(tmpDir, 'app.sqlite')
+    fs.writeFileSync(dbPath, 'contenido-original')
+    fs.writeFileSync(path.join(tmpDir, 'backups'), 'no es una carpeta')
+
+    const { runMigrations } = await import('../migrate')
+    const result = await runMigrations(dbPath, path.resolve(__dirname, '../../../drizzle'))
+
+    expect(result.ok).toBe(true)
+    expect(result.backupPath).toBeUndefined()
+    expect(mockMigrate).toHaveBeenCalledOnce()
+    expect(fs.readFileSync(dbPath, 'utf8')).toBe('contenido-original')
+    expect(vi.mocked(log.error).mock.calls.some(call => String(call[0]).includes('No se pudo copiar'))).toBe(true)
+
+    const { closeDb } = await import('../client')
+    closeDb()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 })

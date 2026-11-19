@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import log from 'electron-log'
 
-const MAX_PRE_MIGRATION_BACKUPS = 10
+const MAX_PRE_MIGRATION_BACKUPS = 3
 const MAX_DAILY_BACKUPS = 30
 const COMPRESS_AFTER_DAYS = 7
 
@@ -13,21 +13,21 @@ export interface BackupResult {
 }
 
 /**
- * Crea una copia de la DB antes de correr migraciones.
- * Si hay más de MAX_PRE_MIGRATION_BACKUPS copias, elimina las más antiguas.
+ * Copia la DB a `backups/` junto al archivo, antes de migrar.
+ * El nombre lleva la fecha local y el número de la migración ya aplicada.
+ * Quedan solo las últimas 3 copias. Si la copia falla, no lanza: el llamador sigue.
  */
-export function backupBeforeMigration(dbPath: string): BackupResult {
+export function backupBeforeMigration(dbPath: string, previousMigration = 'ninguna'): BackupResult {
   if (!fs.existsSync(dbPath)) {
     return { ok: true }
   }
 
   const backupsDir = path.join(path.dirname(dbPath), 'backups')
-  ensureDir(backupsDir)
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const backupPath = path.join(backupsDir, `pre-migration-${timestamp}.sqlite`)
+  const migrationNumber = /^\d+$/.test(previousMigration) ? previousMigration : 'ninguna'
 
   try {
+    ensureDir(backupsDir)
+    const backupPath = uniqueBackupPath(backupsDir, migrationNumber)
     fs.copyFileSync(dbPath, backupPath)
     log.info('[backup] Backup pre-migración creado', backupPath)
     pruneOldBackups(backupsDir, 'pre-migration-', MAX_PRE_MIGRATION_BACKUPS)
@@ -111,20 +111,44 @@ function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true })
 }
 
+function localStamp(now: Date): string {
+  const pad = (value: number, width = 2) => String(value).padStart(width, '0')
+  return (
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}` +
+    `-${pad(now.getMilliseconds(), 3)}`
+  )
+}
+
+function uniqueBackupPath(backupsDir: string, migrationNumber: string): string {
+  const stamp = localStamp(new Date())
+  let name = `pre-migration-${stamp}-${migrationNumber}.sqlite`
+  let extra = 2
+  while (fs.existsSync(path.join(backupsDir, name))) {
+    name = `pre-migration-${stamp}-${migrationNumber}-${extra}.sqlite`
+    extra += 1
+  }
+  return path.join(backupsDir, name)
+}
+
 function pruneOldBackups(dir: string, prefix: string, maxCount: number): void {
   const files = fs
     .readdirSync(dir)
-    .filter(f => f.startsWith(prefix) && f.endsWith('.sqlite'))
-    .sort()
+    .filter(name => name.startsWith(prefix) && name.endsWith('.sqlite'))
+    .map(name => {
+      const fullPath = path.join(dir, name)
+      return { fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs }
+    })
+    .sort((a, b) => a.mtimeMs - b.mtimeMs || a.fullPath.localeCompare(b.fullPath))
 
   while (files.length > maxCount) {
-    const oldest = files.shift()!
-    const fullPath = path.join(dir, oldest)
+    const oldest = files.shift()
+    if (!oldest) break
     try {
-      fs.unlinkSync(fullPath)
-      log.info('[backup] Backup antiguo eliminado', fullPath)
+      fs.unlinkSync(oldest.fullPath)
+      log.info('[backup] Backup antiguo eliminado', oldest.fullPath)
     } catch (err) {
-      log.warn('[backup] No se pudo eliminar backup antiguo', fullPath, err)
+      log.warn('[backup] No se pudo eliminar backup antiguo', oldest.fullPath, err)
     }
   }
 }
