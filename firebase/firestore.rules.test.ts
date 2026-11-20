@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, describe, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   assertFails,
   assertSucceeds,
@@ -340,5 +340,34 @@ describe('reglas por rol', () => {
       await assertSucceeds(updateDoc(install, { last_seen: '2026-11-19T12:00:00.000Z' }))
       await assertFails(setDoc(doc(database, 'licenses', TENANT, 'installations', 'otro-equipo'), { status: 'active' }))
     }
+  })
+
+  it('la cajera crea un fiado y el admin lee el checkpoint', async () => {
+    const cashier = db('cashier-a')
+    await assertSucceeds(setDoc(doc(cashier, 'licenses', TENANT, 'customerDebtEvents', 'fiado-contrato'), {
+      customerId: 'cus-contrato',
+      storeId: 'local-1',
+      eventType: 'created',
+      amount: 4500,
+      createdAt: '2026-11-15T22:00:00.000-03:00',
+    }))
+
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'licenses', TENANT, 'customerDebtCheckpoints', 'cus-contrato__local-1'), {
+        kind: 'customer',
+        entityId: 'cus-contrato',
+        storeId: 'local-1',
+        saldoAcumulado: 4500,
+      })
+    })
+
+    const snap = await assertSucceeds(getDoc(doc(
+      db('admin-a'),
+      'licenses',
+      TENANT,
+      'customerDebtCheckpoints',
+      'cus-contrato__local-1',
+    )))
+    expect(snap.data()).toMatchObject({ saldoAcumulado: 4500, storeId: 'local-1' })
   })
 })
