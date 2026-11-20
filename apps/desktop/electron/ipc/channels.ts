@@ -109,6 +109,7 @@ export const IPC = {
   CREATE_STORE_TRANSFER: 'ipc:create-store-transfer',
   CONFIRM_STORE_TRANSFER: 'ipc:confirm-store-transfer',
   CANCEL_STORE_TRANSFER: 'ipc:cancel-store-transfer',
+  LIST_STORE_TRANSFERS: 'ipc:list-store-transfers',
 
   // Clientes de fiados (Fase 6 — creados durante el flujo de deuda)
   CREATE_CUSTOMER: 'ipc:create-customer',

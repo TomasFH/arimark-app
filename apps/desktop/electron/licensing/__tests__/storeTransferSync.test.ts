@@ -52,7 +52,7 @@ vi.mock('../../db/client', () => ({
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { pullStoreTransfersForRange, pushUnsyncedStoreTransfers } from '../storeTransferSync'
+import { pullStoreTransfersForRange, pushUnsyncedStoreTransfers, listStoreTransfersForRange, clearStoreTransferPullCache } from '../storeTransferSync'
 
 const TENANT = 'test-tenant'
 const WHEN = '2026-11-15T03:00:00.000Z'
@@ -126,6 +126,7 @@ describe('storeTransferSync', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    clearStoreTransferPullCache()
     vi.mocked(isFirebaseAvailable).mockReturnValue(true)
     mockGetDoc.mockResolvedValue({ exists: () => false, data: () => undefined })
     mockGetDocs.mockResolvedValue({ docs: [] })
@@ -255,5 +256,19 @@ describe('storeTransferSync', () => {
     expect(await pullStoreTransfersForRange(TENANT, START, END)).toBe(0)
     expect(mockGetDoc).not.toHaveBeenCalled()
     expect(mockGetDocs).not.toHaveBeenCalled()
+  })
+
+  it('la segunda lectura del mismo rango no vuelve a Firestore', async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      docs: [remoteDoc('tr-semana', { status: 'pending' })],
+    })
+    const first = await listStoreTransfersForRange(TENANT, START, END, false)
+    const second = await listStoreTransfersForRange(TENANT, START, END, false)
+    expect(first.map(row => row.id)).toEqual(['tr-semana'])
+    expect(second.map(row => row.id)).toEqual(['tr-semana'])
+    expect(mockGetDocs).toHaveBeenCalledTimes(1)
+
+    await listStoreTransfersForRange(TENANT, START, END, true)
+    expect(mockGetDocs).toHaveBeenCalledTimes(2)
   })
 })

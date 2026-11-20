@@ -20,6 +20,7 @@ import IngresosScreen from './routes/IngresosScreen'
 import ProvidersScreen from './routes/ProvidersScreen'
 import StockCountHistoryScreen from './routes/StockCountHistoryScreen'
 import SummaryScreen from './routes/SummaryScreen'
+import StoreTransfersScreen from './routes/StoreTransfersScreen'
 import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
@@ -59,6 +60,7 @@ type AppState =
   | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'transfers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
 
 export default function App() {
@@ -550,6 +552,7 @@ export default function App() {
             onReturnToHub={bgCashierState.session.role === 'admin' ? handleReturnToAdminHub : undefined}
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
+            onViewTransfers={() => setState({ screen: 'transfers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             pendingOrderCart={pendingOrderCart}
             onOrderCartConsumed={() => setPendingOrderCart(null)}
           />
@@ -581,6 +584,7 @@ export default function App() {
             onGoToSummary={() => setState({ screen: 'summary', session: state.session, initStatus: state.initStatus })}
             onGoToIngresos={() => setState({ screen: 'ingresos', session: state.session, initStatus: state.initStatus })}
             onGoToProviders={() => setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })}
+            onGoToTransfers={() => setState({ screen: 'transfers', session: state.session, initStatus: state.initStatus })}
             onGoToStockCounts={handleGoToStockCounts}
             onLogout={handleLogout}
           />
@@ -690,6 +694,22 @@ export default function App() {
       {state.screen === 'providers' && (
         <Page>
           <ProvidersScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
+        </Page>
+      )}
+
+      {state.screen === 'transfers' && (
+        <Page>
+          <StoreTransfersScreen
+            session={state.session}
+            onLogout={handleLogout}
+            onBack={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
+          />
         </Page>
       )}
 

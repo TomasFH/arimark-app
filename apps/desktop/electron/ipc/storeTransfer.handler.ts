@@ -18,7 +18,7 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { getActiveSession, type ActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
-import { pushUnsyncedStoreTransfers } from '../licensing/storeTransferSync'
+import { listStoreTransfersForRange, pushUnsyncedStoreTransfers } from '../licensing/storeTransferSync'
 import {
   cancelStoreTransferRow,
   confirmStoreTransferRow,
@@ -48,6 +48,12 @@ const confirmSchema = z.object({
 const cancelSchema = z.object({
   id: z.string().uuid(),
 })
+
+const listSchema = z.object({
+  startIso: z.string().min(20).max(40),
+  endIso: z.string().min(20).max(40),
+  refresh: z.boolean().optional(),
+}).refine(data => data.startIso < data.endIso)
 
 const REASON_TEXT: Record<StoreTransferWriteError, string> = {
   PRODUCT: 'El producto no es válido.',
@@ -153,6 +159,30 @@ export function registerStoreTransferHandlers(): void {
       }
     },
   )
+
+  ipcMain.handle(IPC.LIST_STORE_TRANSFERS, async (_event, payload: unknown): Promise<IpcResult<Awaited<ReturnType<typeof listStoreTransfersForRange>>>> => {
+    const actor = readActor(IPC.LIST_STORE_TRANSFERS, listSchema, payload)
+    if (!actor.ok) return actor
+    let tenantId: string
+    try {
+      tenantId = getBusinessConfig().tenant_id
+    } catch (err) {
+      log.warn('[ipc:list-store-transfers] sin configuración', err)
+      return { ok: false, error: 'No se pudieron leer las transferencias.' }
+    }
+    try {
+      const data = await listStoreTransfersForRange(
+        tenantId,
+        actor.data.startIso,
+        actor.data.endIso,
+        actor.data.refresh === true,
+      )
+      return { ok: true, data }
+    } catch (err) {
+      log.error('[ipc:list-store-transfers] Error inesperado', err)
+      return { ok: false, error: 'No se pudieron leer las transferencias.' }
+    }
+  })
 
   ipcMain.handle(IPC.CANCEL_STORE_TRANSFER, (_event, payload: unknown): IpcResult<{ id: string }> => {
     const actor = readActor(IPC.CANCEL_STORE_TRANSFER, cancelSchema, payload)

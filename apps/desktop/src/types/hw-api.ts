@@ -1506,6 +1506,25 @@ export interface HardwareConfig {
 
 export type SetHardwareConfigPayload = HardwareConfig
 
+export interface StoreTransferRow {
+  id: string
+  productName: string
+  quantity: number
+  unit: 'kg' | 'u' | 'cajon'
+  fromStoreId: string
+  toStoreId: string
+  occurredAt: string
+  notes: string | null
+  estimatedValue: number | null
+  status: 'pending' | 'confirmed' | 'cancelled'
+  receivedQuantity: number | null
+  hasDifference: boolean
+  confirmedAt: string | null
+  confirmedBy: string | null
+  createdAt: string
+  createdBy: string
+}
+
 // ---------------------------------------------------------------------------
 // API pública expuesta al renderer
 // ---------------------------------------------------------------------------
@@ -1895,6 +1914,11 @@ export interface HwApi {
     receivedQuantity: number
   }) => Promise<IpcResult<{ hasDifference: boolean }>>
   cancelStoreTransfer: (payload: { id: string }) => Promise<IpcResult<{ id: string }>>
+  listStoreTransfers: (payload: {
+    startIso: string
+    endIso: string
+    refresh?: boolean
+  }) => Promise<IpcResult<StoreTransferRow[]>>
 
   listShiftMerch: (payload?: { weekOffset?: number }) => Promise<IpcResult<MerchandiseIntakeRow[]>>
   listMerchWeek: (payload: { weekOffset: number; storeIdFilter: string }) => Promise<IpcResult<MerchWeekBookResult>>

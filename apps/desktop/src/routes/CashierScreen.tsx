@@ -41,6 +41,7 @@ interface Props {
   onReturnToHub?: () => void
   onViewDebts?: () => void
   onViewOrders?: () => void
+  onViewTransfers?: () => void
   isActive?: boolean
   /** Carrito inyectado desde un pedido (se carga al POS al activarse la pantalla) */
   pendingOrderCart?: {
@@ -173,6 +174,12 @@ const IconOrders = () => (
 const IconFiado = () => (
   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+  </svg>
+)
+
+const IconTransfer = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3 3m-3-3 3-3" />
   </svg>
 )
 
@@ -494,6 +501,7 @@ export default function CashierScreen({
   onReturnToHub,
   onViewDebts,
   onViewOrders,
+  onViewTransfers,
   isActive = true,
   pendingOrderCart,
   onOrderCartConsumed,
@@ -1568,6 +1576,14 @@ export default function CashierScreen({
                           title="Fiados"
                           leading={menuLeading(<IconFiado />)}
                           onClick={() => { onViewDebts(); closeMenu() }}
+                        />
+                      )}
+                      {onViewTransfers && (
+                        <ListRow
+                          dense
+                          title="Transferencias"
+                          leading={menuLeading(<IconTransfer />)}
+                          onClick={() => { onViewTransfers(); closeMenu() }}
                         />
                       )}
                     </MenuSection>

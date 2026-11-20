@@ -25,12 +25,13 @@ vi.mock('../../businessConfig', () => ({
 
 vi.mock('../../licensing/storeTransferSync', () => ({
   pushUnsyncedStoreTransfers: vi.fn().mockResolvedValue(undefined),
+  listStoreTransfersForRange: vi.fn().mockResolvedValue([]),
 }))
 
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
-import { pushUnsyncedStoreTransfers } from '../../licensing/storeTransferSync'
+import { pushUnsyncedStoreTransfers, listStoreTransfersForRange } from '../../licensing/storeTransferSync'
 import { registerStoreTransferHandlers } from '../storeTransfer.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => { ok: boolean; code?: string; data?: unknown }
@@ -268,6 +269,33 @@ describe('storeTransfer.handler', () => {
       expect(getDb).not.toHaveBeenCalled()
       expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()[0]?.status).toBe('pending')
+    })
+  })
+
+  describe('lista', () => {
+    it('un payload malformado o sin sesión no lee', async () => {
+      const bad = await getHandler('ipc:list-store-transfers')(null, { startIso: 'no' })
+      expect(bad).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+      vi.mocked(getActiveSession).mockReturnValue(null)
+      const missing = await getHandler('ipc:list-store-transfers')(null, {
+        startIso: '2026-11-15T03:00:00.000Z',
+        endIso: '2026-11-22T03:00:00.000Z',
+      })
+      expect(missing).toMatchObject({ ok: false, code: 'NO_SESSION' })
+      expect(listStoreTransfersForRange).not.toHaveBeenCalled()
+      expect(getDb).not.toHaveBeenCalled()
+    })
+
+    it('la cajera pide el rango y Actualizar fuerza otra lectura', async () => {
+      const range = {
+        startIso: '2026-11-15T03:00:00.000Z',
+        endIso: '2026-11-22T03:00:00.000Z',
+      }
+      const first = await getHandler('ipc:list-store-transfers')(null, range) as { ok: boolean }
+      expect(first.ok).toBe(true)
+      expect(listStoreTransfersForRange).toHaveBeenCalledWith('lic-1', range.startIso, range.endIso, false)
+      await getHandler('ipc:list-store-transfers')(null, { ...range, refresh: true })
+      expect(listStoreTransfersForRange).toHaveBeenLastCalledWith('lic-1', range.startIso, range.endIso, true)
     })
   })
 })

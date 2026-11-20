@@ -26,6 +26,7 @@ interface Props {
   onGoToSummary: () => void
   onGoToIngresos: () => void
   onGoToProviders: () => void
+  onGoToTransfers: () => void
   onGoToStockCounts: () => void
   onLogout: () => void
 }
@@ -72,6 +73,11 @@ const ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h11v10H3V7Zm11 3h4l3 3v4h-7V10Z" />
       <circle cx="7.5" cy="18.5" r="1.5" />
       <circle cx="17.5" cy="18.5" r="1.5" />
+    </svg>
+  ),
+  transfer: (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3 3m-3-3 3-3" />
     </svg>
   ),
   inbox: (
@@ -231,6 +237,7 @@ export default function AdminHubScreen({
   onGoToSummary,
   onGoToIngresos,
   onGoToProviders,
+  onGoToTransfers,
   onGoToStockCounts,
   onLogout,
 }: Props) {
@@ -292,6 +299,7 @@ export default function AdminHubScreen({
               <Tile icon={ICONS.person} label="Clientes especiales" description="Precios acordados por cliente" onClick={onGoToSpecialCustomers} />
               <Tile icon={ICONS.package} label="Pedidos" description="Gestionar pedidos del local" onClick={onGoToOrders} />
               <Tile icon={ICONS.truck} label="Proveedores" description="Deuda combinada entre locales" onClick={onGoToProviders} />
+              <Tile icon={ICONS.transfer} label="Transferencias" description="Mercadería que pasa de un local a otro" onClick={onGoToTransfers} />
             </div>
           </div>
 

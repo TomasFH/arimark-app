@@ -7,7 +7,7 @@
  */
 import { collection, doc, getDoc, getDocs, getFirestore, query, setDoc, where } from 'firebase/firestore'
 import log from 'electron-log'
-import { eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, gte, isNull, lt } from 'drizzle-orm'
 import {
   STORE_TRANSFER_NAME_MAX,
   STORE_TRANSFER_NOTES_MAX,
@@ -282,4 +282,71 @@ export async function pullStoreTransfersForRange(
     log.info('[storeTransferSync] Transferencias bajadas del rango', { count: upserted })
   }
   return upserted
+}
+
+export interface StoreTransferListRow {
+  id: string
+  productName: string
+  quantity: number
+  unit: StoreTransferUnit
+  fromStoreId: string
+  toStoreId: string
+  occurredAt: string
+  notes: string | null
+  estimatedValue: number | null
+  status: StoreTransferStatus
+  receivedQuantity: number | null
+  hasDifference: boolean
+  confirmedAt: string | null
+  confirmedBy: string | null
+  createdAt: string
+  createdBy: string
+}
+
+const pulledRanges = new Set<string>()
+
+export function clearStoreTransferPullCache(): void {
+  pulledRanges.clear()
+}
+
+function readRange(startIso: string, endIso: string): StoreTransferListRow[] {
+  return getDb().select().from(storeTransfers).where(and(
+    gte(storeTransfers.occurredAt, startIso),
+    lt(storeTransfers.occurredAt, endIso),
+  )).orderBy(desc(storeTransfers.occurredAt)).all().map(row => ({
+    id: row.id,
+    productName: row.productName,
+    quantity: row.quantity,
+    unit: row.unit,
+    fromStoreId: row.fromStoreId,
+    toStoreId: row.toStoreId,
+    occurredAt: row.occurredAt,
+    notes: row.notes,
+    estimatedValue: row.estimatedValue,
+    status: row.status,
+    receivedQuantity: row.receivedQuantity,
+    hasDifference: row.hasDifference,
+    confirmedAt: row.confirmedAt,
+    confirmedBy: row.confirmedBy,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy,
+  }))
+}
+
+/**
+ * La primera vez del rango en esta sesión baja de Firestore.
+ * Las siguientes leen solo SQLite, hasta que Actualizar pide refresh.
+ */
+export async function listStoreTransfersForRange(
+  tenantId: string,
+  startIso: string,
+  endIso: string,
+  refresh: boolean,
+): Promise<StoreTransferListRow[]> {
+  const key = `${tenantId}\0${startIso}\0${endIso}`
+  if (refresh || !pulledRanges.has(key)) {
+    await pullStoreTransfersForRange(tenantId, startIso, endIso)
+    pulledRanges.add(key)
+  }
+  return readRange(startIso, endIso)
 }
