@@ -68,6 +68,7 @@ describe('coverageAccount', () => {
     })
     expect(mixed.sales).toBe(1_000)
     expect(mixed.otherExpenses).toBe(30)
+    expect(mixed.difference).toBeNull()
     expect(mixed.shiftsLeftOut).toBe(1)
   })
 

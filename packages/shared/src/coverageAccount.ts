@@ -96,7 +96,7 @@ export function coverageAccount(input: {
     sales,
     purchases,
     otherExpenses,
-    difference: sales - purchases - otherExpenses,
+    difference: shiftsLeftOut > 0 ? null : sales - purchases - otherExpenses,
     shiftsLeftOut,
     mediaResWithoutPrice,
   }

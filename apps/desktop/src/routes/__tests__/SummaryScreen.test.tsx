@@ -794,7 +794,7 @@ describe('SummaryScreen', () => {
     expect(await screen.findByText('1 turno quedó afuera')).toBeInTheDocument()
     expect(screen.getByText('Ventas').nextElementSibling).toHaveTextContent('sin dato')
     expect(screen.getByText('Otros gastos').nextElementSibling).toHaveTextContent('sin dato')
-    expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling).toHaveTextContent('sin dato')
+    expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling).toHaveTextContent('incompleta')
     expect(screen.getByText('1 ingreso de media res sin precio no suma')).toBeInTheDocument()
     const day = `${week.startYmd.slice(8, 10)}/${week.startYmd.slice(5, 7)}`
     await user.click(screen.getByRole('button', { name: new RegExp(day) }))

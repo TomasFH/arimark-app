@@ -428,7 +428,11 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                 <MoneyRow label="Ventas" amount={account.sales} empty="sin dato" />
                 <MoneyRow label="Compras" amount={account.purchases} />
                 <MoneyRow label="Otros gastos" amount={account.otherExpenses} empty="sin dato" />
-                <MoneyRow label="Ventas menos compras y gastos" amount={account.difference} empty="sin dato" />
+                <MoneyRow
+                  label="Ventas menos compras y gastos"
+                  amount={account.difference}
+                  empty={account.shiftsLeftOut > 0 ? 'incompleta' : 'sin dato'}
+                />
                 {account.shiftsLeftOut > 0 && (
                   <p className="text-sm text-muted">{shiftsLeftOutText(account.shiftsLeftOut)}</p>
                 )}
