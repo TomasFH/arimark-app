@@ -262,12 +262,18 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const expenseDetail = useMemo(() => {
     if (selected) return summarizeExpenses([], [])
     const ids = new Set(shownShifts.map(shift => shift.id))
+    const storeNameByShift = new Map(shownShifts.map(shift => [shift.id, shift.storeName?.trim() ?? '']))
     const byId = new Map<string, SummaryExpenseInput>()
     for (const line of data?.expenses ?? []) {
       if (ids.has(line.shiftId)) byId.set(line.id, line)
     }
     for (const line of loadedExpenses ?? []) {
-      if (ids.has(line.shiftId)) byId.set(line.id, line)
+      if (!ids.has(line.shiftId)) continue
+      const storeName = line.storeName?.trim()
+        || storeNameByShift.get(line.shiftId)
+        || byId.get(line.id)?.storeName?.trim()
+        || ''
+      byId.set(line.id, { ...line, storeName: storeName || null })
     }
     return summarizeExpenses([...byId.values()], shownShifts)
   }, [selected, data, shownShifts, loadedExpenses])

@@ -560,6 +560,38 @@ describe('SummaryScreen', () => {
     })
   })
 
+  it('el detalle de gastos muestra el local del turno', async () => {
+    const user = userEvent.setup()
+    const at = `${civilYmd()}T15:00:00.000Z`
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: {
+        shifts: [withMoney(payload.storeId === 'norte' ? 'turno-norte' : 'turno-sur', 1000, at, 'morning')],
+        visits: [],
+        expenses: [],
+        warning: null,
+      },
+    }))
+    window.hw.getSummaryExpenses = vi.fn().mockImplementation(async (payload: { shifts: { id: string }[] }) => ({
+      ok: true,
+      data: payload.shifts.map(shift => ({
+        id: `gasto-${shift.id}`,
+        shiftId: shift.id,
+        createdAt: at,
+        concept: shift.id === 'turno-norte' ? 'Hielo' : 'Bolsas',
+        providerName: null,
+        amount: 100,
+        notes: null,
+        kind: 'expense',
+      })),
+    }))
+
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Ver detalle de gastos' }))
+    expect((await screen.findByText('Hielo')).closest('[role="row"]')).toHaveTextContent('Local Norte')
+    expect(screen.getByText('Bolsas').closest('[role="row"]')).toHaveTextContent('Local Sur')
+  })
+
   it('Hoy arma las horas con la ficha y no pide las ventas', async () => {
     const user = userEvent.setup()
     const today = `${civilYmd()}T15:00:00.000Z`
