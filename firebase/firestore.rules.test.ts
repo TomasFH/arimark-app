@@ -370,4 +370,115 @@ describe('reglas por rol', () => {
     )))
     expect(snap.data()).toMatchObject({ saldoAcumulado: 4500, storeId: 'local-1' })
   })
+
+  function pendingTransfer(createdBy: string) {
+    return {
+      productName: 'Vacío',
+      quantity: 4,
+      unit: 'kg',
+      fromStoreId: 'norte',
+      toStoreId: 'sur',
+      occurredAt: '2026-11-15T03:00:00.000Z',
+      notes: null,
+      estimatedValue: null,
+      status: 'pending',
+      receivedQuantity: null,
+      hasDifference: false,
+      confirmedAt: null,
+      confirmedBy: null,
+      createdAt: '2026-11-20T15:00:00.000Z',
+      createdBy,
+      updatedAt: null,
+      updatedBy: null,
+      deleted: false,
+    }
+  }
+
+  it('la cajera crea una pendiente y otra la confirma con otra cantidad', async () => {
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'licenses', TENANT, 'users', 'cashier-c'), {
+        role: 'cashier',
+        active: true,
+      })
+    })
+    const created = doc(db('cashier-a'), 'licenses', TENANT, 'storeTransfers', 'tr-confirma')
+    await assertFails(setDoc(created, pendingTransfer('admin-a')))
+    await assertFails(setDoc(created, { ...pendingTransfer('cashier-a'), toStoreId: 'norte' }))
+    await assertSucceeds(setDoc(created, pendingTransfer('cashier-a')))
+
+    const wrongDifference = {
+      status: 'confirmed',
+      receivedQuantity: 3.5,
+      hasDifference: false,
+      confirmedAt: '2026-11-20T18:00:00.000Z',
+      confirmedBy: 'cashier-c',
+    }
+    await assertFails(updateDoc(doc(db('cashier-c'), 'licenses', TENANT, 'storeTransfers', 'tr-confirma'), wrongDifference))
+    await assertSucceeds(updateDoc(doc(db('cashier-c'), 'licenses', TENANT, 'storeTransfers', 'tr-confirma'), {
+      ...wrongDifference,
+      hasDifference: true,
+    }))
+    const snap = await assertSucceeds(getDoc(doc(db('admin-a'), 'licenses', TENANT, 'storeTransfers', 'tr-confirma')))
+    expect(snap.data()).toMatchObject({ status: 'confirmed', receivedQuantity: 3.5, hasDifference: true })
+  })
+
+  it('cancela el creador o un admin, y nadie una confirmada', async () => {
+    const own = doc(db('cashier-a'), 'licenses', TENANT, 'storeTransfers', 'tr-cancela')
+    await assertSucceeds(setDoc(own, pendingTransfer('cashier-a')))
+    await assertFails(updateDoc(doc(db('cashier-c'), 'licenses', TENANT, 'storeTransfers', 'tr-cancela'), {
+      status: 'cancelled',
+      receivedQuantity: null,
+      hasDifference: false,
+      confirmedAt: null,
+      confirmedBy: null,
+    }))
+    await assertSucceeds(updateDoc(own, {
+      status: 'cancelled',
+      receivedQuantity: null,
+      hasDifference: false,
+      confirmedAt: null,
+      confirmedBy: null,
+    }))
+
+    const foreign = doc(db('cashier-a'), 'licenses', TENANT, 'storeTransfers', 'tr-admin')
+    await assertSucceeds(setDoc(foreign, pendingTransfer('cashier-a')))
+    await assertSucceeds(updateDoc(doc(db('admin-a'), 'licenses', TENANT, 'storeTransfers', 'tr-admin'), {
+      status: 'cancelled',
+      receivedQuantity: null,
+      hasDifference: false,
+      confirmedAt: null,
+      confirmedBy: null,
+    }))
+
+    const confirmed = doc(db('admin-a'), 'licenses', TENANT, 'storeTransfers', 'tr-confirma')
+    await assertFails(updateDoc(confirmed, {
+      status: 'cancelled',
+      receivedQuantity: null,
+      hasDifference: false,
+      confirmedAt: null,
+      confirmedBy: null,
+    }))
+    await assertFails(updateDoc(doc(db('cashier-a'), 'licenses', TENANT, 'storeTransfers', 'tr-confirma'), {
+      status: 'cancelled',
+    }))
+    await assertFails(deleteDoc(confirmed))
+    await assertFails(deleteDoc(doc(db('cashier-a'), 'licenses', TENANT, 'storeTransfers', 'tr-cancela')))
+  })
+
+  it('anónimo, carnicero, otra licencia y una cuenta inactiva quedan afuera de las transferencias', async () => {
+    const path = ['licenses', TENANT, 'storeTransfers', 'tr-afuera'] as const
+    await assertFails(getDoc(doc(db(null), ...path)))
+    await assertFails(setDoc(doc(db(null), ...path), pendingTransfer('anon')))
+    await assertFails(getDoc(doc(db('butcher-a'), ...path)))
+    await assertFails(setDoc(doc(db('butcher-a'), ...path), pendingTransfer('butcher-a')))
+    await assertSucceeds(getDoc(doc(db('butcher-a'), 'licenses', TENANT, 'users', 'butcher-a')))
+    await assertFails(getDoc(doc(db('cashier-b'), ...path)))
+    await assertFails(setDoc(doc(db('cashier-b'), ...path), pendingTransfer('cashier-b')))
+    await assertSucceeds(setDoc(
+      doc(db('cashier-b'), 'licenses', OTHER, 'storeTransfers', 'tr-propia'),
+      pendingTransfer('cashier-b'),
+    ))
+    await assertFails(getDoc(doc(db('cashier-off'), ...path)))
+    await assertFails(setDoc(doc(db('cashier-off'), ...path), pendingTransfer('cashier-off')))
+  })
 })

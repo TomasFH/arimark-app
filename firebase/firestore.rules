@@ -42,6 +42,61 @@ service cloud.firestore {
         && get(userPath(licenseKey)).data.role == 'cashier';
     }
 
+    // Lo que no cambia al confirmar o cancelar una transferencia.
+    function transferSameMovement() {
+      return request.resource.data.productName == resource.data.productName
+        && request.resource.data.quantity == resource.data.quantity
+        && request.resource.data.unit == resource.data.unit
+        && request.resource.data.fromStoreId == resource.data.fromStoreId
+        && request.resource.data.toStoreId == resource.data.toStoreId
+        && request.resource.data.occurredAt == resource.data.occurredAt
+        && request.resource.data.notes == resource.data.notes
+        && request.resource.data.estimatedValue == resource.data.estimatedValue
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.deleted == false;
+    }
+
+    function transferCreate(licenseKey) {
+      return isActiveMember(licenseKey)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.receivedQuantity == null
+        && request.resource.data.hasDifference == false
+        && request.resource.data.confirmedAt == null
+        && request.resource.data.confirmedBy == null
+        && request.resource.data.deleted == false
+        && request.resource.data.fromStoreId is string
+        && request.resource.data.toStoreId is string
+        && request.resource.data.fromStoreId != request.resource.data.toStoreId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.quantity is number
+        && request.resource.data.quantity > 0
+        && request.resource.data.unit in ['kg', 'u', 'cajon'];
+    }
+
+    function transferConfirm(licenseKey) {
+      return isActiveMember(licenseKey)
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.receivedQuantity is number
+        && request.resource.data.receivedQuantity >= 0
+        && request.resource.data.hasDifference == (request.resource.data.receivedQuantity != resource.data.quantity)
+        && request.resource.data.confirmedBy == request.auth.uid
+        && request.resource.data.confirmedAt is string
+        && transferSameMovement();
+    }
+
+    function transferCancel(licenseKey) {
+      return resource.data.status == 'pending'
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.receivedQuantity == null
+        && request.resource.data.hasDifference == false
+        && request.resource.data.confirmedAt == null
+        && request.resource.data.confirmedBy == null
+        && transferSameMovement()
+        && (request.auth.uid == resource.data.createdBy || isAdmin(licenseKey));
+    }
+
     // Plata de la ficha, más las horas que se sellan junto con ella.
     // cashLeft y deliveredAmount no están: los sigue escribiendo quien cierra.
     function fichaMoneyKeys() {
@@ -290,6 +345,16 @@ service cloud.firestore {
 
     match /licenses/{licenseKey}/specialCustomerPrices/{id} {
       allow read, create, update: if isActiveMember(licenseKey);
+      allow delete: if false;
+    }
+
+    // Movimiento entre locales. No es una compra, un gasto ni una deuda.
+    // Confirmar: cualquier cajera o admin, solo si sigue pendiente.
+    // Cancelar: quien la creó, o un admin, solo si sigue pendiente.
+    match /licenses/{licenseKey}/storeTransfers/{id} {
+      allow read: if isActiveMember(licenseKey);
+      allow create: if transferCreate(licenseKey);
+      allow update: if transferConfirm(licenseKey) || transferCancel(licenseKey);
       allow delete: if false;
     }
   }
