@@ -87,6 +87,17 @@ function ymdMidnightArIso(ymd: string): string {
   return new Date(`${ymd}T00:00:00.000-03:00`).toISOString()
 }
 
+/** Del día civil inclusive al siguiente exclusive, en medianoche de Argentina. */
+export function inclusiveCivilSpan(
+  startYmd: string,
+  endInclusiveYmd: string,
+): { startIso: string; endIso: string } {
+  return {
+    startIso: ymdMidnightArIso(startYmd),
+    endIso: ymdMidnightArIso(addDaysYmd(endInclusiveYmd, 1)),
+  }
+}
+
 export function mondayWeekRange(
   weekOffset = 0,
   now: Date = new Date(),

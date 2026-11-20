@@ -203,6 +203,7 @@ export {
   summaryMonthStep,
   summaryPeriodDates,
   summaryPeriodQuery,
+  inclusiveCivilSpan,
   weekdayInTimeZone,
   weekStartMondayYmd,
 } from './weekRange'

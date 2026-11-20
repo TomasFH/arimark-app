@@ -4,6 +4,7 @@ import {
   calendarMonthRange,
   firstMondayOfMonth,
   formatSummaryRange,
+  inclusiveCivilSpan,
   lastMondayOfMonth,
   mondayWeekContaining,
   mondayWeekRange,
@@ -49,6 +50,9 @@ describe('weekRange', () => {
     const next = mondayWeekContaining('2026-11-16T12:00:00.000-03:00')
     expect(next.startYmd).toBe('2026-11-16')
     expect(stored >= next.startIso && stored < next.endIso).toBe(false)
+    const span = inclusiveCivilSpan(week.startYmd, week.endInclusiveYmd)
+    expect(span).toEqual({ startIso: week.startIso, endIso: week.endIso })
+    expect(at.getTime() >= Date.parse(span.startIso) && at.getTime() < Date.parse(span.endIso)).toBe(true)
   })
 
   it('calendarMonthRange cubre el mes civil AR', () => {

@@ -303,6 +303,80 @@ describe('SummaryScreen', () => {
     expect(window.hw.getAdminSummary).toHaveBeenCalledTimes(callsBefore)
   })
 
+  it('el fiado del período no se pide hasta el botón', async () => {
+    const user = userEvent.setup()
+    const week = mondayWeekRange(0)
+    const monday = new Date(`${week.startYmd}T12:00:00.000-03:00`).toISOString()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: payload.storeId === 'norte'
+        ? {
+          shifts: [card({
+            id: 'lun',
+            startedAt: monday,
+            shiftType: 'morning',
+            closedAt: monday,
+            soldTotal: 5_000,
+            cashTotal: 5_000,
+            cardWalletTotal: 0,
+            debtTotal: 9_000,
+            expenseTotal: 0,
+            contributionTotal: 0,
+            walletCashTotal: 0,
+            moneySnapshottedAt: monday,
+          })],
+          visits: [],
+          warning: null,
+          fiado: { debtNow: null, payments: null },
+        }
+        : { shifts: [], visits: [], warning: null, fiado: { debtNow: null, payments: null } },
+    }))
+    window.hw.getPeriodFiado = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: payload.storeId === 'norte'
+        ? { newDebt: 4_000, collections: 1_200, unshifted: 200, incomplete: false }
+        : { newDebt: 500, collections: 300, unshifted: 0, incomplete: false },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('Fiado nuevo')).toBeInTheDocument()
+    expect(screen.getByText('Fiado nuevo').parentElement?.textContent?.replace(/\D/g, '')).toBe('9000')
+    expect(screen.getByText('Cobros del período').parentElement?.textContent).toMatch(/pendiente/)
+    expect(window.hw.getPeriodFiado).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Ver fiado del período' }))
+    await waitFor(() => {
+      expect(screen.getByText('Fiado nuevo').parentElement?.textContent?.replace(/\D/g, '')).toBe('4500')
+    })
+    expect(screen.getByText('Cobros del período').parentElement?.textContent?.replace(/\D/g, '')).toBe('1500')
+    expect(screen.getByText('Hay cobros sin turno. No entran en efectivo ni en tarjeta.')).toBeInTheDocument()
+    const asked = vi.mocked(window.hw.getPeriodFiado).mock.calls.map(call => call[0])
+    expect(asked.map(payload => payload.storeId).sort()).toEqual(['norte', 'sur'])
+    expect(asked[0]?.startIso).toBe(asked[1]?.startIso)
+    expect(asked[0]?.endIso).toBe(asked[1]?.endIso)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Período' }), 'previous')
+    await waitFor(() => {
+      expect(screen.getByText('Fiado nuevo').parentElement?.textContent?.replace(/\D/g, '')).toBe('9000')
+    })
+    expect(screen.getByText('Cobros del período').parentElement?.textContent).toMatch(/pendiente/)
+    expect(window.hw.getPeriodFiado).toHaveBeenCalledTimes(asked.length)
+  })
+
+  it('si el período no entra en el tope, la fila dice incompleta', async () => {
+    const user = userEvent.setup()
+    window.hw.getPeriodFiado = vi.fn().mockResolvedValue({
+      ok: true,
+      data: { newDebt: null, collections: null, unshifted: null, incomplete: true },
+    })
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Ver fiado del período' }))
+    await waitFor(() => {
+      expect(screen.getByText('Fiado nuevo').parentElement?.textContent).toMatch(/incompleta/)
+    })
+    expect(screen.getByText('Cobros del período').parentElement?.textContent).toMatch(/incompleta/)
+    expect(screen.getByText('Fiado nuevo').parentElement?.textContent?.replace(/\D/g, '')).toBe('')
+  })
+
   it('el modo de prueba no se consulta apagado y no llama al resumen encendido', async () => {
     vi.stubEnv('VITE_APP_ENV', 'dev')
     const user = userEvent.setup()

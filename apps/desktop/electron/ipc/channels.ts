@@ -198,6 +198,8 @@ export const IPC = {
   GET_SUMMARY_EXPENSES: 'ipc:get-summary-expenses',
   /** Deuda de fiado de un local, leída de la caché del login. Solo admin. */
   GET_ADMIN_FIADO_NOW: 'ipc:get-admin-fiado-now',
+  /** Fiado nuevo y cobros de un local en un rango. Solo admin. */
+  GET_PERIOD_FIADO: 'ipc:get-period-fiado',
   GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)

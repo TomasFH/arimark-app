@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind, StoreHoursBlock, SummaryExpenseInput, SummaryFiadoSlice, SummaryPurchaseIntake, SummaryShiftCard } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, PeriodFiadoAccount, ProviderIntakeKind, StoreHoursBlock, SummaryExpenseInput, SummaryFiadoSlice, SummaryPurchaseIntake, SummaryShiftCard } from '@carniceria/shared'
 
 export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind }
 
@@ -1624,6 +1624,13 @@ export interface HwApi {
 
   /** Deuda de fiado de un local, desde la caché que el login ya tiene. Solo admin. */
   getAdminFiadoNow: (payload: { storeId: string }) => Promise<IpcResult<{ debtNow: number | null }>>
+
+  /** Fiado nuevo y cobros de un local en el rango visible. Solo admin. */
+  getPeriodFiado: (payload: {
+    storeId: string
+    startIso: string
+    endIso: string
+  }) => Promise<IpcResult<PeriodFiadoAccount>>
 
   /**
    * Gastos de los turnos que están en pantalla. Solo admin.

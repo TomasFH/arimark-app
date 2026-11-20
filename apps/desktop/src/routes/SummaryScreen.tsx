@@ -30,6 +30,7 @@ import {
   summaryPaymentBreakdown,
   summaryPeriodDates,
   summaryPeriodQuery,
+  inclusiveCivilSpan,
   ymdInRange,
   summaryPreview,
   summaryPreviewSelection,
@@ -45,6 +46,7 @@ import {
   type SummaryPurchaseIntake,
   type SummaryHoursView,
   type SummaryFiadoSlice,
+  type PeriodFiadoAccount,
   type SummaryPeriod,
   type SummaryPreviewVisit,
   type SummaryShiftCard,
@@ -90,6 +92,9 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [storesError, setStoresError] = useState<string | null>(null)
+  const [periodFiado, setPeriodFiado] = useState<PeriodFiadoAccount | null>(null)
+  const [periodFiadoLoading, setPeriodFiadoLoading] = useState(false)
+  const [periodFiadoError, setPeriodFiadoError] = useState<string | null>(null)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [expenseView, setExpenseView] = useState<'fecha' | 'grupo'>('fecha')
   const [expenseOpen, setExpenseOpen] = useState(false)
@@ -224,6 +229,11 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const previousMonth = summaryMonthStep(1)
   const dates = summaryPeriodDates(period)
   const caption = formatSummaryRange(dates.startYmd, dates.endYmd)
+
+  useEffect(() => {
+    setPeriodFiado(null)
+    setPeriodFiadoError(null)
+  }, [storeId, dates.startYmd, dates.endYmd])
   const storeOptions: StoreRow[] = previewPack
     ? previewPack.stores.map(store => ({ id: store.id, name: store.name }))
     : stores
@@ -332,6 +342,42 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       setExpenseLoading(false)
     }
   }
+
+  async function loadPeriodFiado(): Promise<void> {
+    if (previewOn) return
+    const targets = storeId === 'all' ? stores : stores.filter(store => store.id === storeId)
+    if (targets.length === 0) return
+    const span = inclusiveCivilSpan(dates.startYmd, dates.endYmd)
+    setPeriodFiadoLoading(true)
+    setPeriodFiadoError(null)
+    try {
+      const results = await Promise.all(targets.map(store => window.hw.getPeriodFiado({
+        storeId: store.id,
+        startIso: span.startIso,
+        endIso: span.endIso,
+      })))
+      const failed = results.find(result => !result.ok)
+      if (failed && !failed.ok) {
+        setPeriodFiadoError(failed.error ?? 'No se pudo leer el fiado del período.')
+        return
+      }
+      const rows = results.flatMap(result => (result.ok ? [result.data] : []))
+      if (rows.some(row => row.incomplete)) {
+        setPeriodFiado({ newDebt: null, collections: null, unshifted: null, incomplete: true })
+        return
+      }
+      setPeriodFiado({
+        newDebt: rows.reduce((sum, row) => sum + (row.newDebt ?? 0), 0),
+        collections: rows.reduce((sum, row) => sum + (row.collections ?? 0), 0),
+        unshifted: rows.reduce((sum, row) => sum + (row.unshifted ?? 0), 0),
+        incomplete: false,
+      })
+    } catch {
+      setPeriodFiadoError('No se pudo leer el fiado del período.')
+    } finally {
+      setPeriodFiadoLoading(false)
+    }
+  }
   const shown = summaryShownAmounts(money)
   const soldDays = useMemo(
     () => summarySoldByDay(shownShifts, dates.startYmd, dates.endYmd),
@@ -345,7 +391,17 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const collections = fiado.payments
     ? sumCollections(paymentsInCivilRange(fiado.payments, dates.startYmd, dates.endYmd))
     : null
-  const note = collections ? collectionNote(collections.unshifted) : null
+  const periodAccount = previewOn ? null : periodFiado
+  const periodIncomplete = periodAccount?.incomplete === true
+  const shownNewDebt = periodAccount
+    ? (periodAccount.incomplete ? null : periodAccount.newDebt)
+    : newDebt
+  const shownCollections = periodAccount
+    ? (periodAccount.incomplete ? null : periodAccount.collections)
+    : (collections ? collections.total : null)
+  const note = periodIncomplete
+    ? null
+    : collectionNote(periodAccount ? (periodAccount.unshifted ?? 0) : (collections?.unshifted ?? 0))
   const moneyReady = shown.vendio != null
   const showStore = storeId === 'all'
   const ready = previewOn
@@ -726,9 +782,32 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
               </section>}
 
               <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-                <h2 className="text-sm font-semibold text-ink">Fiados y cobranzas</h2>
-                <MoneyRow label="Fiado nuevo" amount={newDebt} empty="todavía no llegó" />
-                <MoneyRow label="Cobros del período" amount={collections ? collections.total : null} empty="pendiente" />
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Fiados y cobranzas</h2>
+                  {!previewOn && (
+                    <button
+                      type="button"
+                      onClick={() => { void loadPeriodFiado() }}
+                      disabled={periodFiadoLoading}
+                      className="shrink-0 rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
+                    >
+                      {periodFiadoLoading ? 'Leyendo…' : 'Ver fiado del período'}
+                    </button>
+                  )}
+                </div>
+                {periodFiadoError && (
+                  <p className="min-w-0 truncate text-sm text-danger" title={periodFiadoError}>{periodFiadoError}</p>
+                )}
+                <MoneyRow
+                  label="Fiado nuevo"
+                  amount={shownNewDebt}
+                  empty={periodIncomplete ? 'incompleta' : 'todavía no llegó'}
+                />
+                <MoneyRow
+                  label="Cobros del período"
+                  amount={shownCollections}
+                  empty={periodIncomplete ? 'incompleta' : 'pendiente'}
+                />
                 {note && <p className="text-sm text-ink">{note}</p>}
                 <MoneyRow label="Deuda de ahora" amount={fiado.debtNow} empty="pendiente" />
               </section>

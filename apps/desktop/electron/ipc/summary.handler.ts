@@ -9,11 +9,13 @@ import { getActiveSession } from '../activeSession'
 import { getDb } from '../db/client'
 import { stores } from '../db/schema'
 import { eq } from 'drizzle-orm'
+import { isFirebaseAvailable } from '../licensing/firebase'
 import { loadAdminSummary } from '../summary/loadAdminSummary'
+import { loadPeriodFiado } from '../summary/periodFiado'
 import { loadSummaryExpenses } from '../summary/loadSummaryExpenses'
 import type { IpcResult } from '../../src/types/hw-api'
 import type { AdminSummaryData } from '../summary/loadAdminSummary'
-import { storeLiveFiadoBalance, type SummaryExpenseInput } from '@carniceria/shared'
+import { storeLiveFiadoBalance, type PeriodFiadoAccount, type SummaryExpenseInput } from '@carniceria/shared'
 import { getLiveCustomerPairs } from '../licensing/debtBalanceLive'
 
 const summarySchema = z.object({
@@ -25,6 +27,12 @@ const summarySchema = z.object({
 const fiadoNowSchema = z.object({
   storeId: z.string().min(1).max(128),
 })
+
+const periodFiadoSchema = z.object({
+  storeId: z.string().min(1).max(128),
+  startIso: z.string().min(10).max(40),
+  endIso: z.string().min(10).max(40),
+}).refine(data => data.startIso < data.endIso, { message: 'Rango inválido' })
 
 const expenseShiftSchema = z.object({
   id: z.string().uuid(),
@@ -125,6 +133,39 @@ export function registerSummaryHandlers(): void {
     return {
       ok: true,
       data: { debtNow: storeLiveFiadoBalance(parsed.data.storeId, getLiveCustomerPairs()) },
+    }
+  })
+
+  ipcMain.handle(IPC.GET_PERIOD_FIADO, async (_event, payload: unknown): Promise<IpcResult<PeriodFiadoAccount>> => {
+    const parsed = periodFiadoSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:get-period-fiado] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo los administradores pueden ver el resumen.', code: 'FORBIDDEN' }
+    }
+
+    const store = getDb().select({ id: stores.id, archivedAt: stores.archivedAt })
+      .from(stores)
+      .where(eq(stores.id, parsed.data.storeId))
+      .get()
+    if (!store || store.archivedAt) {
+      return { ok: false, error: 'El local no existe.', code: 'NOT_FOUND' }
+    }
+    if (!isFirebaseAvailable()) {
+      return { ok: false, error: 'No se pudo leer el fiado del período.', code: 'OFFLINE' }
+    }
+
+    try {
+      const data = await loadPeriodFiado(parsed.data)
+      return { ok: true, data }
+    } catch (err) {
+      log.error('[ipc:get-period-fiado] Error inesperado', err)
+      return { ok: false, error: 'No se pudo leer el fiado del período.' }
     }
   })
 }

@@ -68,11 +68,16 @@ vi.mock('../../licensing/debtBalanceLive', () => ({
   getLiveCustomerPairs: vi.fn(() => []),
 }))
 
+vi.mock('../../summary/periodFiado', () => ({
+  loadPeriodFiado: vi.fn(),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { isFirebaseAvailable } from '../../licensing/firebase'
 import { getLiveCustomerPairs } from '../../licensing/debtBalanceLive'
+import { loadPeriodFiado } from '../../summary/periodFiado'
 import { pullMerchandiseIntakesForStoreWeek } from '../../licensing/merchIntakeSync'
 import { registerSummaryHandlers } from '../summary.handler'
 import type { AdminSummaryData } from '../../summary/loadAdminSummary'
@@ -102,6 +107,12 @@ function getExpenseHandler(): ExpenseHandlerFn {
 function getFiadoNowHandler(): HandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-admin-fiado-now')
   if (!call) throw new Error('Handler de deuda de ahora no registrado')
+  return call[1] as HandlerFn
+}
+
+function getPeriodFiadoHandler(): HandlerFn {
+  const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-period-fiado')
+  if (!call) throw new Error('Handler de fiado del período no registrado')
   return call[1] as HandlerFn
 }
 
@@ -1239,6 +1250,49 @@ describe('summary.handler', () => {
     expect(res.ok).toBe(true)
     expect(res.data?.debtNow).toBe(7_000)
     expect(fetchRemoteSummaryShifts).not.toHaveBeenCalled()
+  })
+
+  it('el fiado del período valida el payload y rechaza a la cajera', async () => {
+    const week = mondayWeekRange(-8)
+    const malformed = await getPeriodFiadoHandler()(null, { storeId: STORE_ID, startIso: week.endIso, endIso: week.startIso })
+    expect(malformed.ok).toBe(false)
+    expect(malformed.code).toBe('INVALID_PAYLOAD')
+
+    vi.mocked(getActiveSession).mockReturnValue({ ...ADMIN, role: 'cashier' } as unknown as ReturnType<typeof getActiveSession>)
+    const forbidden = await getPeriodFiadoHandler()(null, {
+      storeId: STORE_ID,
+      startIso: week.startIso,
+      endIso: week.endIso,
+    })
+    expect(forbidden.ok).toBe(false)
+    expect(forbidden.code).toBe('FORBIDDEN')
+    expect(loadPeriodFiado).not.toHaveBeenCalled()
+
+    vi.mocked(getActiveSession).mockReturnValue(ADMIN as unknown as ReturnType<typeof getActiveSession>)
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    vi.mocked(loadPeriodFiado).mockResolvedValue({
+      newDebt: null,
+      collections: null,
+      unshifted: null,
+      incomplete: true,
+    })
+    const capped = await getPeriodFiadoHandler()(null, {
+      storeId: STORE_ID,
+      startIso: week.startIso,
+      endIso: week.endIso,
+    })
+    expect(capped.ok).toBe(true)
+    expect(capped.data).toEqual({
+      newDebt: null,
+      collections: null,
+      unshifted: null,
+      incomplete: true,
+    })
+    expect(loadPeriodFiado).toHaveBeenCalledWith({
+      storeId: STORE_ID,
+      startIso: week.startIso,
+      endIso: week.endIso,
+    })
   })
 
   it('la deuda de ahora sale de la caché del login', async () => {
