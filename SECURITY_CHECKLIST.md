@@ -114,3 +114,4 @@ Leyenda: `[C]` = crítico, `[ ]` = pendiente, `[x]` = verificado.
 | Fecha | Módulo | Revisó | Resultado | Pendientes |
 |---|---|---|---|---|
 | 2026-11-18 | Resumen en la PC de los dueños (pollo, medias, desglose de pagos, detalle de gastos) | — | Sin revisar | Secciones B, C, D y E; hallazgos 1 a 4 |
+| 2026-11-20 | Horas por ficha, cobertura semanal, fiados, transferencias y los dos arreglos de sesión y copia previa | agente | Revisado en el repo, sin publicar reglas ni índices | Publicar reglas e índices; probar 0063 sobre una copia de la base real; el hallazgo 1 del texto viejo ya no está en el repo, pero la nube publicada no se verificó |
