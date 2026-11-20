@@ -18,8 +18,6 @@ export interface CoveragePurchaseLine {
 }
 
 export interface CoverageIntake {
-  /** Entre locales. Cuando exista, no entra en Compras ni en el aviso de precio. */
-  transfer?: boolean
   lines: CoveragePurchaseLine[]
 }
 
@@ -51,7 +49,6 @@ function fichaCounts(ficha: CoverageFicha): ficha is CoverageFicha & {
 }
 
 function mediaResMissingPrice(intake: CoverageIntake): boolean {
-  if (intake.transfer) return false
   const media = intake.lines.filter(line => line.mediaRes)
   if (media.length === 0) return false
   return media.every(line => linePurchaseCost(line) === 0)
@@ -78,7 +75,6 @@ export function coverageAccount(input: {
   let purchases = 0
   let mediaResWithoutPrice = 0
   for (const intake of input.intakes) {
-    if (intake.transfer) continue
     for (const line of intake.lines) {
       purchases += linePurchaseCost(line)
     }

@@ -35,14 +35,13 @@ describe('coverageAccount', () => {
     expect(account.difference).toBe(4_000 - 700)
   })
 
-  it('suma el costo informado y el que quedó impago, y deja afuera la transferencia', () => {
+  it('suma el costo informado y el que quedó impago', () => {
     const account = coverageAccount({
       fichas: [{ soldTotal: 0, expenseTotal: 0, providerExpenseTotal: 0 }],
       intakes: [
         { lines: [{ costTotal: 2_000, moneyRole: 'informed' }] },
         { lines: [{ costTotal: 3_000, moneyRole: 'payable' }] },
         { lines: [{ costTotal: 9_000, moneyRole: 'none' }] },
-        { transfer: true, lines: [{ costTotal: 8_000, moneyRole: 'payable', mediaRes: true }] },
       ],
     })
     expect(account.purchases).toBe(5_000)
