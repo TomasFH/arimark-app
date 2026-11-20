@@ -196,6 +196,8 @@ export const IPC = {
   GET_ADMIN_SUMMARY: 'ipc:get-admin-summary',
   /** Gastos de los turnos que están en pantalla. Solo admin. */
   GET_SUMMARY_EXPENSES: 'ipc:get-summary-expenses',
+  /** Deuda de fiado de un local, leída de la caché del login. Solo admin. */
+  GET_ADMIN_FIADO_NOW: 'ipc:get-admin-fiado-now',
   GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)

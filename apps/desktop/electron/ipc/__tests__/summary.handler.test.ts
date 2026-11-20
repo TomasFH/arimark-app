@@ -99,6 +99,12 @@ function getExpenseHandler(): ExpenseHandlerFn {
   return call[1] as ExpenseHandlerFn
 }
 
+function getFiadoNowHandler(): HandlerFn {
+  const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-admin-fiado-now')
+  if (!call) throw new Error('Handler de deuda de ahora no registrado')
+  return call[1] as HandlerFn
+}
+
 const STORE_ID = 'store-001'
 const OTHER_STORE = 'store-002'
 const USER_ID = 'user-001'
@@ -1194,6 +1200,45 @@ describe('summary.handler', () => {
     })
     expect(empty.ok).toBe(true)
     expect(empty.data?.fiado).toEqual({ debtNow: null, payments: null })
+  })
+
+  it('la deuda de ahora se lee de la caché sin armar el resumen', async () => {
+    const missing = await getFiadoNowHandler()(null, { storeId: '' })
+    expect(missing.ok).toBe(false)
+    expect(missing.code).toBe('INVALID_PAYLOAD')
+
+    vi.mocked(getActiveSession).mockReturnValue({ ...ADMIN, role: 'cashier' } as unknown as ReturnType<typeof getActiveSession>)
+    const forbidden = await getFiadoNowHandler()(null, { storeId: STORE_ID })
+    expect(forbidden.ok).toBe(false)
+    expect(forbidden.code).toBe('FORBIDDEN')
+
+    vi.mocked(getActiveSession).mockReturnValue(ADMIN as unknown as ReturnType<typeof getActiveSession>)
+    const empty = await getFiadoNowHandler()(null, { storeId: STORE_ID })
+    expect(empty.ok).toBe(true)
+    expect(empty.data?.debtNow).toBeNull()
+
+    vi.mocked(getLiveCustomerPairs).mockReturnValue([{
+      customerId: 'c1',
+      storeId: STORE_ID,
+      checkpoint: {
+        kind: 'customer',
+        entityId: 'c1',
+        storeId: STORE_ID,
+        saldoAcumulado: 10_000,
+        checkpointAt: { seconds: 50, nanos: 0 },
+        foldedCount: 1,
+      },
+      events: [{
+        id: 'pago',
+        serverAt: { seconds: 80, nanos: 0 },
+        customerEventType: 'partial_payment',
+        amount: 3_000,
+      }],
+    }])
+    const res = await getFiadoNowHandler()(null, { storeId: STORE_ID })
+    expect(res.ok).toBe(true)
+    expect(res.data?.debtNow).toBe(7_000)
+    expect(fetchRemoteSummaryShifts).not.toHaveBeenCalled()
   })
 
   it('la deuda de ahora sale de la caché del login', async () => {

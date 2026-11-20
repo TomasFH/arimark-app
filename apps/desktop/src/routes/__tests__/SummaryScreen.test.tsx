@@ -281,6 +281,28 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('Deuda de ahora').parentElement?.textContent?.replace(/\D/g, '')).toBe('77000')
   })
 
+  it('la fila de deuda de ahora pasa de pendiente al aviso de la caché', async () => {
+    const listeners: Array<() => void> = []
+    window.hw.onDebtSyncUpdated = vi.fn((cb: () => void) => {
+      listeners.push(cb)
+      return () => {}
+    })
+    window.hw.getAdminFiadoNow = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: { debtNow: payload.storeId === 'norte' ? 7_000 : null },
+    }))
+    render(<SummaryScreen onBack={vi.fn()} />)
+    const row = await screen.findByText('Deuda de ahora')
+    expect(row.parentElement?.textContent).toMatch(/pendiente/)
+    expect(window.hw.getAdminFiadoNow).not.toHaveBeenCalled()
+    const callsBefore = vi.mocked(window.hw.getAdminSummary).mock.calls.length
+    listeners[0]?.()
+    await waitFor(() => {
+      expect(screen.getByText('Deuda de ahora').parentElement?.textContent?.replace(/\D/g, '')).toBe('7000')
+    })
+    expect(window.hw.getAdminSummary).toHaveBeenCalledTimes(callsBefore)
+  })
+
   it('el modo de prueba no se consulta apagado y no llama al resumen encendido', async () => {
     vi.stubEnv('VITE_APP_ENV', 'dev')
     const user = userEvent.setup()

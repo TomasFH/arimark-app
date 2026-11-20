@@ -1622,6 +1622,9 @@ export interface HwApi {
   /** Plata y medias reses de un solo local, en el rango pedido. Solo admin. */
   getAdminSummary: (payload: { storeId: string; startIso: string; endIso: string }) => Promise<IpcResult<AdminSummaryResult>>
 
+  /** Deuda de fiado de un local, desde la caché que el login ya tiene. Solo admin. */
+  getAdminFiadoNow: (payload: { storeId: string }) => Promise<IpcResult<{ debtNow: number | null }>>
+
   /**
    * Gastos de los turnos que están en pantalla. Solo admin.
    * La PC del local los lee de SQLite. La otra pide solo esos turnos.

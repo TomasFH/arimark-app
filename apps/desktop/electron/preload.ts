@@ -66,6 +66,8 @@ const hw: HwApi = {
 
   getSummaryExpenses: payload => ipcRenderer.invoke(IPC.GET_SUMMARY_EXPENSES, payload),
 
+  getAdminFiadoNow: payload => ipcRenderer.invoke(IPC.GET_ADMIN_FIADO_NOW, payload),
+
   onShiftInactivityWarning: cb => {
     const listener = () => cb()
     ipcRenderer.on(IPC.SHIFT_INACTIVITY_WARNING, listener)

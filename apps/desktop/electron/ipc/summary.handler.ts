@@ -13,13 +13,18 @@ import { loadAdminSummary } from '../summary/loadAdminSummary'
 import { loadSummaryExpenses } from '../summary/loadSummaryExpenses'
 import type { IpcResult } from '../../src/types/hw-api'
 import type { AdminSummaryData } from '../summary/loadAdminSummary'
-import type { SummaryExpenseInput } from '@carniceria/shared'
+import { storeLiveFiadoBalance, type SummaryExpenseInput } from '@carniceria/shared'
+import { getLiveCustomerPairs } from '../licensing/debtBalanceLive'
 
 const summarySchema = z.object({
   storeId: z.string().min(1).max(128),
   startIso: z.string().min(10).max(40),
   endIso: z.string().min(10).max(40),
 }).refine(data => data.startIso < data.endIso, { message: 'Rango inválido' })
+
+const fiadoNowSchema = z.object({
+  storeId: z.string().min(1).max(128),
+})
 
 const expenseShiftSchema = z.object({
   id: z.string().uuid(),
@@ -93,6 +98,33 @@ export function registerSummaryHandlers(): void {
     } catch (err) {
       log.error('[ipc:get-summary-expenses] Error inesperado', err)
       return { ok: false, error: 'Error al leer los gastos.' }
+    }
+  })
+
+  ipcMain.handle(IPC.GET_ADMIN_FIADO_NOW, async (_event, payload: unknown): Promise<IpcResult<{ debtNow: number | null }>> => {
+    const parsed = fiadoNowSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:get-admin-fiado-now] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo los administradores pueden ver el resumen.', code: 'FORBIDDEN' }
+    }
+
+    const store = getDb().select({ id: stores.id, archivedAt: stores.archivedAt })
+      .from(stores)
+      .where(eq(stores.id, parsed.data.storeId))
+      .get()
+    if (!store || store.archivedAt) {
+      return { ok: false, error: 'El local no existe.', code: 'NOT_FOUND' }
+    }
+
+    return {
+      ok: true,
+      data: { debtNow: storeLiveFiadoBalance(parsed.data.storeId, getLiveCustomerPairs()) },
     }
   })
 }

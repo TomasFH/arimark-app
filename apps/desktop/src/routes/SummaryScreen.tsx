@@ -200,6 +200,27 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     return () => { cancelled = true }
   }, [storesReady, storesError, stores, storeId, queried, refreshToken, previewOn])
 
+  useEffect(() => {
+    if (previewOn || !storesReady || storesError) return
+    const listen = window.hw.onDebtSyncUpdated
+    const readNow = window.hw.getAdminFiadoNow
+    if (!listen || !readNow) return
+    const targets = storeId === 'all' ? stores : stores.filter(store => store.id === storeId)
+    if (targets.length === 0) return
+    let cancelled = false
+    const pull = (): void => {
+      void Promise.all(targets.map(store => readNow({ storeId: store.id }))).then(results => {
+        if (cancelled || results.some(result => !result.ok)) return
+        const known = results.filter(result => result.ok && result.data.debtNow != null)
+        const debtNow = known.length === 0
+          ? null
+          : known.reduce((sum, result) => sum + (result.ok ? result.data.debtNow ?? 0 : 0), 0)
+        setData(prev => (prev ? { ...prev, fiado: { ...prev.fiado, debtNow } } : prev))
+      })
+    }
+    return listen(pull)
+  }, [previewOn, storesReady, storesError, stores, storeId])
+
   const previousMonth = summaryMonthStep(1)
   const dates = summaryPeriodDates(period)
   const caption = formatSummaryRange(dates.startYmd, dates.endYmd)
