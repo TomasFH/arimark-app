@@ -330,9 +330,11 @@ export {
   paymentsInCivilRange,
   storeFiadoBalance,
   storeFiadoSlice,
+  storeLiveFiadoBalance,
   sumCollections,
 } from './summaryFiado'
 export type {
+  CustomerLivePair,
   LedgerEvent,
   PeriodCollections,
   SummaryFiadoSlice,
