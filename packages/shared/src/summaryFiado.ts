@@ -200,6 +200,22 @@ export function collectionNote(unshifted: number): string | null {
 /** Tope de la consulta del período. 500 documentos llenos no alcanzan para un total. */
 export const PERIOD_FIADO_LIMIT = 500
 
+/** Una página del historial de un cliente. No se pide la siguiente hasta "ver más". */
+export const CUSTOMER_HISTORY_LIMIT = 30
+
+export interface CustomerHistoryMove {
+  id: string
+  eventType: string
+  amount: number
+  createdAt: string
+  shiftId: string | null
+}
+
+export interface CustomerHistoryPage {
+  moves: CustomerHistoryMove[]
+  hasMore: boolean
+}
+
 const NEW_DEBT_TYPES = new Set(['created', 'debt', 'reopened'])
 
 export interface PeriodFiadoAccount {

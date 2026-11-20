@@ -72,12 +72,17 @@ vi.mock('../../summary/periodFiado', () => ({
   loadPeriodFiado: vi.fn(),
 }))
 
+vi.mock('../../summary/customerHistory', () => ({
+  loadCustomerHistory: vi.fn(),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { isFirebaseAvailable } from '../../licensing/firebase'
 import { getLiveCustomerPairs } from '../../licensing/debtBalanceLive'
 import { loadPeriodFiado } from '../../summary/periodFiado'
+import { loadCustomerHistory } from '../../summary/customerHistory'
 import { pullMerchandiseIntakesForStoreWeek } from '../../licensing/merchIntakeSync'
 import { registerSummaryHandlers } from '../summary.handler'
 import type { AdminSummaryData } from '../../summary/loadAdminSummary'
@@ -113,6 +118,18 @@ function getFiadoNowHandler(): HandlerFn {
 function getPeriodFiadoHandler(): HandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-period-fiado')
   if (!call) throw new Error('Handler de fiado del período no registrado')
+  return call[1] as HandlerFn
+}
+
+function getSummaryCustomersHandler(): HandlerFn {
+  const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-summary-customers')
+  if (!call) throw new Error('Handler de clientes del resumen no registrado')
+  return call[1] as HandlerFn
+}
+
+function getCustomerHistoryHandler(): HandlerFn {
+  const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-customer-debt-history')
+  if (!call) throw new Error('Handler de historial de fiado no registrado')
   return call[1] as HandlerFn
 }
 
@@ -1293,6 +1310,109 @@ describe('summary.handler', () => {
       startIso: week.startIso,
       endIso: week.endIso,
     })
+  })
+
+  it('los nombres salen de la PC y el historial no se pide al listarlos', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    db.insert(customers).values({
+      id: 'cust-b',
+      storeId: STORE_ID,
+      name: 'Berta',
+      active: true,
+      createdAt: now,
+      createdBy: USER_ID,
+    }).run()
+    db.insert(customers).values({
+      id: 'cust-a',
+      storeId: STORE_ID,
+      name: 'Ana',
+      active: true,
+      createdAt: now,
+      createdBy: USER_ID,
+    }).run()
+    db.insert(customers).values({
+      id: 'cust-otro-local',
+      storeId: OTHER_STORE,
+      name: 'Zoe',
+      active: true,
+      createdAt: now,
+      createdBy: USER_ID,
+    }).run()
+
+    const malformed = await getSummaryCustomersHandler()(null, { storeIds: [] })
+    expect(malformed.ok).toBe(false)
+    expect(malformed.code).toBe('INVALID_PAYLOAD')
+
+    vi.mocked(getActiveSession).mockReturnValue({ ...ADMIN, role: 'cashier' } as unknown as ReturnType<typeof getActiveSession>)
+    const forbidden = await getSummaryCustomersHandler()(null, { storeIds: [STORE_ID] })
+    expect(forbidden.ok).toBe(false)
+    expect(forbidden.code).toBe('FORBIDDEN')
+
+    vi.mocked(getActiveSession).mockReturnValue(ADMIN as unknown as ReturnType<typeof getActiveSession>)
+    const listed = await getSummaryCustomersHandler()(null, { storeIds: [STORE_ID] })
+    expect(listed.ok).toBe(true)
+    expect(listed.data).toEqual([
+      { id: 'cust-a', name: 'Ana', storeId: STORE_ID },
+      { id: 'cust-b', name: 'Berta', storeId: STORE_ID },
+    ])
+    expect(loadCustomerHistory).not.toHaveBeenCalled()
+  })
+
+  it('el historial valida el payload, rechaza a la cajera y no lee un cliente que no está en la PC', async () => {
+    const malformed = await getCustomerHistoryHandler()(null, { customerId: 'cust-a', storeId: STORE_ID })
+    expect(malformed.ok).toBe(false)
+    expect(malformed.code).toBe('INVALID_PAYLOAD')
+
+    vi.mocked(getActiveSession).mockReturnValue({ ...ADMIN, role: 'cashier' } as unknown as ReturnType<typeof getActiveSession>)
+    const forbidden = await getCustomerHistoryHandler()(null, {
+      customerId: 'cust-a',
+      storeId: STORE_ID,
+      more: false,
+    })
+    expect(forbidden.ok).toBe(false)
+    expect(forbidden.code).toBe('FORBIDDEN')
+    expect(loadCustomerHistory).not.toHaveBeenCalled()
+
+    vi.mocked(getActiveSession).mockReturnValue(ADMIN as unknown as ReturnType<typeof getActiveSession>)
+    const missing = await getCustomerHistoryHandler()(null, {
+      customerId: 'cust-a',
+      storeId: STORE_ID,
+      more: false,
+    })
+    expect(missing.ok).toBe(false)
+    expect(missing.code).toBe('NOT_FOUND')
+    expect(loadCustomerHistory).not.toHaveBeenCalled()
+
+    db.insert(customers).values({
+      id: 'cust-a',
+      storeId: STORE_ID,
+      name: 'Ana',
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: USER_ID,
+    }).run()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    vi.mocked(loadCustomerHistory).mockResolvedValue({
+      moves: [{ id: 'm1', eventType: 'created', amount: 4500, createdAt: '2026-11-15T22:00:00.000-03:00', shiftId: 'turno' }],
+      hasMore: true,
+    })
+    const page = await getCustomerHistoryHandler()(null, {
+      customerId: 'cust-a',
+      storeId: STORE_ID,
+      more: true,
+    })
+    expect(page.ok).toBe(true)
+    expect(page.data).toEqual({
+      moves: [{ id: 'm1', eventType: 'created', amount: 4500, createdAt: '2026-11-15T22:00:00.000-03:00', shiftId: 'turno' }],
+      hasMore: true,
+    })
+    expect(loadCustomerHistory).toHaveBeenCalledTimes(1)
+    expect(loadCustomerHistory).toHaveBeenCalledWith({
+      customerId: 'cust-a',
+      storeId: STORE_ID,
+      more: true,
+    })
+    expect(page.data).not.toHaveProperty('name')
   })
 
   it('la deuda de ahora sale de la caché del login', async () => {

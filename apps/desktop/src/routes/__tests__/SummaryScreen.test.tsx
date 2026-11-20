@@ -377,6 +377,56 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('Fiado nuevo').parentElement?.textContent?.replace(/\D/g, '')).toBe('')
   })
 
+  it('el historial no se pide hasta expandir, y ver más no repite la primera página', async () => {
+    const user = userEvent.setup()
+    window.hw.getSummaryCustomers = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'c1', name: 'Juan Pérez', storeId: 'norte' },
+        { id: 'c2', name: 'Ana Gómez', storeId: 'sur' },
+      ],
+    })
+    window.hw.getCustomerDebtHistory = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          moves: [{ id: 'm1', eventType: 'created', amount: 4500, createdAt: '2026-11-15T22:00:00.000-03:00', shiftId: 'turno' }],
+          hasMore: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          moves: [{ id: 'm2', eventType: 'paid', amount: 800, createdAt: '2026-11-10T12:00:00.000-03:00', shiftId: null }],
+          hasMore: false,
+        },
+      })
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText(/Juan Pérez/)).toBeInTheDocument()
+    expect(screen.getByText(/Ana Gómez/)).toBeInTheDocument()
+    await waitFor(() => expect(window.hw.getSummaryCustomers).toHaveBeenCalledTimes(1))
+    expect(window.hw.getSummaryCustomers).toHaveBeenCalledWith({ storeIds: ['norte', 'sur'] })
+    expect(window.hw.getCustomerDebtHistory).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Ver historial de Juan Pérez' }))
+    expect(await screen.findByText(/Deuda registrada/)).toBeInTheDocument()
+    expect(screen.getByText(/4\.500/)).toBeInTheDocument()
+    expect(window.hw.getCustomerDebtHistory).toHaveBeenCalledTimes(1)
+    expect(window.hw.getCustomerDebtHistory).toHaveBeenCalledWith({
+      customerId: 'c1',
+      storeId: 'norte',
+      more: false,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Ver más' }))
+    expect(await screen.findByText(/Pago total/)).toBeInTheDocument()
+    expect(screen.getByText(/Deuda registrada/)).toBeInTheDocument()
+    const calls = vi.mocked(window.hw.getCustomerDebtHistory).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls.filter(call => call[0].more === false)).toHaveLength(1)
+    expect(calls[1]?.[0]).toEqual({ customerId: 'c1', storeId: 'norte', more: true })
+  })
+
   it('el modo de prueba no se consulta apagado y no llama al resumen encendido', async () => {
     vi.stubEnv('VITE_APP_ENV', 'dev')
     const user = userEvent.setup()

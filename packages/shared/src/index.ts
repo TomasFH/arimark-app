@@ -328,6 +328,7 @@ export {
 export {
   collectionNote,
   combineFiadoSlices,
+  CUSTOMER_HISTORY_LIMIT,
   paymentsInCivilRange,
   periodFiadoAccount,
   PERIOD_FIADO_LIMIT,
@@ -337,6 +338,8 @@ export {
   sumCollections,
 } from './summaryFiado'
 export type {
+  CustomerHistoryMove,
+  CustomerHistoryPage,
   CustomerLivePair,
   LedgerEvent,
   PeriodCollections,

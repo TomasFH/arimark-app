@@ -3,7 +3,7 @@
  * Hoy filtra esa semana, sin otra consulta. El mes corta por el lunes.
  * El modo de prueba solo existe con VITE_APP_ENV=dev y no consulta ni escribe.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   boxAporteAmount,
   chickenTotals,
@@ -57,6 +57,7 @@ import { SaleSplitChart, SoldDayBars } from '../components/SummaryCharts'
 import { Button, CollapseReveal, cx } from '../components/ui'
 import { formatARS } from '../lib/datetime'
 import type { AdminSummaryResult, StoreRow } from '../types/hw-api'
+import type { CustomerHistoryMove } from '@carniceria/shared'
 
 /** Oculto hasta post 1.0. El bloque y la cuenta siguen en el código. Ver docs/POST_1.0.md. */
 const SHOW_SUMMARY_BOXES = false
@@ -95,6 +96,17 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [periodFiado, setPeriodFiado] = useState<PeriodFiadoAccount | null>(null)
   const [periodFiadoLoading, setPeriodFiadoLoading] = useState(false)
   const [periodFiadoError, setPeriodFiadoError] = useState<string | null>(null)
+  const [summaryCustomers, setSummaryCustomers] = useState<Array<{ id: string; name: string; storeId: string }>>([])
+  const [customersListed, setCustomersListed] = useState(false)
+  const [customerListError, setCustomerListError] = useState<string | null>(null)
+  const [openCustomerId, setOpenCustomerId] = useState<string | null>(null)
+  const [customerHistories, setCustomerHistories] = useState<Record<string, {
+    moves: CustomerHistoryMove[]
+    hasMore: boolean
+    loading: boolean
+    error: string | null
+  }>>({})
+  const historyEpoch = useRef(0)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [expenseView, setExpenseView] = useState<'fecha' | 'grupo'>('fecha')
   const [expenseOpen, setExpenseOpen] = useState(false)
@@ -234,6 +246,44 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     setPeriodFiado(null)
     setPeriodFiadoError(null)
   }, [storeId, dates.startYmd, dates.endYmd])
+
+  useEffect(() => {
+    historyEpoch.current += 1
+    setCustomerHistories({})
+    setOpenCustomerId(null)
+    setCustomerListError(null)
+    setCustomersListed(false)
+    if (previewOn || !storesReady || storesError) {
+      setSummaryCustomers([])
+      return
+    }
+    const list = window.hw.getSummaryCustomers
+    if (!list) return
+    const ids = (storeId === 'all' ? stores : stores.filter(store => store.id === storeId)).map(store => store.id)
+    if (ids.length === 0) {
+      setSummaryCustomers([])
+      setCustomersListed(true)
+      return
+    }
+    let cancelled = false
+    void list({ storeIds: ids }).then(result => {
+      if (cancelled) return
+      if (!result.ok) {
+        setSummaryCustomers([])
+        setCustomerListError(result.error ?? 'No se pudieron leer los clientes.')
+        setCustomersListed(true)
+        return
+      }
+      setSummaryCustomers(result.data)
+      setCustomersListed(true)
+    }).catch(() => {
+      if (!cancelled) {
+        setCustomerListError('No se pudieron leer los clientes.')
+        setCustomersListed(true)
+      }
+    })
+    return () => { cancelled = true }
+  }, [previewOn, storesReady, storesError, stores, storeId])
   const storeOptions: StoreRow[] = previewPack
     ? previewPack.stores.map(store => ({ id: store.id, name: store.name }))
     : stores
@@ -377,6 +427,67 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     } finally {
       setPeriodFiadoLoading(false)
     }
+  }
+
+  async function loadCustomerHistory(row: { id: string; storeId: string }, more: boolean): Promise<void> {
+    const read = window.hw.getCustomerDebtHistory
+    if (!read) return
+    const epoch = historyEpoch.current
+    setCustomerHistories(prev => ({
+      ...prev,
+      [row.id]: {
+        moves: prev[row.id]?.moves ?? [],
+        hasMore: prev[row.id]?.hasMore ?? false,
+        loading: true,
+        error: null,
+      },
+    }))
+    try {
+      const result = await read({ customerId: row.id, storeId: row.storeId, more })
+      if (epoch !== historyEpoch.current) return
+      if (!result.ok) {
+        setCustomerHistories(prev => ({
+          ...prev,
+          [row.id]: {
+            moves: prev[row.id]?.moves ?? [],
+            hasMore: prev[row.id]?.hasMore ?? false,
+            loading: false,
+            error: result.error ?? 'No se pudo leer el historial.',
+          },
+        }))
+        return
+      }
+      setCustomerHistories(prev => ({
+        ...prev,
+        [row.id]: {
+          moves: more ? [...(prev[row.id]?.moves ?? []), ...result.data.moves] : result.data.moves,
+          hasMore: result.data.hasMore,
+          loading: false,
+          error: null,
+        },
+      }))
+    } catch {
+      if (epoch !== historyEpoch.current) return
+      setCustomerHistories(prev => ({
+        ...prev,
+        [row.id]: {
+          moves: prev[row.id]?.moves ?? [],
+          hasMore: prev[row.id]?.hasMore ?? false,
+          loading: false,
+          error: 'No se pudo leer el historial.',
+        },
+      }))
+    }
+  }
+
+  function toggleCustomerHistory(row: { id: string; storeId: string }): void {
+    if (openCustomerId === row.id) {
+      setOpenCustomerId(null)
+      return
+    }
+    setOpenCustomerId(row.id)
+    if (customerHistories[row.id]) return
+    void loadCustomerHistory(row, false)
   }
   const shown = summaryShownAmounts(money)
   const soldDays = useMemo(
@@ -810,6 +921,71 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                 />
                 {note && <p className="text-sm text-ink">{note}</p>}
                 <MoneyRow label="Deuda de ahora" amount={fiado.debtNow} empty="pendiente" />
+                {!previewOn && (
+                  <div className="space-y-2 border-t border-line pt-3">
+                    <h3 className="text-sm font-semibold text-ink">Clientes</h3>
+                    {customerListError && (
+                      <p className="min-w-0 truncate text-sm text-danger" title={customerListError}>{customerListError}</p>
+                    )}
+                    {customersListed && summaryCustomers.length === 0 && !customerListError && (
+                      <p className="text-sm text-muted">No hay clientes en este local.</p>
+                    )}
+                    <ul className="space-y-2">
+                      {summaryCustomers.map(row => {
+                        const history = customerHistories[row.id]
+                        const open = openCustomerId === row.id
+                        const who = storeId === 'all'
+                          ? `${row.name} · ${stores.find(store => store.id === row.storeId)?.name ?? ''}`
+                          : row.name
+                        return (
+                          <li key={row.id} className="min-w-0">
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              aria-label={open ? `Ocultar historial de ${row.name}` : `Ver historial de ${row.name}`}
+                              onClick={() => toggleCustomerHistory(row)}
+                              className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                            >
+                              <span className="min-w-0 flex-1 truncate text-sm text-ink" title={who}>{who}</span>
+                            </button>
+                            {open && (
+                              <div className="mt-1 space-y-1">
+                                {history?.error && (
+                                  <p className="min-w-0 truncate text-sm text-danger" title={history.error}>{history.error}</p>
+                                )}
+                                {history && history.moves.length === 0 && !history.loading && !history.error && (
+                                  <p className="text-sm text-muted">No hay movimientos.</p>
+                                )}
+                                <ul className="space-y-1">
+                                  {(history?.moves ?? []).map(move => {
+                                    const label = historyMoveLabel(move.eventType)
+                                    const when = historyMoveWhen(move.createdAt)
+                                    const line = [label, formatARS(move.amount), when].filter(Boolean).join(' · ')
+                                    return (
+                                      <li key={move.id} className="flex min-w-0 items-baseline gap-2">
+                                        <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line}>{line}</span>
+                                      </li>
+                                    )
+                                  })}
+                                </ul>
+                                {history?.hasMore && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { void loadCustomerHistory(row, true) }}
+                                    disabled={history.loading}
+                                    className="rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
+                                  >
+                                    {history.loading ? 'Leyendo…' : 'Ver más'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                )}
               </section>
             </>
           )}
@@ -1007,6 +1183,27 @@ function Stat({ label, value }: { label: string; value: string }) {
       <p className="mt-1 truncate text-xl font-semibold tabular-nums tracking-tight text-ink" title={value}>{value}</p>
     </div>
   )
+}
+
+function historyMoveLabel(eventType: string): string {
+  if (eventType === 'created' || eventType === 'debt') return 'Deuda registrada'
+  if (eventType === 'partial_payment') return 'Pago parcial'
+  if (eventType === 'paid') return 'Pago total'
+  if (eventType === 'cancelled') return 'Deuda cancelada'
+  if (eventType === 'reopened') return 'Deuda reabierta'
+  return 'Movimiento'
+}
+
+function historyMoveWhen(iso: string): string {
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time)) return ''
+  return new Date(time).toLocaleString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function MoneyRow({

@@ -4,7 +4,7 @@
  * Todo pasa por este contrato.
  */
 
-import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, PeriodFiadoAccount, ProviderIntakeKind, StoreHoursBlock, SummaryExpenseInput, SummaryFiadoSlice, SummaryPurchaseIntake, SummaryShiftCard } from '@carniceria/shared'
+import type { BillLine, CashDiscountBlock, CashHandoverAudit, ChickenVisit, CustomerHistoryPage, MediaResVisit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, PeriodFiadoAccount, ProviderIntakeKind, StoreHoursBlock, SummaryExpenseInput, SummaryFiadoSlice, SummaryPurchaseIntake, SummaryShiftCard } from '@carniceria/shared'
 
 export type { BillLine, CashDiscountBlock, CashHandoverAudit, MerchIntakeLineSnapshot, MerchIntakePaymentKind, MerchIntakeTemplate, MerchIntakeUnit, MerchVisitFormLine, MerchVisitLineDraft, MerchWeekBook, ProviderIntakeKind }
 
@@ -1631,6 +1631,20 @@ export interface HwApi {
     startIso: string
     endIso: string
   }) => Promise<IpcResult<PeriodFiadoAccount>>
+
+  /** Clientes que ya están en la PC, para el local visible. Solo admin. */
+  getSummaryCustomers: (payload: { storeIds: string[] }) => Promise<IpcResult<Array<{
+    id: string
+    name: string
+    storeId: string
+  }>>>
+
+  /** Una página del historial de un cliente. more sigue después de la página anterior. Solo admin. */
+  getCustomerDebtHistory: (payload: {
+    customerId: string
+    storeId: string
+    more: boolean
+  }) => Promise<IpcResult<CustomerHistoryPage>>
 
   /**
    * Gastos de los turnos que están en pantalla. Solo admin.

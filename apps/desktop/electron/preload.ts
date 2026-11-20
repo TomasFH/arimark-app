@@ -70,6 +70,10 @@ const hw: HwApi = {
 
   getPeriodFiado: payload => ipcRenderer.invoke(IPC.GET_PERIOD_FIADO, payload),
 
+  getSummaryCustomers: payload => ipcRenderer.invoke(IPC.GET_SUMMARY_CUSTOMERS, payload),
+
+  getCustomerDebtHistory: payload => ipcRenderer.invoke(IPC.GET_CUSTOMER_DEBT_HISTORY, payload),
+
   onShiftInactivityWarning: cb => {
     const listener = () => cb()
     ipcRenderer.on(IPC.SHIFT_INACTIVITY_WARNING, listener)

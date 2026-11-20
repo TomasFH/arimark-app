@@ -200,6 +200,10 @@ export const IPC = {
   GET_ADMIN_FIADO_NOW: 'ipc:get-admin-fiado-now',
   /** Fiado nuevo y cobros de un local en un rango. Solo admin. */
   GET_PERIOD_FIADO: 'ipc:get-period-fiado',
+  /** Nombres de clientes que ya están en la PC. Solo admin. */
+  GET_SUMMARY_CUSTOMERS: 'ipc:get-summary-customers',
+  /** Una página del historial de un cliente. Solo admin. */
+  GET_CUSTOMER_DEBT_HISTORY: 'ipc:get-customer-debt-history',
   GET_REMOTE_EMPLOYEE_VALES: 'ipc:get-remote-employee-vales',
 
   // Gestión de locales (multi-local)
