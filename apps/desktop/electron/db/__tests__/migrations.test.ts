@@ -67,6 +67,7 @@ describe('migrations', () => {
       'summary_shift_cache',
       'summary_expense_cache',
       'provider_purchase_prices',
+      'store_transfers',
     ]
 
     for (const table of expected) {
@@ -806,5 +807,69 @@ describe('migrations', () => {
       sql`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_debt_events_customer'`
     )
     expect(indexes.length).toBe(1)
+  })
+
+  it('agrega transferencias en una copia sin tocar gastos, deuda ni ingresos (migración 0063)', async () => {
+    const journal = JSON.parse(fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/meta/_journal.json'),
+      'utf8',
+    )) as { entries: { tag: string; when: number }[] }
+    const previous = journal.entries.find(entry => entry.tag === '0062_shift_provider_expense')
+    const current = journal.entries.find(entry => entry.tag === '0063_store_transfers')
+    expect(previous?.when).toBe(1795126557193)
+    expect(current?.when).toBeGreaterThan(1795126557193)
+
+    const initSqlJs = (await import('sql.js')).default
+    const sqlJsDir = path.dirname(require.resolve('sql.js'))
+    const SQL = await initSqlJs({
+      locateFile: (file: string) => path.resolve(sqlJsDir, file),
+    })
+    const original = new SQL.Database()
+    const folder = path.resolve(__dirname, '../../../drizzle')
+    for (const entry of journal.entries) {
+      if (entry.tag === '0063_store_transfers') break
+      const sqlText = fs.readFileSync(path.join(folder, `${entry.tag}.sql`), 'utf8')
+      for (const statement of sqlText.split('--> statement-breakpoint')) {
+        const trimmed = statement.trim()
+        if (trimmed) original.run(trimmed)
+      }
+    }
+    original.run('PRAGMA foreign_keys = OFF')
+    original.run(`INSERT INTO stores (id, name, created_at) VALUES ('store-1', 'Norte', '2026-01-01T00:00:00.000Z')`)
+    original.run(`INSERT INTO users (id, name, created_at) VALUES ('user-1', 'Ana', '2026-01-01T00:00:00.000Z')`)
+    original.run(`INSERT INTO shifts (
+      id, store_id, user_id, shift_type, started_at, opening_cash, source
+    ) VALUES ('shift-viejo', 'store-1', 'user-1', 'morning', '2026-10-01T12:00:00.000Z', 0, 'desktop')`)
+    original.run(`INSERT INTO expenses (
+      id, store_id, shift_id, amount, created_at, created_by
+    ) VALUES ('exp-viejo', 'store-1', 'shift-viejo', 100, '2026-10-01T12:00:00.000Z', 'user-1')`)
+    original.run(`INSERT INTO customers (
+      id, store_id, name, created_at, created_by
+    ) VALUES ('cust-viejo', 'store-1', 'Cliente', '2026-10-01T12:00:00.000Z', 'user-1')`)
+    original.run(`INSERT INTO debt_events (
+      id, customer_id, store_id, event_type, amount, created_at, created_by
+    ) VALUES ('deuda-vieja', 'cust-viejo', 'store-1', 'created', 500, '2026-10-01T12:00:00.000Z', 'user-1')`)
+    original.run(`INSERT INTO merchandise_intakes (
+      id, store_id, shift_id, payment_kind, created_by, created_at
+    ) VALUES ('ing-viejo', 'store-1', 'shift-viejo', 'none', 'user-1', '2026-10-01T12:00:00.000Z')`)
+
+    const copy = new SQL.Database(original.export())
+    const migrationSql = fs.readFileSync(path.join(folder, '0063_store_transfers.sql'), 'utf8')
+    for (const statement of migrationSql.split('--> statement-breakpoint')) {
+      const trimmed = statement.trim()
+      if (trimmed) copy.run(trimmed)
+    }
+
+    const before = original.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='store_transfers'")
+    expect(before.length).toBe(0)
+
+    const table = copy.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='store_transfers'")
+    expect(table.length).toBe(1)
+    expect(copy.exec('SELECT COUNT(*) FROM store_transfers')[0]?.values[0]?.[0]).toBe(0)
+    expect(copy.exec(`SELECT amount FROM expenses WHERE id = 'exp-viejo'`)[0]?.values[0]?.[0]).toBe(100)
+    expect(copy.exec(`SELECT amount FROM debt_events WHERE id = 'deuda-vieja'`)[0]?.values[0]?.[0]).toBe(500)
+    expect(copy.exec(`SELECT payment_kind FROM merchandise_intakes WHERE id = 'ing-viejo'`)[0]?.values[0]?.[0]).toBe('none')
+    original.close()
+    copy.close()
   })
 })

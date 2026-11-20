@@ -1112,3 +1112,41 @@ export const summaryExpenseCache = sqliteTable('summary_expense_cache', {
   linesJson: text('lines_json').notNull(),
   pulledAt: text('pulled_at').notNull(),
 })
+
+/**
+ * Movimiento de mercadería entre locales. No es compra, gasto ni deuda.
+ * created_by no referencia users: un admin no tiene fila en esa tabla.
+ */
+export const storeTransfers = sqliteTable(
+  'store_transfers',
+  {
+    id: text('id').primaryKey(),
+    productName: text('product_name').notNull(),
+    quantity: real('quantity').notNull(),
+    unit: text('unit', { enum: ['kg', 'u', 'cajon'] }).notNull(),
+    fromStoreId: text('from_store_id')
+      .notNull()
+      .references(() => stores.id),
+    toStoreId: text('to_store_id')
+      .notNull()
+      .references(() => stores.id),
+    occurredAt: text('occurred_at').notNull(),
+    notes: text('notes'),
+    estimatedValue: integer('estimated_value'),
+    status: text('status', { enum: ['pending', 'confirmed', 'cancelled'] }).notNull(),
+    receivedQuantity: real('received_quantity'),
+    hasDifference: integer('has_difference', { mode: 'boolean' }).notNull().default(false),
+    confirmedAt: text('confirmed_at'),
+    confirmedBy: text('confirmed_by'),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').notNull(),
+    updatedAt: text('updated_at'),
+    updatedBy: text('updated_by'),
+    syncedAt: text('synced_at'),
+  },
+  table => [
+    index('idx_store_transfers_status_occurred').on(table.status, table.occurredAt),
+    index('idx_store_transfers_from_occurred').on(table.fromStoreId, table.occurredAt),
+    index('idx_store_transfers_to_occurred').on(table.toStoreId, table.occurredAt),
+  ],
+)
