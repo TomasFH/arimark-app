@@ -61,6 +61,10 @@ vi.mock('../../licensing/merchIntakeSync', () => ({
   pushUnsyncedMerchandiseIntakes: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/storeTransferSync', () => ({
+  pushUnsyncedStoreTransfers: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('../../licensing/merchRubroSync', () => ({
   ensureMerchRubrosSynced: vi.fn().mockResolvedValue(undefined),
 }))
@@ -70,6 +74,7 @@ import { getActiveSession } from '../../activeSession'
 import { ensureStoresSynced } from '../../licensing/storeSync'
 import { ensureEmployeesSynced } from '../../licensing/employeeSync'
 import { syncCatalogWithFirestore, syncAllStoreCatalogs } from '../../licensing/catalogSync'
+import { pushUnsyncedStoreTransfers } from '../../licensing/storeTransferSync'
 import { registerRefreshHandlers } from '../refresh.handler'
 import { IPC } from '../channels'
 
@@ -108,6 +113,7 @@ describe('refresh.handler', () => {
     expect(result.ok).toBe(true)
     expect(result.data.storeId).toBe('local1')
     expect(ensureStoresSynced).toHaveBeenCalledWith('test-key')
+    expect(pushUnsyncedStoreTransfers).toHaveBeenCalledWith('test-key')
     expect(ensureEmployeesSynced).toHaveBeenCalledWith('test-key')
     expect(syncCatalogWithFirestore).toHaveBeenCalledWith('test-key', 'local1')
     expect(syncAllStoreCatalogs).not.toHaveBeenCalled()

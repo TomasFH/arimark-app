@@ -21,6 +21,7 @@ import {
   pushUnsyncedDebtEvents,
 } from '../licensing/providerSync'
 import { pushUnsyncedMerchandiseIntakes } from '../licensing/merchIntakeSync'
+import { pushUnsyncedStoreTransfers } from '../licensing/storeTransferSync'
 import { ensureMerchRubrosSynced } from '../licensing/merchRubroSync'
 import type { IpcResult } from '../../src/types/hw-api'
 
@@ -118,6 +119,9 @@ export function registerRefreshHandlers(): void {
       )
       pushUnsyncedMerchandiseIntakes(config.tenant_id).catch(err =>
         log.warn('[ipc:refresh-remote-data] pushUnsyncedMerchandiseIntakes falló (no bloqueante)', err),
+      )
+      pushUnsyncedStoreTransfers(config.tenant_id).catch(err =>
+        log.warn('[ipc:refresh-remote-data] pushUnsyncedStoreTransfers falló (no bloqueante)', err),
       )
 
       log.info('[ipc:refresh-remote-data] Sync remoto disparado', { storeId, role: session.role })

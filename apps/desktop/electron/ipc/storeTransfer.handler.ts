@@ -17,6 +17,8 @@ import {
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { getActiveSession, type ActiveSession } from '../activeSession'
+import { getBusinessConfig } from '../businessConfig'
+import { pushUnsyncedStoreTransfers } from '../licensing/storeTransferSync'
 import {
   cancelStoreTransferRow,
   confirmStoreTransferRow,
@@ -84,6 +86,19 @@ function readActor<T>(
   return { ok: true, data: parsed.data, session }
 }
 
+function scheduleStoreTransferPush(): void {
+  let tenantId: string
+  try {
+    tenantId = getBusinessConfig().tenant_id
+  } catch (err) {
+    log.warn('[ipc:store-transfer] sin configuración para subir', err)
+    return
+  }
+  pushUnsyncedStoreTransfers(tenantId).catch(err =>
+    log.warn('[ipc:store-transfer] push falló', err),
+  )
+}
+
 export function registerStoreTransferHandlers(): void {
   ipcMain.handle(IPC.CREATE_STORE_TRANSFER, (_event, payload: unknown): IpcResult<{ id: string }> => {
     const actor = readActor(IPC.CREATE_STORE_TRANSFER, createSchema, payload)
@@ -108,6 +123,7 @@ export function registerStoreTransferHandlers(): void {
         createdAt: new Date().toISOString(),
       })
       if (!created.ok) return fail(created.reason)
+      scheduleStoreTransferPush()
       return { ok: true, data: { id: created.id } }
     } catch (err) {
       log.error('[ipc:create-store-transfer] Error inesperado', err)
@@ -129,6 +145,7 @@ export function registerStoreTransferHandlers(): void {
           confirmedAt: now,
         })
         if (!confirmed.ok) return fail(confirmed.reason)
+        scheduleStoreTransferPush()
         return { ok: true, data: { hasDifference: confirmed.hasDifference } }
       } catch (err) {
         log.error('[ipc:confirm-store-transfer] Error inesperado', err)
@@ -148,6 +165,7 @@ export function registerStoreTransferHandlers(): void {
         cancelledAt: new Date().toISOString(),
       })
       if (!cancelled.ok) return fail(cancelled.reason)
+      scheduleStoreTransferPush()
       return { ok: true, data: { id: actor.data.id } }
     } catch (err) {
       log.error('[ipc:cancel-store-transfer] Error inesperado', err)

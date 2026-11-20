@@ -1,0 +1,259 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
+import { storeTransfers, stores } from '../../db/schema'
+
+const { mockSetDoc, mockGetDoc, mockGetDocs, mockDoc, mockCollection, mockWhere, mockQuery, mockOnSnapshot } = vi.hoisted(() => ({
+  mockSetDoc: vi.fn().mockResolvedValue(undefined),
+  mockGetDoc: vi.fn(),
+  mockGetDocs: vi.fn(),
+  mockDoc: vi.fn(),
+  mockCollection: vi.fn(),
+  mockWhere: vi.fn(),
+  mockQuery: vi.fn(),
+  mockOnSnapshot: vi.fn(),
+}))
+
+vi.mock('firebase/firestore', () => ({
+  getFirestore: vi.fn(() => ({})),
+  doc: (...args: unknown[]) => {
+    mockDoc(...args)
+    return { path: args.join('/') }
+  },
+  setDoc: mockSetDoc,
+  getDoc: mockGetDoc,
+  getDocs: mockGetDocs,
+  collection: (...args: unknown[]) => {
+    mockCollection(...args)
+    return { path: args.join('/') }
+  },
+  query: (...args: unknown[]) => {
+    mockQuery(...args)
+    return { args }
+  },
+  where: (...args: unknown[]) => {
+    mockWhere(...args)
+    return { args }
+  },
+  onSnapshot: mockOnSnapshot,
+}))
+
+vi.mock('../firebase', () => ({
+  getFirebaseApp: vi.fn(() => ({})),
+  isFirebaseAvailable: vi.fn(() => true),
+}))
+
+vi.mock('electron-log', () => ({
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}))
+
+vi.mock('../../db/client', () => ({
+  getDb: vi.fn(),
+}))
+
+import { getDb } from '../../db/client'
+import { isFirebaseAvailable } from '../firebase'
+import { pullStoreTransfersForRange, pushUnsyncedStoreTransfers } from '../storeTransferSync'
+
+const TENANT = 'test-tenant'
+const WHEN = '2026-11-15T03:00:00.000Z'
+const NOW = '2026-11-20T15:00:00.000Z'
+const START = '2026-11-15T03:00:00.000Z'
+const END = '2026-11-22T03:00:00.000Z'
+
+function insertTransfer(
+  db: Awaited<ReturnType<typeof createInMemoryDb>>['db'],
+  opts: {
+    id: string
+    syncedAt: string | null
+    status?: 'pending' | 'confirmed' | 'cancelled'
+    receivedQuantity?: number | null
+    hasDifference?: boolean
+  },
+) {
+  db.insert(storeTransfers).values({
+    id: opts.id,
+    productName: 'Vacío',
+    quantity: 4,
+    unit: 'kg',
+    fromStoreId: 'norte',
+    toStoreId: 'sur',
+    occurredAt: WHEN,
+    notes: null,
+    estimatedValue: null,
+    status: opts.status ?? 'pending',
+    receivedQuantity: opts.receivedQuantity ?? null,
+    hasDifference: opts.hasDifference ?? false,
+    confirmedAt: opts.status === 'confirmed' ? NOW : null,
+    confirmedBy: opts.status === 'confirmed' ? 'ana' : null,
+    createdAt: NOW,
+    createdBy: 'ana',
+    updatedAt: null,
+    updatedBy: null,
+    syncedAt: opts.syncedAt,
+  }).run()
+}
+
+function remoteDoc(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    data: () => ({
+      id,
+      productName: 'Vacío',
+      quantity: 4,
+      unit: 'kg',
+      fromStoreId: 'norte',
+      toStoreId: 'sur',
+      occurredAt: WHEN,
+      notes: null,
+      estimatedValue: null,
+      status: 'pending',
+      receivedQuantity: null,
+      hasDifference: false,
+      confirmedAt: null,
+      confirmedBy: null,
+      createdAt: NOW,
+      createdBy: 'ana',
+      updatedAt: null,
+      updatedBy: null,
+      deleted: false,
+      ...overrides,
+    }),
+  }
+}
+
+describe('storeTransferSync', () => {
+  let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    mockGetDoc.mockResolvedValue({ exists: () => false, data: () => undefined })
+    mockGetDocs.mockResolvedValue({ docs: [] })
+    const instance = await createInMemoryDb()
+    db = instance.db
+    db.insert(stores).values([
+      { id: 'norte', name: 'Norte', createdAt: NOW },
+      { id: 'sur', name: 'Sur', createdAt: NOW },
+    ]).run()
+    vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
+  })
+
+  it('sube solo las filas con syncedAt vacío', async () => {
+    insertTransfer(db, { id: 'tr-nueva', syncedAt: null })
+    insertTransfer(db, { id: 'tr-ya', syncedAt: NOW })
+
+    await pushUnsyncedStoreTransfers(TENANT)
+
+    expect(mockGetDoc).toHaveBeenCalledTimes(1)
+    expect(mockSetDoc).toHaveBeenCalledTimes(1)
+    expect(mockDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      'licenses',
+      TENANT,
+      'storeTransfers',
+      'tr-nueva',
+    )
+    const body = mockSetDoc.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(body).toMatchObject({
+      id: 'tr-nueva',
+      status: 'pending',
+      fromStoreId: 'norte',
+      toStoreId: 'sur',
+      deleted: false,
+    })
+    expect(body).not.toHaveProperty('syncedAt')
+    expect(db.select().from(storeTransfers).all().find(row => row.id === 'tr-nueva')?.syncedAt).toEqual(expect.any(String))
+    expect(mockOnSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('un push tarde no pisa la confirmación remota y baja esa copia', async () => {
+    insertTransfer(db, { id: 'tr-tarde', syncedAt: null, status: 'pending' })
+    mockGetDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => remoteDoc('tr-tarde', {
+        status: 'confirmed',
+        receivedQuantity: 3.5,
+        hasDifference: true,
+        confirmedAt: '2026-11-20T18:00:00.000Z',
+        confirmedBy: 'remoto',
+        updatedAt: '2026-11-20T18:00:00.000Z',
+        updatedBy: 'remoto',
+      }).data(),
+    })
+
+    await pushUnsyncedStoreTransfers(TENANT)
+
+    expect(mockSetDoc).not.toHaveBeenCalled()
+    const row = db.select().from(storeTransfers).all().find(item => item.id === 'tr-tarde')
+    expect(row).toMatchObject({
+      status: 'confirmed',
+      receivedQuantity: 3.5,
+      hasDifference: true,
+      confirmedBy: 'remoto',
+    })
+    expect(row?.syncedAt).toEqual(expect.any(String))
+  })
+
+  it('baja pendientes y confirmados del rango, sin la colección entera y sin pisar lo no subido', async () => {
+    insertTransfer(db, {
+      id: 'tr-local',
+      syncedAt: null,
+      status: 'confirmed',
+      receivedQuantity: 2,
+      hasDifference: true,
+    })
+    mockGetDocs.mockResolvedValueOnce({
+      docs: [
+        remoteDoc('tr-local', {
+          status: 'confirmed',
+          receivedQuantity: 9,
+          confirmedAt: NOW,
+          confirmedBy: 'otro',
+        }),
+        remoteDoc('tr-pendiente', { status: 'pending' }),
+        remoteDoc('tr-confirmada', {
+          status: 'confirmed',
+          receivedQuantity: 4,
+          confirmedAt: NOW,
+          confirmedBy: 'luis',
+        }),
+        remoteDoc('tr-cancelada', { status: 'cancelled' }),
+      ],
+    })
+
+    const count = await pullStoreTransfersForRange(TENANT, START, END)
+
+    expect(count).toBe(3)
+    expect(mockCollection).toHaveBeenCalledWith(expect.anything(), 'licenses', TENANT, 'storeTransfers')
+    expect(mockWhere).toHaveBeenCalledWith('occurredAt', '>=', START)
+    expect(mockWhere).toHaveBeenCalledWith('occurredAt', '<', END)
+    expect(mockGetDocs).toHaveBeenCalledTimes(1)
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+    expect(mockOnSnapshot).not.toHaveBeenCalled()
+    expect(mockSetDoc).not.toHaveBeenCalled()
+
+    const local = db.select().from(storeTransfers).all().find(row => row.id === 'tr-local')
+    expect(local).toMatchObject({ receivedQuantity: 2, syncedAt: null, confirmedBy: 'ana' })
+    expect(db.select().from(storeTransfers).all().map(row => row.id).sort()).toEqual([
+      'tr-cancelada',
+      'tr-confirmada',
+      'tr-local',
+      'tr-pendiente',
+    ])
+    expect(db.select().from(storeTransfers).all().find(row => row.id === 'tr-confirmada')).toMatchObject({
+      status: 'confirmed',
+      receivedQuantity: 4,
+      hasDifference: false,
+    })
+    expect(db.select().from(storeTransfers).all().find(row => row.id === 'tr-pendiente')?.status).toBe('pending')
+  })
+
+  it('no habla con Firebase si está apagado', async () => {
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    insertTransfer(db, { id: 'tr-1', syncedAt: null })
+    await pushUnsyncedStoreTransfers(TENANT)
+    expect(await pullStoreTransfersForRange(TENANT, START, END)).toBe(0)
+    expect(mockGetDoc).not.toHaveBeenCalled()
+    expect(mockGetDocs).not.toHaveBeenCalled()
+  })
+})

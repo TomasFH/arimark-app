@@ -19,9 +19,18 @@ vi.mock('../../activeSession', () => ({
   getActiveSession: vi.fn(),
 }))
 
+vi.mock('../../businessConfig', () => ({
+  getBusinessConfig: vi.fn(() => ({ tenant_id: 'lic-1' })),
+}))
+
+vi.mock('../../licensing/storeTransferSync', () => ({
+  pushUnsyncedStoreTransfers: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
+import { pushUnsyncedStoreTransfers } from '../../licensing/storeTransferSync'
 import { registerStoreTransferHandlers } from '../storeTransfer.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => { ok: boolean; code?: string; data?: unknown }
@@ -96,6 +105,7 @@ describe('storeTransfer.handler', () => {
     it('la cajera guarda un pendiente sin turno y sin gastos, deuda ni ingresos', () => {
       const result = getHandler('ipc:create-store-transfer')(null, draft())
       expect(result.ok).toBe(true)
+      expect(pushUnsyncedStoreTransfers).toHaveBeenCalledWith('lic-1')
       const row = db.select().from(storeTransfers).all()[0]
       expect(row).toMatchObject({
         status: 'pending',
@@ -122,6 +132,7 @@ describe('storeTransfer.handler', () => {
       const result = getHandler('ipc:create-store-transfer')(null, { productName: 'Vacío', quantity: '4' })
       expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
       expect(getDb).not.toHaveBeenCalled()
+      expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()).toHaveLength(0)
     })
 
@@ -130,6 +141,7 @@ describe('storeTransfer.handler', () => {
       const result = getHandler('ipc:create-store-transfer')(null, draft())
       expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
       expect(getDb).not.toHaveBeenCalled()
+      expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()).toHaveLength(0)
     })
 
@@ -152,6 +164,7 @@ describe('storeTransfer.handler', () => {
       }
       expect(created.ok).toBe(true)
       vi.mocked(getDb).mockClear()
+      vi.mocked(pushUnsyncedStoreTransfers).mockClear()
       return created.data.id
     }
 
@@ -160,8 +173,10 @@ describe('storeTransfer.handler', () => {
       vi.mocked(getActiveSession).mockReturnValue(OTHER)
       const first = getHandler('ipc:confirm-store-transfer')(null, { id, receivedQuantity: 3.5 })
       expect(first).toEqual({ ok: true, data: { hasDifference: true } })
+      expect(pushUnsyncedStoreTransfers).toHaveBeenCalledTimes(1)
       const second = getHandler('ipc:confirm-store-transfer')(null, { id, receivedQuantity: 4 })
       expect(second).toMatchObject({ ok: false, code: 'NOT_PENDING' })
+      expect(pushUnsyncedStoreTransfers).toHaveBeenCalledTimes(1)
       expect(db.select().from(storeTransfers).all()[0]).toMatchObject({
         status: 'confirmed',
         receivedQuantity: 3.5,
@@ -176,6 +191,7 @@ describe('storeTransfer.handler', () => {
       const result = getHandler('ipc:confirm-store-transfer')(null, { id: 'no-es-uuid', receivedQuantity: 1 })
       expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
       expect(getDb).not.toHaveBeenCalled()
+      expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()[0]?.status).toBe('pending')
     })
 
@@ -185,6 +201,7 @@ describe('storeTransfer.handler', () => {
       const result = getHandler('ipc:confirm-store-transfer')(null, { id, receivedQuantity: 4 })
       expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
       expect(getDb).not.toHaveBeenCalled()
+      expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()[0]?.status).toBe('pending')
     })
   })
@@ -196,6 +213,7 @@ describe('storeTransfer.handler', () => {
         data: { id: string }
       }
       vi.mocked(getDb).mockClear()
+      vi.mocked(pushUnsyncedStoreTransfers).mockClear()
       return created.data.id
     }
 
@@ -203,6 +221,7 @@ describe('storeTransfer.handler', () => {
       const id = createOne()
       const result = getHandler('ipc:cancel-store-transfer')(null, { id })
       expect(result).toEqual({ ok: true, data: { id } })
+      expect(pushUnsyncedStoreTransfers).toHaveBeenCalledWith('lic-1')
       expect(db.select().from(storeTransfers).all()[0]?.status).toBe('cancelled')
       expect(others()).toEqual({ expenses: 0, debts: 0, intakes: 0 })
     })
@@ -237,6 +256,7 @@ describe('storeTransfer.handler', () => {
       const result = getHandler('ipc:cancel-store-transfer')(null, { id: 12 })
       expect(result).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
       expect(getDb).not.toHaveBeenCalled()
+      expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()[0]?.status).toBe('pending')
     })
 
@@ -246,6 +266,7 @@ describe('storeTransfer.handler', () => {
       const result = getHandler('ipc:cancel-store-transfer')(null, { id })
       expect(result).toMatchObject({ ok: false, code: 'NO_SESSION' })
       expect(getDb).not.toHaveBeenCalled()
+      expect(pushUnsyncedStoreTransfers).not.toHaveBeenCalled()
       expect(db.select().from(storeTransfers).all()[0]?.status).toBe('pending')
     })
   })
