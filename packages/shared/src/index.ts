@@ -347,6 +347,29 @@ export type {
   SummaryFiadoSlice,
   SummaryPayment,
 } from './summaryFiado'
+export {
+  STORE_TRANSFER_NAME_MAX,
+  STORE_TRANSFER_NOTES_MAX,
+  STORE_TRANSFER_PENDING_LIMIT,
+  STORE_TRANSFER_QUANTITY_MAX,
+  STORE_TRANSFER_UNITS,
+  STORE_TRANSFER_VALUE_MAX,
+  cancelStoreTransfer,
+  confirmStoreTransfer,
+  pendingStoreTransfers,
+  storeTransferIsPending,
+  storeTransferLabel,
+  transferOccurredAt,
+  validateStoreTransferDraft,
+} from './storeTransfer'
+export type {
+  StoreTransferActorRole,
+  StoreTransferDraft,
+  StoreTransferDraftError,
+  StoreTransferLabel,
+  StoreTransferStatus,
+  StoreTransferUnit,
+} from './storeTransfer'
 export { summaryPreview, summaryPreviewSelection } from './summaryPreview'
 export type { SummaryPreview, SummaryPreviewVisit } from './summaryPreview'
 export type {
