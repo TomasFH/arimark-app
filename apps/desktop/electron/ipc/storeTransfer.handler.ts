@@ -18,14 +18,14 @@ import { IPC } from './channels'
 import { getDb } from '../db/client'
 import { getActiveSession, type ActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
-import { listStoreTransfersForRange, pushUnsyncedStoreTransfers } from '../licensing/storeTransferSync'
+import { listStoreTransfersForRange, loadPendingStoreTransfers, pushUnsyncedStoreTransfers } from '../licensing/storeTransferSync'
 import {
   cancelStoreTransferRow,
   confirmStoreTransferRow,
   createStoreTransfer,
   type StoreTransferWriteError,
 } from '../db/storeTransfers'
-import type { IpcError, IpcResult } from '../../src/types/hw-api'
+import type { IpcError, IpcResult, StoreTransferRow } from '../../src/types/hw-api'
 
 const unitSchema = z.enum(STORE_TRANSFER_UNITS)
 
@@ -49,11 +49,14 @@ const cancelSchema = z.object({
   id: z.string().uuid(),
 })
 
-const listSchema = z.object({
+const rangeSchema = z.object({
   startIso: z.string().min(20).max(40),
   endIso: z.string().min(20).max(40),
-  refresh: z.boolean().optional(),
 }).refine(data => data.startIso < data.endIso)
+
+const listSchema = rangeSchema.and(z.object({
+  refresh: z.boolean().optional(),
+}))
 
 const REASON_TEXT: Record<StoreTransferWriteError, string> = {
   PRODUCT: 'El producto no es válido.',
@@ -181,6 +184,31 @@ export function registerStoreTransferHandlers(): void {
     } catch (err) {
       log.error('[ipc:list-store-transfers] Error inesperado', err)
       return { ok: false, error: 'No se pudieron leer las transferencias.' }
+    }
+  })
+
+  ipcMain.handle(IPC.GET_PENDING_STORE_TRANSFERS, async (_event, payload: unknown): Promise<IpcResult<{ rows: StoreTransferRow[]; incomplete: boolean }>> => {
+    const actor = readActor(IPC.GET_PENDING_STORE_TRANSFERS, rangeSchema, payload)
+    if (!actor.ok) return actor
+    if (actor.session.role !== 'admin') {
+      return { ok: false, error: 'Solo un administrador puede ver las pendientes del resumen.', code: 'FORBIDDEN' }
+    }
+    let tenantId: string
+    try {
+      tenantId = getBusinessConfig().tenant_id
+    } catch (err) {
+      log.warn('[ipc:get-pending-store-transfers] sin configuración', err)
+      return { ok: false, error: 'No se pudieron leer las transferencias pendientes.' }
+    }
+    try {
+      const loaded = await loadPendingStoreTransfers(tenantId, actor.data.startIso, actor.data.endIso)
+      if (!loaded.ok) {
+        return { ok: false, error: 'Sin conexión no se pueden ver las transferencias pendientes.', code: 'OFFLINE' }
+      }
+      return { ok: true, data: { rows: loaded.rows, incomplete: loaded.incomplete } }
+    } catch (err) {
+      log.error('[ipc:get-pending-store-transfers] Error inesperado', err)
+      return { ok: false, error: 'No se pudieron leer las transferencias pendientes.' }
     }
   })
 

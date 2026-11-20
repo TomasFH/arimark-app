@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { storeTransfers, stores } from '../../db/schema'
 
-const { mockSetDoc, mockGetDoc, mockGetDocs, mockDoc, mockCollection, mockWhere, mockQuery, mockOnSnapshot } = vi.hoisted(() => ({
+const { mockSetDoc, mockGetDoc, mockGetDocs, mockDoc, mockCollection, mockWhere, mockQuery, mockOrderBy, mockLimit, mockOnSnapshot } = vi.hoisted(() => ({
   mockSetDoc: vi.fn().mockResolvedValue(undefined),
   mockGetDoc: vi.fn(),
   mockGetDocs: vi.fn(),
@@ -10,6 +10,8 @@ const { mockSetDoc, mockGetDoc, mockGetDocs, mockDoc, mockCollection, mockWhere,
   mockCollection: vi.fn(),
   mockWhere: vi.fn(),
   mockQuery: vi.fn(),
+  mockOrderBy: vi.fn(),
+  mockLimit: vi.fn(),
   mockOnSnapshot: vi.fn(),
 }))
 
@@ -34,6 +36,14 @@ vi.mock('firebase/firestore', () => ({
     mockWhere(...args)
     return { args }
   },
+  orderBy: (...args: unknown[]) => {
+    mockOrderBy(...args)
+    return { args }
+  },
+  limit: (...args: unknown[]) => {
+    mockLimit(...args)
+    return { args }
+  },
   onSnapshot: mockOnSnapshot,
 }))
 
@@ -52,7 +62,7 @@ vi.mock('../../db/client', () => ({
 
 import { getDb } from '../../db/client'
 import { isFirebaseAvailable } from '../firebase'
-import { pullStoreTransfersForRange, pushUnsyncedStoreTransfers, listStoreTransfersForRange, clearStoreTransferPullCache } from '../storeTransferSync'
+import { pullStoreTransfersForRange, pushUnsyncedStoreTransfers, listStoreTransfersForRange, loadPendingStoreTransfers, clearStoreTransferPullCache } from '../storeTransferSync'
 
 const TENANT = 'test-tenant'
 const WHEN = '2026-11-15T03:00:00.000Z'
@@ -270,5 +280,58 @@ describe('storeTransferSync', () => {
 
     await listStoreTransfersForRange(TENANT, START, END, true)
     expect(mockGetDocs).toHaveBeenCalledTimes(2)
+  })
+
+  it('los pendientes del resumen se piden una vez, con tope, y sin conexión no fingen una lista vacía', async () => {
+    mockGetDocs.mockResolvedValueOnce({
+      docs: [
+        remoteDoc('tr-ok', { estimatedValue: 15000 }),
+        remoteDoc('tr-hecho', {
+          status: 'confirmed',
+          receivedQuantity: 4,
+          confirmedAt: NOW,
+          confirmedBy: 'ana',
+        }),
+      ],
+    })
+    const few = await loadPendingStoreTransfers(TENANT, START, END)
+    expect(few.ok).toBe(true)
+    if (few.ok) {
+      expect(few.rows.map(row => row.id)).toEqual(['tr-ok'])
+      expect(few.rows[0]?.estimatedValue).toBe(15000)
+      expect(few.incomplete).toBe(false)
+    }
+    expect(mockWhere).toHaveBeenCalledWith('status', '==', 'pending')
+    expect(mockWhere).toHaveBeenCalledWith('occurredAt', '>=', START)
+    expect(mockWhere).toHaveBeenCalledWith('occurredAt', '<', END)
+    expect(mockOrderBy).toHaveBeenCalledWith('occurredAt')
+    expect(mockLimit).toHaveBeenCalledWith(101)
+    expect(mockOnSnapshot).not.toHaveBeenCalled()
+    expect(getDb).not.toHaveBeenCalled()
+
+    mockGetDocs.mockResolvedValueOnce({
+      docs: Array.from({ length: 101 }, (_, index) => remoteDoc(`tr-${index}`)),
+    })
+    const many = await loadPendingStoreTransfers(TENANT, START, END)
+    expect(many.ok).toBe(true)
+    if (many.ok) {
+      expect(many.rows).toHaveLength(100)
+      expect(many.incomplete).toBe(true)
+    }
+
+    mockGetDocs.mockResolvedValueOnce({
+      docs: Array.from({ length: 100 }, (_, index) => remoteDoc(`justo-${index}`)),
+    })
+    const exact = await loadPendingStoreTransfers(TENANT, START, END)
+    expect(exact.ok).toBe(true)
+    if (exact.ok) {
+      expect(exact.rows).toHaveLength(100)
+      expect(exact.incomplete).toBe(false)
+    }
+
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    const offline = await loadPendingStoreTransfers(TENANT, START, END)
+    expect(offline).toEqual({ ok: false, reason: 'OFFLINE' })
+    expect(mockGetDocs).toHaveBeenCalledTimes(3)
   })
 })

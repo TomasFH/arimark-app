@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event'
 import {
   addDaysYmd,
   civilYmd,
+  inclusiveCivilSpan,
   mondayWeekRange,
   summaryMonthStep,
+  summaryPeriodDates,
   summaryPeriodQuery,
   soldHoursFromAmounts,
   type SummaryShiftCard,
@@ -916,6 +918,30 @@ describe('SummaryScreen', () => {
         }
         : { shifts: [], visits: [], purchases: [], warning: null, fiado: { debtNow: null, payments: null } },
     }))
+    window.hw.getPendingStoreTransfers = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        incomplete: false,
+        rows: [{
+          id: 'tr-1',
+          productName: 'Vacío',
+          quantity: 4,
+          unit: 'kg',
+          fromStoreId: 'norte',
+          toStoreId: 'sur',
+          occurredAt: at,
+          notes: null,
+          estimatedValue: 15_000,
+          status: 'pending',
+          receivedQuantity: null,
+          hasDifference: false,
+          confirmedAt: null,
+          confirmedBy: null,
+          createdAt: at,
+          createdBy: 'ana',
+        }],
+      },
+    })
     render(<SummaryScreen onBack={vi.fn()} />)
     expect(await screen.findByRole('heading', { name: 'Cuenta' })).toBeInTheDocument()
     expect(screen.getByText('Ventas').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('10000')
@@ -924,6 +950,94 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('9400')
     expect(screen.queryByText(/ganancia|pérdida|perdida/i)).not.toBeInTheDocument()
     expect(window.hw.getSummaryExpenses).toBeUndefined()
+    expect(await screen.findByRole('heading', { name: 'Transferencias pendientes' })).toBeInTheDocument()
+    expect(screen.getByText(/Valor estimado/).textContent).toMatch(/15\.000/)
+    const dates = summaryPeriodDates('week')
+    expect(window.hw.getPendingStoreTransfers).toHaveBeenCalledWith(inclusiveCivilSpan(dates.startYmd, dates.endYmd))
+  })
+
+  it('más de 100 pendientes se marca incompleta y el local se filtra sin otra lectura', async () => {
+    const user = userEvent.setup()
+    window.hw.getPendingStoreTransfers = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        incomplete: true,
+        rows: [
+          {
+            id: 'tr-1',
+            productName: 'Vacío',
+            quantity: 4,
+            unit: 'kg',
+            fromStoreId: 'norte',
+            toStoreId: 'sur',
+            occurredAt: '2026-11-16T03:00:00.000Z',
+            notes: null,
+            estimatedValue: null,
+            status: 'pending',
+            receivedQuantity: null,
+            hasDifference: false,
+            confirmedAt: null,
+            confirmedBy: null,
+            createdAt: '2026-11-20T15:00:00.000Z',
+            createdBy: 'ana',
+          },
+          {
+            id: 'tr-2',
+            productName: 'Pollo',
+            quantity: 1,
+            unit: 'cajon',
+            fromStoreId: 'este',
+            toStoreId: 'otro',
+            occurredAt: '2026-11-16T03:00:00.000Z',
+            notes: null,
+            estimatedValue: null,
+            status: 'pending',
+            receivedQuantity: null,
+            hasDifference: false,
+            confirmedAt: null,
+            confirmedBy: null,
+            createdAt: '2026-11-20T15:00:00.000Z',
+            createdBy: 'ana',
+          },
+        ],
+      },
+    })
+    render(<SummaryScreen onBack={vi.fn()} />)
+    const heading = await screen.findByRole('heading', { name: 'Transferencias pendientes' })
+    const section = heading.closest('section')
+    if (!section) throw new Error('Falta la sección de transferencias')
+    expect(within(section).getByText('Vacío')).toBeInTheDocument()
+    expect(within(section).getByText('Pollo')).toBeInTheDocument()
+    expect(within(section).getByText('incompleta')).toBeInTheDocument()
+    const week = inclusiveCivilSpan(
+      summaryPeriodDates('week').startYmd,
+      summaryPeriodDates('week').endYmd,
+    )
+    expect(window.hw.getPendingStoreTransfers).toHaveBeenCalledTimes(1)
+    expect(window.hw.getPendingStoreTransfers).toHaveBeenCalledWith(week)
+
+    await user.click(screen.getByRole('button', { name: 'Local' }))
+    await user.click(screen.getByRole('option', { name: 'Local Norte' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Local' })).toHaveTextContent('Local Norte')
+      expect(screen.getByText('Vacío')).toBeInTheDocument()
+    })
+    expect(window.hw.getPendingStoreTransfers).toHaveBeenCalledTimes(1)
+    const filtered = screen.getByRole('heading', { name: 'Transferencias pendientes' }).closest('section')
+    if (!filtered) throw new Error('Falta la sección de transferencias')
+    expect(within(filtered).getByText('Vacío')).toBeInTheDocument()
+    expect(within(filtered).queryByText('Pollo')).not.toBeInTheDocument()
+    expect(within(filtered).getByText('incompleta')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Período' }), 'today')
+    const today = inclusiveCivilSpan(
+      summaryPeriodDates('today').startYmd,
+      summaryPeriodDates('today').endYmd,
+    )
+    await waitFor(() => expect(window.hw.getPendingStoreTransfers).toHaveBeenLastCalledWith(today))
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }))
+    await waitFor(() => expect(window.hw.getPendingStoreTransfers).toHaveBeenCalledTimes(3))
+    expect(window.hw.getPendingStoreTransfers).toHaveBeenLastCalledWith(today)
   })
 
   it('la ficha sin el número queda sin dato y la media res sin precio avisa', async () => {

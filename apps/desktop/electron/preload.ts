@@ -188,6 +188,7 @@ const hw: HwApi = {
   confirmStoreTransfer: payload => ipcRenderer.invoke(IPC.CONFIRM_STORE_TRANSFER, payload),
   cancelStoreTransfer: payload => ipcRenderer.invoke(IPC.CANCEL_STORE_TRANSFER, payload),
   listStoreTransfers: payload => ipcRenderer.invoke(IPC.LIST_STORE_TRANSFERS, payload),
+  getPendingStoreTransfers: payload => ipcRenderer.invoke(IPC.GET_PENDING_STORE_TRANSFERS, payload),
 
   listShiftMerch: payload => ipcRenderer.invoke(IPC.LIST_SHIFT_MERCH, payload),
   listMerchWeek: payload => ipcRenderer.invoke(IPC.LIST_MERCH_WEEK, payload),

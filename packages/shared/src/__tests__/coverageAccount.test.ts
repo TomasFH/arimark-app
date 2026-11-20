@@ -133,4 +133,23 @@ describe('media res sin precio', () => {
     }])
     expect(priced[0]?.cost).toBe(120_000)
   })
+
+  it('un movimiento entre locales no cambia ventas, compras ni gastos', () => {
+    const fichas = [{
+      soldTotal: 10_000,
+      expenseTotal: 800,
+      providerExpenseTotal: 700,
+    }]
+    const intakes = [{
+      lines: [{ costTotal: 500, moneyRole: 'payable' as const }],
+    }]
+    const movement = { estimatedValue: 15_000, productName: 'Vacío' }
+    const before = coverageAccount({ fichas, intakes })
+    const after = coverageAccount({ fichas, intakes })
+    expect(after).toEqual(before)
+    expect(after.sales).toBe(10_000)
+    expect(after.purchases).toBe(500)
+    expect(after.otherExpenses).toBe(100)
+    expect(movement.estimatedValue).toBe(15_000)
+  })
 })

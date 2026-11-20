@@ -5,15 +5,17 @@
  *
  * Path: licenses/{tenantId}/storeTransfers/{id}
  */
-import { collection, doc, getDoc, getDocs, getFirestore, query, setDoc, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, setDoc, where } from 'firebase/firestore'
 import log from 'electron-log'
 import { and, desc, eq, gte, isNull, lt } from 'drizzle-orm'
 import {
   STORE_TRANSFER_NAME_MAX,
   STORE_TRANSFER_NOTES_MAX,
+  STORE_TRANSFER_PENDING_LIMIT,
   STORE_TRANSFER_QUANTITY_MAX,
   STORE_TRANSFER_UNITS,
   STORE_TRANSFER_VALUE_MAX,
+  pendingStoreTransfers,
   type StoreTransferStatus,
   type StoreTransferUnit,
 } from '@carniceria/shared'
@@ -282,6 +284,61 @@ export async function pullStoreTransfersForRange(
     log.info('[storeTransferSync] Transferencias bajadas del rango', { count: upserted })
   }
   return upserted
+}
+
+function toListRow(remote: RemoteTransfer): StoreTransferListRow {
+  return {
+    id: remote.id,
+    productName: remote.productName,
+    quantity: remote.quantity,
+    unit: remote.unit,
+    fromStoreId: remote.fromStoreId,
+    toStoreId: remote.toStoreId,
+    occurredAt: remote.occurredAt,
+    notes: remote.notes,
+    estimatedValue: remote.estimatedValue,
+    status: remote.status,
+    receivedQuantity: remote.receivedQuantity,
+    hasDifference: remote.hasDifference,
+    confirmedAt: remote.confirmedAt,
+    confirmedBy: remote.confirmedBy,
+    createdAt: remote.createdAt,
+    createdBy: remote.createdBy,
+  }
+}
+
+/**
+ * Pendientes del resumen. Una consulta por licencia, sin caché y sin listener.
+ * Pide uno más que el tope para saber si la lista quedó corta.
+ */
+export async function loadPendingStoreTransfers(
+  tenantId: string,
+  startIso: string,
+  endIso: string,
+): Promise<{ ok: true; rows: StoreTransferListRow[]; incomplete: boolean } | { ok: false; reason: 'OFFLINE' }> {
+  if (!isFirebaseAvailable()) return { ok: false, reason: 'OFFLINE' }
+
+  const firestore = getFirestore(getFirebaseApp())
+  const q = query(
+    collection(firestore, 'licenses', tenantId, 'storeTransfers'),
+    where('status', '==', 'pending'),
+    where('occurredAt', '>=', startIso),
+    where('occurredAt', '<', endIso),
+    orderBy('occurredAt'),
+    limit(STORE_TRANSFER_PENDING_LIMIT + 1),
+  )
+  const snap = await getDocs(q)
+  const parsed: StoreTransferListRow[] = []
+  for (const item of snap.docs) {
+    const remote = parseStoreTransferDoc(item.id, item.data() as Record<string, unknown>)
+    if (remote) parsed.push(toListRow(remote))
+  }
+  const pending = pendingStoreTransfers(parsed)
+  return {
+    ok: true,
+    rows: pending.rows,
+    incomplete: snap.docs.length > STORE_TRANSFER_PENDING_LIMIT || pending.incomplete,
+  }
 }
 
 export interface StoreTransferListRow {

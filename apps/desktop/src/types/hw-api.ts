@@ -1919,6 +1919,10 @@ export interface HwApi {
     endIso: string
     refresh?: boolean
   }) => Promise<IpcResult<StoreTransferRow[]>>
+  getPendingStoreTransfers: (payload: {
+    startIso: string
+    endIso: string
+  }) => Promise<IpcResult<{ rows: StoreTransferRow[]; incomplete: boolean }>>
 
   listShiftMerch: (payload?: { weekOffset?: number }) => Promise<IpcResult<MerchandiseIntakeRow[]>>
   listMerchWeek: (payload: { weekOffset: number; storeIdFilter: string }) => Promise<IpcResult<MerchWeekBookResult>>

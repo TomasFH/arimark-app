@@ -26,12 +26,13 @@ vi.mock('../../businessConfig', () => ({
 vi.mock('../../licensing/storeTransferSync', () => ({
   pushUnsyncedStoreTransfers: vi.fn().mockResolvedValue(undefined),
   listStoreTransfersForRange: vi.fn().mockResolvedValue([]),
+  loadPendingStoreTransfers: vi.fn().mockResolvedValue({ ok: true, rows: [], incomplete: false }),
 }))
 
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
-import { pushUnsyncedStoreTransfers, listStoreTransfersForRange } from '../../licensing/storeTransferSync'
+import { pushUnsyncedStoreTransfers, listStoreTransfersForRange, loadPendingStoreTransfers } from '../../licensing/storeTransferSync'
 import { registerStoreTransferHandlers } from '../storeTransfer.handler'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => { ok: boolean; code?: string; data?: unknown }
@@ -295,7 +296,40 @@ describe('storeTransfer.handler', () => {
       expect(first.ok).toBe(true)
       expect(listStoreTransfersForRange).toHaveBeenCalledWith('lic-1', range.startIso, range.endIso, false)
       await getHandler('ipc:list-store-transfers')(null, { ...range, refresh: true })
-      expect(listStoreTransfersForRange).toHaveBeenLastCalledWith('lic-1', range.startIso, range.endIso, true)
-    })
+    expect(listStoreTransfersForRange).toHaveBeenLastCalledWith('lic-1', range.startIso, range.endIso, true)
   })
+})
+
+describe('pendientes del resumen', () => {
+  const range = {
+    startIso: '2026-11-15T03:00:00.000Z',
+    endIso: '2026-11-22T03:00:00.000Z',
+  }
+
+  it('un payload malformado, sin sesión o de una cajera no consulta', async () => {
+    const bad = await getHandler('ipc:get-pending-store-transfers')(null, { startIso: 'no' })
+    expect(bad).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' })
+    vi.mocked(getActiveSession).mockReturnValue(null)
+    const missing = await getHandler('ipc:get-pending-store-transfers')(null, range)
+    expect(missing).toMatchObject({ ok: false, code: 'NO_SESSION' })
+    vi.mocked(getActiveSession).mockReturnValue(CASHIER)
+    const cashier = await getHandler('ipc:get-pending-store-transfers')(null, range)
+    expect(cashier).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(loadPendingStoreTransfers).not.toHaveBeenCalled()
+    expect(getDb).not.toHaveBeenCalled()
+  })
+
+  it('el admin recibe la lista y, sin conexión, un error', async () => {
+    vi.mocked(getActiveSession).mockReturnValue(ADMIN)
+    vi.mocked(loadPendingStoreTransfers).mockResolvedValueOnce({ ok: true, rows: [], incomplete: true })
+    const listed = await getHandler('ipc:get-pending-store-transfers')(null, range) as { ok: boolean; data?: { incomplete: boolean } }
+    expect(listed.ok).toBe(true)
+    expect(listed.data?.incomplete).toBe(true)
+    expect(loadPendingStoreTransfers).toHaveBeenCalledWith('lic-1', range.startIso, range.endIso)
+
+    vi.mocked(loadPendingStoreTransfers).mockResolvedValueOnce({ ok: false, reason: 'OFFLINE' })
+    const offline = await getHandler('ipc:get-pending-store-transfers')(null, range)
+    expect(offline).toMatchObject({ ok: false, code: 'OFFLINE' })
+  })
+})
 })

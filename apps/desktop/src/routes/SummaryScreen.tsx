@@ -31,6 +31,7 @@ import {
   summaryPeriodDates,
   summaryPeriodQuery,
   inclusiveCivilSpan,
+  storeTransferLabel,
   ymdInRange,
   summaryPreview,
   summaryPreviewSelection,
@@ -56,7 +57,7 @@ import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { SaleSplitChart, SoldDayBars } from '../components/SummaryCharts'
 import { Button, CollapseReveal, cx } from '../components/ui'
 import { formatARS } from '../lib/datetime'
-import type { AdminSummaryResult, StoreRow } from '../types/hw-api'
+import type { AdminSummaryResult, StoreRow, StoreTransferRow } from '../types/hw-api'
 import type { CustomerHistoryMove } from '@carniceria/shared'
 
 /** Oculto hasta post 1.0. El bloque y la cuenta siguen en el código. Ver docs/POST_1.0.md. */
@@ -112,6 +113,9 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [provider, setProvider] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
+  const [pending, setPending] = useState<{ rows: StoreTransferRow[]; incomplete: boolean } | null>(null)
+  const [pendingLoading, setPendingLoading] = useState(false)
+  const [pendingError, setPendingError] = useState<string | null>(null)
 
   const allowPreview = devPreviewEnabled()
   const previewOn = allowPreview && preview
@@ -246,6 +250,37 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     setPeriodFiado(null)
     setPeriodFiadoError(null)
   }, [storeId, dates.startYmd, dates.endYmd])
+
+  useEffect(() => {
+    const read = window.hw.getPendingStoreTransfers
+    if (previewOn || !storesReady || storesError || !read) {
+      setPending(null)
+      setPendingError(null)
+      setPendingLoading(false)
+      return
+    }
+    const span = inclusiveCivilSpan(dates.startYmd, dates.endYmd)
+    let cancelled = false
+    setPendingLoading(true)
+    setPendingError(null)
+    void read({ startIso: span.startIso, endIso: span.endIso }).then(result => {
+      if (cancelled) return
+      if (!result.ok) {
+        setPending(null)
+        setPendingError(result.error ?? 'No se pudieron leer las transferencias pendientes.')
+        setPendingLoading(false)
+        return
+      }
+      setPending(result.data)
+      setPendingLoading(false)
+    }).catch(() => {
+      if (cancelled) return
+      setPending(null)
+      setPendingError('No se pudieron leer las transferencias pendientes.')
+      setPendingLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [previewOn, storesReady, storesError, dates.startYmd, dates.endYmd, refreshToken])
 
   useEffect(() => {
     historyEpoch.current += 1
@@ -519,6 +554,10 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     ? !loading
     : !loading && !storesError && !error && data != null
   const showHours = period === 'today' && !previewOn
+  const pendingShown = (pending?.rows ?? []).filter(row =>
+    storeId === 'all' || row.fromStoreId === storeId || row.toStoreId === storeId,
+  )
+  const storeName = new Map(stores.map(store => [store.id, store.name]))
   const hourView = useMemo(
     () => summaryHoursView(shownShifts, showHours ? 'today' : 'average', showStore),
     [shownShifts, showHours, showStore],
@@ -634,6 +673,35 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                   <p className="text-sm text-muted">{mediaResUnpricedText(account.mediaResWithoutPrice)}</p>
                 )}
               </section>
+
+              {!previewOn && (pending || pendingLoading || pendingError) && (
+                <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
+                  <h2 className="text-sm font-semibold text-ink">Transferencias pendientes</h2>
+                  {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
+                  {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
+                  {!pendingLoading && !pendingError && pendingShown.length === 0 && (
+                    <p className="text-sm text-muted">No hay transferencias pendientes.</p>
+                  )}
+                  <ul className="space-y-2">
+                    {pendingShown.map(row => {
+                      const route = `${storeName.get(row.fromStoreId) ?? row.fromStoreId} → ${storeName.get(row.toStoreId) ?? row.toStoreId}`
+                      return (
+                        <li key={row.id} className="space-y-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={row.productName}>{row.productName}</p>
+                            <span className="shrink-0 text-xs text-muted">{storeTransferLabel(row)}</span>
+                          </div>
+                          <p className="truncate text-sm text-muted" title={route}>{`${transferQuantityText(row.quantity, row.unit)} · ${route}`}</p>
+                          {row.estimatedValue != null && (
+                            <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  {pending?.incomplete && <p className="text-sm text-muted">incompleta</p>}
+                </section>
+              )}
 
               <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(17rem,1fr)]">
                 <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
@@ -1174,6 +1242,12 @@ function boxClass(kind: string): string {
   if (kind === 'matched') return 'text-success'
   if (kind === 'difference') return 'text-danger'
   return 'text-muted'
+}
+
+function transferQuantityText(quantity: number, unit: StoreTransferRow['unit']): string {
+  if (unit === 'kg') return `${quantity} kg`
+  if (unit === 'u') return quantity === 1 ? '1 unidad' : `${quantity} unidades`
+  return quantity === 1 ? '1 cajón' : `${quantity} cajones`
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
