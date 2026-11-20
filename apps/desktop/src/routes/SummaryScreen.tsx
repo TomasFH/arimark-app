@@ -862,7 +862,10 @@ function mediaResPriceText(cost: number | null | undefined): string {
 }
 
 function shiftsLeftOutText(count: number): string {
-  return count === 1 ? '1 turno quedó afuera' : `${count} turnos quedaron afuera`
+  if (count === 1) {
+    return '1 turno quedó afuera: la ficha no tiene el dato de gastos a proveedores.'
+  }
+  return `${count} turnos quedaron afuera: las fichas no tienen el dato de gastos a proveedores.`
 }
 
 function mediaResUnpricedText(count: number): string {

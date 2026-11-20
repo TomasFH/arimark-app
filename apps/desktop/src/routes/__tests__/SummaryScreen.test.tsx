@@ -791,7 +791,7 @@ describe('SummaryScreen', () => {
         : { shifts: [], visits: [], purchases: [], warning: null, fiado: { debtNow: null, payments: null } },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
-    expect(await screen.findByText('1 turno quedó afuera')).toBeInTheDocument()
+    expect(await screen.findByText('1 turno quedó afuera: la ficha no tiene el dato de gastos a proveedores.')).toBeInTheDocument()
     expect(screen.getByText('Ventas').nextElementSibling).toHaveTextContent('sin dato')
     expect(screen.getByText('Otros gastos').nextElementSibling).toHaveTextContent('sin dato')
     expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling).toHaveTextContent('incompleta')
