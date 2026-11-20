@@ -196,3 +196,53 @@ export function collectionNote(unshifted: number): string | null {
   if (!(unshifted > 0)) return null
   return 'Hay cobros sin turno. No entran en efectivo ni en tarjeta.'
 }
+
+/** Tope de la consulta del período. 500 documentos llenos no alcanzan para un total. */
+export const PERIOD_FIADO_LIMIT = 500
+
+const NEW_DEBT_TYPES = new Set(['created', 'debt', 'reopened'])
+
+export interface PeriodFiadoAccount {
+  /** Null si el período no entró en el tope. No es la suma parcial. */
+  newDebt: number | null
+  /** Null si el período no entró en el tope. Incluye los cobros sin turno. */
+  collections: number | null
+  /** Parte de collections cobrada sin turno. Null junto con collections. */
+  unshifted: number | null
+  incomplete: boolean
+}
+
+/**
+ * Fiado nuevo y cobros de un período.
+ * startIso es la medianoche civil de Argentina inclusive; endIso, la siguiente exclusive.
+ * El mismo corte que Compras. No lee Firestore: solo transforma la lista.
+ * Si la lista llega al tope, no hay número: queda incompleto.
+ */
+export function periodFiadoAccount(
+  events: Array<Pick<LedgerEvent, 'eventType' | 'amount' | 'createdAt' | 'shiftId'>>,
+  startIso: string,
+  endIso: string,
+  limit = PERIOD_FIADO_LIMIT,
+): PeriodFiadoAccount {
+  if (events.length >= limit) {
+    return { newDebt: null, collections: null, unshifted: null, incomplete: true }
+  }
+  const start = Date.parse(startIso)
+  const end = Date.parse(endIso)
+  let newDebt = 0
+  let collections = 0
+  let unshifted = 0
+  for (const event of events) {
+    const at = Date.parse(event.createdAt)
+    if (!Number.isFinite(at) || !Number.isFinite(start) || !Number.isFinite(end)) continue
+    if (at < start || at >= end) continue
+    const amount = Math.abs(event.amount)
+    if (NEW_DEBT_TYPES.has(event.eventType)) {
+      newDebt += amount
+    } else if (PAYMENT_TYPES.has(event.eventType)) {
+      collections += amount
+      if (!event.shiftId) unshifted += amount
+    }
+  }
+  return { newDebt, collections, unshifted, incomplete: false }
+}

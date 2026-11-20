@@ -328,6 +328,8 @@ export {
   collectionNote,
   combineFiadoSlices,
   paymentsInCivilRange,
+  periodFiadoAccount,
+  PERIOD_FIADO_LIMIT,
   storeFiadoBalance,
   storeFiadoSlice,
   storeLiveFiadoBalance,
@@ -337,6 +339,7 @@ export type {
   CustomerLivePair,
   LedgerEvent,
   PeriodCollections,
+  PeriodFiadoAccount,
   SummaryFiadoSlice,
   SummaryPayment,
 } from './summaryFiado'
