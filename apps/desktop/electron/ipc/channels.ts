@@ -97,6 +97,7 @@ export const IPC = {
   SAVE_MERCH_VISIT_DRAFT: 'ipc:save-merch-visit-draft',
   DISCARD_MERCH_VISIT_DRAFT: 'ipc:discard-merch-visit-draft',
   CONFIRM_MERCH_VISIT: 'ipc:confirm-merch-visit',
+  SET_MEDIA_RES_DELIVERY_PAID: 'ipc:set-media-res-delivery-paid',
   GET_PROVIDER_PURCHASE_PRICES: 'ipc:get-provider-purchase-prices',
   LIST_MERCH_RUBROS: 'ipc:list-merch-rubros',
   CREATE_MERCH_RUBRO: 'ipc:create-merch-rubro',

@@ -181,6 +181,11 @@ export interface MerchVisitLineDraft {
   weighMode?: MerchWeighMode | null
   /** Por pieza con precio y sin rol: arranca como costo informado. */
   moneyRole?: MerchMoneyRole | null
+  /**
+   * Monto total de la entrega de media res. Si está definido, no se multiplica por kilo.
+   * Null es sin precio. Undefined conserva el precio por kilo.
+   */
+  deliveryPaid?: number | null
   /** Suma al total y no crea producto ni PLU. */
   notForSale?: boolean
 }
@@ -501,6 +506,25 @@ export function resolveMerchVisitLine(
       sortOrder: opts.sortOrder,
       packLabel: null,
     }, factsOk.facts)
+    if (draft.deliveryPaid !== undefined) {
+      const paidRaw = draft.deliveryPaid
+      const paid = paidRaw != null && Number.isFinite(paidRaw) && paidRaw > 0 ? Math.round(paidRaw) : 0
+      return {
+        ok: true,
+        line: {
+          ...line,
+          productId,
+          nameKey,
+          costUnit: null,
+          unitCost: 0,
+          costTotal: paid,
+          packCount: null,
+          weighMode: null,
+          moneyRole: paid > 0 ? 'informed' : 'none',
+          notForSale,
+        },
+      }
+    }
     const explicitRole = coerceMerchMoneyRole(draft.moneyRole)
     const moneyRole: MerchMoneyRole = explicitRole === 'payable'
       ? 'payable'
@@ -624,6 +648,8 @@ export interface MerchVisitFormLine {
   countRaw: string
   weightRaws: string[]
   unitCostRaw: string
+  /** Monto total pagado por la entrega de media res. Vacío = sin precio. */
+  deliveryPaidRaw: string
   weighPieces: boolean
   costUnit: MerchCostUnit | null
   weighMode: MerchWeighMode | null
@@ -644,6 +670,7 @@ export function emptyMerchVisitFormLine(partial?: Partial<MerchVisitFormLine>): 
     countRaw: '',
     weightRaws: [],
     unitCostRaw: '',
+    deliveryPaidRaw: '',
     weighPieces: false,
     costUnit: null,
     weighMode: null,
@@ -738,7 +765,12 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
     ?? (line.weighPieces && costUnit === 'pack' ? 'each' : null)
   const parsedCost = parsePurchaseUnitCostRaw(line.unitCostRaw)
   const isPieces = line.weighPieces && costUnit !== 'pack'
-  if (isPieces) {
+  const mediaResLump = isPieces && merchNameKey(name) === merchNameKey(MEDIA_RES_VISIT_NAME)
+  let deliveryPaid: number | null | undefined
+  if (mediaResLump) {
+    const paid = parsePesosRaw(line.deliveryPaidRaw ?? '')
+    deliveryPaid = paid != null && paid > 0 ? paid : null
+  } else if (isPieces) {
     if ((moneyRole === 'payable' || moneyRole === 'informed') && (parsedCost == null || parsedCost <= 0)) {
       return { error: `Indicá el precio de ${name}.` }
     }
@@ -779,10 +811,13 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
     packCount: parsePesosRaw(line.packCountRaw),
     count: parsePesosRaw(line.countRaw),
     weightsKg,
-    unitCost,
+    unitCost: mediaResLump ? 0 : unitCost,
     costUnit,
     weighMode,
-    moneyRole: isPieces ? (moneyRole ?? (unitCost > 0 ? 'informed' : 'none')) : (moneyRole ?? 'payable'),
+    moneyRole: mediaResLump
+      ? (deliveryPaid != null && deliveryPaid > 0 ? 'informed' : 'none')
+      : (isPieces ? (moneyRole ?? (unitCost > 0 ? 'informed' : 'none')) : (moneyRole ?? 'payable')),
+    ...(mediaResLump ? { deliveryPaid } : {}),
     notForSale: line.notForSale === true,
   }
 }
@@ -828,6 +863,7 @@ export function parseMerchVisitFormLines(raw: string | null | undefined): MerchV
         countRaw: typeof r['countRaw'] === 'string' ? r['countRaw'] : '',
         weightRaws: Array.isArray(r['weightRaws']) ? r['weightRaws'].filter((x): x is string => typeof x === 'string') : [],
         unitCostRaw: typeof r['unitCostRaw'] === 'string' ? r['unitCostRaw'] : '',
+        deliveryPaidRaw: typeof r['deliveryPaidRaw'] === 'string' ? r['deliveryPaidRaw'] : '',
         weighPieces: r['weighPieces'] === true,
         costUnit: coerceMerchCostUnit(r['costUnit']),
         weighMode: coerceMerchWeighMode(r['weighMode']),

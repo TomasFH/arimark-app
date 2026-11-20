@@ -1888,6 +1888,10 @@ export interface HwApi {
     clientRequestId?: string
     paymentChannel?: 'cash' | 'digital'
   }) => Promise<IpcResult<{ id: string; expenseId: string | null }>>
+  setMediaResDeliveryPaid: (payload: {
+    lineId: string
+    amount: number | null
+  }) => Promise<IpcResult<{ lineId: string; costTotal: number; moneyRole: 'informed' | 'none' }>>
   getProviderPurchasePrices: (payload: { providerId: string }) => Promise<IpcResult<Array<{
     productKey: string
     name: string

@@ -14,7 +14,9 @@ import {
   emptyMerchVisitFormLine,
   formatPurchaseUnitCostInput,
   matchVisitMerchProducts,
+  MEDIA_RES_VISIT_NAME,
   merchFormLineToDraft,
+  merchNameKey,
   merchProductKey,
   normalizeCatalogSearch,
   resizeWeightInputs,
@@ -572,25 +574,44 @@ function VisitLineEditor({
       )}
 
       <label className="block space-y-1">
-        <span className="text-xs text-muted">{mode === 'pieces' ? 'Precio (opcional, $/kg)' : priceLabel}</span>
-        <DecimalInput
-          value={line.unitCostRaw}
-          onChange={v => {
-            const patch: Partial<MerchVisitFormLine> = { unitCostRaw: v }
-            if (mode === 'pieces') {
-              const role: MerchMoneyRole | null = v.trim()
-                ? (line.moneyRole === 'payable' ? 'payable' : 'informed')
-                : 'none'
-              patch.moneyRole = role
-            }
-            onChange(patch)
-          }}
-          maxDecimals={2}
-          className={fieldClass}
-        />
+        {mode === 'pieces' && merchNameKey(line.name) === merchNameKey(MEDIA_RES_VISIT_NAME) ? (
+          <>
+            <span className="text-xs text-muted">Monto pagado por la entrega</span>
+            <NumericInput
+              value={line.deliveryPaidRaw ?? ''}
+              onChange={v => onChange({
+                deliveryPaidRaw: v,
+                unitCostRaw: '0',
+                moneyRole: v.trim() ? 'informed' : 'none',
+              })}
+              className={fieldClass}
+            />
+          </>
+        ) : (
+          <>
+            <span className="text-xs text-muted">{mode === 'pieces' ? 'Precio (opcional, $/kg)' : priceLabel}</span>
+            <DecimalInput
+              value={line.unitCostRaw}
+              onChange={v => {
+                const patch: Partial<MerchVisitFormLine> = { unitCostRaw: v }
+                if (mode === 'pieces') {
+                  const role: MerchMoneyRole | null = v.trim()
+                    ? (line.moneyRole === 'payable' ? 'payable' : 'informed')
+                    : 'none'
+                  patch.moneyRole = role
+                }
+                onChange(patch)
+              }}
+              maxDecimals={2}
+              className={fieldClass}
+            />
+          </>
+        )}
       </label>
 
-      {mode === 'pieces' && line.unitCostRaw.trim() && (
+      {mode === 'pieces'
+        && merchNameKey(line.name) !== merchNameKey(MEDIA_RES_VISIT_NAME)
+        && line.unitCostRaw.trim() && (
         <button
           type="button"
           className={chipClass}

@@ -182,6 +182,7 @@ const hw: HwApi = {
   saveMerchVisitDraft: payload => ipcRenderer.invoke(IPC.SAVE_MERCH_VISIT_DRAFT, payload),
   discardMerchVisitDraft: () => ipcRenderer.invoke(IPC.DISCARD_MERCH_VISIT_DRAFT),
   confirmMerchVisit: payload => ipcRenderer.invoke(IPC.CONFIRM_MERCH_VISIT, payload),
+  setMediaResDeliveryPaid: payload => ipcRenderer.invoke(IPC.SET_MEDIA_RES_DELIVERY_PAID, payload),
   getProviderPurchasePrices: payload => ipcRenderer.invoke(IPC.GET_PROVIDER_PURCHASE_PRICES, payload),
   listMerchRubros: payload => ipcRenderer.invoke(IPC.LIST_MERCH_RUBROS, payload),
   createMerchRubro: payload => ipcRenderer.invoke(IPC.CREATE_MERCH_RUBRO, payload),

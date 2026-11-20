@@ -57,6 +57,7 @@ import {
   mondayWeekRange,
   parseMerchVisitFormLines,
   resolveMerchVisitLines,
+  isMediaResLine,
   type MerchIntakeLineSnapshot,
   type MerchVisitFormLine,
   type MerchVisitLineDraft,
@@ -92,6 +93,7 @@ const visitLineDraftSchema = z.object({
   costUnit: z.enum(['kg', 'unit', 'pack']).nullable().optional(),
   weighMode: z.enum(['each', 'total']).nullable().optional(),
   moneyRole: z.enum(['payable', 'informed', 'none']).nullable().optional(),
+  deliveryPaid: z.number().int().nonnegative().nullable().optional(),
   notForSale: z.boolean().optional(),
 })
 
@@ -107,6 +109,7 @@ const formLineSchema = z.object({
   countRaw: z.string().max(32),
   weightRaws: z.array(z.string().max(32)).max(MERCH_INTAKE_MAX_WEIGHTS),
   unitCostRaw: z.string().max(32),
+  deliveryPaidRaw: z.string().max(32).optional(),
   weighPieces: z.boolean(),
   costUnit: z.enum(['kg', 'unit', 'pack']).nullable().optional(),
   weighMode: z.enum(['each', 'total']).nullable().optional(),
@@ -141,6 +144,11 @@ const confirmSchema = z.object({
   clientRequestId: z.string().uuid().optional(),
   paymentChannel: z.enum(['cash', 'digital']).optional(),
 }).refine(crossStorePaymentFits, { message: 'El pago de otro local no puede superar la deuda vieja pagada.' })
+
+const setMediaResPaidSchema = z.object({
+  lineId: z.string().uuid(),
+  amount: z.number().int().min(0).max(999_999_999).nullable(),
+})
 
 const getPricesSchema = z.object({
   providerId: z.string().min(1),
@@ -848,9 +856,11 @@ export function registerMerchIntakeHandlers(): void {
       const paysOldDebt = factsOnly ? 0 : (parsed.data.paysOldDebt ?? 0)
       // Digital baja la deuda y no mueve la caja. El efectivo sigue sumando visita + deuda vieja.
       const cashAmount = paymentChannel === 'digital' ? 0 : expenseCashAmount(paidAmount, paysOldDebt)
-      const paymentKind = factsOnly
-        ? 'none'
-        : (paidAmount > 0 ? 'paid_now' : (debtAmount > 0 ? 'on_account' : 'none'))
+      const movesMoney = visitTotal > 0 || paidAmount > 0 || debtAmount > 0 || paysOldDebt > 0
+      const recordExpense = !factsOnly && movesMoney
+      const paymentKind = recordExpense
+        ? (paidAmount > 0 ? 'paid_now' : (debtAmount > 0 ? 'on_account' : 'none'))
+        : 'none'
       const concept = parsed.data.concept?.trim()
         || merchIntakeExpenseConcept(lines.map(l => l.rubroName))
       const draft = db.select().from(merchandiseIntakes).where(and(
@@ -858,12 +868,12 @@ export function registerMerchIntakeHandlers(): void {
         eq(merchandiseIntakes.status, 'draft'),
       )).get()
       const id = draft?.id ?? uuidv4()
-      const expenseId = factsOnly ? null : uuidv4()
+      const expenseId = recordExpense ? uuidv4() : null
       const effectiveDebtStoreId = parsed.data.debtStoreId ?? session.storeId
 
       db.transaction(tx => {
         if (!factsOnly) attachVisitProducts(tx, lines, session.userId, now)
-        if (!factsOnly && expenseId) {
+        if (recordExpense && expenseId) {
           tx.insert(expenses).values({
             id: expenseId,
             storeId: session.storeId,
@@ -983,7 +993,7 @@ export function registerMerchIntakeHandlers(): void {
       schedulePushes({
         tenantId: config.tenant_id,
         hasProvider: true,
-        hasExpense: !factsOnly,
+        hasExpense: recordExpense,
         hasPrices: !factsOnly,
       })
       log.info('[ipc:confirm-merch-visit] Visita confirmada', { id, expenseId, visitTotal, lineCount: lines.length, visitKind, paymentChannel })
@@ -1002,6 +1012,70 @@ export function registerMerchIntakeHandlers(): void {
       }
       log.error('[ipc:confirm-merch-visit] Error inesperado', err)
       return { ok: false, error: 'Error al confirmar la visita.' }
+    }
+  })
+
+  ipcMain.handle(IPC.SET_MEDIA_RES_DELIVERY_PAID, (_event, payload: unknown): IpcResult<{
+    lineId: string
+    costTotal: number
+    moneyRole: 'informed' | 'none'
+  }> => {
+    const parsed = setMediaResPaidSchema.safeParse(payload)
+    if (!parsed.success) {
+      log.error('[ipc:set-media-res-delivery-paid] Payload inválido', parsed.error)
+      return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
+    }
+    const session = getActiveSession()
+    if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
+    if (session.role !== 'admin') {
+      return { ok: false, error: 'Solo un administrador puede cargar el monto.', code: 'FORBIDDEN' }
+    }
+    try {
+      const db = getDb()
+      const line = db.select().from(merchandiseIntakeLines)
+        .where(eq(merchandiseIntakeLines.id, parsed.data.lineId)).get()
+      if (!line) return { ok: false, error: 'No se encontró la media res.', code: 'NOT_FOUND' }
+      const intake = db.select().from(merchandiseIntakes)
+        .where(eq(merchandiseIntakes.id, line.intakeId)).get()
+      if (!intake || intake.status !== 'confirmed') {
+        return { ok: false, error: 'La entrega no está confirmada.', code: 'NOT_CONFIRMED' }
+      }
+      if (!isMediaResLine({
+        rubroId: line.rubroId,
+        rubroName: line.rubroName,
+        nameKey: line.nameKey,
+        template: line.template,
+        count: line.count,
+        netKg: line.netKg,
+        weightsKg: [],
+      })) {
+        return { ok: false, error: 'Ese renglón no es una media res.', code: 'NOT_MEDIA_RES' }
+      }
+      const amount = parsed.data.amount != null && parsed.data.amount > 0 ? parsed.data.amount : 0
+      const moneyRole = amount > 0 ? 'informed' : 'none'
+      const now = new Date().toISOString()
+      db.transaction(tx => {
+        tx.update(merchandiseIntakeLines).set({
+          costTotal: amount,
+          unitCost: 0,
+          costUnit: null,
+          moneyRole,
+        }).where(eq(merchandiseIntakeLines.id, line.id)).run()
+        tx.update(merchandiseIntakes).set({
+          syncedAt: null,
+          updatedAt: now,
+          updatedBy: session.userId,
+        }).where(eq(merchandiseIntakes.id, intake.id)).run()
+      })
+      schedulePushes({
+        tenantId: getBusinessConfig().tenant_id,
+        hasProvider: false,
+        hasExpense: false,
+      })
+      return { ok: true, data: { lineId: line.id, costTotal: amount, moneyRole } }
+    } catch (err) {
+      log.error('[ipc:set-media-res-delivery-paid] Error inesperado', err)
+      return { ok: false, error: 'No se pudo guardar el monto.' }
     }
   })
 

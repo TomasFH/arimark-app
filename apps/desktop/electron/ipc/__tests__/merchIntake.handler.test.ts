@@ -714,6 +714,117 @@ describe('merchIntake.handler visita', () => {
     expect(media?.costTotal).toBe(200_000)
   })
 
+  it('la media res con monto de la entrega no genera gasto ni deuda', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{
+        productId: null,
+        name: 'Media res',
+        catalogUnit: null,
+        purchasePackLabel: null,
+        purchasePackContents: null,
+        kg: null,
+        packCount: null,
+        count: null,
+        weightsKg: [100],
+        unitCost: 2000,
+        deliveryPaid: 450_000,
+      }],
+      provider: 'Frigorífico',
+      amount: 0,
+      acceptPriceUpdates: false,
+    }) as { ok: boolean; data?: { expenseId: string | null } }
+    expect(result.ok).toBe(true)
+    expect(result.data?.expenseId).toBeNull()
+    const line = db.select().from(merchandiseIntakeLines).all().find(row => row.rubroName === 'Media res')
+    expect(line?.costTotal).toBe(450_000)
+    expect(line?.unitCost).toBe(0)
+    expect(line?.moneyRole).toBe('informed')
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
+  })
+
+  it('la media res sin monto queda sin precio y se puede cargar después', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{
+        productId: null,
+        name: 'Media res',
+        catalogUnit: null,
+        purchasePackLabel: null,
+        purchasePackContents: null,
+        kg: null,
+        packCount: null,
+        count: null,
+        weightsKg: [90],
+        unitCost: 0,
+      }],
+      provider: 'Frigorífico',
+      amount: 0,
+      acceptPriceUpdates: false,
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    const line = db.select().from(merchandiseIntakeLines).all()[0]
+    expect(line?.costTotal).toBe(0)
+    expect(line?.moneyRole).toBe('none')
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
+
+    const denied = getHandler('ipc:set-media-res-delivery-paid')(null, {
+      lineId: line?.id,
+      amount: 120_000,
+    }) as { ok: boolean; code?: string }
+    expect(denied.ok).toBe(false)
+    expect(denied.code).toBe('FORBIDDEN')
+    expect(db.select().from(merchandiseIntakeLines).all()[0]?.costTotal).toBe(0)
+
+    const malformed = getHandler('ipc:set-media-res-delivery-paid')(null, {
+      lineId: 'no-es-uuid',
+      amount: 120_000,
+    }) as { ok: boolean; code?: string }
+    expect(malformed.ok).toBe(false)
+    expect(malformed.code).toBe('INVALID_PAYLOAD')
+
+    asAdmin()
+    const saved = getHandler('ipc:set-media-res-delivery-paid')(null, {
+      lineId: line?.id,
+      amount: 120_000,
+    }) as { ok: boolean; data?: { costTotal: number; moneyRole: string } }
+    expect(saved.ok).toBe(true)
+    expect(saved.data?.costTotal).toBe(120_000)
+    expect(saved.data?.moneyRole).toBe('informed')
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
+    expect(db.select().from(merchandiseIntakes).all()[0]?.syncedAt ?? null).toBeNull()
+
+    const cleared = getHandler('ipc:set-media-res-delivery-paid')(null, {
+      lineId: line?.id,
+      amount: null,
+    }) as { ok: boolean; data?: { costTotal: number; moneyRole: string } }
+    expect(cleared.ok).toBe(true)
+    expect(cleared.data).toEqual({ lineId: line?.id, costTotal: 0, moneyRole: 'none' })
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
+  })
+
+  it('el monto de la entrega no se puede cargar en otro producto', () => {
+    const confirmed = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [MAPLE_LINE],
+      provider: 'Oso',
+      amount: 18_000,
+      acceptPriceUpdates: false,
+    }) as { ok: boolean }
+    expect(confirmed.ok).toBe(true)
+    const line = db.select().from(merchandiseIntakeLines).all()[0]
+    asAdmin()
+    const result = getHandler('ipc:set-media-res-delivery-paid')(null, {
+      lineId: line?.id,
+      amount: 10_000,
+    }) as { ok: boolean; code?: string }
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NOT_MEDIA_RES')
+    expect(db.select().from(merchandiseIntakeLines).all()[0]?.costTotal).toBe(line?.costTotal)
+    expect(db.select().from(expenses).all()).toHaveLength(1)
+  })
+
   it('no se vende suma y no crea producto', () => {
     const result = getHandler('ipc:confirm-merch-visit')(null, {
       lines: [{

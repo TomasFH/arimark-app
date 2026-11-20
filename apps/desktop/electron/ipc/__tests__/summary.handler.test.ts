@@ -294,6 +294,107 @@ describe('summary.handler', () => {
     expect(following.data?.purchases ?? []).toHaveLength(0)
   })
 
+  it('la media res con monto suma a compras en la semana del ingreso y sin monto no tiene precio', async () => {
+    const at = new Date('2026-11-15T22:00:00.000-03:00')
+    const stored = at.toISOString()
+    const week = mondayWeekContaining(at)
+    const next = mondayWeekContaining('2026-11-16T12:00:00.000-03:00')
+    db.insert(shifts).values({
+      id: 'shift-media',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'evening',
+      startedAt: stored,
+      closedAt: stored,
+      openingCash: 0,
+      soldTotal: 1_000,
+      cashTotal: 1_000,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: stored,
+      providerExpenseTotal: 0,
+    }).run()
+    db.insert(merchandiseIntakes).values([
+      {
+        id: 'ing-con-monto',
+        storeId: STORE_ID,
+        shiftId: 'shift-media',
+        paymentKind: 'none',
+        paidAmount: 0,
+        debtAmount: 0,
+        providerName: 'Frigorífico',
+        createdBy: USER_ID,
+        createdAt: stored,
+        status: 'confirmed',
+      },
+      {
+        id: 'ing-sin-monto',
+        storeId: STORE_ID,
+        shiftId: 'shift-media',
+        paymentKind: 'none',
+        paidAmount: 0,
+        debtAmount: 0,
+        providerName: 'Frigorífico',
+        createdBy: USER_ID,
+        createdAt: stored,
+        status: 'confirmed',
+      },
+    ]).run()
+    db.insert(merchandiseIntakeLines).values([
+      {
+        id: 'line-con-monto',
+        intakeId: 'ing-con-monto',
+        rubroId: 'rubro_media_res',
+        rubroName: 'Media res',
+        template: 'pieces_weight',
+        sortOrder: 0,
+        count: 1,
+        netKg: 100,
+        weightsJson: '[100]',
+        costTotal: 450_000,
+        moneyRole: 'informed',
+      },
+      {
+        id: 'line-sin-monto',
+        intakeId: 'ing-sin-monto',
+        rubroId: 'rubro_media_res',
+        rubroName: 'Media res',
+        template: 'pieces_weight',
+        sortOrder: 0,
+        count: 1,
+        netKg: 90,
+        weightsJson: '[90]',
+        costTotal: 0,
+        moneyRole: 'none',
+      },
+    ]).run()
+
+    const res = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(res.ok).toBe(true)
+    if (!res.ok || !res.data) return
+    const account = coverageAccount({
+      fichas: res.data.shifts.map(shift => ({
+        soldTotal: shift.soldTotal,
+        expenseTotal: shift.expenseTotal,
+        providerExpenseTotal: shift.providerExpenseTotal ?? null,
+      })),
+      intakes: res.data.purchases ?? [],
+    })
+    expect(account.purchases).toBe(450_000)
+    expect(account.mediaResWithoutPrice).toBe(1)
+    expect(res.data.visits.find(visit => visit.id === 'ing-con-monto')?.cost).toBe(450_000)
+    expect(res.data.visits.find(visit => visit.id === 'ing-sin-monto')?.cost).toBeNull()
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(db.select().from(debtEvents).all()).toHaveLength(0)
+
+    const following = await getHandler()(null, { storeId: STORE_ID, startIso: next.startIso, endIso: next.endIso })
+    expect(following.ok).toBe(true)
+    expect(following.data?.purchases ?? []).toHaveLength(0)
+  })
+
   it('arma la cuenta con las líneas y la ficha, sin leer gastos', async () => {
     const week = mondayWeekRange(-30)
     db.insert(shifts).values({

@@ -130,4 +130,27 @@ describe('ProviderVisitMerchBlock — búsqueda de lo que llegó', () => {
     expect(screen.getByPlaceholderText('Buscar producto…')).toHaveFocus()
     expect(onChange).not.toHaveBeenCalled()
   })
+
+  it('el chip de media res pide el monto de la entrega', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    mockSuggestLayout()
+    const view = render(
+      <Modal open onClose={() => {}} title="Gasto">
+        <ProviderVisitMerchBlock products={[]} memory={{}} lines={[]} onChange={onChange} />
+      </Modal>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Media res' }))
+    const added = onChange.mock.calls[0]?.[0] as MerchVisitFormLine[]
+    expect(added[0]?.name).toBe('Media res')
+    expect(added[0]?.deliveryPaidRaw).toBe('')
+    HTMLElement.prototype.scrollIntoView = vi.fn()
+    view.rerender(
+      <Modal open onClose={() => {}} title="Gasto">
+        <ProviderVisitMerchBlock products={[]} memory={{}} lines={added} onChange={onChange} />
+      </Modal>,
+    )
+    expect(screen.getByText('Monto pagado por la entrega')).toBeInTheDocument()
+    expect(screen.queryByText('Precio (opcional, $/kg)')).not.toBeInTheDocument()
+  })
 })

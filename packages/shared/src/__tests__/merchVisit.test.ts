@@ -4,6 +4,7 @@ import {
   coerceMerchVisitKind,
   coerceProviderIntakeKind,
   emptyChickenFormLine,
+  emptyMediaResFormLine,
   emptyMerchVisitFormLine,
   formatMerchVisitQty,
   formatPurchaseUnitCostInput,
@@ -413,5 +414,51 @@ describe('merchVisit', () => {
     ], {
       'p:maple': { unitCost: 9000, costUnit: 'pack', packContents: 12, weighMode: 'each' },
     })[0]?.duplicate).toBe(true)
+  })
+
+  it('la media res usa el monto de la entrega y sin monto queda sin precio', () => {
+    const paidLine = emptyMediaResFormLine()
+    paidLine.countRaw = '1'
+    paidLine.weightRaws = ['100']
+    paidLine.deliveryPaidRaw = '450.000'
+    const paidDraft = merchFormLineToDraft(paidLine)
+    expect(paidDraft).toMatchObject({ deliveryPaid: 450_000, unitCost: 0, moneyRole: 'informed' })
+    if ('error' in paidDraft) return
+    const paid = resolveMerchVisitLine(paidDraft, { id: 'p', sortOrder: 0 })
+    expect(paid.ok).toBe(true)
+    if (!paid.ok) return
+    expect(paid.line.costTotal).toBe(450_000)
+    expect(paid.line.unitCost).toBe(0)
+    expect(paid.line.moneyRole).toBe('informed')
+    expect(merchVisitTotal([paid.line])).toBe(0)
+
+    const emptyLine = emptyMediaResFormLine()
+    emptyLine.countRaw = '1'
+    emptyLine.weightRaws = ['90']
+    const emptyDraft = merchFormLineToDraft(emptyLine)
+    expect(emptyDraft).toMatchObject({ deliveryPaid: null, moneyRole: 'none' })
+    if ('error' in emptyDraft) return
+    const unpriced = resolveMerchVisitLine(emptyDraft, { id: 'u', sortOrder: 0 })
+    expect(unpriced.ok).toBe(true)
+    if (!unpriced.ok) return
+    expect(unpriced.line.costTotal).toBe(0)
+    expect(unpriced.line.moneyRole).toBe('none')
+
+    const perKg = resolveMerchVisitLine({
+      productId: null,
+      name: 'Media res',
+      catalogUnit: null,
+      purchasePackLabel: null,
+      purchasePackContents: null,
+      kg: null,
+      packCount: null,
+      count: null,
+      weightsKg: [100],
+      unitCost: 2000,
+      moneyRole: 'informed',
+    }, { id: 'k', sortOrder: 0 })
+    expect(perKg.ok).toBe(true)
+    if (!perKg.ok) return
+    expect(perKg.line.costTotal).toBe(200_000)
   })
 })

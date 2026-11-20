@@ -3,11 +3,14 @@
  * Una semana en pantalla. No precarga las vecinas.
  */
 import { useEffect, useState } from 'react'
-import { formatMerchVisitQty, formatWeekRangeLabel, mondayWeekRange } from '@carniceria/shared'
+import { formatMerchVisitQty, formatWeekRangeLabel, isMediaResLine, mondayWeekRange } from '@carniceria/shared'
+import type { MerchIntakeLineSnapshot } from '@carniceria/shared'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
+import NumericInput from '../components/NumericInput'
 import { Button } from '../components/ui'
 import { formatARS, toLocalDateTime } from '../lib/datetime'
+import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
 import type { MerchWeekBookResult, StoreRow } from '../types/hw-api'
 
 const MIN_WEEK_OFFSET = -104
@@ -21,6 +24,59 @@ function providerKey(providerId: string | null, providerName: string): string {
   return providerId ? `id:${providerId}` : `name:${providerName}`
 }
 
+function MediaResPaidEditor({
+  line,
+  onSaved,
+}: {
+  line: MerchIntakeLineSnapshot
+  onSaved: () => void
+}) {
+  const priced = line.moneyRole !== 'none' && line.costTotal > 0
+  const [raw, setRaw] = useState(() => (priced ? formatNumericInputValue(String(line.costTotal)) : ''))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setRaw(priced ? formatNumericInputValue(String(line.costTotal)) : '')
+    setError(null)
+  }, [line.id, line.costTotal, line.moneyRole, priced])
+
+  async function save(): Promise<void> {
+    const parsed = parseNumericInput(raw)
+    setSaving(true)
+    setError(null)
+    const result = await window.hw.setMediaResDeliveryPaid({
+      lineId: line.id,
+      amount: parsed != null && parsed > 0 ? parsed : null,
+    })
+    setSaving(false)
+    if (!result.ok) {
+      setError(result.error ?? 'No se pudo guardar el monto.')
+      return
+    }
+    onSaved()
+  }
+
+  return (
+    <div className="space-y-1">
+      <label className="block space-y-1">
+        <span className="text-xs text-muted">Monto pagado por la entrega</span>
+        <NumericInput
+          value={raw}
+          onChange={setRaw}
+          disabled={saving}
+          className="w-full rounded-lg border border-line bg-app px-3 py-2 text-sm text-ink"
+        />
+      </label>
+      <p className="text-xs text-muted">{priced ? 'Costo informado. No sale de caja.' : 'Sin precio. No sale de caja.'}</p>
+      {error && <p className="truncate text-xs text-danger" title={error}>{error}</p>}
+      <Button variant="secondary" disabled={saving} onClick={() => { void save() }}>
+        Guardar monto
+      </Button>
+    </div>
+  )
+}
+
 export default function IngresosScreen({ onBack, onLogout }: Props) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [storeIdFilter, setStoreIdFilter] = useState('all')
@@ -29,6 +85,7 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set())
+  const [revision, setRevision] = useState(0)
 
   const week = mondayWeekRange(weekOffset)
   const weekTitle = formatWeekRangeLabel(week.startYmd, week.endInclusiveYmd)
@@ -40,11 +97,14 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
   }, [])
 
   useEffect(() => {
+    setBook(null)
+    setOpenKeys(new Set())
+  }, [weekOffset, storeIdFilter])
+
+  useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    setBook(null)
-    setOpenKeys(new Set())
     void window.hw.listMerchWeek({ weekOffset, storeIdFilter }).then(result => {
       if (cancelled) return
       setLoading(false)
@@ -56,7 +116,7 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
       setBook(result.data)
     })
     return () => { cancelled = true }
-  }, [weekOffset, storeIdFilter])
+  }, [weekOffset, storeIdFilter, revision])
 
   function changeWeek(next: number) {
     const clamped = Math.max(MIN_WEEK_OFFSET, Math.min(0, next))
@@ -202,15 +262,20 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
                                 <p className="min-w-0 truncate text-sm text-muted" title={delivery.createdByName}>
                                   Recibió {delivery.createdByName}
                                 </p>
-                                <ul className="space-y-1">
+                                <ul className="space-y-2">
                                   {delivery.lines.map(line => {
                                     const qty = formatMerchVisitQty(line)
                                     return (
-                                      <li key={line.id} className="flex min-w-0 items-center gap-2">
-                                        <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.rubroName}>
-                                          {line.rubroName}
-                                        </span>
-                                        {qty && <span className="shrink-0 text-sm text-muted">{qty}</span>}
+                                      <li key={line.id} className="space-y-1">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                          <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.rubroName}>
+                                            {line.rubroName}
+                                          </span>
+                                          {qty && <span className="shrink-0 text-sm text-muted">{qty}</span>}
+                                        </div>
+                                        {isMediaResLine(line) && (
+                                          <MediaResPaidEditor line={line} onSaved={() => setRevision(value => value + 1)} />
+                                        )}
                                       </li>
                                     )
                                   })}
