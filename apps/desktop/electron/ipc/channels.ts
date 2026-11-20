@@ -105,6 +105,11 @@ export const IPC = {
   ARCHIVE_MERCH_RUBRO: 'ipc:archive-merch-rubro',
   UNARCHIVE_MERCH_RUBRO: 'ipc:unarchive-merch-rubro',
 
+  // Transferencias entre locales. No son compras, gastos ni deuda.
+  CREATE_STORE_TRANSFER: 'ipc:create-store-transfer',
+  CONFIRM_STORE_TRANSFER: 'ipc:confirm-store-transfer',
+  CANCEL_STORE_TRANSFER: 'ipc:cancel-store-transfer',
+
   // Clientes de fiados (Fase 6 — creados durante el flujo de deuda)
   CREATE_CUSTOMER: 'ipc:create-customer',
   GET_CUSTOMERS: 'ipc:get-customers',

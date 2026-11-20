@@ -1880,6 +1880,22 @@ export interface HwApi {
     paymentMethod?: 'cash' | 'debit' | 'wallet' | 'credit'
   }) => Promise<IpcResult<{ id: string }>>
 
+  createStoreTransfer: (payload: {
+    productName: string
+    quantity: number
+    unit: 'kg' | 'u' | 'cajon'
+    fromStoreId: string
+    toStoreId: string
+    occurredAt: string
+    notes?: string | null
+    estimatedValue?: number | null
+  }) => Promise<IpcResult<{ id: string }>>
+  confirmStoreTransfer: (payload: {
+    id: string
+    receivedQuantity: number
+  }) => Promise<IpcResult<{ hasDifference: boolean }>>
+  cancelStoreTransfer: (payload: { id: string }) => Promise<IpcResult<{ id: string }>>
+
   listShiftMerch: (payload?: { weekOffset?: number }) => Promise<IpcResult<MerchandiseIntakeRow[]>>
   listMerchWeek: (payload: { weekOffset: number; storeIdFilter: string }) => Promise<IpcResult<MerchWeekBookResult>>
   getMerchVisitDraft: () => Promise<IpcResult<{

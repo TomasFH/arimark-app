@@ -184,6 +184,10 @@ const hw: HwApi = {
   registerCebo: payload => ipcRenderer.invoke(IPC.REGISTER_CEBO, payload),
   updateCebo: payload => ipcRenderer.invoke(IPC.UPDATE_CEBO, payload),
 
+  createStoreTransfer: payload => ipcRenderer.invoke(IPC.CREATE_STORE_TRANSFER, payload),
+  confirmStoreTransfer: payload => ipcRenderer.invoke(IPC.CONFIRM_STORE_TRANSFER, payload),
+  cancelStoreTransfer: payload => ipcRenderer.invoke(IPC.CANCEL_STORE_TRANSFER, payload),
+
   listShiftMerch: payload => ipcRenderer.invoke(IPC.LIST_SHIFT_MERCH, payload),
   listMerchWeek: payload => ipcRenderer.invoke(IPC.LIST_MERCH_WEEK, payload),
   getMerchVisitDraft: () => ipcRenderer.invoke(IPC.GET_MERCH_VISIT_DRAFT),

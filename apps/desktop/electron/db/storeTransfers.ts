@@ -136,8 +136,8 @@ export function cancelStoreTransferRow(
     role: StoreTransferActorRole
     cancelledAt: string
   },
-): WriteResult<Record<string, never>> {
-  return db.transaction(tx => {
+): { ok: true } | { ok: false; reason: StoreTransferWriteError } {
+  return db.transaction((tx): { ok: true } | { ok: false; reason: StoreTransferWriteError } => {
     const row = tx.select().from(storeTransfers).where(eq(storeTransfers.id, input.id)).get()
     if (!row) return { ok: false, reason: 'NOT_FOUND' as const }
     const next = cancelStoreTransfer(row, { userId: input.actorId, role: input.role })

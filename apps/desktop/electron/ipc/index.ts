@@ -11,6 +11,7 @@ import { registerExpenseHandlers } from './expense.handler'
 import { registerCashDiscountHandlers } from './cashDiscount.handler'
 import { registerCeboHandlers } from './cebo.handler'
 import { registerMerchIntakeHandlers } from './merchIntake.handler'
+import { registerStoreTransferHandlers } from './storeTransfer.handler'
 import { registerKretzPluHandlers } from './kretzPlu.handler'
 import { registerKretzSyncHandler } from './kretzSync.handler'
 import { registerProductsHandlers } from './products.handler'
@@ -49,6 +50,7 @@ export function registerAllHandlers(manager: HardwareManager): void {
   registerCashDiscountHandlers()
   registerCeboHandlers()
   registerMerchIntakeHandlers()
+  registerStoreTransferHandlers()
   registerKretzPluHandlers(manager)
   registerKretzSyncHandler(manager)
   registerProductsHandlers()
