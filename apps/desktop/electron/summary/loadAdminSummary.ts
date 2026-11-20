@@ -24,6 +24,7 @@ import {
   type PaymentSplit,
   type ShiftMoneyParts,
   type SoldHourBucket,
+  storeLiveFiadoBalance,
   type SummaryFiadoSlice,
   type SummaryShiftCard,
 } from '@carniceria/shared'
@@ -54,6 +55,7 @@ import {
   replaceSummaryWeek,
   summaryWeekIsMarked,
 } from './summaryWeekCache'
+import { getLiveCustomerPairs } from '../licensing/debtBalanceLive'
 import { loadStoreFiado } from './loadStoreFiado'
 
 type AppDb = ReturnType<typeof getDb>
@@ -637,7 +639,11 @@ export async function loadAdminSummary(input: {
   const shifts = await loadShifts(db, input.storeId, input.startIso, input.endIso, now)
   const visitResult = await loadVisits(db, input.storeId, input.startIso, input.endIso, now)
   const expenseLines = readExpenseLines(db, shifts.map(shift => shift.id))
-  const fiado = loadStoreFiado(db, input.storeId, input.startIso, input.endIso)
+  const booked = loadStoreFiado(db, input.storeId, input.startIso, input.endIso)
+  const fiado: SummaryFiadoSlice = {
+    debtNow: storeLiveFiadoBalance(input.storeId, getLiveCustomerPairs()),
+    payments: booked.payments,
+  }
   return {
     shifts,
     visits: visitResult.visits,

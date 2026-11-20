@@ -64,10 +64,15 @@ vi.mock('../../licensing/summaryRemote', () => ({
   writeRemoteShiftMoney: vi.fn(async () => {}),
 }))
 
+vi.mock('../../licensing/debtBalanceLive', () => ({
+  getLiveCustomerPairs: vi.fn(() => []),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { isFirebaseAvailable } from '../../licensing/firebase'
+import { getLiveCustomerPairs } from '../../licensing/debtBalanceLive'
 import { pullMerchandiseIntakesForStoreWeek } from '../../licensing/merchIntakeSync'
 import { registerSummaryHandlers } from '../summary.handler'
 import type { AdminSummaryData } from '../../summary/loadAdminSummary'
@@ -109,6 +114,7 @@ describe('summary.handler', () => {
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
     vi.mocked(getActiveSession).mockReturnValue(ADMIN as unknown as ReturnType<typeof getActiveSession>)
     vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    vi.mocked(getLiveCustomerPairs).mockReturnValue([])
     registerSummaryHandlers()
     const now = '2026-01-01T00:00:00.000Z'
     db.insert(stores).values({ id: STORE_ID, name: 'Centro', address: 'Calle 1', createdAt: now }).run()
@@ -1169,7 +1175,7 @@ describe('summary.handler', () => {
     })
     expect(res.ok).toBe(true)
     expect(res.data?.shifts[0]?.soldTotal).toBe(1000)
-    expect(res.data?.fiado.debtNow).toBe(11_000)
+    expect(res.data?.fiado.debtNow).toBeNull()
     const collections = sumCollections(res.data?.fiado.payments ?? [])
     expect(collections.total).toBe(8_000)
     expect(collections.unshifted).toBe(3_000)
@@ -1188,6 +1194,36 @@ describe('summary.handler', () => {
     })
     expect(empty.ok).toBe(true)
     expect(empty.data?.fiado).toEqual({ debtNow: null, payments: null })
+  })
+
+  it('la deuda de ahora sale de la caché del login', async () => {
+    vi.mocked(getLiveCustomerPairs).mockReturnValue([{
+      customerId: 'c1',
+      storeId: STORE_ID,
+      checkpoint: {
+        kind: 'customer',
+        entityId: 'c1',
+        storeId: STORE_ID,
+        saldoAcumulado: 10_000,
+        checkpointAt: { seconds: 50, nanos: 0 },
+        foldedCount: 1,
+      },
+      events: [{
+        id: 'pago',
+        serverAt: { seconds: 80, nanos: 0 },
+        customerEventType: 'partial_payment',
+        amount: 3_000,
+      }],
+    }])
+    const week = mondayWeekRange(-8)
+    const res = await getHandler()(null, {
+      storeId: STORE_ID,
+      startIso: week.startIso,
+      endIso: week.endIso,
+    })
+    expect(res.ok).toBe(true)
+    expect(res.data?.fiado.debtNow).toBe(7_000)
+    expect(res.data?.fiado.payments).toBeNull()
   })
 
   describe('get-summary-expenses', () => {

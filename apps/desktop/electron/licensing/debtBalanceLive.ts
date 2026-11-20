@@ -33,6 +33,7 @@ import {
   parseCompactableEvent,
   shouldRebindDebtEventsListener,
   type CompactableDebtEvent,
+  type CustomerLivePair,
   type DebtCheckpointFields,
   type DebtCheckpointKind,
   type TsRank,
@@ -240,6 +241,24 @@ export function getLiveProviderStoreBalances(): Array<{ providerId: string; stor
       providerId: child.checkpoint.entityId,
       storeId: child.checkpoint.storeId,
       balance,
+    })
+  }
+  return out
+}
+
+/**
+ * Pares de fiado que el listener del login ya tiene en memoria.
+ * No abre otra consulta: si la caché está vacía, la lista queda vacía.
+ */
+export function getLiveCustomerPairs(): CustomerLivePair[] {
+  const out: CustomerLivePair[] = []
+  for (const child of children.values()) {
+    if (child.checkpoint.kind !== 'customer') continue
+    out.push({
+      customerId: child.checkpoint.entityId,
+      storeId: child.checkpoint.storeId,
+      checkpoint: child.checkpoint,
+      events: [...child.events.values()],
     })
   }
   return out
