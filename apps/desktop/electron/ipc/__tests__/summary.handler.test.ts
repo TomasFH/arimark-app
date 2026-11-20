@@ -19,6 +19,7 @@ import {
   addDaysYmd,
   civilYmd,
   coverageAccount,
+  mondayWeekContaining,
   mondayWeekRange,
   summarizeExpenses,
   summaryMoneyView,
@@ -234,6 +235,63 @@ describe('summary.handler', () => {
     expect(res.data?.shifts[0]?.providerExpenseTotal).toBeNull()
     expect(res.data?.chicken).toEqual([expect.objectContaining({ crates: 1, grossKg: 10 })])
     expect(pullMerchandiseIntakesForStoreWeek).not.toHaveBeenCalled()
+  })
+
+  it('un ingreso del domingo a las 22 hora Argentina entra en esa semana', async () => {
+    const at = new Date('2026-11-15T22:00:00.000-03:00')
+    const stored = at.toISOString()
+    const week = mondayWeekContaining(at)
+    const next = mondayWeekContaining('2026-11-16T12:00:00.000-03:00')
+    db.insert(shifts).values({
+      id: 'shift-domingo',
+      storeId: STORE_ID,
+      userId: USER_ID,
+      shiftType: 'evening',
+      startedAt: stored,
+      closedAt: stored,
+      openingCash: 0,
+      soldTotal: 0,
+      cashTotal: 0,
+      cardWalletTotal: 0,
+      debtTotal: 0,
+      expenseTotal: 0,
+      contributionTotal: 0,
+      walletCashTotal: 0,
+      moneySnapshottedAt: stored,
+      providerExpenseTotal: 0,
+    }).run()
+    db.insert(merchandiseIntakes).values({
+      id: 'ing-domingo',
+      storeId: STORE_ID,
+      shiftId: 'shift-domingo',
+      paymentKind: 'none',
+      paidAmount: 0,
+      debtAmount: 0,
+      providerName: 'Frigorífico',
+      createdBy: USER_ID,
+      createdAt: stored,
+      status: 'confirmed',
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'line-domingo',
+      intakeId: 'ing-domingo',
+      rubroId: 'rubro_vacio',
+      rubroName: 'Vacío',
+      template: 'weight',
+      sortOrder: 0,
+      count: 1,
+      netKg: 8,
+      costTotal: 1_000,
+      moneyRole: 'payable',
+    }).run()
+
+    const thisWeek = await getHandler()(null, { storeId: STORE_ID, startIso: week.startIso, endIso: week.endIso })
+    expect(thisWeek.ok).toBe(true)
+    expect(thisWeek.data?.purchases?.reduce((sum, row) => sum + row.lines.reduce((lineSum, line) => lineSum + line.costTotal, 0), 0)).toBe(1_000)
+
+    const following = await getHandler()(null, { storeId: STORE_ID, startIso: next.startIso, endIso: next.endIso })
+    expect(following.ok).toBe(true)
+    expect(following.data?.purchases ?? []).toHaveLength(0)
   })
 
   it('arma la cuenta con las líneas y la ficha, sin leer gastos', async () => {

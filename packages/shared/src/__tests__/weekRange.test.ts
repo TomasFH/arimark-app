@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { civilYmd } from '../pickupHours'
 import {
   calendarMonthRange,
   firstMondayOfMonth,
   formatSummaryRange,
   lastMondayOfMonth,
+  mondayWeekContaining,
   mondayWeekRange,
   monthOfWeekMonday,
   summaryMonthSpan,
@@ -34,6 +36,19 @@ describe('weekRange', () => {
   it('weekdayInTimeZone usa el día civil AR', () => {
     // Viernes 11 sep 2026 01:00 AR = jueves 10 noche UTC
     expect(weekdayInTimeZone(new Date('2026-09-11T01:00:00.000-03:00'))).toBe(5)
+  })
+
+  it('el domingo a las 22 hora Argentina sigue en esa semana', () => {
+    const at = new Date('2026-11-15T22:00:00.000-03:00')
+    expect(civilYmd(at)).toBe('2026-11-15')
+    const stored = at.toISOString()
+    const week = mondayWeekContaining(at)
+    expect(week.startYmd).toBe('2026-11-09')
+    expect(week.endInclusiveYmd).toBe('2026-11-15')
+    expect(stored >= week.startIso && stored < week.endIso).toBe(true)
+    const next = mondayWeekContaining('2026-11-16T12:00:00.000-03:00')
+    expect(next.startYmd).toBe('2026-11-16')
+    expect(stored >= next.startIso && stored < next.endIso).toBe(false)
   })
 
   it('calendarMonthRange cubre el mes civil AR', () => {
