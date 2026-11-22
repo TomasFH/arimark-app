@@ -88,18 +88,26 @@ export function SummaryFiadoPanel({
         {periodError && (
           <p className="min-w-0 truncate text-sm text-danger" title={periodError}>{periodError}</p>
         )}
-        <MoneyRow
-          label="Fiado nuevo"
-          amount={newDebt}
-          empty={periodIncomplete ? 'incompleta' : 'todavía no llegó'}
-        />
-        <MoneyRow
-          label="Cobros del período"
-          amount={collections}
-          empty={periodIncomplete ? 'incompleta' : 'pendiente'}
-        />
-        {note && <p className="text-sm text-ink">{note}</p>}
-        <MoneyRow label="Deuda de ahora" amount={debtNow} empty="pendiente" />
+        <div className="mt-3 border-t border-line">
+          <div className="border-b border-line py-2">
+            <MoneyRow
+              label="Fiado nuevo"
+              amount={newDebt}
+              empty={periodIncomplete ? 'incompleta' : 'todavía no llegó'}
+            />
+          </div>
+          <div className="border-b border-line py-2">
+            <MoneyRow
+              label="Cobros del período"
+              amount={collections}
+              empty={periodIncomplete ? 'incompleta' : 'pendiente'}
+            />
+          </div>
+          {note && <p className="border-b border-line py-2 text-sm text-ink">{note}</p>}
+          <div className="border-b border-line py-2">
+            <MoneyRow label="Deuda de ahora" amount={debtNow} empty="pendiente" />
+          </div>
+        </div>
       </section>
       {showCustomers && (
         <section className="min-w-0 space-y-2 rounded-xl border border-line bg-panel p-4">

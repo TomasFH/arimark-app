@@ -96,10 +96,16 @@ export function SummaryGlance({
         <p className={cx('mt-2 truncate text-5xl font-semibold tabular-nums tracking-tight', coverageTone(account.difference))} title={differenceText}>
           {differenceText}
         </p>
-        <div className="mt-5 space-y-2 border-t border-line pt-4">
-          <MoneyRow label="Ventas" amount={account.sales} empty="sin dato" />
-          <MoneyRow label="Compras" amount={account.purchases} />
-          <MoneyRow label="Otros gastos" amount={account.otherExpenses} empty="sin dato" />
+        <div className="mt-5 border-t border-line">
+          <div className="border-b border-line py-2">
+            <MoneyRow label="Ventas" amount={account.sales} empty="sin dato" />
+          </div>
+          <div className="border-b border-line py-2">
+            <MoneyRow label="Compras" amount={account.purchases} />
+          </div>
+          <div className="border-b border-line py-2">
+            <MoneyRow label="Otros gastos" amount={account.otherExpenses} empty="sin dato" />
+          </div>
         </div>
         {account.shiftsLeftOut > 0 && (
           <p className="mt-3 text-sm text-muted">{shiftsLeftOutText(account.shiftsLeftOut)}</p>
