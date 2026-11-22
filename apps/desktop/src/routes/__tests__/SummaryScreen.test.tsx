@@ -82,7 +82,20 @@ function withHours(
   })
 }
 
+async function openSummaryTab(name: 'Resumen' | 'Ventas' | 'Gastos' | 'Mercadería' | 'Fiados'): Promise<void> {
+  const tab = screen.getByRole('tab', { name })
+  if (tab.getAttribute('aria-selected') === 'true') return
+  await userEvent.setup().click(tab)
+}
+
+function labeledValue(label: string): Element {
+  const node = screen.getAllByText(label).find(el => !el.closest('[role="tab"]'))
+  if (!node?.nextElementSibling) throw new Error(`Falta el valor de ${label}`)
+  return node.nextElementSibling
+}
+
 async function hourSection(): Promise<HTMLElement> {
+  await openSummaryTab('Ventas')
   const heading = await screen.findByRole('heading', { name: 'Ventas por hora' })
   const section = heading.closest('section')
   if (!section) throw new Error('Falta la sección de horas')
@@ -186,6 +199,7 @@ describe('SummaryScreen', () => {
     expect(screen.queryByText('todavía no llegó')).not.toBeInTheDocument()
     expect(screen.queryByText('cerró bien')).not.toBeInTheDocument()
     expect(screen.queryByText('No hay turnos cerrados.')).not.toBeInTheDocument()
+    await openSummaryTab('Mercadería')
     expect(screen.getByRole('heading', { name: 'Medias reses' })).toBeInTheDocument()
     expect(screen.queryByText(/puede faltar plata/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/promedio/i)).not.toBeInTheDocument()
@@ -226,13 +240,15 @@ describe('SummaryScreen', () => {
         : { shifts: [], visits: [], warning: null, fiado: { debtNow: null, payments: null } },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText(/90\.000 kg/)).toBeInTheDocument()
+    expect(screen.queryByText('cerró bien')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Cajas' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/promedio/i)).not.toBeInTheDocument()
+    await openSummaryTab('Ventas')
     expect(await screen.findByTitle(/Mié: todavía no llegó/)).toBeInTheDocument()
     expect(screen.getByTitle(/^Mar:/).getAttribute('title')).not.toMatch(/todavía/)
     expect(screen.getByTitle(/^Lun:/).getAttribute('title')).toMatch(/1/)
     expect(screen.queryByText('cerró bien')).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Cajas' })).not.toBeInTheDocument()
-    expect(screen.queryByText(/promedio/i)).not.toBeInTheDocument()
-    expect(screen.getAllByText(/90\.000 kg/).length).toBeGreaterThan(0)
   })
 
   it('el cobro sin turno entra en cobranzas y no se suma otra vez a vendió', async () => {
@@ -272,8 +288,10 @@ describe('SummaryScreen', () => {
         : { shifts: [], visits: [], warning: null, fiado: { debtNow: null, payments: null } },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
-    expect(await screen.findByText('Cobros del período')).toBeInTheDocument()
+    expect(await screen.findByText('Vendió')).toBeInTheDocument()
     expect(screen.getByText('Vendió').parentElement?.textContent?.replace(/\D/g, '')).toBe('5000')
+    await openSummaryTab('Fiados')
+    expect(await screen.findByText('Cobros del período')).toBeInTheDocument()
     expect(screen.getByText('Cobros del período').parentElement?.textContent?.replace(/\D/g, '')).toBe('20000')
     expect(screen.getByText('Deuda de ahora').parentElement?.textContent?.replace(/\D/g, '')).toBe('77000')
     expect(screen.getByText('Hay cobros sin turno. No entran en efectivo ni en tarjeta.')).toBeInTheDocument()
@@ -341,6 +359,7 @@ describe('SummaryScreen', () => {
         : { newDebt: 500, collections: 300, unshifted: 0, incomplete: false },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Fiados')
     expect(await screen.findByText('Fiado nuevo')).toBeInTheDocument()
     expect(screen.getByText('Fiado nuevo').parentElement?.textContent?.replace(/\D/g, '')).toBe('9000')
     expect(screen.getByText('Cobros del período').parentElement?.textContent).toMatch(/pendiente/)
@@ -372,6 +391,7 @@ describe('SummaryScreen', () => {
       data: { newDebt: null, collections: null, unshifted: null, incomplete: true },
     })
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Fiados')
     await user.click(await screen.findByRole('button', { name: 'Ver fiado del período' }))
     await waitFor(() => {
       expect(screen.getByText('Fiado nuevo').parentElement?.textContent).toMatch(/incompleta/)
@@ -405,6 +425,7 @@ describe('SummaryScreen', () => {
         },
       })
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Fiados')
     expect(await screen.findByText(/Juan Pérez/)).toBeInTheDocument()
     expect(screen.getByText(/Ana Gómez/)).toBeInTheDocument()
     await waitFor(() => expect(window.hw.getSummaryCustomers).toHaveBeenCalledTimes(1))
@@ -439,6 +460,7 @@ describe('SummaryScreen', () => {
     const toggle = screen.getByRole('checkbox', { name: 'Datos de prueba' })
     await user.click(toggle)
     expect(window.hw.getAdminSummary).toHaveBeenCalledTimes(2)
+    await openSummaryTab('Fiados')
     expect(await screen.findByText(/Hay cobros sin turno/)).toBeInTheDocument()
     await user.click(toggle)
     await waitFor(() => expect(window.hw.getAdminSummary).toHaveBeenCalledTimes(4))
@@ -448,6 +470,7 @@ describe('SummaryScreen', () => {
 
   it('sin pollo dice que no hay, y no muestra cero', async () => {
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Mercadería')
     const empty = await screen.findByText('No hay pollo en este período.')
     const section = empty.closest('section')
     expect(section?.textContent).not.toMatch(/0 caj/)
@@ -479,6 +502,7 @@ describe('SummaryScreen', () => {
       },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Mercadería')
     expect(await screen.findByText('Kilos brutos')).toBeInTheDocument()
     expect(screen.getByText('Avícola del Norte')).toBeInTheDocument()
     expect(screen.getByText('Avícola del Sur')).toBeInTheDocument()
@@ -548,6 +572,7 @@ describe('SummaryScreen', () => {
       },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Ventas')
     expect(await screen.findByText('1 turno solo tiene el total')).toBeInTheDocument()
     expect(screen.getByText('Débito').parentElement?.textContent?.replace(/\D/g, '')).toBe('1000')
     expect(screen.getByText(/no suman el total de la ficha/)).toBeInTheDocument()
@@ -587,6 +612,7 @@ describe('SummaryScreen', () => {
       },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Ventas')
     expect(await screen.findByText('1 turno solo tiene el total')).toBeInTheDocument()
     expect(screen.getByText('Débito').nextElementSibling).toHaveTextContent('sin dato')
     expect(screen.getByText('Billetera virtual').nextElementSibling).toHaveTextContent('sin dato')
@@ -661,6 +687,7 @@ describe('SummaryScreen', () => {
     }))
     window.hw.getSummaryExpenses = vi.fn().mockResolvedValue({ ok: true, data: [] })
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Gastos')
     expect(await screen.findByText(/La ficha llegó sin las filas de gastos/)).toBeInTheDocument()
     expect(screen.getByText('Hielo').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'true')
     await user.click(await screen.findByRole('button', { name: 'Ver detalle de gastos' }))
@@ -699,6 +726,7 @@ describe('SummaryScreen', () => {
     window.hw.getSummaryExpenses = vi.fn().mockResolvedValue({ ok: true, data: [] })
 
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Gastos')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Ver detalle de gastos' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Ver detalle de gastos' }))
@@ -736,6 +764,7 @@ describe('SummaryScreen', () => {
     }))
 
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Gastos')
     await user.click(await screen.findByRole('button', { name: 'Ver detalle de gastos' }))
     expect((await screen.findByText('Hielo')).closest('[role="row"]')).toHaveTextContent('Local Norte')
     expect(screen.getByText('Bolsas').closest('[role="row"]')).toHaveTextContent('Local Sur')
@@ -759,6 +788,7 @@ describe('SummaryScreen', () => {
 
     render(<SummaryScreen onBack={vi.fn()} />)
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Período' }), 'today')
+    await openSummaryTab('Ventas')
 
     expect(await screen.findByRole('heading', { name: 'Ventas por hora' })).toBeInTheDocument()
     expect(screen.getByText('12h')).toBeInTheDocument()
@@ -944,13 +974,14 @@ describe('SummaryScreen', () => {
       },
     })
     render(<SummaryScreen onBack={vi.fn()} />)
-    expect(await screen.findByRole('heading', { name: 'Cuenta' })).toBeInTheDocument()
-    expect(screen.getByText('Ventas').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('10000')
+    expect(await screen.findByText('Ventas menos compras y gastos')).toBeInTheDocument()
+    expect(labeledValue('Ventas').textContent?.replace(/\D/g, '')).toBe('10000')
     expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('500')
     expect(screen.getByText('Otros gastos').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('100')
     expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('9400')
     expect(screen.queryByText(/ganancia|pérdida|perdida/i)).not.toBeInTheDocument()
     expect(window.hw.getSummaryExpenses).toBeUndefined()
+    await openSummaryTab('Mercadería')
     expect(await screen.findByRole('heading', { name: 'Pendiente entre locales' })).toBeInTheDocument()
     expect(screen.getByText(/Valor estimado/).textContent).toMatch(/15\.000/)
     const dates = summaryPeriodDates('week')
@@ -1004,6 +1035,7 @@ describe('SummaryScreen', () => {
       },
     })
     render(<SummaryScreen onBack={vi.fn()} />)
+    await openSummaryTab('Mercadería')
     const heading = await screen.findByRole('heading', { name: 'Pendiente entre locales' })
     const section = heading.closest('section')
     if (!section) throw new Error('Falta la sección de transferencias')
@@ -1085,14 +1117,15 @@ describe('SummaryScreen', () => {
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
     expect(await screen.findByText('1 turno quedó afuera: la ficha no tiene el dato de gastos a proveedores.')).toBeInTheDocument()
-    expect(screen.getByText('Ventas').nextElementSibling).toHaveTextContent('sin dato')
+    expect(labeledValue('Ventas')).toHaveTextContent('sin dato')
     expect(screen.getByText('Otros gastos').nextElementSibling).toHaveTextContent('sin dato')
     expect(screen.getByText('Ventas menos compras y gastos').nextElementSibling).toHaveTextContent('incompleta')
     expect(screen.getByText('1 ingreso de media res sin precio no suma')).toBeInTheDocument()
+    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('0')
     const day = `${week.startYmd.slice(8, 10)}/${week.startYmd.slice(5, 7)}`
+    await openSummaryTab('Mercadería')
     await user.click(screen.getByRole('button', { name: new RegExp(day) }))
     expect(screen.getByText('sin precio')).toBeInTheDocument()
-    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('0')
   })
 
   it('sin ingresos de mercadería, Compras es cero y no sin dato', async () => {
@@ -1167,6 +1200,7 @@ describe('SummaryScreen', () => {
     })
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Período' }), 'previous')
+    await openSummaryTab('Mercadería')
     await screen.findByRole('heading', { name: 'Detalle de transferencias' })
     expect(window.hw.listStoreTransfers).toHaveBeenCalledTimes(afterOld + 1)
 
@@ -1249,6 +1283,9 @@ describe('SummaryScreen', () => {
       ],
     })
     render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('Compras')).toBeInTheDocument()
+    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('500')
+    await openSummaryTab('Mercadería')
     const heading = await screen.findByRole('heading', { name: 'Detalle de transferencias' })
     const section = heading.closest('section')
     if (!section) throw new Error('Falta la sección de transferencias')
@@ -1259,6 +1296,18 @@ describe('SummaryScreen', () => {
     expect(within(section).getByText(/Con diferencia/)).toBeInTheDocument()
     expect(within(section).getByText('Recibida 3 kg')).toBeInTheDocument()
     expect(within(section).getByText(/Valor estimado/).textContent).toMatch(/15\.000/)
-    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('500')
+  })
+
+  it('medias y pendientes abren mercadería desde el resumen', async () => {
+    const user = userEvent.setup()
+    render(<SummaryScreen onBack={vi.fn()} />)
+    expect(await screen.findByText('Vendió')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Detalle de gastos' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Medias reses' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Medias y pollo/ }))
+    expect(await screen.findByRole('heading', { name: 'Medias reses' })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Resumen' }))
+    await user.click(screen.getByRole('button', { name: /Pendientes entre locales/ }))
+    expect(await screen.findByRole('heading', { name: 'Medias reses' })).toBeInTheDocument()
   })
 })

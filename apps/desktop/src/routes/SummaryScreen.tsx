@@ -5,14 +5,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  boxAporteAmount,
   chickenTotals,
   civilYmd,
   collectionNote,
   combineFiadoSlices,
   coverageAccount,
   filterMediaResProvider,
-  formatKg3,
   formatSummaryRange,
   groupMediaResByDay,
   mediaResAverageKg,
@@ -20,9 +18,6 @@ import {
   mediaResTotals,
   onCivilDay,
   paymentsInCivilRange,
-  shiftCloseBoxText,
-  summaryBoxLabel,
-  summaryBoxTally,
   summaryMoneyView,
   summaryMonthStep,
   summaryNewDebt,
@@ -33,21 +28,16 @@ import {
   inclusiveCivilSpan,
   mondayWeekRange,
   mondayWeeksInRange,
-  storeTransferLabel,
   ymdInRange,
   summaryPreview,
   summaryPreviewSelection,
   summaryShownAmounts,
-  soldHourChartBars,
   summaryHoursView,
   summarySoldByDay,
   sumCollections,
   type ChickenVisit,
-  type ExpenseRow,
-  type ExpenseSummaryView,
   type SummaryExpenseInput,
   type SummaryPurchaseIntake,
-  type SummaryHoursView,
   type SummaryFiadoSlice,
   type PeriodFiadoAccount,
   type SummaryPeriod,
@@ -56,9 +46,14 @@ import {
 } from '@carniceria/shared'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
-import { SaleSplitChart, SoldDayBars } from '../components/SummaryCharts'
-import { Button, CollapseReveal, cx } from '../components/ui'
+import { Button } from '../components/ui'
 import { formatARS } from '../lib/datetime'
+import { SummaryExpensesPanel } from './summary/SummaryExpensesPanel'
+import { SummaryFiadoPanel } from './summary/SummaryFiadoPanel'
+import { SummaryGlance } from './summary/SummaryGlance'
+import { SummaryMerchandisePanel } from './summary/SummaryMerchandisePanel'
+import { SummaryNav, type SummarySectionId } from './summary/SummaryNav'
+import { SummarySalesPanel } from './summary/SummarySalesPanel'
 import type { AdminSummaryResult, StoreRow, StoreTransferRow } from '../types/hw-api'
 import type { CustomerHistoryMove } from '@carniceria/shared'
 
@@ -118,6 +113,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [provider, setProvider] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
+  const [section, setSection] = useState<SummarySectionId>('resumen')
   const [pending, setPending] = useState<{ rows: StoreTransferRow[]; incomplete: boolean } | null>(null)
   const [pendingLoading, setPendingLoading] = useState(false)
   const [pendingError, setPendingError] = useState<string | null>(null)
@@ -645,9 +641,8 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
           </Button>
         )}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className="flex w-full flex-col gap-8 px-6 py-5">
-          <div className="space-y-3">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col self-center px-6 py-5">
+        <div className="space-y-3">
             <p className="text-sm font-medium text-ink">Filtros</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="min-w-0">
@@ -693,6 +688,14 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
             )}
           </div>
 
+          <div className="mt-6 flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:items-start">
+            <SummaryNav section={section} onChange={setSection} />
+            <div
+              role="tabpanel"
+              id={`summary-panel-${section}`}
+              aria-labelledby={`summary-tab-${section}`}
+              className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+            >
           {!previewOn && storesReady && stores.length === 0 && !loading && !storesError && (
             <p className="text-sm text-ink">No hay locales.</p>
           )}
@@ -715,693 +718,109 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
 
           {ready && (
             <>
-              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                <Stat label="Vendió" value={amountText(shown.vendio)} />
-                <Stat label="Gastos" value={amountText(shown.gastos)} />
-                <Stat label="Tarjeta y billetera" value={amountText(shown.tarjeta)} />
-                <Stat
-                  label="Medias"
-                  value={`${totals.count} ${totals.count === 1 ? 'media' : 'medias'} · ${formatKg3(totals.kg)}`}
+              {section === 'resumen' && (
+                <SummaryGlance
+                  vendio={shown.vendio}
+                  gastos={shown.gastos}
+                  tarjeta={shown.tarjeta}
+                  mediaCount={totals.count}
+                  mediaKg={totals.kg}
+                  chickenCrates={chicken.crates}
+                  chickenKg={chicken.grossKg}
+                  account={account}
+                  debtNow={fiado.debtNow}
+                  pendingCount={pendingShown.length}
+                  pendingIncomplete={pending?.incomplete === true}
+                  pendingLoading={pendingLoading}
+                  pendingError={pendingError}
+                  pendingKnown={pending != null}
+                  onOpenMerchandise={() => setSection('mercaderia')}
                 />
-              </div>
-
-              <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-                <h2 className="text-sm font-semibold text-ink">Cuenta</h2>
-                <MoneyRow label="Ventas" amount={account.sales} empty="sin dato" />
-                <MoneyRow label="Compras" amount={account.purchases} />
-                <MoneyRow label="Otros gastos" amount={account.otherExpenses} empty="sin dato" />
-                <MoneyRow
-                  label="Ventas menos compras y gastos"
-                  amount={account.difference}
-                  empty={account.shiftsLeftOut > 0 ? 'incompleta' : 'sin dato'}
-                />
-                {account.shiftsLeftOut > 0 && (
-                  <p className="text-sm text-muted">{shiftsLeftOutText(account.shiftsLeftOut)}</p>
-                )}
-                {account.mediaResWithoutPrice > 0 && (
-                  <p className="text-sm text-muted">{mediaResUnpricedText(account.mediaResWithoutPrice)}</p>
-                )}
-              </section>
-
-              {!previewOn && showTransferSection && (
-                <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-                  {(pending || pendingLoading || pendingError) && (
-                    <>
-                      <h2 className="text-sm font-semibold text-ink">Pendiente entre locales</h2>
-                      {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
-                      {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
-                      {pending && !pendingLoading && !pendingError && pendingShown.length === 0 && (
-                        <p className="text-sm text-muted">No hay mercadería pendiente.</p>
-                      )}
-                      <ul className="space-y-2">
-                        {pendingShown.map(row => {
-                          const route = `${storeName.get(row.fromStoreId) ?? row.fromStoreId} → ${storeName.get(row.toStoreId) ?? row.toStoreId}`
-                          return (
-                            <li key={row.id} className="space-y-1">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={row.productName}>{row.productName}</p>
-                                <span className="shrink-0 text-xs text-muted">{storeTransferLabel(row)}</span>
-                              </div>
-                              <p className="truncate text-sm text-muted" title={route}>{`${transferQuantityText(row.quantity, row.unit)} · ${route}`}</p>
-                              {row.estimatedValue != null && (
-                                <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
-                              )}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                      {pending?.incomplete && <p className="text-sm text-muted">incompleta</p>}
-                    </>
-                  )}
-                  {(transferDetail || transferDetailLoading || transferDetailError) && (
-                    <div className={`space-y-2 ${(pending || pendingLoading || pendingError) ? 'border-t border-line pt-3' : ''}`}>
-                      <h3 className="text-sm font-semibold text-ink">Detalle de transferencias</h3>
-                      {transferDetailError && (
-                        <p className="truncate text-sm text-danger" title={transferDetailError}>{transferDetailError}</p>
-                      )}
-                      {transferDetailLoading && !transferDetailError && <p className="text-sm text-muted">Cargando…</p>}
-                      {transferDetail && !transferDetailLoading && !transferDetailError && transferShown.length === 0 && (
-                        <p className="text-sm text-muted">No hay movimientos en este período.</p>
-                      )}
-                      <ul className="space-y-2">
-                        {transferShown.map(row => {
-                          const from = storeName.get(row.fromStoreId) ?? row.fromStoreId
-                          const to = storeName.get(row.toStoreId) ?? row.toStoreId
-                          const line = `${transferDayLabel(row.occurredAt)} · ${row.productName} · ${transferQuantityText(row.quantity, row.unit)} · ${from} → ${to} · ${storeTransferLabel(row)}`
-                          return (
-                            <li key={row.id} className={cx('space-y-1', row.status === 'cancelled' && 'line-through')}>
-                              <p className="min-w-0 truncate text-sm text-ink" title={line}>{line}</p>
-                              {row.hasDifference && row.receivedQuantity != null && (
-                                <p className="text-sm text-muted">{`Recibida ${transferQuantityText(row.receivedQuantity, row.unit)}`}</p>
-                              )}
-                              {row.estimatedValue != null && (
-                                <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
-                              )}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </section>
               )}
-
-              <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(17rem,1fr)]">
-                <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">{showHours ? 'Ventas por hora' : 'Ventas por día'}</h2>
-                  {showHours ? (
-                    <HourChart view={hourView} emptyLabel="No hay ventas en este día" showAverage={false} />
-                  ) : (
-                    <>
-                      <SoldDayBars bars={soldDays} />
-                      {!previewOn && (
-                        <div className="space-y-2 border-t border-line pt-3">
-                          <h3 className="text-sm font-semibold text-ink">Ventas por hora</h3>
-                          <HourChart view={hourView} emptyLabel="No hay ventas en estos días" showAverage />
-                        </div>
-                      )}
-                    </>
-                  )}
-                </section>
-                <section className="min-w-0 space-y-4 rounded-xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">Efectivo y tarjeta</h2>
-                  <div className="space-y-2">
-                    <MoneyRow label="Entró en efectivo" amount={shown.efectivo} />
-                    <MoneyRow label="Tarjeta y billetera" amount={shown.tarjeta} />
-                    <MoneyRow label="Gastos" amount={shown.gastos} />
-                    <MoneyRow label="Efectivo por digital" amount={shown.digital} />
-                    <MoneyRow label="Efectivo" amount={shown.efectivo} />
-                    <MoneyRow label="Débito" amount={payment.debit} empty="sin dato" />
-                    <MoneyRow label="Billetera virtual" amount={payment.wallet} empty="sin dato" />
-                    <MoneyRow label="Crédito" amount={payment.credit} empty="sin dato" />
-                    {payment.totalOnlyCount > 0 && (
-                      <p className="text-sm text-muted">
-                        {payment.totalOnlyCount === 1
-                          ? '1 turno solo tiene el total'
-                          : `${payment.totalOnlyCount} turnos solo tienen el total`}
-                      </p>
-                    )}
-                    {payment.gaps.map(gap => {
-                      const who = shownShifts.find(shift => shift.id === gap.shiftId)?.cashierName ?? 'Un turno'
-                      const text = `${who}: diferencia ${formatARS(gap.difference)}. ${gap.cause}`
-                      return (
-                        <p key={gap.shiftId} className="min-w-0 truncate text-sm text-muted" title={text}>
-                          {text}
-                        </p>
-                      )
-                    })}
-                  </div>
-                  <SaleSplitChart pending={!moneyReady} cash={shown.efectivo ?? 0} card={shown.tarjeta ?? 0} />
-                </section>
-              </div>
-
-              <section className="rounded-xl border border-line bg-panel p-4">
-                <div className="flex min-w-0 items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-sm font-semibold text-ink">Detalle de gastos</h2>
-                    {expenseTally && (
-                      <p className="mt-0.5 truncate text-xs tabular-nums text-muted" title={expenseTally}>{expenseTally}</p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {expenseOpen && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setExpenseView('fecha')}
-                          className={`rounded-lg px-2 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${expenseView === 'fecha' ? 'bg-hover text-ink' : 'text-muted'}`}
-                        >
-                          Por fecha
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setExpenseView('grupo')}
-                          className={`rounded-lg px-2 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${expenseView === 'grupo' ? 'bg-hover text-ink' : 'text-muted'}`}
-                        >
-                          Agrupado
-                        </button>
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      aria-expanded={expenseOpen}
-                      onClick={toggleExpenseDetail}
-                      disabled={!previewOn && (expenseLoading || shownShifts.length === 0)}
-                      className="rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
-                    >
-                      {expenseOpen ? 'Ocultar detalle' : 'Ver detalle de gastos'}
-                    </button>
-                  </div>
-                </div>
-                {expenseError && (
-                  <p className="mt-3 min-w-0 truncate text-sm text-danger" title={expenseError}>{expenseError}</p>
-                )}
-                {expenseDetail.gap && (
-                  <p className="mt-3 min-w-0 truncate text-sm text-muted" title={`${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}>
-                    {`Diferencia ${formatARS(expenseDetail.gap.difference)}. ${expenseDetail.gap.cause}`}
-                  </p>
-                )}
-                <CollapseReveal open={expenseOpen} className="pt-3">
-                  {expenseLoading && <p className="text-sm text-muted">Leyendo gastos…</p>}
-                  {expenseDetail.rows.length === 0 ? (
-                    expenseDetail.gap ? null : <p className="text-sm text-muted">No hay gastos en este período.</p>
-                  ) : expenseView === 'fecha' ? (
-                    <ExpenseChronological rows={expenseDetail.rows} showStore={showStore} />
-                  ) : (
-                    <ExpenseGrouped view={expenseDetail} />
-                  )}
-                </CollapseReveal>
-              </section>
-
-              <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
-                <div className="flex min-w-0 items-baseline justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-ink">Medias reses</h2>
-                  <p className="min-w-0 truncate text-right text-sm font-semibold text-ink" title={mediaHeading(totals, average)}>
-                    {mediaHeading(totals, average)}
-                  </p>
-                </div>
-                {providers.length > 1 && (
-                  <label className="block min-w-0">
-                    <span className="sr-only">Proveedor</span>
-                    <select
-                      aria-label="Proveedor"
-                      value={providerFilter ?? ''}
-                      onChange={event => setProvider(event.target.value || null)}
-                      className="h-9 w-full min-w-0 truncate rounded-lg border border-line bg-input px-2 text-sm text-ink focus:border-line-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                    >
-                      <option value="">Todos los proveedores</option>
-                      {providers.map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {days.length === 0 ? (
-                  <p className="text-sm text-muted">No hay medias en este período.</p>
-                ) : (
-                  <div>
-                    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] gap-2 px-1 text-xs font-medium text-muted">
-                      <span>Día</span>
-                      <span>Medias</span>
-                      <span className="text-right">Kilos</span>
-                    </div>
-                    <ul>
-                      {days.map(day => {
-                        const open = openDay === day.ymd
-                        const label = `${day.ymd.slice(8, 10)}/${day.ymd.slice(5, 7)}`
-                        return (
-                          <li key={day.ymd} className="border-t border-line">
-                            <button
-                              type="button"
-                              aria-expanded={open}
-                              onClick={() => setOpenDay(open ? null : day.ymd)}
-                              className="grid w-full grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-2 px-1 py-2 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                            >
-                              <span className="text-sm font-medium text-ink">{label}</span>
-                              <span className="min-w-0 truncate text-sm text-muted">{day.count}</span>
-                              <span className="text-right text-sm tabular-nums text-ink">{formatKg3(day.kg)}</span>
-                            </button>
-                            {open && (
-                              <ul className="space-y-2 px-1 pb-2">
-                                {day.visits.map(visit => (
-                                  <li key={visit.id} className="min-w-0">
-                                    <p className="truncate text-sm text-ink" title={`${visit.providerName} · ${visit.receivedByName}`}>
-                                      {visit.providerName} · {visit.receivedByName}
-                                    </p>
-                                    {visit.pieces.length > 0 ? (
-                                      <p className="text-sm text-muted">
-                                        {visit.pieces.map(piece => formatKg3(piece.kg)).join(' · ')}
-                                      </p>
-                                    ) : (
-                                      <p className="text-sm text-muted">{visit.count} · {formatKg3(visit.kg)}</p>
-                                    )}
-                                    <p className="text-sm text-muted">{mediaResPriceText(visit.cost)}</p>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </section>
-
-              <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
-                <div className="flex min-w-0 items-baseline justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-ink">Pollo</h2>
-                  {shownChicken.length > 0 && (
-                    <p className="min-w-0 truncate text-right text-sm font-semibold text-ink" title={chickenHeading(chicken)}>
-                      {chickenHeading(chicken)}
-                    </p>
-                  )}
-                </div>
-                {shownChicken.length === 0 ? (
-                  <p className="text-sm text-muted">No hay pollo en este período.</p>
-                ) : (
-                  <div>
-                    <div className="grid grid-cols-[4.5rem_minmax(0,1.2fr)_minmax(0,1fr)_auto_auto] gap-2 px-1 text-xs font-medium text-muted">
-                      <span>Fecha</span>
-                      <span>Proveedor</span>
-                      <span>Local</span>
-                      <span className="text-right">Cajones</span>
-                      <span className="text-right">Kilos brutos</span>
-                    </div>
-                    <ul>
-                      {shownChicken.map(visit => {
-                        const label = `${visit.ymd.slice(8, 10)}/${visit.ymd.slice(5, 7)}`
-                        const storeLabel = visit.storeName?.trim() ?? ''
-                        return (
-                          <li
-                            key={visit.id}
-                            className="grid grid-cols-[4.5rem_minmax(0,1.2fr)_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-line px-1 py-2"
-                          >
-                            <span className="text-sm font-medium text-ink">{label}</span>
-                            <span className="min-w-0 truncate text-sm text-ink" title={visit.providerName}>
-                              {visit.providerName}
-                            </span>
-                            <span className="min-w-0 truncate text-sm text-muted" title={storeLabel}>
-                              {storeLabel}
-                            </span>
-                            <span className="text-right text-sm tabular-nums text-ink">{visit.crates}</span>
-                            <span className="text-right text-sm tabular-nums text-ink">{formatKg3(visit.grossKg)}</span>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </section>
-
-              {SHOW_SUMMARY_BOXES && <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
-                <h2 className="text-sm font-semibold text-ink">Cajas</h2>
-                {money.boxes.length === 0 ? (
-                  <p className="text-sm text-muted">No hay turnos cerrados.</p>
-                ) : (
-                  <>
-                    <p className="text-sm text-muted">
-                      {summaryBoxTally(money.boxes.map(row => row.box))
-                        .map(item => `${item.count} ${item.label}`)
-                        .join(' · ')}
-                    </p>
-                    <ul className="space-y-1">
-                      {money.boxes.map(row => {
-                        const label = summaryBoxLabel(row, showStore)
-                        const status = shiftCloseBoxText(row.box, formatARS)
-                        const aporte = boxAporteAmount(row)
-                        const detail = aporte == null ? status : `${status} · Aportes ${formatARS(aporte)}`
-                        return (
-                          <li key={row.id} className="flex min-w-0 items-baseline gap-2 py-1">
-                            <span className="min-w-0 flex-1 truncate text-sm text-ink" title={label}>{label}</span>
-                            <span className={`shrink-0 text-sm font-medium tabular-nums ${boxClass(row.box.kind)}`}>{detail}</span>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </>
-                )}
-              </section>}
-
-              <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-                <div className="flex min-w-0 items-center justify-between gap-3">
-                  <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Fiados y cobranzas</h2>
-                  {!previewOn && (
-                    <button
-                      type="button"
-                      onClick={() => { void loadPeriodFiado() }}
-                      disabled={periodFiadoLoading}
-                      className="shrink-0 rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
-                    >
-                      {periodFiadoLoading ? 'Leyendo…' : 'Ver fiado del período'}
-                    </button>
-                  )}
-                </div>
-                {periodFiadoError && (
-                  <p className="min-w-0 truncate text-sm text-danger" title={periodFiadoError}>{periodFiadoError}</p>
-                )}
-                <MoneyRow
-                  label="Fiado nuevo"
-                  amount={shownNewDebt}
-                  empty={periodIncomplete ? 'incompleta' : 'todavía no llegó'}
+              {section === 'ventas' && (
+                <SummarySalesPanel
+                  showHours={showHours}
+                  hourView={hourView}
+                  soldDays={soldDays}
+                  previewOn={previewOn}
+                  efectivo={shown.efectivo}
+                  tarjeta={shown.tarjeta}
+                  gastos={shown.gastos}
+                  digital={shown.digital}
+                  payment={payment}
+                  shifts={shownShifts}
+                  moneyReady={moneyReady}
                 />
-                <MoneyRow
-                  label="Cobros del período"
-                  amount={shownCollections}
-                  empty={periodIncomplete ? 'incompleta' : 'pendiente'}
+              )}
+              {section === 'gastos' && (
+                <SummaryExpensesPanel
+                  tally={expenseTally}
+                  open={expenseOpen}
+                  view={expenseView}
+                  onView={setExpenseView}
+                  onToggle={toggleExpenseDetail}
+                  loading={expenseLoading}
+                  canOpen={previewOn || (!expenseLoading && shownShifts.length > 0)}
+                  error={expenseError}
+                  detail={expenseDetail}
+                  showStore={showStore}
                 />
-                {note && <p className="text-sm text-ink">{note}</p>}
-                <MoneyRow label="Deuda de ahora" amount={fiado.debtNow} empty="pendiente" />
-                {!previewOn && (
-                  <div className="space-y-2 border-t border-line pt-3">
-                    <h3 className="text-sm font-semibold text-ink">Clientes</h3>
-                    {customerListError && (
-                      <p className="min-w-0 truncate text-sm text-danger" title={customerListError}>{customerListError}</p>
-                    )}
-                    {customersListed && summaryCustomers.length === 0 && !customerListError && (
-                      <p className="text-sm text-muted">No hay clientes en este local.</p>
-                    )}
-                    <ul className="space-y-2">
-                      {summaryCustomers.map(row => {
-                        const history = customerHistories[row.id]
-                        const open = openCustomerId === row.id
-                        const who = storeId === 'all'
-                          ? `${row.name} · ${stores.find(store => store.id === row.storeId)?.name ?? ''}`
-                          : row.name
-                        return (
-                          <li key={row.id} className="min-w-0">
-                            <button
-                              type="button"
-                              aria-expanded={open}
-                              aria-label={open ? `Ocultar historial de ${row.name}` : `Ver historial de ${row.name}`}
-                              onClick={() => toggleCustomerHistory(row)}
-                              className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                            >
-                              <span className="min-w-0 flex-1 truncate text-sm text-ink" title={who}>{who}</span>
-                            </button>
-                            {open && (
-                              <div className="mt-1 space-y-1">
-                                {history?.error && (
-                                  <p className="min-w-0 truncate text-sm text-danger" title={history.error}>{history.error}</p>
-                                )}
-                                {history && history.moves.length === 0 && !history.loading && !history.error && (
-                                  <p className="text-sm text-muted">No hay movimientos.</p>
-                                )}
-                                <ul className="space-y-1">
-                                  {(history?.moves ?? []).map(move => {
-                                    const label = historyMoveLabel(move.eventType)
-                                    const when = historyMoveWhen(move.createdAt)
-                                    const line = [label, formatARS(move.amount), when].filter(Boolean).join(' · ')
-                                    return (
-                                      <li key={move.id} className="flex min-w-0 items-baseline gap-2">
-                                        <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line}>{line}</span>
-                                      </li>
-                                    )
-                                  })}
-                                </ul>
-                                {history?.hasMore && (
-                                  <button
-                                    type="button"
-                                    onClick={() => { void loadCustomerHistory(row, true) }}
-                                    disabled={history.loading}
-                                    className="rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
-                                  >
-                                    {history.loading ? 'Leyendo…' : 'Ver más'}
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </section>
+              )}
+              {section === 'mercaderia' && (
+                <SummaryMerchandisePanel
+                  providers={providers}
+                  providerFilter={providerFilter}
+                  onProvider={setProvider}
+                  days={days}
+                  openDay={openDay}
+                  onOpenDay={setOpenDay}
+                  totals={totals}
+                  average={average}
+                  chicken={chicken}
+                  chickenRows={shownChicken}
+                  showBoxes={SHOW_SUMMARY_BOXES}
+                  money={money}
+                  showStore={showStore}
+                  showTransfers={!previewOn && showTransferSection}
+                  pending={pending}
+                  pendingShown={pendingShown}
+                  pendingLoading={pendingLoading}
+                  pendingError={pendingError}
+                  transferShown={transferShown}
+                  transferDetail={transferDetail}
+                  transferDetailLoading={transferDetailLoading}
+                  transferDetailError={transferDetailError}
+                  storeName={storeName}
+                />
+              )}
+              {section === 'fiados' && (
+                <SummaryFiadoPanel
+                  previewOn={previewOn}
+                  periodLoading={periodFiadoLoading}
+                  onLoadPeriod={() => { void loadPeriodFiado() }}
+                  periodError={periodFiadoError}
+                  newDebt={shownNewDebt}
+                  collections={shownCollections}
+                  periodIncomplete={periodIncomplete}
+                  note={note}
+                  debtNow={fiado.debtNow}
+                  showCustomers={!previewOn}
+                  customerError={customerListError}
+                  customersListed={customersListed}
+                  customers={summaryCustomers}
+                  storeId={storeId}
+                  storeName={id => stores.find(store => store.id === id)?.name ?? ''}
+                  openCustomerId={openCustomerId}
+                  histories={customerHistories}
+                  onToggleCustomer={toggleCustomerHistory}
+                  onLoadMore={row => { void loadCustomerHistory(row, true) }}
+                />
+              )}
             </>
           )}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-const EXPENSE_COLS = 'grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_9.25rem_7.5rem_minmax(0,0.9fr)_minmax(4.5rem,0.7fr)]'
-const EXPENSE_COLS_ONE_STORE = 'grid-cols-[minmax(0,1.8fr)_minmax(0,1.15fr)_9.25rem_7.5rem_minmax(0,1fr)]'
-const EXPENSE_AMOUNT_COL = 'grid-cols-[minmax(0,1fr)_9.25rem]'
-
-function expenseDayLabel(ymd: string): string {
-  return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`
-}
-
-function expenseDays(rows: ExpenseRow[]): { ymd: string; rows: ExpenseRow[] }[] {
-  const days: { ymd: string; rows: ExpenseRow[] }[] = []
-  for (const row of rows) {
-    const last = days[days.length - 1]
-    if (!last || last.ymd !== row.ymd) days.push({ ymd: row.ymd, rows: [row] })
-    else last.rows.push(row)
-  }
-  return days
-}
-
-function ExpenseChronological({ rows, showStore }: { rows: ExpenseRow[]; showStore: boolean }) {
-  const cols = showStore ? EXPENSE_COLS : EXPENSE_COLS_ONE_STORE
-  return (
-    <div className={cx('grid gap-x-3', cols)} role="table">
-      <div className={cx('col-span-full grid grid-cols-subgrid items-end px-1 pb-1 text-xs font-medium text-muted')} role="row">
-        <span>Concepto</span>
-        <span>Proveedor</span>
-        <span className="text-right">Monto</span>
-        <span>Origen</span>
-        <span>Nota</span>
-        {showStore && <span>Local</span>}
-      </div>
-      {expenseDays(rows).map(day => (
-        <div key={day.ymd} className="col-span-full grid grid-cols-subgrid">
-          <p className="col-span-full border-t border-line px-1 pb-1 pt-2 text-xs font-medium tabular-nums text-muted">
-            {expenseDayLabel(day.ymd)}
-          </p>
-          {day.rows.map(row => {
-            const note = row.notes ?? ''
-            return (
-              <div
-                key={row.id}
-                role="row"
-                className="col-span-full grid grid-cols-subgrid items-center border-t border-line px-1 py-1.5"
-              >
-                <span className="min-w-0 truncate text-sm text-ink" title={row.concept}>{row.concept}</span>
-                <span className="min-w-0 truncate text-sm text-muted" title={row.providerName}>{row.providerName}</span>
-                <span className="whitespace-nowrap text-right text-sm tabular-nums text-ink">{formatARS(row.amount)}</span>
-                <span className="min-w-0 truncate text-sm text-ink" title={row.origin}>{row.origin}</span>
-                <span className="min-w-0 truncate text-sm text-muted" title={note}>{note}</span>
-                {showStore && (
-                  <span className="min-w-0 truncate text-sm text-muted" title={row.storeName}>{row.storeName}</span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ExpenseGrouped({ view }: { view: ExpenseSummaryView }) {
-  return (
-    <div className="space-y-4">
-      <ExpenseAmountList
-        title="Por origen"
-        rows={view.byOrigin.map(item => ({ key: item.origin, label: item.origin, amount: item.amount }))}
-      />
-      <ExpenseAmountList title="Por proveedor" rows={view.byProvider} />
-      <ExpenseAmountList title="Por concepto" rows={view.byConcept} />
-    </div>
-  )
-}
-
-function ExpenseAmountList({
-  title,
-  rows,
-}: {
-  title: string
-  rows: { key: string; label: string; amount: number }[]
-}) {
-  return (
-    <div>
-      <p className="mb-1 px-1 text-xs font-medium text-muted">{title}</p>
-      <ul className={cx('grid gap-x-3', EXPENSE_AMOUNT_COL)}>
-        {rows.map(row => (
-          <li key={row.key} className="col-span-2 grid grid-cols-subgrid items-baseline border-t border-line px-1 py-1.5">
-            <span className="min-w-0 truncate text-sm text-ink" title={row.label}>{row.label}</span>
-            <span className="whitespace-nowrap text-right text-sm tabular-nums text-ink">{formatARS(row.amount)}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function incompleteDayText(count: number): string | null {
-  if (count <= 0) return null
-  if (count === 1) return '1 día no se contó por estar incompleto'
-  return `${count} días no se contaron por estar incompletos`
-}
-
-function HourChart({
-  view,
-  emptyLabel,
-  showAverage,
-}: {
-  view: SummaryHoursView
-  emptyLabel: string
-  showAverage: boolean
-}) {
-  const bars = view.buckets ? soldHourChartBars(view.buckets) : []
-  const showChart = !view.missing && bars.length > 0
-  const showEmpty = !view.missing && !showChart && (view.buckets != null || view.openNotices.length === 0)
-  const peak = showAverage && view.peak && view.peak.amount > 0
-    ? `Pico: ${view.peak.hour}h · ${formatARS(view.peak.amount)}`
-    : null
-  const incomplete = showAverage ? incompleteDayText(view.incompleteDayCount) : null
-  return (
-    <div className="space-y-2">
-      {view.missing && <p className="text-sm text-muted">sin dato</p>}
-      {showEmpty && <p className="text-sm text-muted">{emptyLabel}</p>}
-      {showChart && (
-        <>
-          {showAverage && (
-            <p className="text-sm text-muted">Cada hora es la media de los días completos</p>
-          )}
-          <SoldDayBars bars={bars} caption="Vendido por hora" />
-        </>
-      )}
-      {peak && <p className="text-sm text-muted">{peak}</p>}
-      {incomplete && <p className="text-sm text-muted">{incomplete}</p>}
-      {view.openNotices.map(notice => (
-        <p key={notice.id} className="min-w-0 truncate text-sm text-muted" title={notice.text}>
-          {notice.text}
-        </p>
-      ))}
-    </div>
-  )
-}
-
-function amountText(amount: number | null): string {
-  return amount == null ? 'todavía no llegó' : formatARS(amount)
-}
-
-function mediaResPriceText(cost: number | null | undefined): string {
-  return cost != null && cost > 0 ? formatARS(cost) : 'sin precio'
-}
-
-function shiftsLeftOutText(count: number): string {
-  if (count === 1) {
-    return '1 turno quedó afuera: la ficha no tiene el dato de gastos a proveedores.'
-  }
-  return `${count} turnos quedaron afuera: las fichas no tienen el dato de gastos a proveedores.`
-}
-
-function mediaResUnpricedText(count: number): string {
-  return count === 1
-    ? '1 ingreso de media res sin precio no suma'
-    : `${count} ingresos de media res sin precio no suman`
-}
-
-function chickenHeading(totals: { crates: number; grossKg: number }): string {
-  const crates = `${totals.crates} ${totals.crates === 1 ? 'cajón' : 'cajones'}`
-  return `${crates} · ${formatKg3(totals.grossKg)} brutos`
-}
-
-function mediaHeading(
-  totals: { count: number; kg: number },
-  average: number | null,
-): string {
-  const base = `${totals.count} ${totals.count === 1 ? 'media' : 'medias'} · ${formatKg3(totals.kg)}`
-  if (average == null) return base
-  return `${base} · promedio ${formatKg3(average)}`
-}
-
-function boxClass(kind: string): string {
-  if (kind === 'matched') return 'text-success'
-  if (kind === 'difference') return 'text-danger'
-  return 'text-muted'
-}
-
-function transferDayLabel(iso: string): string {
-  const ymd = civilYmd(new Date(iso))
-  return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`
-}
-
-function transferQuantityText(quantity: number, unit: StoreTransferRow['unit']): string {
-  if (unit === 'kg') return `${quantity} kg`
-  if (unit === 'u') return quantity === 1 ? '1 unidad' : `${quantity} unidades`
-  return quantity === 1 ? '1 cajón' : `${quantity} cajones`
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-xl border border-line bg-panel px-4 py-3">
-      <p className="truncate text-xs font-medium text-muted" title={label}>{label}</p>
-      <p className="mt-1 truncate text-xl font-semibold tabular-nums tracking-tight text-ink" title={value}>{value}</p>
-    </div>
-  )
-}
-
-function historyMoveLabel(eventType: string): string {
-  if (eventType === 'created' || eventType === 'debt') return 'Deuda registrada'
-  if (eventType === 'partial_payment') return 'Pago parcial'
-  if (eventType === 'paid') return 'Pago total'
-  if (eventType === 'cancelled') return 'Deuda cancelada'
-  if (eventType === 'reopened') return 'Deuda reabierta'
-  return 'Movimiento'
-}
-
-function historyMoveWhen(iso: string): string {
-  const time = Date.parse(iso)
-  if (!Number.isFinite(time)) return ''
-  return new Date(time).toLocaleString('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function MoneyRow({
-  label,
-  amount,
-  empty = 'todavía no llegó',
-}: {
-  label: string
-  amount: number | null
-  empty?: string
-}) {
-  const text = amount == null ? empty : formatARS(amount)
-  return (
-    <div className="flex min-w-0 items-baseline gap-3">
-      <span className="min-w-0 flex-1 truncate text-sm text-ink" title={label}>{label}</span>
-      <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{text}</span>
-    </div>
   )
 }
