@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { mondayWeekRange, transferOccurredAt } from '@carniceria/shared'
 import StoreTransfersScreen from '../StoreTransfersScreen'
@@ -25,6 +25,10 @@ const ROW: StoreTransferRow = {
 }
 
 describe('StoreTransfersScreen', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     window.hw = {
       getStores: vi.fn().mockResolvedValue({
@@ -37,6 +41,7 @@ describe('StoreTransfersScreen', () => {
       listStoreTransfers: vi.fn().mockResolvedValue({ ok: true, data: [ROW] }),
       createStoreTransfer: vi.fn().mockResolvedValue({ ok: true, data: { id: 'nuevo' } }),
       confirmStoreTransfer: vi.fn().mockResolvedValue({ ok: true, data: { hasDifference: false } }),
+      getAllProducts: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       getUiSettings: vi.fn().mockResolvedValue({ ok: true, data: { zoomFactor: 1, colorScheme: 'light' } }),
       setUiSettings: vi.fn().mockResolvedValue({ ok: true }),
       onUiSettingsChanged: vi.fn(() => () => undefined),
@@ -94,5 +99,46 @@ describe('StoreTransfersScreen', () => {
       id: ROW.id,
       receivedQuantity: 4,
     }))
+  })
+
+  it('sugiere el corte del catálogo y no la oferta', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function mockRect(this: HTMLElement) {
+      if (this instanceof HTMLInputElement) {
+        return {
+          x: 16, y: 80, top: 80, bottom: 120, left: 16, right: 320, width: 304, height: 40,
+          toJSON() { return {} },
+        } as DOMRect
+      }
+      return {
+        x: 0, y: 0, top: 0, bottom: 520, left: 0, right: 360, width: 360, height: 520,
+        toJSON() { return {} },
+      } as DOMRect
+    })
+    vi.mocked(window.hw.getAllProducts).mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'asado', name: 'Asado', category: 'beef_cut', unit: 'kg', pluNumber: 5, baseProductId: null, active: true, available: true, price: 10000 },
+        { id: 'pack', name: 'Asado x2kg', category: 'beef_cut', unit: 'kg', pluNumber: 301, baseProductId: 'asado', active: true, available: true, price: 15000 },
+      ],
+    })
+    render(<StoreTransfersScreen session={{ userId: 'ana', role: 'cashier', storeId: 'norte' }} onBack={vi.fn()} onLogout={vi.fn()} />)
+    await screen.findByText('Vacío')
+
+    const field = screen.getByLabelText('Producto')
+    await user.type(field, 'asa')
+
+    expect(await screen.findByRole('button', { name: /Asado/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /PLU 5/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Asado x2kg/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /PLU 301/ })).not.toBeInTheDocument()
+
+    expect(fireEvent.keyDown(field, { key: 'ArrowDown' })).toBe(false)
+    expect(document.querySelector('[data-merch-marked="true"]')).toHaveTextContent('Agregar')
+    expect(fireEvent.keyDown(field, { key: 'ArrowUp' })).toBe(false)
+    expect(document.querySelector('[data-merch-marked="true"]')).toHaveTextContent('Asado')
+    expect(fireEvent.keyDown(field, { key: 'Enter' })).toBe(false)
+    expect(field).toHaveValue('Asado')
+    expect(screen.queryByRole('button', { name: /PLU 5/ })).not.toBeInTheDocument()
   })
 })

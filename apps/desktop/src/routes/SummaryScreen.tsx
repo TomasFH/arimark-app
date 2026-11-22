@@ -267,7 +267,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       if (cancelled) return
       if (!result.ok) {
         setPending(null)
-        setPendingError(result.error ?? 'No se pudieron leer las transferencias pendientes.')
+        setPendingError(result.error ?? 'No se pudo leer lo pendiente entre locales.')
         setPendingLoading(false)
         return
       }
@@ -276,7 +276,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     }).catch(() => {
       if (cancelled) return
       setPending(null)
-      setPendingError('No se pudieron leer las transferencias pendientes.')
+      setPendingError('No se pudo leer lo pendiente entre locales.')
       setPendingLoading(false)
     })
     return () => { cancelled = true }
@@ -676,11 +676,11 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
 
               {!previewOn && (pending || pendingLoading || pendingError) && (
                 <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">Transferencias pendientes</h2>
+                  <h2 className="text-sm font-semibold text-ink">Pendiente entre locales</h2>
                   {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
                   {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
                   {!pendingLoading && !pendingError && pendingShown.length === 0 && (
-                    <p className="text-sm text-muted">No hay transferencias pendientes.</p>
+                    <p className="text-sm text-muted">No hay mercadería pendiente.</p>
                   )}
                   <ul className="space-y-2">
                     {pendingShown.map(row => {

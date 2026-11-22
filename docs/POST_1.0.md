@@ -11,6 +11,10 @@ Esta es la única lista de lo que queda para más adelante. Si hay que decidir q
 - **Cobros de fiado y deuda de ahora en el celu.** En la PC se ven. En el celu dicen «pendiente» a propósito: no hay forma barata de pedirlos por local y fechas, y no se baja el libro entero. No reemplazarlos por cero.
 - **Ficha mensual, PDF, año y rango libre.** El Resumen llega a esta semana, este mes y el mes anterior. Un mes más viejo, un PDF para mandarlo, o un calendario libre, quedan para cuando alguien los pida. No sellar el mes antes: un «sin anotar» se congelaría.
 
+## Reglas ya publicadas, sin probar en el celu
+
+- **Carnicero, cajera y admin en el celu (2026-11-20).** Las reglas nuevas ya están en la nube: un carnicero no entra a los datos operativos y la cajera y el admin sí. No se probó en un teléfono. Hay que revisarlo porque el celu lee Firestore directo, sin pasar por la PC. Si el carnicero sigue viendo Pedidos, la regla no lo está frenando. Si la cajera o el admin, con la sesión que ya tenían abierta, dejan de cargar Pedidos o Fiados, la regla les cerró la puerta y hay que volver a las del 19. En la PC de los dueños el Resumen sí se probó ese día: fiado del período en 0 y «No hay transferencias pendientes.»
+
 ## Caja y celu
 
 - **La misma caja en la PC y en el celu (DT-06).** Si se corta la luz con el turno abierto en la PC, el celu sigue ese turno. Al volver la luz, la PC retoma esas ventas y no abre otra caja. Hoy son dos turnos. El cómo está en `PLAN.md`, sección DT-06.

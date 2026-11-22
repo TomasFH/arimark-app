@@ -1,6 +1,7 @@
-import { useLayoutEffect, useState, type ReactNode, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { useModalSuggestLayer } from './Modal'
+import { cx } from './cx'
+import { ModalSuggestLayerContext, useModalSuggestLayer } from './Modal'
 
 /**
  * Lista anclada al campo, recortada al cuerpo del modal.
@@ -109,5 +110,27 @@ export function SuggestPopover({
       {children}
     </div>,
     layer,
+  )
+}
+
+/** Capa de la página para la misma lista anclada que usa un modal. */
+export function SuggestLayer({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  const suggestLayerRef = useRef<HTMLElement | null>(null)
+  return (
+    <ModalSuggestLayerContext.Provider value={suggestLayerRef}>
+      <div className={cx('relative flex min-h-0 flex-col', className)}>
+        {children}
+        <div
+          ref={node => { suggestLayerRef.current = node }}
+          className="pointer-events-none absolute inset-0 z-10 overflow-hidden"
+        />
+      </div>
+    </ModalSuggestLayerContext.Provider>
   )
 }

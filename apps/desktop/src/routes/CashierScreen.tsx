@@ -1581,7 +1581,7 @@ export default function CashierScreen({
                       {onViewTransfers && (
                         <ListRow
                           dense
-                          title="Transferencias"
+                          title="Entre locales"
                           leading={menuLeading(<IconTransfer />)}
                           onClick={() => { onViewTransfers(); closeMenu() }}
                         />

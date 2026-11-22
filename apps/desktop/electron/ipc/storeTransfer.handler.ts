@@ -67,10 +67,10 @@ const REASON_TEXT: Record<StoreTransferWriteError, string> = {
   NOTES: 'La nota es demasiado larga.',
   VALUE: 'El valor estimado no es válido.',
   ID: 'El identificador no es válido.',
-  DUPLICATE: 'Esa transferencia ya existe.',
-  NOT_FOUND: 'No se encontró la transferencia.',
-  NOT_PENDING: 'Esa transferencia ya no está pendiente.',
-  FORBIDDEN: 'No se puede cancelar esta transferencia.',
+  DUPLICATE: 'Ese movimiento ya existe.',
+  NOT_FOUND: 'No se encontró ese movimiento.',
+  NOT_PENDING: 'Ese movimiento ya no está pendiente.',
+  FORBIDDEN: 'No se puede cancelar este movimiento.',
 }
 
 function fail(reason: StoreTransferWriteError): IpcError {
@@ -90,7 +90,7 @@ function readActor<T>(
   const session = getActiveSession()
   if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
   if (session.role !== 'admin' && session.role !== 'cashier') {
-    return { ok: false, error: 'No se puede registrar esta transferencia.', code: 'FORBIDDEN' }
+    return { ok: false, error: 'No se puede registrar este movimiento.', code: 'FORBIDDEN' }
   }
   return { ok: true, data: parsed.data, session }
 }
@@ -136,7 +136,7 @@ export function registerStoreTransferHandlers(): void {
       return { ok: true, data: { id: created.id } }
     } catch (err) {
       log.error('[ipc:create-store-transfer] Error inesperado', err)
-      return { ok: false, error: 'No se pudo guardar la transferencia.' }
+      return { ok: false, error: 'No se pudo guardar.' }
     }
   })
 
@@ -158,7 +158,7 @@ export function registerStoreTransferHandlers(): void {
         return { ok: true, data: { hasDifference: confirmed.hasDifference } }
       } catch (err) {
         log.error('[ipc:confirm-store-transfer] Error inesperado', err)
-        return { ok: false, error: 'No se pudo confirmar la transferencia.' }
+        return { ok: false, error: 'No se pudo confirmar.' }
       }
     },
   )
@@ -171,7 +171,7 @@ export function registerStoreTransferHandlers(): void {
       tenantId = getBusinessConfig().tenant_id
     } catch (err) {
       log.warn('[ipc:list-store-transfers] sin configuración', err)
-      return { ok: false, error: 'No se pudieron leer las transferencias.' }
+      return { ok: false, error: 'No se pudo leer la mercadería entre locales.' }
     }
     try {
       const data = await listStoreTransfersForRange(
@@ -183,7 +183,7 @@ export function registerStoreTransferHandlers(): void {
       return { ok: true, data }
     } catch (err) {
       log.error('[ipc:list-store-transfers] Error inesperado', err)
-      return { ok: false, error: 'No se pudieron leer las transferencias.' }
+      return { ok: false, error: 'No se pudo leer la mercadería entre locales.' }
     }
   })
 
@@ -198,17 +198,17 @@ export function registerStoreTransferHandlers(): void {
       tenantId = getBusinessConfig().tenant_id
     } catch (err) {
       log.warn('[ipc:get-pending-store-transfers] sin configuración', err)
-      return { ok: false, error: 'No se pudieron leer las transferencias pendientes.' }
+      return { ok: false, error: 'No se pudo leer lo pendiente entre locales.' }
     }
     try {
       const loaded = await loadPendingStoreTransfers(tenantId, actor.data.startIso, actor.data.endIso)
       if (!loaded.ok) {
-        return { ok: false, error: 'Sin conexión no se pueden ver las transferencias pendientes.', code: 'OFFLINE' }
+        return { ok: false, error: 'Sin conexión no se ve lo pendiente entre locales.', code: 'OFFLINE' }
       }
       return { ok: true, data: { rows: loaded.rows, incomplete: loaded.incomplete } }
     } catch (err) {
       log.error('[ipc:get-pending-store-transfers] Error inesperado', err)
-      return { ok: false, error: 'No se pudieron leer las transferencias pendientes.' }
+      return { ok: false, error: 'No se pudo leer lo pendiente entre locales.' }
     }
   })
 
@@ -227,7 +227,7 @@ export function registerStoreTransferHandlers(): void {
       return { ok: true, data: { id: actor.data.id } }
     } catch (err) {
       log.error('[ipc:cancel-store-transfer] Error inesperado', err)
-      return { ok: false, error: 'No se pudo cancelar la transferencia.' }
+      return { ok: false, error: 'No se pudo cancelar.' }
     }
   })
 }

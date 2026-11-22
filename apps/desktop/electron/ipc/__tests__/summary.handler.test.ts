@@ -96,6 +96,7 @@ import {
 
 type HandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; data?: AdminSummaryData; code?: string }>
 type ExpenseHandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; data?: SummaryExpenseInput[]; code?: string }>
+type FiadoNowHandlerFn = (_event: unknown, payload?: unknown) => Promise<{ ok: boolean; data?: { debtNow: number | null }; code?: string }>
 
 function getHandler(): HandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-admin-summary')
@@ -109,10 +110,10 @@ function getExpenseHandler(): ExpenseHandlerFn {
   return call[1] as ExpenseHandlerFn
 }
 
-function getFiadoNowHandler(): HandlerFn {
+function getFiadoNowHandler(): FiadoNowHandlerFn {
   const call = vi.mocked(ipcMain.handle).mock.calls.find(c => c[0] === 'ipc:get-admin-fiado-now')
   if (!call) throw new Error('Handler de deuda de ahora no registrado')
-  return call[1] as HandlerFn
+  return call[1] as FiadoNowHandlerFn
 }
 
 function getPeriodFiadoHandler(): HandlerFn {

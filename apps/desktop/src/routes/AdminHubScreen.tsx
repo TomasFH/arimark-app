@@ -299,7 +299,7 @@ export default function AdminHubScreen({
               <Tile icon={ICONS.person} label="Clientes especiales" description="Precios acordados por cliente" onClick={onGoToSpecialCustomers} />
               <Tile icon={ICONS.package} label="Pedidos" description="Gestionar pedidos del local" onClick={onGoToOrders} />
               <Tile icon={ICONS.truck} label="Proveedores" description="Deuda combinada entre locales" onClick={onGoToProviders} />
-              <Tile icon={ICONS.transfer} label="Transferencias" description="Mercadería que pasa de un local a otro" onClick={onGoToTransfers} />
+              <Tile icon={ICONS.transfer} label="Entre locales" description="Mercadería que pasa de un local a otro" onClick={onGoToTransfers} />
             </div>
           </div>
 

@@ -3,11 +3,14 @@
  * Abrir la pantalla no vuelve a pedir Firestore si este rango ya se leyó
  * en la sesión. Actualizar sí.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   civilYmd,
   formatWeekRangeLabel,
+  matchVisitMerchProducts,
   mondayWeekRange,
+  normalizeCatalogSearch,
+  productsForCatalogIntake,
   storeTransferLabel,
   transferOccurredAt,
   type StoreTransferUnit,
@@ -15,10 +18,10 @@ import {
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import DecimalInput from '../components/DecimalInput'
 import NumericInput from '../components/NumericInput'
-import { Button } from '../components/ui'
+import { Button, SuggestLayer, SuggestPopover } from '../components/ui'
 import { formatARS } from '../lib/datetime'
 import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
-import type { SessionInfo, StoreRow, StoreTransferRow } from '../types/hw-api'
+import type { AdminProductRow, SessionInfo, StoreRow, StoreTransferRow } from '../types/hw-api'
 
 const MIN_WEEK_OFFSET = -104
 
@@ -70,7 +73,7 @@ export default function StoreTransfersScreen({ session, onBack, onLogout }: Prop
     }).then(result => {
       if (cancelled) return
       if (!result.ok) {
-        setError(result.error ?? 'No se pudieron leer las transferencias.')
+        setError(result.error ?? 'No se pudo leer la mercadería entre locales.')
         setLoading(false)
         return
       }
@@ -78,7 +81,7 @@ export default function StoreTransfersScreen({ session, onBack, onLogout }: Prop
       setLoading(false)
     }).catch(() => {
       if (cancelled) return
-      setError('No se pudieron leer las transferencias.')
+      setError('No se pudo leer la mercadería entre locales.')
       setLoading(false)
     }).finally(() => {
       // StrictMode corre el efecto dos veces y descarta la primera.
@@ -98,7 +101,7 @@ export default function StoreTransfersScreen({ session, onBack, onLogout }: Prop
   return (
     <div className="flex h-full min-h-0 flex-col bg-app text-ink">
       <AdminSectionHeader
-        title="Transferencias"
+        title="Entre locales"
         subtitle={caption}
         onBack={onBack}
         onLogout={onLogout}
@@ -108,6 +111,7 @@ export default function StoreTransfersScreen({ session, onBack, onLogout }: Prop
           </Button>
         )}
       />
+      <SuggestLayer className="min-h-0 flex-1">
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-5">
           <div className="flex items-center justify-between gap-3">
@@ -129,7 +133,7 @@ export default function StoreTransfersScreen({ session, onBack, onLogout }: Prop
           {error && <p className="truncate text-sm text-danger" title={error}>{error}</p>}
           {loading && <p className="text-sm text-muted">Cargando…</p>}
           {!loading && rows.length === 0 && (
-            <p className="text-sm text-muted">No hay transferencias en esta semana.</p>
+            <p className="text-sm text-muted">No hay mercadería en esta semana.</p>
           )}
           <ul className="space-y-3">
             {rows.map(row => (
@@ -146,8 +150,33 @@ export default function StoreTransfersScreen({ session, onBack, onLogout }: Prop
           </ul>
         </div>
       </div>
+      </SuggestLayer>
     </div>
   )
+}
+
+const PRODUCT_FIELD =
+  'w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-subtle focus:outline-none focus:border-line-accent'
+
+interface TransferCatalogProduct {
+  id: string
+  name: string
+  unit: 'kg' | 'unit'
+  pluNumber: number | null
+}
+
+function markedIndex(index: number, count: number): number {
+  if (count <= 0) return 0
+  return ((index % count) + count) % count
+}
+
+function catalogForIntake(rows: AdminProductRow[]): TransferCatalogProduct[] {
+  return productsForCatalogIntake(rows.filter(product => product.active && product.available)).map(product => ({
+    id: product.id,
+    name: product.name,
+    unit: product.unit,
+    pluNumber: product.pluNumber,
+  }))
 }
 
 function TransferForm({
@@ -169,6 +198,93 @@ function TransferForm({
   const [valueRaw, setValueRaw] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [catalog, setCatalog] = useState<TransferCatalogProduct[]>([])
+  const [highlight, setHighlight] = useState(0)
+  const [listHidden, setListHidden] = useState(false)
+  const productRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!fromStoreId || typeof window.hw.getAllProducts !== 'function') {
+      setCatalog([])
+      return
+    }
+    let cancelled = false
+    setCatalog([])
+    void window.hw.getAllProducts(fromStoreId).then(result => {
+      if (cancelled) return
+      setCatalog(result.ok ? catalogForIntake(result.data) : [])
+    })
+    return () => { cancelled = true }
+  }, [fromStoreId])
+
+  const matches = useMemo(
+    () => matchVisitMerchProducts(catalog, productName),
+    [catalog, productName],
+  )
+  const queryKey = normalizeCatalogSearch(productName)
+  const exact = queryKey
+    ? catalog.find(product => normalizeCatalogSearch(product.name) === queryKey) ?? null
+    : null
+  const showAdd = Boolean(productName.trim()) && !exact
+  const suggestions = useMemo(() => {
+    const rows: Array<{ id: string; label: string; title: string; name: string; unit: 'kg' | 'unit' | null; pluNumber: number | null }> = matches.map(product => ({
+      id: product.id,
+      label: product.name,
+      title: product.name,
+      name: product.name,
+      unit: product.unit,
+      pluNumber: product.pluNumber,
+    }))
+    if (showAdd) {
+      const name = productName.trim().slice(0, 80)
+      rows.push({
+        id: 'add',
+        label: `Agregar «${name}»`,
+        title: name,
+        name,
+        unit: null,
+        pluNumber: null,
+      })
+    }
+    return rows
+  }, [matches, productName, showAdd])
+  const listOpen = Boolean(productName.trim()) && !listHidden && suggestions.length > 0
+  const current = markedIndex(highlight, suggestions.length)
+
+  function chooseProduct(name: string, catalogUnit: 'kg' | 'unit' | null): void {
+    setProductName(name.slice(0, 80))
+    if (catalogUnit) {
+      const next: StoreTransferUnit = catalogUnit === 'kg' ? 'kg' : 'u'
+      if (unit !== next) {
+        setUnit(next)
+        setQuantityRaw('')
+      }
+    }
+    setListHidden(true)
+    setHighlight(0)
+  }
+
+  function handleProductKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (!listOpen) return
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setHighlight(index => markedIndex(markedIndex(index, suggestions.length) + step, suggestions.length))
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const pick = suggestions[current]
+      if (pick) chooseProduct(pick.name, pick.unit)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setListHidden(true)
+    }
+  }
 
   async function save(): Promise<void> {
     const occurredAt = transferOccurredAt(date)
@@ -196,7 +312,7 @@ function TransferForm({
     })
     setSaving(false)
     if (!result.ok) {
-      setError(result.error ?? 'No se pudo guardar la transferencia.')
+      setError(result.error ?? 'No se pudo guardar.')
       return
     }
     setProductName('')
@@ -214,16 +330,57 @@ function TransferForm({
         void save()
       }}
     >
-      <h2 className="text-sm font-semibold text-ink">Nueva transferencia</h2>
+      <h2 className="text-sm font-semibold text-ink">Mercadería que pasa</h2>
       <label className="block space-y-1">
         <span className="text-xs text-muted">Producto</span>
         <input
+          ref={productRef}
           value={productName}
-          onChange={event => setProductName(event.target.value)}
+          onChange={event => {
+            setProductName(event.target.value)
+            setHighlight(0)
+            setListHidden(false)
+          }}
+          onKeyDownCapture={handleProductKeyDown}
+          placeholder="Buscar producto…"
           maxLength={80}
           required
-          className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink"
+          autoComplete="off"
+          className={PRODUCT_FIELD}
         />
+        <SuggestPopover anchorRef={productRef} open={listOpen}>
+          <ul className="w-full">
+            {suggestions.map((suggestion, index) => {
+              const marked = index === current
+              return (
+                <li
+                  key={suggestion.id}
+                  ref={marked ? node => node?.scrollIntoView?.({ block: 'nearest' }) : undefined}
+                  data-merch-marked={marked ? 'true' : undefined}
+                  className={`w-full ${marked ? 'bg-accent-soft' : ''}`}
+                >
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className={`flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm ${
+                      marked ? 'bg-accent-soft text-ink' : 'hover:bg-hover'
+                    }`}
+                    onMouseDown={event => {
+                      event.preventDefault()
+                      chooseProduct(suggestion.name, suggestion.unit)
+                    }}
+                    onMouseEnter={() => setHighlight(index)}
+                  >
+                    <span className="min-w-0 flex-1 truncate" title={suggestion.title}>{suggestion.label}</span>
+                    {suggestion.pluNumber != null && (
+                      <span className="shrink-0 text-xs text-muted">PLU {suggestion.pluNumber}</span>
+                    )}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </SuggestPopover>
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block space-y-1">

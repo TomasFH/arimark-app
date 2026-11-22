@@ -105,7 +105,7 @@ export function ModalLayer({
   )
 }
 
-const ModalSuggestLayerContext = createContext<RefObject<HTMLElement | null> | null>(null)
+export const ModalSuggestLayerContext = createContext<RefObject<HTMLElement | null> | null>(null)
 
 export function useModalSuggestLayer() {
   return useContext(ModalSuggestLayerContext)
