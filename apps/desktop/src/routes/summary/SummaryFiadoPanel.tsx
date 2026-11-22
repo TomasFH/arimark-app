@@ -70,7 +70,7 @@ export function SummaryFiadoPanel({
   onLoadMore: (row: { id: string; storeId: string }) => void
 }) {
   return (
-    <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+    <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]">
       <section className="min-w-0 space-y-2 rounded-xl border border-line bg-panel p-4">
         <div className="flex min-w-0 items-center justify-between gap-3">
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Fiados y cobranzas</h2>
