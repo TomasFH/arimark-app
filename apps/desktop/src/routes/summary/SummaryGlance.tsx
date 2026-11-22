@@ -91,7 +91,7 @@ export function SummaryGlance({
         <p className="mt-1 truncate text-3xl font-semibold tabular-nums tracking-tight text-ink" title={chickenLabel}>{chickenLabel}</p>
         {kilos && <p className="mt-3 truncate text-xs text-muted" title={kilos}>{kilos}</p>}
       </button>
-      <article className="col-span-2 flex min-w-0 flex-col rounded-xl border border-line bg-app px-5 py-5 max-lg:col-span-1">
+      <article className="col-span-2 flex min-w-0 flex-col rounded-xl border border-line bg-[color-mix(in_srgb,white_35%,var(--bg-panel))] px-5 py-5 shadow-[0_1px_2px_rgba(28,28,30,0.05),0_12px_28px_-12px_rgba(28,28,30,0.28)] max-lg:col-span-1">
         <h2 className="truncate text-sm font-medium text-ink" title="Ventas menos compras y gastos">Ventas menos compras y gastos</h2>
         <p className={cx('mt-2 truncate text-5xl font-semibold tabular-nums tracking-tight', coverageTone(account.difference))} title={differenceText}>
           {differenceText}
