@@ -70,38 +70,40 @@ export function SummaryFiadoPanel({
   onLoadMore: (row: { id: string; storeId: string }) => void
 }) {
   return (
-    <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Fiados y cobranzas</h2>
-        {!previewOn && (
-          <button
-            type="button"
-            onClick={onLoadPeriod}
-            disabled={periodLoading}
-            className="shrink-0 rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
-          >
-            {periodLoading ? 'Leyendo…' : 'Ver fiado del período'}
-          </button>
+    <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+      <section className="min-w-0 space-y-2 rounded-xl border border-line bg-panel p-4">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Fiados y cobranzas</h2>
+          {!previewOn && (
+            <button
+              type="button"
+              onClick={onLoadPeriod}
+              disabled={periodLoading}
+              className="shrink-0 rounded-lg border border-line px-2 py-1 text-xs text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50"
+            >
+              {periodLoading ? 'Leyendo…' : 'Ver fiado del período'}
+            </button>
+          )}
+        </div>
+        {periodError && (
+          <p className="min-w-0 truncate text-sm text-danger" title={periodError}>{periodError}</p>
         )}
-      </div>
-      {periodError && (
-        <p className="min-w-0 truncate text-sm text-danger" title={periodError}>{periodError}</p>
-      )}
-      <MoneyRow
-        label="Fiado nuevo"
-        amount={newDebt}
-        empty={periodIncomplete ? 'incompleta' : 'todavía no llegó'}
-      />
-      <MoneyRow
-        label="Cobros del período"
-        amount={collections}
-        empty={periodIncomplete ? 'incompleta' : 'pendiente'}
-      />
-      {note && <p className="text-sm text-ink">{note}</p>}
-      <MoneyRow label="Deuda de ahora" amount={debtNow} empty="pendiente" />
+        <MoneyRow
+          label="Fiado nuevo"
+          amount={newDebt}
+          empty={periodIncomplete ? 'incompleta' : 'todavía no llegó'}
+        />
+        <MoneyRow
+          label="Cobros del período"
+          amount={collections}
+          empty={periodIncomplete ? 'incompleta' : 'pendiente'}
+        />
+        {note && <p className="text-sm text-ink">{note}</p>}
+        <MoneyRow label="Deuda de ahora" amount={debtNow} empty="pendiente" />
+      </section>
       {showCustomers && (
-        <div className="space-y-2 border-t border-line pt-3">
-          <h3 className="text-sm font-semibold text-ink">Clientes</h3>
+        <section className="min-w-0 space-y-2 rounded-xl border border-line bg-panel p-4">
+          <h2 className="text-sm font-semibold text-ink">Clientes</h2>
           {customerError && (
             <p className="min-w-0 truncate text-sm text-danger" title={customerError}>{customerError}</p>
           )}
@@ -162,8 +164,8 @@ export function SummaryFiadoPanel({
               )
             })}
           </ul>
-        </div>
+        </section>
       )}
-    </section>
+    </div>
   )
 }

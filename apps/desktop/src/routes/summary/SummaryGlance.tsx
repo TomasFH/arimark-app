@@ -78,6 +78,7 @@ export function SummaryGlance({
   const chickenLabel = `${chickenCrates} ${chickenCrates === 1 ? 'cajón' : 'cajones'}`
   const debtText = debtNow == null ? 'pendiente' : formatARS(debtNow)
   const cardButton = 'flex h-full min-w-0 flex-col rounded-xl border border-line bg-panel px-4 py-4 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40'
+  const pendingMarked = pendingKnown && !pendingLoading && !pendingError && pendingCount > 0
 
   return (
     <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
@@ -90,7 +91,7 @@ export function SummaryGlance({
         <p className="mt-1 truncate text-3xl font-semibold tabular-nums tracking-tight text-ink" title={chickenLabel}>{chickenLabel}</p>
         {kilos && <p className="mt-3 truncate text-xs text-muted" title={kilos}>{kilos}</p>}
       </button>
-      <article className="col-span-2 flex min-w-0 flex-col rounded-xl border border-line bg-panel px-5 py-5 max-lg:col-span-1">
+      <article className="col-span-2 flex min-w-0 flex-col rounded-xl border border-line bg-app px-5 py-5 max-lg:col-span-1">
         <h2 className="truncate text-sm font-medium text-ink" title="Ventas menos compras y gastos">Ventas menos compras y gastos</h2>
         <p className={cx('mt-2 truncate text-5xl font-semibold tabular-nums tracking-tight', coverageTone(account.difference))} title={differenceText}>
           {differenceText}
@@ -111,8 +112,20 @@ export function SummaryGlance({
         <p className="truncate text-xs font-medium text-muted">Deuda de ahora</p>
         <p className="mt-3 truncate text-3xl font-semibold tabular-nums tracking-tight text-ink" title={debtText}>{debtText}</p>
       </div>
-      <button type="button" onClick={onOpenMerchandise} className={cardButton}>
-        <p className="truncate text-xs font-medium text-muted">Pendientes entre locales</p>
+      <button
+        type="button"
+        onClick={onOpenMerchandise}
+        className={cx(
+          'flex h-full min-w-0 flex-col rounded-xl border border-line px-4 py-4 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+          pendingMarked
+            ? 'bg-[color-mix(in_srgb,var(--text)_8%,var(--bg-panel))]'
+            : 'bg-panel',
+        )}
+      >
+        <p className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted">
+          {pendingMarked && <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-ink" />}
+          <span className="min-w-0 flex-1 truncate" title="Pendientes entre locales">Pendientes entre locales</span>
+        </p>
         {pendingError && (
           <p className="mt-3 truncate text-sm text-danger" title={pendingError}>{pendingError}</p>
         )}

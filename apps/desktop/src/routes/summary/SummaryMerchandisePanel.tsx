@@ -99,11 +99,11 @@ export function SummaryMerchandisePanel({
   storeName: Map<string, string>
 }) {
   return (
-    <div className="space-y-6">
-      <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
-        <div className="flex min-w-0 items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">Medias reses</h2>
-          <p className="min-w-0 truncate text-right text-sm font-semibold text-ink" title={mediaHeading(totals, average)}>
+    <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+      <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2 className="shrink-0 text-sm font-semibold text-ink">Medias reses</h2>
+          <p className="min-w-0 truncate text-sm font-semibold text-ink" title={mediaHeading(totals, average)}>
             {mediaHeading(totals, average)}
           </p>
         </div>
@@ -175,11 +175,11 @@ export function SummaryMerchandisePanel({
         )}
       </section>
 
-      <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
-        <div className="flex min-w-0 items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">Pollo</h2>
+      <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2 className="shrink-0 text-sm font-semibold text-ink">Pollo</h2>
           {chickenRows.length > 0 && (
-            <p className="min-w-0 truncate text-right text-sm font-semibold text-ink" title={chickenHeading(chicken)}>
+            <p className="min-w-0 truncate text-sm font-semibold text-ink" title={chickenHeading(chicken)}>
               {chickenHeading(chicken)}
             </p>
           )}
@@ -222,7 +222,7 @@ export function SummaryMerchandisePanel({
       </section>
 
       {showBoxes && (
-        <section className="space-y-3 rounded-xl border border-line bg-panel p-4">
+        <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
           <h2 className="text-sm font-semibold text-ink">Cajas</h2>
           {money.boxes.length === 0 ? (
             <p className="text-sm text-muted">No hay turnos cerrados.</p>
@@ -252,66 +252,62 @@ export function SummaryMerchandisePanel({
         </section>
       )}
 
-      {showTransfers && (
-        <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-          {(pending || pendingLoading || pendingError) && (
-            <>
-              <h2 className="text-sm font-semibold text-ink">Pendiente entre locales</h2>
-              {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
-              {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
-              {pending && !pendingLoading && !pendingError && pendingShown.length === 0 && (
-                <p className="text-sm text-muted">No hay mercadería pendiente.</p>
-              )}
-              <ul className="space-y-2">
-                {pendingShown.map(row => {
-                  const route = `${storeName.get(row.fromStoreId) ?? row.fromStoreId} → ${storeName.get(row.toStoreId) ?? row.toStoreId}`
-                  return (
-                    <li key={row.id} className="space-y-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={row.productName}>{row.productName}</p>
-                        <span className="shrink-0 text-xs text-muted">{storeTransferLabel(row)}</span>
-                      </div>
-                      <p className="truncate text-sm text-muted" title={route}>{`${transferQuantityText(row.quantity, row.unit)} · ${route}`}</p>
-                      {row.estimatedValue != null && (
-                        <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-              {pending?.incomplete && <p className="text-sm text-muted">incompleta</p>}
-            </>
+      {showTransfers && (pending || pendingLoading || pendingError) && (
+        <section className="min-w-0 space-y-2 rounded-xl border border-line bg-panel p-4">
+          <h2 className="text-sm font-semibold text-ink">Pendiente entre locales</h2>
+          {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
+          {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
+          {pending && !pendingLoading && !pendingError && pendingShown.length === 0 && (
+            <p className="text-sm text-muted">No hay mercadería pendiente.</p>
           )}
-          {(transferDetail || transferDetailLoading || transferDetailError) && (
-            <div className={`space-y-2 ${(pending || pendingLoading || pendingError) ? 'border-t border-line pt-3' : ''}`}>
-              <h3 className="text-sm font-semibold text-ink">Detalle de transferencias</h3>
-              {transferDetailError && (
-                <p className="truncate text-sm text-danger" title={transferDetailError}>{transferDetailError}</p>
-              )}
-              {transferDetailLoading && !transferDetailError && <p className="text-sm text-muted">Cargando…</p>}
-              {transferDetail && !transferDetailLoading && !transferDetailError && transferShown.length === 0 && (
-                <p className="text-sm text-muted">No hay movimientos en este período.</p>
-              )}
-              <ul className="space-y-2">
-                {transferShown.map(row => {
-                  const from = storeName.get(row.fromStoreId) ?? row.fromStoreId
-                  const to = storeName.get(row.toStoreId) ?? row.toStoreId
-                  const line = `${transferDayLabel(row.occurredAt)} · ${row.productName} · ${transferQuantityText(row.quantity, row.unit)} · ${from} → ${to} · ${storeTransferLabel(row)}`
-                  return (
-                    <li key={row.id} className={cx('space-y-1', row.status === 'cancelled' && 'line-through')}>
-                      <p className="min-w-0 truncate text-sm text-ink" title={line}>{line}</p>
-                      {row.hasDifference && row.receivedQuantity != null && (
-                        <p className="text-sm text-muted">{`Recibida ${transferQuantityText(row.receivedQuantity, row.unit)}`}</p>
-                      )}
-                      {row.estimatedValue != null && (
-                        <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
+          <ul className="space-y-2">
+            {pendingShown.map(row => {
+              const route = `${storeName.get(row.fromStoreId) ?? row.fromStoreId} → ${storeName.get(row.toStoreId) ?? row.toStoreId}`
+              return (
+                <li key={row.id} className="space-y-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={row.productName}>{row.productName}</p>
+                    <span className="shrink-0 text-xs text-muted">{storeTransferLabel(row)}</span>
+                  </div>
+                  <p className="truncate text-sm text-muted" title={route}>{`${transferQuantityText(row.quantity, row.unit)} · ${route}`}</p>
+                  {row.estimatedValue != null && (
+                    <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {pending?.incomplete && <p className="text-sm text-muted">incompleta</p>}
+        </section>
+      )}
+      {showTransfers && (transferDetail || transferDetailLoading || transferDetailError) && (
+        <section className="min-w-0 space-y-2 rounded-xl border border-line bg-panel p-4">
+          <h2 className="text-sm font-semibold text-ink">Detalle de transferencias</h2>
+          {transferDetailError && (
+            <p className="truncate text-sm text-danger" title={transferDetailError}>{transferDetailError}</p>
           )}
+          {transferDetailLoading && !transferDetailError && <p className="text-sm text-muted">Cargando…</p>}
+          {transferDetail && !transferDetailLoading && !transferDetailError && transferShown.length === 0 && (
+            <p className="text-sm text-muted">No hay movimientos en este período.</p>
+          )}
+          <ul className="space-y-2">
+            {transferShown.map(row => {
+              const from = storeName.get(row.fromStoreId) ?? row.fromStoreId
+              const to = storeName.get(row.toStoreId) ?? row.toStoreId
+              const line = `${transferDayLabel(row.occurredAt)} · ${row.productName} · ${transferQuantityText(row.quantity, row.unit)} · ${from} → ${to} · ${storeTransferLabel(row)}`
+              return (
+                <li key={row.id} className={cx('space-y-1', row.status === 'cancelled' && 'line-through')}>
+                  <p className="min-w-0 truncate text-sm text-ink" title={line}>{line}</p>
+                  {row.hasDifference && row.receivedQuantity != null && (
+                    <p className="text-sm text-muted">{`Recibida ${transferQuantityText(row.receivedQuantity, row.unit)}`}</p>
+                  )}
+                  {row.estimatedValue != null && (
+                    <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
         </section>
       )}
     </div>
