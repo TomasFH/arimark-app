@@ -31,6 +31,8 @@ import {
   summaryPeriodDates,
   summaryPeriodQuery,
   inclusiveCivilSpan,
+  mondayWeekRange,
+  mondayWeeksInRange,
   storeTransferLabel,
   ymdInRange,
   summaryPreview,
@@ -108,6 +110,9 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     error: string | null
   }>>({})
   const historyEpoch = useRef(0)
+  const transferRefreshRef = useRef(false)
+  const transferWeeksRef = useRef(new Set<string>())
+  const transferRowsRef = useRef(new Map<string, StoreTransferRow[]>())
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [expenseView, setExpenseView] = useState<'fecha' | 'grupo'>('fecha')
   const [expenseOpen, setExpenseOpen] = useState(false)
@@ -116,6 +121,9 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const [pending, setPending] = useState<{ rows: StoreTransferRow[]; incomplete: boolean } | null>(null)
   const [pendingLoading, setPendingLoading] = useState(false)
   const [pendingError, setPendingError] = useState<string | null>(null)
+  const [transferDetail, setTransferDetail] = useState<StoreTransferRow[] | null>(null)
+  const [transferDetailLoading, setTransferDetailLoading] = useState(false)
+  const [transferDetailError, setTransferDetailError] = useState<string | null>(null)
 
   const allowPreview = devPreviewEnabled()
   const previewOn = allowPreview && preview
@@ -278,6 +286,54 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       setPending(null)
       setPendingError('No se pudo leer lo pendiente entre locales.')
       setPendingLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [previewOn, storesReady, storesError, dates.startYmd, dates.endYmd, refreshToken])
+
+  useEffect(() => {
+    const read = window.hw.listStoreTransfers
+    if (previewOn || !storesReady || storesError || !read) {
+      setTransferDetail(null)
+      setTransferDetailError(null)
+      setTransferDetailLoading(false)
+      return
+    }
+    const span = inclusiveCivilSpan(dates.startYmd, dates.endYmd)
+    const weeks = mondayWeeksInRange(span.startIso, span.endIso)
+    const currentWeekStart = mondayWeekRange(0).startIso
+    const force = transferRefreshRef.current
+    let cancelled = false
+    setTransferDetailLoading(true)
+    setTransferDetailError(null)
+    void (async () => {
+      const collected: StoreTransferRow[] = []
+      for (const week of weeks) {
+        const closed = week.startIso < currentWeekStart
+        if (closed && !force && transferWeeksRef.current.has(week.startIso)) {
+          collected.push(...(transferRowsRef.current.get(week.startIso) ?? []))
+          continue
+        }
+        const result = await read({
+          startIso: week.startIso,
+          endIso: week.endIso,
+          refresh: force || !closed,
+        })
+        if (cancelled) return
+        if (!result.ok) {
+          setTransferDetail(null)
+          setTransferDetailError(result.error ?? 'No se pudo leer el detalle entre locales.')
+          setTransferDetailLoading(false)
+          return
+        }
+        transferRowsRef.current.set(week.startIso, result.data)
+        if (closed) transferWeeksRef.current.add(week.startIso)
+        collected.push(...result.data)
+      }
+      if (cancelled) return
+      setTransferDetail(collected)
+      setTransferDetailLoading(false)
+    })().finally(() => {
+      if (!cancelled) transferRefreshRef.current = false
     })
     return () => { cancelled = true }
   }, [previewOn, storesReady, storesError, dates.startYmd, dates.endYmd, refreshToken])
@@ -557,6 +613,16 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   const pendingShown = (pending?.rows ?? []).filter(row =>
     storeId === 'all' || row.fromStoreId === storeId || row.toStoreId === storeId,
   )
+  const transferSpan = inclusiveCivilSpan(dates.startYmd, dates.endYmd)
+  const transferShown = (transferDetail ?? []).filter(row =>
+    row.occurredAt >= transferSpan.startIso
+    && row.occurredAt < transferSpan.endIso
+    && (storeId === 'all' || row.fromStoreId === storeId || row.toStoreId === storeId),
+  ).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+  const showTransferSection = Boolean(
+    pending || pendingLoading || pendingError
+    || transferDetail || transferDetailLoading || transferDetailError,
+  )
   const storeName = new Map(stores.map(store => [store.id, store.name]))
   const hourView = useMemo(
     () => summaryHoursView(shownShifts, showHours ? 'today' : 'average', showStore),
@@ -571,7 +637,10 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
         onBack={onBack}
         onLogout={onLogout}
         actions={(
-          <Button variant="secondary" size="sm" onClick={() => setRefreshToken(token => token + 1)}>
+          <Button variant="secondary" size="sm" onClick={() => {
+            transferRefreshRef.current = true
+            setRefreshToken(token => token + 1)
+          }}>
             Actualizar
           </Button>
         )}
@@ -674,32 +743,66 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                 )}
               </section>
 
-              {!previewOn && (pending || pendingLoading || pendingError) && (
+              {!previewOn && showTransferSection && (
                 <section className="space-y-2 rounded-xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">Pendiente entre locales</h2>
-                  {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
-                  {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
-                  {!pendingLoading && !pendingError && pendingShown.length === 0 && (
-                    <p className="text-sm text-muted">No hay mercadería pendiente.</p>
+                  {(pending || pendingLoading || pendingError) && (
+                    <>
+                      <h2 className="text-sm font-semibold text-ink">Pendiente entre locales</h2>
+                      {pendingError && <p className="truncate text-sm text-danger" title={pendingError}>{pendingError}</p>}
+                      {pendingLoading && !pendingError && <p className="text-sm text-muted">Cargando…</p>}
+                      {pending && !pendingLoading && !pendingError && pendingShown.length === 0 && (
+                        <p className="text-sm text-muted">No hay mercadería pendiente.</p>
+                      )}
+                      <ul className="space-y-2">
+                        {pendingShown.map(row => {
+                          const route = `${storeName.get(row.fromStoreId) ?? row.fromStoreId} → ${storeName.get(row.toStoreId) ?? row.toStoreId}`
+                          return (
+                            <li key={row.id} className="space-y-1">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={row.productName}>{row.productName}</p>
+                                <span className="shrink-0 text-xs text-muted">{storeTransferLabel(row)}</span>
+                              </div>
+                              <p className="truncate text-sm text-muted" title={route}>{`${transferQuantityText(row.quantity, row.unit)} · ${route}`}</p>
+                              {row.estimatedValue != null && (
+                                <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                      {pending?.incomplete && <p className="text-sm text-muted">incompleta</p>}
+                    </>
                   )}
-                  <ul className="space-y-2">
-                    {pendingShown.map(row => {
-                      const route = `${storeName.get(row.fromStoreId) ?? row.fromStoreId} → ${storeName.get(row.toStoreId) ?? row.toStoreId}`
-                      return (
-                        <li key={row.id} className="space-y-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={row.productName}>{row.productName}</p>
-                            <span className="shrink-0 text-xs text-muted">{storeTransferLabel(row)}</span>
-                          </div>
-                          <p className="truncate text-sm text-muted" title={route}>{`${transferQuantityText(row.quantity, row.unit)} · ${route}`}</p>
-                          {row.estimatedValue != null && (
-                            <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                  {pending?.incomplete && <p className="text-sm text-muted">incompleta</p>}
+                  {(transferDetail || transferDetailLoading || transferDetailError) && (
+                    <div className={`space-y-2 ${(pending || pendingLoading || pendingError) ? 'border-t border-line pt-3' : ''}`}>
+                      <h3 className="text-sm font-semibold text-ink">Detalle de transferencias</h3>
+                      {transferDetailError && (
+                        <p className="truncate text-sm text-danger" title={transferDetailError}>{transferDetailError}</p>
+                      )}
+                      {transferDetailLoading && !transferDetailError && <p className="text-sm text-muted">Cargando…</p>}
+                      {transferDetail && !transferDetailLoading && !transferDetailError && transferShown.length === 0 && (
+                        <p className="text-sm text-muted">No hay movimientos en este período.</p>
+                      )}
+                      <ul className="space-y-2">
+                        {transferShown.map(row => {
+                          const from = storeName.get(row.fromStoreId) ?? row.fromStoreId
+                          const to = storeName.get(row.toStoreId) ?? row.toStoreId
+                          const line = `${transferDayLabel(row.occurredAt)} · ${row.productName} · ${transferQuantityText(row.quantity, row.unit)} · ${from} → ${to} · ${storeTransferLabel(row)}`
+                          return (
+                            <li key={row.id} className={cx('space-y-1', row.status === 'cancelled' && 'line-through')}>
+                              <p className="min-w-0 truncate text-sm text-ink" title={line}>{line}</p>
+                              {row.hasDifference && row.receivedQuantity != null && (
+                                <p className="text-sm text-muted">{`Recibida ${transferQuantityText(row.receivedQuantity, row.unit)}`}</p>
+                              )}
+                              {row.estimatedValue != null && (
+                                <p className="text-sm text-ink">{`Valor estimado ${formatARS(row.estimatedValue)}`}</p>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
                 </section>
               )}
 
@@ -1242,6 +1345,11 @@ function boxClass(kind: string): string {
   if (kind === 'matched') return 'text-success'
   if (kind === 'difference') return 'text-danger'
   return 'text-muted'
+}
+
+function transferDayLabel(iso: string): string {
+  const ymd = civilYmd(new Date(iso))
+  return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`
 }
 
 function transferQuantityText(quantity: number, unit: StoreTransferRow['unit']): string {

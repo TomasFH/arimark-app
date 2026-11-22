@@ -6,6 +6,7 @@ import {
   civilYmd,
   inclusiveCivilSpan,
   mondayWeekRange,
+  mondayWeeksInRange,
   summaryMonthStep,
   summaryPeriodDates,
   summaryPeriodQuery,
@@ -1127,5 +1128,137 @@ describe('SummaryScreen', () => {
     const compras = screen.getByText('Compras').nextElementSibling?.textContent ?? ''
     expect(compras).not.toMatch(/sin dato/i)
     expect(compras.replace(/\D/g, '')).toBe('0')
+  })
+
+  it('el detalle cachea la semana vieja, relee la actual y Actualizar fuerza todo', async () => {
+    const user = userEvent.setup()
+    const current = mondayWeekRange(0)
+    const previous = summaryMonthStep(1)
+    const oldWeeks = mondayWeeksInRange(previous.startIso, previous.endIso)
+    window.hw.listStoreTransfers = vi.fn().mockResolvedValue({ ok: true, data: [] })
+    render(<SummaryScreen onBack={vi.fn()} />)
+
+    await waitFor(() => expect(window.hw.listStoreTransfers).toHaveBeenCalledWith({
+      startIso: current.startIso,
+      endIso: current.endIso,
+      refresh: true,
+    }))
+    const afterCurrent = vi.mocked(window.hw.listStoreTransfers).mock.calls.length
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Período' }), 'previous')
+    await waitFor(() => {
+      for (const week of oldWeeks) {
+        expect(window.hw.listStoreTransfers).toHaveBeenCalledWith({
+          startIso: week.startIso,
+          endIso: week.endIso,
+          refresh: false,
+        })
+      }
+    })
+    const afterOld = vi.mocked(window.hw.listStoreTransfers).mock.calls.length
+    expect(afterOld).toBe(afterCurrent + oldWeeks.length)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Período' }), 'week')
+    await waitFor(() => expect(window.hw.listStoreTransfers).toHaveBeenCalledTimes(afterOld + 1))
+    expect(window.hw.listStoreTransfers).toHaveBeenLastCalledWith({
+      startIso: current.startIso,
+      endIso: current.endIso,
+      refresh: true,
+    })
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Período' }), 'previous')
+    await screen.findByRole('heading', { name: 'Detalle de transferencias' })
+    expect(window.hw.listStoreTransfers).toHaveBeenCalledTimes(afterOld + 1)
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }))
+    await waitFor(() => {
+      const forced = vi.mocked(window.hw.listStoreTransfers).mock.calls.filter(call => (
+        call[0]?.refresh === true && oldWeeks.some(week => week.startIso === call[0]?.startIso)
+      ))
+      expect(forced).toHaveLength(oldWeeks.length)
+    })
+  })
+
+  it('el detalle muestra el estado, tacha el cancelado y deja el valor fuera de la cuenta', async () => {
+    const week = mondayWeekRange(0)
+    const at = new Date(`${week.startYmd}T15:00:00.000-03:00`).toISOString()
+    window.hw.getAdminSummary = vi.fn().mockImplementation(async (payload: { storeId: string }) => ({
+      ok: true,
+      data: payload.storeId === 'norte'
+        ? {
+          shifts: [card({
+            id: 'lun',
+            startedAt: at,
+            shiftType: 'morning',
+            soldTotal: 10_000,
+            cashTotal: 10_000,
+            cardWalletTotal: 0,
+            debtTotal: 0,
+            expenseTotal: 0,
+            contributionTotal: 0,
+            walletCashTotal: 0,
+            moneySnapshottedAt: at,
+            providerExpenseTotal: 0,
+          })],
+          visits: [],
+          purchases: [{
+            createdAt: at,
+            lines: [{ costTotal: 500, moneyRole: 'payable' as const }],
+          }],
+          warning: null,
+          fiado: { debtNow: null, payments: null },
+        }
+        : { shifts: [], visits: [], purchases: [], warning: null, fiado: { debtNow: null, payments: null } },
+    }))
+    const base = {
+      quantity: 4,
+      unit: 'kg' as const,
+      fromStoreId: 'norte',
+      toStoreId: 'sur',
+      occurredAt: at,
+      notes: null,
+      confirmedAt: at,
+      confirmedBy: 'ana',
+      createdAt: at,
+      createdBy: 'ana',
+    }
+    window.hw.listStoreTransfers = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          ...base,
+          id: 'cancelado',
+          productName: 'Asado',
+          quantity: 2,
+          estimatedValue: null,
+          status: 'cancelled',
+          receivedQuantity: null,
+          hasDifference: false,
+          confirmedAt: null,
+          confirmedBy: null,
+        },
+        {
+          ...base,
+          id: 'con-diferencia',
+          productName: 'Vacío',
+          estimatedValue: 15_000,
+          status: 'confirmed',
+          receivedQuantity: 3,
+          hasDifference: true,
+        },
+      ],
+    })
+    render(<SummaryScreen onBack={vi.fn()} />)
+    const heading = await screen.findByRole('heading', { name: 'Detalle de transferencias' })
+    const section = heading.closest('section')
+    if (!section) throw new Error('Falta la sección de transferencias')
+    const cancelled = within(section).getByText(/Asado/)
+    expect(cancelled.closest('li')).toHaveClass('line-through')
+    expect(within(section).getByText(/Cancelado/)).toBeInTheDocument()
+    expect(within(section).getByText(/Vacío/).closest('li')).not.toHaveClass('line-through')
+    expect(within(section).getByText(/Con diferencia/)).toBeInTheDocument()
+    expect(within(section).getByText('Recibida 3 kg')).toBeInTheDocument()
+    expect(within(section).getByText(/Valor estimado/).textContent).toMatch(/15\.000/)
+    expect(screen.getByText('Compras').nextElementSibling?.textContent?.replace(/\D/g, '')).toBe('500')
   })
 })
