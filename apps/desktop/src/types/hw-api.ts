@@ -1323,6 +1323,8 @@ export interface HistoryExpenseRow {
   createdBy: string
   kind?: 'expense' | 'inject'
   injectReason?: 'aporte' | 'wallet_cash'
+  /** Nombres de los renglones cuando el gasto salió de una visita. El concepto guardado solo conserva los tres primeros. */
+  lineNames?: string[]
 }
 
 export interface HistoryDebtRow {

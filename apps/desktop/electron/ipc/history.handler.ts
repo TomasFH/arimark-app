@@ -1,13 +1,13 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { eq, and, sum, count, gte, lte, asc, desc, sql } from 'drizzle-orm'
+import { eq, and, sum, count, gte, lte, asc, desc, sql, inArray } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
   shifts, sales, salePayments, saleItems, expenses,
   debtEvents, orders, users, products, providers, customers,
-  employeeVales, employees,
+  employeeVales, employees, merchandiseIntakes, merchandiseIntakeLines,
 } from '../db/schema'
 import { readBillLines } from '../db/billCountStore'
 import { getActiveSession } from '../activeSession'
@@ -430,20 +430,25 @@ export function registerHistoryHandlers(): void {
             .filter(p => expProviderIds.includes(p.id))
         : []
       const expProviderMap = new Map(expProviderRows.map(p => [p.id, p.name]))
+      const lineNamesByExpense = intakeLineNamesByExpense(db, expRows.map(r => r.id))
 
-      const historyExpenses = expRows.map(r => ({
-        id: r.id,
-        createdAt: r.createdAt,
-        concept: r.concept ?? undefined,
-        provider: r.providerId ? (expProviderMap.get(r.providerId) ?? undefined) : undefined,
-        amount: r.amount,
-        notes: r.notes,
-        createdBy: expUserMap.get(r.createdBy) ?? r.createdBy,
-        kind: r.kind === 'inject' ? 'inject' as const : 'expense' as const,
-        injectReason: r.kind === 'inject'
-          ? (r.injectReason === 'wallet_cash' ? 'wallet_cash' as const : 'aporte' as const)
-          : undefined,
-      }))
+      const historyExpenses = expRows.map(r => {
+        const lineNames = lineNamesByExpense.get(r.id)
+        return {
+          id: r.id,
+          createdAt: r.createdAt,
+          concept: r.concept ?? undefined,
+          provider: r.providerId ? (expProviderMap.get(r.providerId) ?? undefined) : undefined,
+          amount: r.amount,
+          notes: r.notes,
+          createdBy: expUserMap.get(r.createdBy) ?? r.createdBy,
+          kind: r.kind === 'inject' ? 'inject' as const : 'expense' as const,
+          injectReason: r.kind === 'inject'
+            ? (r.injectReason === 'wallet_cash' ? 'wallet_cash' as const : 'aporte' as const)
+            : undefined,
+          ...(lineNames && lineNames.length > 0 ? { lineNames } : {}),
+        }
+      })
 
       // ---- Fiados del turno (eventos con shiftId + fiados creados desde ventas del turno) ----
       type DebtRow = {
@@ -718,4 +723,43 @@ export function registerHistoryHandlers(): void {
       }
     },
   )
+}
+
+/** Nombres de renglón de las visitas ligadas a esos gastos, en el orden cargado. */
+function intakeLineNamesByExpense(
+  db: ReturnType<typeof getDb>,
+  expenseIds: string[],
+): Map<string, string[]> {
+  const names = new Map<string, string[]>()
+  if (expenseIds.length === 0) return names
+  const intakes = db
+    .select({ id: merchandiseIntakes.id, expenseId: merchandiseIntakes.expenseId })
+    .from(merchandiseIntakes)
+    .where(inArray(merchandiseIntakes.expenseId, expenseIds))
+    .all()
+  const expenseByIntake = new Map<string, string>()
+  for (const intake of intakes) {
+    if (intake.expenseId) expenseByIntake.set(intake.id, intake.expenseId)
+  }
+  const intakeIds = [...expenseByIntake.keys()]
+  if (intakeIds.length === 0) return names
+  const lines = db
+    .select({
+      intakeId: merchandiseIntakeLines.intakeId,
+      rubroName: merchandiseIntakeLines.rubroName,
+      sortOrder: merchandiseIntakeLines.sortOrder,
+    })
+    .from(merchandiseIntakeLines)
+    .where(inArray(merchandiseIntakeLines.intakeId, intakeIds))
+    .orderBy(asc(merchandiseIntakeLines.sortOrder))
+    .all()
+  for (const line of lines) {
+    const expenseId = expenseByIntake.get(line.intakeId)
+    const name = line.rubroName.trim()
+    if (!expenseId || !name) continue
+    const list = names.get(expenseId) ?? []
+    list.push(name)
+    names.set(expenseId, list)
+  }
+  return names
 }

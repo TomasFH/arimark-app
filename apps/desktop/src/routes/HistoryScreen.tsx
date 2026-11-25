@@ -386,6 +386,7 @@ function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCo
   const { shift, sales, expenses, debts, deposits, summary } = detail
   const vales = detail.vales ?? []
   const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'debts' | 'deposits' | 'vales'>('sales')
+  const [openExpenseId, setOpenExpenseId] = useState<string | null>(null)
 
   const shiftLabel = SHIFT_TYPE_LABEL[shift.shiftType]
   const start = toLocalDateTime(shift.startedAt)
@@ -577,28 +578,53 @@ function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCo
             const isInject = exp.kind === 'inject'
             const injectLabel = isInject ? injectHistoryLabel(exp.injectReason, exp.concept) : ''
             const title = isInject ? injectLabel : (exp.provider ?? exp.concept ?? '')
+            const open = openExpenseId === exp.id
+            const lineNames = exp.lineNames ?? []
             return (
-            <div key={exp.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  {isInject && (
-                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-success border border-line-accent rounded px-1.5 py-0.5 truncate max-w-[11rem]" title={injectLabel}>
-                      {injectLabel}
-                    </span>
+            <div key={exp.id} className="rounded-lg border border-line bg-panel text-sm">
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpenExpenseId(open ? null : exp.id)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isInject && (
+                      <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-success border border-line-accent rounded px-1.5 py-0.5 truncate max-w-[11rem]" title={injectLabel}>
+                        {injectLabel}
+                      </span>
+                    )}
+                    <p className="text-ink font-medium truncate min-w-0 flex-1" title={title}>
+                      {isInject ? (exp.notes?.trim() || injectLabel) : (exp.provider ?? exp.concept ?? '—')}
+                    </p>
+                  </div>
+                  <div className="flex gap-3 text-xs text-muted min-w-0">
+                    <span className="shrink-0">{toLocalTime(exp.createdAt)}</span>
+                    {!isInject && exp.provider && exp.concept && <span className="truncate" title={exp.concept}>{exp.concept}</span>}
+                    {!isInject && exp.notes && <span className="truncate" title={exp.notes}>{exp.notes}</span>}
+                  </div>
+                </div>
+                <span className={`font-semibold shrink-0 font-mono ${isInject ? 'text-success' : 'text-muted'}`}>
+                  {isInject ? formatARS(exp.amount) : `- ${formatARS(exp.amount)}`}
+                </span>
+              </button>
+              {open && (
+                <div className="space-y-1 border-t border-line px-3 py-2 text-xs">
+                  <p className="break-words text-ink">{title || '—'}</p>
+                  {!isInject && exp.provider && exp.concept && (
+                    <p className="break-words text-muted">{exp.concept}</p>
                   )}
-                  <p className="text-ink font-medium truncate min-w-0 flex-1" title={title}>
-                    {isInject ? (exp.notes?.trim() || injectLabel) : (exp.provider ?? exp.concept ?? '—')}
-                  </p>
+                  {exp.notes && <p className="break-words text-muted">{exp.notes}</p>}
+                  {lineNames.length > 0 && (
+                    <ul className="space-y-0.5">
+                      {lineNames.map((name, index) => (
+                        <li key={`${exp.id}-${index}`} className="break-words text-ink">{name}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                <div className="flex gap-3 text-xs text-muted min-w-0">
-                  <span className="shrink-0">{toLocalTime(exp.createdAt)}</span>
-                  {!isInject && exp.provider && exp.concept && <span className="truncate" title={exp.concept}>{exp.concept}</span>}
-                  {!isInject && exp.notes && <span className="truncate" title={exp.notes}>{exp.notes}</span>}
-                </div>
-              </div>
-              <span className={`font-semibold shrink-0 font-mono ${isInject ? 'text-success' : 'text-muted'}`}>
-                {isInject ? formatARS(exp.amount) : `- ${formatARS(exp.amount)}`}
-              </span>
+              )}
             </div>
             )
           })}

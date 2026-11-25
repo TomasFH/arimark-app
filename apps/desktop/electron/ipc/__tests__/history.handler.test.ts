@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, sales, salePayments, expenses, orders, employees, employeeVales, customers, debtEvents, providerDebtEvents } from '../../db/schema'
+import { stores, users, shifts, sales, salePayments, expenses, orders, employees, employeeVales, customers, debtEvents, providerDebtEvents, merchandiseIntakes, merchandiseIntakeLines } from '../../db/schema'
 import { eq } from 'drizzle-orm'
 import type { HistoryShiftDetail } from '../../../src/types/hw-api'
 
@@ -205,6 +205,47 @@ describe('history.handler', () => {
       expect(opened.ok).toBe(true)
       expect(opened.data.summary.totalExpenses).toBe(2_734_642)
       expect(opened.data.summary.cashInHand).toBe(7_305_359)
+    })
+
+    it('el detalle de un gasto de visita trae todos los renglones', async () => {
+      const now = '2026-07-01T12:00:00.000Z'
+      const expenseId = '33333333-0000-0000-0000-000000000041'
+      const intakeId = '33333333-0000-0000-0000-000000000042'
+      db.insert(expenses).values({
+        id: expenseId,
+        storeId: STORE_ID,
+        shiftId: SHIFT_ID,
+        kind: 'expense',
+        concept: 'Mercadería: Asado, Vacío, Matambre…',
+        amount: 1000,
+        createdAt: now,
+        createdBy: USER_ID,
+      }).run()
+      db.insert(merchandiseIntakes).values({
+        id: intakeId,
+        storeId: STORE_ID,
+        shiftId: SHIFT_ID,
+        paymentKind: 'paid_now',
+        expenseId,
+        createdBy: USER_ID,
+        createdAt: now,
+      }).run()
+      db.insert(merchandiseIntakeLines).values([
+        { id: 'line-1', intakeId, rubroId: 'r1', rubroName: 'Asado', template: 'weight', sortOrder: 0, count: 1 },
+        { id: 'line-2', intakeId, rubroId: 'r2', rubroName: 'Vacío', template: 'weight', sortOrder: 1, count: 1 },
+        { id: 'line-3', intakeId, rubroId: 'r3', rubroName: 'Matambre', template: 'weight', sortOrder: 2, count: 1 },
+        { id: 'line-4', intakeId, rubroId: 'r4', rubroName: 'Falda', template: 'weight', sortOrder: 3, count: 1 },
+      ]).run()
+
+      const detail = getHandler('ipc:get-history-shift-detail')
+      const opened = await detail(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: { expenses: Array<{ id: string; concept?: string; lineNames?: string[] }> }
+      }
+      expect(opened.ok).toBe(true)
+      const expense = opened.data.expenses.find(row => row.id === expenseId)
+      expect(expense?.concept).toBe('Mercadería: Asado, Vacío, Matambre…')
+      expect(expense?.lineNames).toEqual(['Asado', 'Vacío', 'Matambre', 'Falda'])
     })
 
     it('incluye turnos abiertos (closedAt null) en la lista', async () => {
