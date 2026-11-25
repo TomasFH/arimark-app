@@ -427,17 +427,15 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
   }
 
   function commitLinePrice(idx: number) {
+    if (priceEditIndex !== idx) return
     const line = chargeCartLines[idx]
+    setPriceEditIndex(null)
     if (!line) return
     const parsed = parseNumericInput(priceDraft)
-    if (parsed == null) {
-      setChargeNotice('Ingresá un precio.')
-      return
-    }
+    if (parsed == null || !Number.isInteger(parsed) || !(parsed > 0)) return
     const result = repriceChargeLine(line, parsed)
     setChargeCartLines(prev => prev.map((row, i) => i === idx ? result.line : row))
     setChargeNotice(result.notice)
-    if (result.notice == null) setPriceEditIndex(null)
   }
 
   function updateChargeQty(idx: number, qtyRaw: string) {
@@ -841,6 +839,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                                 value={priceDraft}
                                 onChange={setPriceDraft}
                                 aria-label={`Precio de ${line.name}`}
+                                onBlur={() => commitLinePrice(idx)}
                                 onKeyDown={e => {
                                   if (e.key !== 'Enter') return
                                   e.preventDefault()
@@ -849,13 +848,6 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
                                 }}
                                 className="w-28 shrink-0 bg-panel border border-line-strong rounded px-2 py-1 text-xs text-ink text-right"
                               />
-                              <button
-                                type="button"
-                                onClick={() => commitLinePrice(idx)}
-                                className="shrink-0 text-xs font-semibold text-ink"
-                              >
-                                Listo
-                              </button>
                             </div>
                           ) : (
                             <button

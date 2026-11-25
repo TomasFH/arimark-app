@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within, act, waitFor } from '@testing-library/react'
+import { render, screen, within, act, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OrdersScreen from '../OrdersScreen'
 import { resetOrderCreateDraft } from '../../lib/orderCreateDraft'
@@ -349,6 +349,30 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(screen.getByText('Asado')).toBeInTheDocument()
     expect(screen.queryByText('Extra')).not.toBeInTheDocument()
     expect(screen.queryByText(/lista de hoy/i)).not.toBeInTheDocument()
+  })
+
+  it('cambia el precio al salir del campo o con Enter, sin botón Listo', async () => {
+    const user = userEvent.setup()
+    render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)
+    expect(await screen.findByText('Update 3')).toBeInTheDocument()
+    await openCharge(user, 'Update 3', 'order-ready-1')
+
+    await user.click(screen.getByRole('button', { name: 'Cambiar precio' }))
+    expect(screen.queryByRole('button', { name: /^Listo$/ })).not.toBeInTheDocument()
+    const price = screen.getByLabelText('Precio de Asado')
+    fireEvent.change(price, { target: { value: '18000', selectionStart: 5 } })
+    expect(price).toHaveValue('18.000')
+    fireEvent.blur(price)
+    expect(screen.getByRole('heading', { name: 'Cobrar pedido' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Precio de Asado')).not.toBeInTheDocument()
+    expect(screen.getByTitle(/18\.000/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cambiar precio' }))
+    await user.clear(screen.getByLabelText('Precio de Asado'))
+    await user.keyboard('{Enter}')
+    expect(screen.queryByLabelText('Precio de Asado')).not.toBeInTheDocument()
+    expect(screen.getByTitle(/18\.000/)).toBeInTheDocument()
+    expect(screen.queryByText('Ingresá un precio.')).not.toBeInTheDocument()
   })
 })
 
