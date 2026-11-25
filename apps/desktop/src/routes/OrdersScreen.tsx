@@ -48,6 +48,7 @@ import {
   isPickupOutsideHoursOnDate,
   storeHoursSourceFromRecord,
   centsToARS,
+  floorTicketPesos,
   parseKretzBarcode,
   type StoreHoursSource,
 } from '@carniceria/shared'
@@ -383,7 +384,7 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
       setChargeNotice('Código inválido.')
       return
     }
-    const scan = { pluNumber, totalPesos: Math.round(centsToARS(parsed.totalCents)) }
+    const scan = { pluNumber, totalPesos: floorTicketPesos(centsToARS(parsed.totalCents)) }
     setChargeCartLines(prev => {
       const result = matchOrderTicket(prev, scan, chargeCatalogRef.current)
       pendingNoticeRef.current = result.notice

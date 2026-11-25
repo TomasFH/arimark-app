@@ -3,6 +3,7 @@ import {
   parseKretzBarcode,
   verifyEan13CheckDigit,
   centsToARS,
+  floorTicketPesos,
 } from '../kretzBarcode'
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,19 @@ describe('centsToARS', () => {
     expect(centsToARS(1753500)).toBe(17535)
     expect(centsToARS(1)).toBe(0.01)
     expect(centsToARS(0)).toBe(0)
+  })
+})
+
+describe('floorTicketPesos', () => {
+  it('descarta los centavos y conserva el entero', () => {
+    expect(floorTicketPesos(10537.5)).toBe(10537)
+    expect(floorTicketPesos(10537)).toBe(10537)
+    expect(floorTicketPesos(0.99)).toBe(0)
+  })
+
+  it('no baja un entero que el punto flotante deja apenas debajo', () => {
+    expect(floorTicketPesos(10536.9999994)).toBe(10537)
+    expect(floorTicketPesos(10)).toBe(10)
   })
 })
 

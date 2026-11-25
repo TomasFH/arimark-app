@@ -2,6 +2,7 @@ export {
   parseKretzBarcode,
   verifyEan13CheckDigit,
   centsToARS,
+  floorTicketPesos,
   KRETZ_BARCODE_PREFIX,
   KRETZ_BARCODE_LENGTH,
 } from './kretzBarcode'

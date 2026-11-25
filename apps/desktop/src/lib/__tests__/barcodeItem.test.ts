@@ -35,6 +35,12 @@ describe('buildItemFromBarcode — producto por kg', () => {
     expect(item.manualEntry).toBe(false)
   })
 
+  it('trunca los centavos del ticket y calcula el kilo con el importe completo', () => {
+    const item = buildItemFromBarcode(5, 10537.5, kgProduct)
+    expect(item.subtotal).toBe(10537)
+    expect(item.weightKg).toBeCloseTo(10537.5 / kgProduct.price, 6)
+  })
+
   it('usa el productName del catálogo', () => {
     const item = buildItemFromBarcode(5, 17535, kgProduct)
     expect(item.productName).toBe('Vacío')

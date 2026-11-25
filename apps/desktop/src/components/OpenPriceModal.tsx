@@ -6,6 +6,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import NumericInput from './NumericInput'
 import { Button, Modal } from './ui'
+import { floorTicketPesos } from '@carniceria/shared'
 import { buildItemFromBarcode } from '../lib/barcodeItem'
 import { formatARS, formatKg } from '../lib/datetime'
 import { parseNumericInput } from '../lib/numericInput'
@@ -91,7 +92,7 @@ export default function OpenPriceModal({ product, ticketTotal, onConfirm, onClos
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-xs text-muted">Total del ticket</span>
           <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">
-            {formatARS(Math.round(ticketTotal))}
+            {formatARS(floorTicketPesos(ticketTotal))}
           </span>
         </div>
 

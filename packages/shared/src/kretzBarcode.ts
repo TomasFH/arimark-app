@@ -72,3 +72,13 @@ export function verifyEan13CheckDigit(digits: string): boolean {
 export function centsToARS(cents: number): number {
   return cents / 100
 }
+
+/**
+ * Pesos enteros que se cobran de un ticket. Los centavos se descartan,
+ * para que 10.537,5 quede en 10537 y coincida con la parte entera impresa.
+ * No usar este valor para calcular kilos: el peso sale del importe con centavos.
+ */
+export function floorTicketPesos(amount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0
+  return Math.floor(amount + 1e-6)
+}

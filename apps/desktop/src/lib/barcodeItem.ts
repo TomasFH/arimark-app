@@ -5,7 +5,7 @@
  * (useBarcodeScanner) como por el componente ScanInput en modo manual.
  */
 
-import { centsToARS, parseKretzBarcode } from '@carniceria/shared'
+import { centsToARS, floorTicketPesos, parseKretzBarcode } from '@carniceria/shared'
 import type { SaleItemDraft, ProductRow } from '../types/hw-api'
 import { formatIntegerWithDots, formatKgQuantity } from './numericInput'
 
@@ -93,9 +93,9 @@ export function buildItemFromBarcode(
     unit,
     weightKg,
     unitPrice,
-    // Redondeamos a pesos enteros: los centavos del encoding KRETZ generan decimales
-    // que el modal de cobro (NumericInput) no puede representar, causando mismatch.
-    subtotal: Math.round(totalARS),
+    // El cobro es un entero. Se truncan los centavos del ticket (10.537,5 → 10537).
+    // El peso de arriba se calculó con el importe completo, centavos incluidos.
+    subtotal: floorTicketPesos(totalARS),
     manualEntry: false,
     priceDiscrepancy,
   }
@@ -109,7 +109,7 @@ const PRICE_MATCH_PESOS = 1
  * precio especial y se conserva el total del ticket.
  */
 export function assignCatalogProduct(item: SaleItemDraft, product: ProductRow): SaleItemDraft {
-  const subtotal = Math.round(item.subtotal)
+  const subtotal = floorTicketPesos(item.subtotal)
   const listPrice = product.price != null && product.price > 0 ? product.price : null
   const base = {
     ...item,
@@ -181,7 +181,7 @@ export function valeLineFromBarcode(
   const product = catalog.find(p => p.pluNumber === plu)
   if (!product) return { ok: false, error: `PLU ${plu} no está en el catálogo.` }
   const total = centsToARS(parsed.totalCents)
-  if (Math.round(total) <= 0) return { ok: false, error: 'El ticket no tiene precio.' }
+  if (floorTicketPesos(total) <= 0) return { ok: false, error: 'El ticket no tiene precio.' }
   const resolved = resolveScannedItem(plu, total, product)
   if (resolved.status === 'needsPrice') return { ok: false, needsPrice: resolved.request }
   return valeLineFromItem(product, resolved.item)
@@ -197,7 +197,7 @@ export function valeLineFromTypedPrice(
   saleUnitPrice: number,
 ): ValeLineFromBarcode {
   if (!(saleUnitPrice > 0)) return { ok: false, error: 'Ingresá un precio entero mayor a cero.' }
-  if (Math.round(totalARS) <= 0) return { ok: false, error: 'El ticket no tiene precio.' }
+  if (floorTicketPesos(totalARS) <= 0) return { ok: false, error: 'El ticket no tiene precio.' }
   const item = buildItemFromBarcode(product.pluNumber, totalARS, product, saleUnitPrice)
   return valeLineFromItem(product, item)
 }
