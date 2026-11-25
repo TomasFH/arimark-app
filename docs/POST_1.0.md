@@ -20,6 +20,7 @@ Esta es la única lista de lo que queda para más adelante. Si hay que decidir q
 - **La misma caja en la PC y en el celu (DT-06).** Si se corta la luz con el turno abierto en la PC, el celu sigue ese turno. Al volver la luz, la PC retoma esas ventas y no abre otra caja. Hoy son dos turnos. El cómo está en `PLAN.md`, sección DT-06.
 - **POS del celu, más viejo que el de la PC.** Funciona. El rediseño es visual, con Impeccable, sobre las pantallas del celu. No clonar la PC.
 - **Fiar el resto.** En un cobro en efectivo que no cubre el total, un botón chico abre el fiado con ese pago ya cargado. No tiene que salir solo por tipear de menos.
+- **Varios tickets en una venta.** La venta no cuenta cuántos tickets físicos entraron al carrito. Más adelante, un entero `ticketCount`, 1 si no se indica otra cosa. No hace falta el control en la caja todavía.
 - **Cliente especial en el cobro.** El selector está oculto. Los acuerdos se ven en el menú. Mostrarlo en el POS queda para después.
 - **Asistencia.** La UI está pausada.
 
