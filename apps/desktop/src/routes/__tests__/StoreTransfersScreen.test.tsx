@@ -141,4 +141,52 @@ describe('StoreTransfersScreen', () => {
     expect(field).toHaveValue('Asado')
     expect(screen.queryByRole('button', { name: /PLU 5/ })).not.toBeInTheDocument()
   })
+
+  it('completa el valor estimado con el precio de lista por la cantidad y deja editarlo', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function mockRect(this: HTMLElement) {
+      if (this instanceof HTMLInputElement) {
+        return {
+          x: 16, y: 80, top: 80, bottom: 120, left: 16, right: 320, width: 304, height: 40,
+          toJSON() { return {} },
+        } as DOMRect
+      }
+      return {
+        x: 0, y: 0, top: 0, bottom: 520, left: 0, right: 360, width: 360, height: 520,
+        toJSON() { return {} },
+      } as DOMRect
+    })
+    vi.mocked(window.hw.getAllProducts).mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'aceite', name: 'Aceite', category: 'other', unit: 'unit', pluNumber: 555, baseProductId: null, active: true, available: true, price: 10000 },
+      ],
+    })
+    render(<StoreTransfersScreen session={{ userId: 'ana', role: 'cashier', storeId: 'norte' }} onBack={vi.fn()} onLogout={vi.fn()} />)
+    await screen.findByText('Vacío')
+
+    await user.type(screen.getByLabelText('Producto'), 'ace')
+    await user.click(await screen.findByRole('button', { name: /Aceite/ }))
+    await user.type(screen.getByLabelText('Cantidad'), '2')
+
+    expect(screen.getByLabelText('Valor estimado')).toHaveValue('20.000')
+
+    const estimate = screen.getByLabelText('Valor estimado')
+    await user.clear(estimate)
+    await user.type(estimate, '15000')
+    const quantity = screen.getByLabelText('Cantidad')
+    await user.clear(quantity)
+    await user.type(quantity, '3')
+    expect(estimate).toHaveValue('15.000')
+
+    await user.selectOptions(screen.getByLabelText('Sale de'), 'norte')
+    await user.selectOptions(screen.getByLabelText('Llega a'), 'sur')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(window.hw.createStoreTransfer).toHaveBeenCalledWith(expect.objectContaining({
+      productName: 'Aceite',
+      quantity: 3,
+      unit: 'u',
+      estimatedValue: 15000,
+    })))
+  })
 })

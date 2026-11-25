@@ -20,7 +20,7 @@ import DecimalInput from '../components/DecimalInput'
 import NumericInput from '../components/NumericInput'
 import { Button, SuggestLayer, SuggestPopover } from '../components/ui'
 import { formatARS } from '../lib/datetime'
-import { parseDecimalInput, parseNumericInput } from '../lib/numericInput'
+import { formatIntegerWithDots, parseDecimalInput, parseNumericInput } from '../lib/numericInput'
 import type { AdminProductRow, SessionInfo, StoreRow, StoreTransferRow } from '../types/hw-api'
 
 const MIN_WEEK_OFFSET = -104
@@ -163,11 +163,22 @@ interface TransferCatalogProduct {
   name: string
   unit: 'kg' | 'unit'
   pluNumber: number | null
+  /** Precio de lista del local de origen. Null si el corte no tiene precio. */
+  price: number | null
 }
 
 function markedIndex(index: number, count: number): number {
   if (count <= 0) return 0
   return ((index % count) + count) % count
+}
+
+function catalogPrice(price: number | null | undefined): number | null {
+  return price != null && price > 0 ? price : null
+}
+
+function estimatedFromPrice(price: number, quantity: number): string {
+  const amount = Math.round(price * quantity)
+  return amount > 0 ? formatIntegerWithDots(String(amount)) : ''
 }
 
 function catalogForIntake(rows: AdminProductRow[]): TransferCatalogProduct[] {
@@ -176,6 +187,7 @@ function catalogForIntake(rows: AdminProductRow[]): TransferCatalogProduct[] {
     name: product.name,
     unit: product.unit,
     pluNumber: product.pluNumber,
+    price: catalogPrice(product.price),
   }))
 }
 
@@ -196,6 +208,8 @@ function TransferForm({
   const [date, setDate] = useState(civilYmd())
   const [notes, setNotes] = useState('')
   const [valueRaw, setValueRaw] = useState('')
+  const [unitPrice, setUnitPrice] = useState<number | null>(null)
+  const valueEditedRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [catalog, setCatalog] = useState<TransferCatalogProduct[]>([])
@@ -227,13 +241,14 @@ function TransferForm({
     : null
   const showAdd = Boolean(productName.trim()) && !exact
   const suggestions = useMemo(() => {
-    const rows: Array<{ id: string; label: string; title: string; name: string; unit: 'kg' | 'unit' | null; pluNumber: number | null }> = matches.map(product => ({
+    const rows: Array<{ id: string; label: string; title: string; name: string; unit: 'kg' | 'unit' | null; pluNumber: number | null; price: number | null }> = matches.map(product => ({
       id: product.id,
       label: product.name,
       title: product.name,
       name: product.name,
       unit: product.unit,
       pluNumber: product.pluNumber,
+      price: product.price,
     }))
     if (showAdd) {
       const name = productName.trim().slice(0, 80)
@@ -244,6 +259,7 @@ function TransferForm({
         name,
         unit: null,
         pluNumber: null,
+        price: null,
       })
     }
     return rows
@@ -251,17 +267,29 @@ function TransferForm({
   const listOpen = Boolean(productName.trim()) && !listHidden && suggestions.length > 0
   const current = markedIndex(highlight, suggestions.length)
 
-  function chooseProduct(name: string, catalogUnit: 'kg' | 'unit' | null): void {
+  function chooseProduct(name: string, catalogUnit: 'kg' | 'unit' | null, price: number | null): void {
+    const nextUnit: StoreTransferUnit = catalogUnit == null ? unit : catalogUnit === 'kg' ? 'kg' : 'u'
+    const unitChanged = catalogUnit != null && unit !== nextUnit
+    const qtyRaw = unitChanged ? '' : quantityRaw
     setProductName(name.slice(0, 80))
-    if (catalogUnit) {
-      const next: StoreTransferUnit = catalogUnit === 'kg' ? 'kg' : 'u'
-      if (unit !== next) {
-        setUnit(next)
-        setQuantityRaw('')
-      }
+    if (unitChanged) {
+      setUnit(nextUnit)
+      setQuantityRaw('')
     }
+    const nextPrice = catalogPrice(price)
+    setUnitPrice(nextPrice)
+    valueEditedRef.current = false
+    const qty = parseQuantity(qtyRaw, nextUnit)
+    setValueRaw(nextPrice != null && qty != null && qty > 0 ? estimatedFromPrice(nextPrice, qty) : '')
     setListHidden(true)
     setHighlight(0)
+  }
+
+  function changeQuantity(next: string): void {
+    setQuantityRaw(next)
+    if (valueEditedRef.current || unitPrice == null) return
+    const qty = parseQuantity(next, unit)
+    setValueRaw(qty != null && qty > 0 ? estimatedFromPrice(unitPrice, qty) : '')
   }
 
   function handleProductKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
@@ -276,7 +304,7 @@ function TransferForm({
     if (event.key === 'Enter') {
       event.preventDefault()
       const pick = suggestions[current]
-      if (pick) chooseProduct(pick.name, pick.unit)
+      if (pick) chooseProduct(pick.name, pick.unit, pick.price)
       return
     }
     if (event.key === 'Escape') {
@@ -319,6 +347,8 @@ function TransferForm({
     setQuantityRaw('')
     setNotes('')
     setValueRaw('')
+    setUnitPrice(null)
+    valueEditedRef.current = false
     onCreated()
   }
 
@@ -340,6 +370,8 @@ function TransferForm({
             setProductName(event.target.value)
             setHighlight(0)
             setListHidden(false)
+            setUnitPrice(null)
+            if (!valueEditedRef.current) setValueRaw('')
           }}
           onKeyDownCapture={handleProductKeyDown}
           placeholder="Buscar producto…"
@@ -367,7 +399,7 @@ function TransferForm({
                     }`}
                     onMouseDown={event => {
                       event.preventDefault()
-                      chooseProduct(suggestion.name, suggestion.unit)
+                      chooseProduct(suggestion.name, suggestion.unit, suggestion.price)
                     }}
                     onMouseEnter={() => setHighlight(index)}
                   >
@@ -388,14 +420,14 @@ function TransferForm({
           {unit === 'kg' ? (
             <DecimalInput
               value={quantityRaw}
-              onChange={setQuantityRaw}
+              onChange={changeQuantity}
               weightMode
               className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink"
             />
           ) : (
             <NumericInput
               value={quantityRaw}
-              onChange={setQuantityRaw}
+              onChange={changeQuantity}
               className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink"
             />
           )}
@@ -408,6 +440,8 @@ function TransferForm({
             onChange={event => {
               setUnit(event.target.value as StoreTransferUnit)
               setQuantityRaw('')
+              setUnitPrice(null)
+              if (!valueEditedRef.current) setValueRaw('')
             }}
             className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink"
           >
@@ -471,7 +505,10 @@ function TransferForm({
         <NumericInput
           aria-label="Valor estimado"
           value={valueRaw}
-          onChange={setValueRaw}
+          onChange={next => {
+            valueEditedRef.current = true
+            setValueRaw(next)
+          }}
           className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink"
         />
         <span className="text-xs text-muted">Opcional. No es una compra ni un gasto.</span>
