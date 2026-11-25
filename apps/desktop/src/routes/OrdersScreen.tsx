@@ -476,6 +476,10 @@ export default function OrdersScreen({ isAdmin, onBack, currentShiftId, sessionS
     // Construir items del carrito para inyectar en el POS
     const checked = chargeCartLines.filter(line => line.checked)
     for (const line of checked) {
+      if (!(line.unitPrice > 0)) {
+        setChargeError(`Ingresá el precio de ${line.name}.`)
+        return
+      }
       if (line.ticketTotal != null && line.ticketTotal > 0) continue
       const typed = line.unit === 'kg'
         ? parseDecimalInput(line.qtyRaw)

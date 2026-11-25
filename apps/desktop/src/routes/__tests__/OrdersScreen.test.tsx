@@ -208,6 +208,47 @@ describe('OrdersScreen — lista Listos / Pendientes', () => {
     expect(screen.getByText('Vacío')).toBeInTheDocument()
   })
 
+  it('pide el precio de una picada antes de pasarla a la caja', async () => {
+    vi.mocked(window.hw.listOrders).mockResolvedValue({
+      ok: true,
+      data: [order({
+        id: 'picada-1',
+        pickupDate: '2026-09-02',
+        status: 'ready',
+        customerName: 'Picada',
+        readyAt: '2026-09-02T12:00:00.000Z',
+        items: 'Picada especial',
+        budgetItems: [{
+          productId: 'pic',
+          name: 'Picada especial',
+          unit: 'kg',
+          pluNumber: null,
+          estimatedQty: 1.2,
+          unitPrice: 0,
+        }],
+      })],
+    })
+    const inject = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <OrdersScreen
+        isAdmin={false}
+        onBack={() => {}}
+        currentShiftId="shift-1"
+        onInjectOrderCart={inject}
+      />,
+    )
+    expect(await screen.findByText('Picada')).toBeInTheDocument()
+    await user.click(screen.getByText('Picada'))
+    const card = document.getElementById('order-picada-1')
+    if (!card) throw new Error('No está la tarjeta del pedido')
+    await user.click(within(card).getByRole('button', { name: 'Cobrar' }))
+    expect(await screen.findByRole('heading', { name: 'Cobrar pedido' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Confirmar' }))
+    expect(screen.getByText('Ingresá el precio de Picada especial.')).toBeInTheDocument()
+    expect(inject).not.toHaveBeenCalled()
+  })
+
   it('el borrador de cobro sobrevive al desmonte y no se mezcla entre pedidos', async () => {
     const user = userEvent.setup()
     const view = render(<OrdersScreen isAdmin={false} onBack={() => {}} currentShiftId="shift-1" />)

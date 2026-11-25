@@ -641,7 +641,11 @@ export default function OrderFormModal({
                       <div className="flex items-center gap-2 bg-hover rounded-lg px-3 py-1.5">
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-ink truncate" title={line.name}>{line.name}</p>
-                          <p className="text-[10px] text-muted">{formatARS(line.unitPrice)} / {line.unit === 'kg' ? 'kg' : 'u'}</p>
+                          <p className="text-[10px] text-muted">
+                            {line.unitPrice > 0
+                              ? `${formatARS(line.unitPrice)} / ${line.unit === 'kg' ? 'kg' : 'u'}`
+                              : 'Precio al cobrar'}
+                          </p>
                           {line.unit === 'kg' && line.productId && pieceWeights[line.productId] != null && (
                             <p className="text-[10px] text-muted">Referencia {formatKgQty(pieceWeights[line.productId]!)} c/u</p>
                           )}
