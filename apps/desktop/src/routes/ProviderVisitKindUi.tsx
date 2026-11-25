@@ -9,10 +9,14 @@ import { formatARS } from '../lib/datetime'
 import {
   CHICKEN_VISIT_NAME,
   DEFAULT_MAPLE_PACK_LABEL,
+  DELANTERO_VISIT_NAME,
+  MEDIA_RES_VISIT_NAME,
   MERCH_INTAKE_MAX_WEIGHTS,
   PROVIDER_INTAKE_KIND_LABELS,
   emptyChickenFormLine,
+  emptyDelanteroFormLine,
   emptyMediaResFormLine,
+  merchNameKey,
   lineCostTotal,
   merchProductKey,
   resizeWeightInputs,
@@ -146,13 +150,21 @@ export function MediaResVisitForm({
   onChange: (lines: MerchVisitFormLine[]) => void
 }) {
   const line = lines[0] ?? emptyMediaResFormLine()
+  const pieceName = merchNameKey(line.name) === merchNameKey(DELANTERO_VISIT_NAME)
+    ? DELANTERO_VISIT_NAME
+    : MEDIA_RES_VISIT_NAME
   const count = parseNumericInput(line.countRaw) ?? 0
   const weights = line.weightRaws
   const progress = kgProgressHint(count, weights, { one: 'unidad', many: 'unidades' })
 
   function commit(patch: Partial<MerchVisitFormLine>) {
-    const next = { ...line, ...patch, name: 'Media res', weighPieces: true, unitCostRaw: '0', costUnit: null }
+    const next = { ...line, ...patch, name: pieceName, weighPieces: true, unitCostRaw: '0', costUnit: null }
     onChange([next])
+  }
+
+  function choosePiece(name: typeof MEDIA_RES_VISIT_NAME | typeof DELANTERO_VISIT_NAME) {
+    const blank = name === DELANTERO_VISIT_NAME ? emptyDelanteroFormLine() : emptyMediaResFormLine()
+    onChange([{ ...blank, key: line.key, countRaw: line.countRaw, weightRaws: line.weightRaws }])
   }
 
   function setCount(raw: string) {
@@ -166,6 +178,23 @@ export function MediaResVisitForm({
 
   return (
     <div className="space-y-3 rounded-xl border border-line bg-raised/40 p-3">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Qué entró">
+        {([MEDIA_RES_VISIT_NAME, DELANTERO_VISIT_NAME] as const).map(name => (
+          <button
+            key={name}
+            type="button"
+            aria-pressed={pieceName === name}
+            onClick={() => choosePiece(name)}
+            className={`rounded-lg border px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+              pieceName === name
+                ? 'border-line-strong bg-hover font-medium text-ink'
+                : 'border-line bg-panel font-normal text-ink hover:bg-hover'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
       <label className="block space-y-1">
         <span className="text-xs text-muted">Unidades</span>
         <NumericInput

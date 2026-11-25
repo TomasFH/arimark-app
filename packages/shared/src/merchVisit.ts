@@ -45,6 +45,7 @@ export const PROVIDER_INTAKE_KIND_LABELS: Record<ProviderIntakeKind, string> = {
 }
 
 export const MEDIA_RES_VISIT_NAME = 'Media res'
+export const DELANTERO_VISIT_NAME = 'Delantero'
 export const CHICKEN_VISIT_NAME = 'Pollo'
 
 export const DEFAULT_MAPLE_PACK_CONTENTS = 12
@@ -681,14 +682,32 @@ export function emptyMerchVisitFormLine(partial?: Partial<MerchVisitFormLine>): 
 }
 
 export function emptyMediaResFormLine(): MerchVisitFormLine {
+  return emptyPieceArrivalFormLine(MEDIA_RES_VISIT_NAME)
+}
+
+export function emptyDelanteroFormLine(): MerchVisitFormLine {
+  return emptyPieceArrivalFormLine(DELANTERO_VISIT_NAME)
+}
+
+function emptyPieceArrivalFormLine(name: string): MerchVisitFormLine {
   return emptyMerchVisitFormLine({
-    name: MEDIA_RES_VISIT_NAME,
+    name,
     weighPieces: true,
     countRaw: '',
     weightRaws: [],
     unitCostRaw: '0',
     costUnit: null,
   })
+}
+
+export function isPieceArrivalFormLine(line: {
+  name: string
+  weighPieces: boolean
+  costUnit: MerchCostUnit | null
+}): boolean {
+  if (!line.weighPieces || line.costUnit != null) return false
+  const key = merchNameKey(line.name)
+  return key === merchNameKey(MEDIA_RES_VISIT_NAME) || key === merchNameKey(DELANTERO_VISIT_NAME)
 }
 
 export function emptyChickenFormLine(lastCost?: number): MerchVisitFormLine {
@@ -765,7 +784,11 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
     ?? (line.weighPieces && costUnit === 'pack' ? 'each' : null)
   const parsedCost = parsePurchaseUnitCostRaw(line.unitCostRaw)
   const isPieces = line.weighPieces && costUnit !== 'pack'
-  const mediaResLump = isPieces && merchNameKey(name) === merchNameKey(MEDIA_RES_VISIT_NAME)
+  const pieceKey = merchNameKey(name)
+  const pieceLump = isPieces && (
+    pieceKey === merchNameKey(MEDIA_RES_VISIT_NAME) || pieceKey === merchNameKey(DELANTERO_VISIT_NAME)
+  )
+  const mediaResLump = pieceLump && pieceKey === merchNameKey(MEDIA_RES_VISIT_NAME)
   let deliveryPaid: number | null | undefined
   if (mediaResLump) {
     const paid = parsePesosRaw(line.deliveryPaidRaw ?? '')
@@ -796,7 +819,8 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
   } else if (isPieces) {
     const pieces = parsePesosRaw(line.countRaw)
     if (pieces != null && pieces > 0 && weightsKg.length !== pieces) {
-      return { error: 'Cargá el kilo de cada media res.' }
+      const noun = pieceKey === merchNameKey(DELANTERO_VISIT_NAME) ? 'delantero' : 'media res'
+      return { error: `Cargá el kilo de cada ${noun}.` }
     }
   }
   return {
@@ -811,10 +835,10 @@ export function merchFormLineToDraft(line: MerchVisitFormLine): MerchVisitLineDr
     packCount: parsePesosRaw(line.packCountRaw),
     count: parsePesosRaw(line.countRaw),
     weightsKg,
-    unitCost: mediaResLump ? 0 : unitCost,
+    unitCost: pieceLump ? 0 : unitCost,
     costUnit,
     weighMode,
-    moneyRole: mediaResLump
+    moneyRole: pieceLump
       ? (deliveryPaid != null && deliveryPaid > 0 ? 'informed' : 'none')
       : (isPieces ? (moneyRole ?? (unitCost > 0 ? 'informed' : 'none')) : (moneyRole ?? 'payable')),
     ...(mediaResLump ? { deliveryPaid } : {}),

@@ -1,9 +1,10 @@
 /**
  * Modal para registrar un gasto durante el turno activo.
  *
- * Dos modos excluyentes:
+ * Tres modos excluyentes:
  *   - Otros: qué se pagó + monto. Sin proveedor ni mercadería.
  *   - Proveedor: quién trajo mercadería, renglones, entregado / deuda.
+ *   - Entró y no se pagó acá: piezas y kilos, fuera del total de caja.
  * El concepto no se pide en una visita: el proveedor identifica el registro.
  * Autocomplete de proveedores (LIST_PROVIDERS). Nombre nuevo se crea al guardar.
  * Deuda pendiente: el exceso entregado se aplica solo. Comprobante al confirmar.
@@ -20,6 +21,8 @@ import { namedSuggest } from '../lib/namedSuggest'
 import type { ExpenseRow, ProviderDebtRow, ProviderRow, StoreRow } from '../types/hw-api'
 import ProviderVisitMerchBlock, { type PurchaseMemoryMap, type VisitCatalogProduct } from './ProviderVisitMerchBlock'
 import {
+  emptyMediaResFormLine,
+  isPieceArrivalFormLine,
   formatPurchaseUnitCost,
   formatRecallCostUnit,
   formatWeighMode,
@@ -33,6 +36,7 @@ import {
   type MerchVisitReceiptItem,
   type PurchaseRecallChange,
 } from '@carniceria/shared'
+import { MediaResVisitForm } from './ProviderVisitKindUi'
 
 interface Props {
   onRegistered: () => void
@@ -63,6 +67,10 @@ function markedIndex(index: number, count: number): number {
 function kindFromExpense(expense: ExpenseRow | undefined): ExpenseKind {
   if (!expense) return 'provider'
   return expense.providerId || expense.provider ? 'provider' : 'simple'
+}
+
+function isUnpaidPieceLine(line: MerchVisitFormLine): boolean {
+  return isPieceArrivalFormLine(line)
 }
 
 interface ReceiptData {
@@ -139,6 +147,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [confirmStep, setConfirmStep] = useState<'prices' | 'summary' | null>(null)
   const [recallChanges, setRecallChanges] = useState<PurchaseRecallChange[]>([])
   const [suppliesOnly, setSuppliesOnly] = useState(false)
+  const [unpaidArrival, setUnpaidArrival] = useState(false)
   const [paymentChannel, setPaymentChannel] = useState<'cash' | 'digital'>('cash')
   const [draftHydrated, setDraftHydrated] = useState(!!editingExpense)
   const acceptPriceUpdatesRef = useRef(true)
@@ -195,6 +204,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         if (r.data.providerId) setSelectedProviderId(r.data.providerId)
         if (r.data.notes) setNotes(r.data.notes)
         setMerchLines(r.data.lines)
+        if (r.data.lines.length > 0 && r.data.lines.every(isUnpaidPieceLine)) setUnpaidArrival(true)
         setDraftHydrated(true)
       })
     } else {
@@ -308,8 +318,12 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setProviderInput(p.name)
     if (p.id !== selectedProviderId) setProviderDebt(null)
     setSelectedProviderId(p.id)
-    setSuppliesOnly(p.intakeKind === 'insumos')
+    const pieceVisit = p.intakeKind === 'media_res'
+      && (merchLines.length === 0 || merchLines.every(isUnpaidPieceLine))
+    setUnpaidArrival(pieceVisit)
+    setSuppliesOnly(!pieceVisit && p.intakeKind === 'insumos')
     setConcept(p.intakeKind === 'insumos' ? (p.supplyConcept ?? '') : '')
+    if (pieceVisit && merchLines.length === 0) setMerchLines([emptyMediaResFormLine()])
     setShowProviderSuggestions(false)
   }
 
@@ -326,6 +340,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setSelectedProviderId(null)
     setProviderDebt(null)
     setSuppliesOnly(false)
+    setUnpaidArrival(false)
     setConcept('')
     setProviderHighlight(0)
     setShowProviderSuggestions(true)
@@ -494,6 +509,53 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setSelectedProviderId(r.data.id)
   }
 
+  function selectVisitTab(tab: 'goods' | 'supplies' | 'unpaid') {
+    setPaymentChannel('cash')
+    clearError()
+    if (tab === 'supplies') {
+      setUnpaidArrival(false)
+      setSuppliesOnly(true)
+      if (!concept.trim()) {
+        const current = providerSuggestions.find(p => p.id === (selectedProviderId ?? exactProvider?.id))
+        if (current?.supplyConcept) setConcept(current.supplyConcept)
+      }
+      return
+    }
+    if (tab === 'unpaid') {
+      setSuppliesOnly(false)
+      setUnpaidArrival(true)
+      setMerchLines(current => (
+        current.length > 0 && current.every(isUnpaidPieceLine) ? current : [emptyMediaResFormLine()]
+      ))
+      return
+    }
+    setSuppliesOnly(false)
+    setUnpaidArrival(false)
+    setMerchLines(current => (current.every(isUnpaidPieceLine) ? [] : current))
+  }
+
+  async function confirmUnpaid() {
+    if (!merchResolved?.ok) return
+    setSaving(true)
+    clearError()
+    const r = await window.hw.confirmMerchVisit({
+      lines: merchResolved.drafts,
+      notes: notes.trim() || undefined,
+      providerId: selectedProviderId ?? undefined,
+      provider: selectedProviderId ? undefined : providerInput.trim(),
+      amount: 0,
+      acceptPriceUpdates: false,
+      clientRequestId: visitRequestId(),
+      paymentChannel: 'cash',
+      visitKind: 'media_res',
+    })
+    setSaving(false)
+    if (!r.ok) { showError(r.error, 'merch'); return }
+    onDraftChanged?.()
+    onSaved?.()
+    onRegistered()
+  }
+
   async function confirmVisit(acceptPriceUpdates: boolean) {
     if (!merchResolved?.ok) return
     setSaving(true)
@@ -559,6 +621,18 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     }
 
     if (!hasProviderName) { showError('Ingresá el proveedor.', 'provider'); return }
+
+    if (unpaidArrival) {
+      if (!merchResolved?.ok) {
+        showError(
+          merchResolved && 'error' in merchResolved ? merchResolved.error : 'Cargá el kilo de cada media res.',
+          'merch',
+        )
+        return
+      }
+      await confirmUnpaid()
+      return
+    }
 
     if (suppliesOnly) {
       if (!concept.trim()) {
@@ -947,7 +1021,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           )}
         </div>
 
-        {showVisitFields && hasProviderDebt && (
+        {showVisitFields && !unpaidArrival && hasProviderDebt && (
           <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3">
             <div className="flex items-center justify-between gap-2 min-w-0">
               <p className="min-w-0 flex-1 truncate text-sm font-medium text-danger">Deuda anterior</p>
@@ -960,7 +1034,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             )}
           </div>
         )}
-        {showVisitFields && hasProviderCredit && (
+        {showVisitFields && !unpaidArrival && hasProviderCredit && (
           <div className={`rounded-xl border ${successNoticeClass} px-4 py-3`}>
             <div className="flex items-center justify-between gap-2 min-w-0">
               <p className="min-w-0 flex-1 truncate text-sm font-medium text-success">Saldo a favor</p>
@@ -977,37 +1051,46 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         {showVisitFields && !isEditing && (
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="Contenido de la visita">
             {([
-              { id: false, label: 'Mercadería' },
-              { id: true, label: 'Solo insumos' },
-            ] as const).map(opt => (
+              { id: 'goods', label: 'Mercadería' },
+              { id: 'unpaid', label: 'Entró y no se pagó acá' },
+              { id: 'supplies', label: 'Solo insumos' },
+            ] as const).map(opt => {
+              const selected = opt.id === 'supplies'
+                ? suppliesOnly
+                : opt.id === 'unpaid'
+                  ? unpaidArrival
+                  : !suppliesOnly && !unpaidArrival
+              return (
               <button
-                key={opt.label}
+                key={opt.id}
                 type="button"
                 role="tab"
-                aria-selected={suppliesOnly === opt.id}
+                aria-selected={selected}
                 onClick={() => {
-                  if (suppliesOnly === opt.id) return
-                  setSuppliesOnly(opt.id)
-                  setPaymentChannel('cash')
-                  if (opt.id && !concept.trim()) {
-                    const current = providerSuggestions.find(p => p.id === (selectedProviderId ?? exactProvider?.id))
-                    if (current?.supplyConcept) setConcept(current.supplyConcept)
-                  }
-                  clearError()
+                  if (selected) return
+                  selectVisitTab(opt.id)
                 }}
                 className={`rounded-lg border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-                  suppliesOnly === opt.id
+                  selected
                     ? 'border-line-strong bg-hover font-medium text-ink'
                     : 'border-line bg-panel font-normal text-ink hover:bg-hover'
                 }`}
               >
                 {opt.label}
               </button>
-            ))}
+              )
+            })}
           </div>
         )}
 
-        {showVisitFields && !isEditing && !suppliesOnly && (
+        {showVisitFields && !isEditing && unpaidArrival && (
+          <MediaResVisitForm
+            lines={merchLines}
+            onChange={lines => { setMerchLines(lines); clearError() }}
+          />
+        )}
+
+        {showVisitFields && !isEditing && !suppliesOnly && !unpaidArrival && (
           <ProviderVisitMerchBlock
             products={catalog}
             memory={memory}
@@ -1069,7 +1152,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
         </div>
         )}
 
-        {showVisitFields && (
+        {showVisitFields && !unpaidArrival && (
           <div className="space-y-3 rounded-xl border border-line bg-app p-4">
             {isEditing || suppliesOnly ? (
             <div className="space-y-1">
@@ -1197,7 +1280,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
           </div>
         )}
 
-        {showVisitFields && currentStoreId && stores.filter(s => s.id !== currentStoreId).length > 0 && (
+        {showVisitFields && !unpaidArrival && currentStoreId && stores.filter(s => s.id !== currentStoreId).length > 0 && (
           <div className="space-y-2">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input

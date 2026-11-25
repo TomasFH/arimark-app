@@ -83,6 +83,29 @@ describe('merchVisit', () => {
     expect(r.line.rubroId).toBe('custom:media res')
   })
 
+  it('delantero: piezas y kilos, sin precio y fuera de la media res', () => {
+    const r = resolveMerchVisitLine({
+      productId: null,
+      name: 'Delantero',
+      catalogUnit: null,
+      purchasePackLabel: null,
+      purchasePackContents: null,
+      kg: null,
+      packCount: null,
+      count: 1,
+      weightsKg: [64.5],
+      unitCost: 0,
+      moneyRole: 'none',
+    }, { id: 'l1', sortOrder: 0 })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.line.rubroId).toBe('custom:delantero')
+    expect(r.line.count).toBe(1)
+    expect(r.line.netKg).toBe(64.5)
+    expect(r.line.costTotal).toBe(0)
+    expect(r.line.moneyRole).toBe('none')
+  })
+
   it('pollo: kilos por cajón y precio por cajón, no por kg', () => {
     const r = resolveMerchVisitLine({
       productId: null,

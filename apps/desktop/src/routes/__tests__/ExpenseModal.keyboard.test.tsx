@@ -72,6 +72,20 @@ describe('ExpenseModal — teclado de las listas', () => {
     await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1))
   })
 
+  it('la mercadería que no se pagó acá pide piezas y kilos, no plata', async () => {
+    const user = userEvent.setup()
+    render(<ExpenseModal onRegistered={vi.fn()} onCancel={onCancel} />)
+    const field = await screen.findByPlaceholderText('Nombre del proveedor…')
+    await user.type(field, 'g')
+    expect(await screen.findByText('Guido')).toBeInTheDocument()
+    fireEvent.keyDown(field, { key: 'Enter' })
+
+    await user.click(await screen.findByRole('tab', { name: 'Entró y no se pagó acá' }))
+    expect(screen.getByText('Unidades')).toBeInTheDocument()
+    expect(screen.queryByText('Entregado al proveedor ($)')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Total de la visita/)).not.toBeInTheDocument()
+  })
+
   it('elige el concepto de Otros con el teclado', async () => {
     const user = userEvent.setup()
     render(<ExpenseModal onRegistered={vi.fn()} onCancel={onCancel} />)

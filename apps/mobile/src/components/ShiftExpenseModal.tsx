@@ -307,7 +307,7 @@ export function ShiftExpenseModal({ storeId, shiftId, userId, catalog, onConfirm
 
     if (intakeKind === 'media_res') {
       if (!merchResolved?.ok) {
-        setError(merchResolved && 'error' in merchResolved ? merchResolved.error : 'Cargá el kilo de cada media res.')
+        setError(merchResolved && 'error' in merchResolved ? merchResolved.error : 'Cargá el kilo de cada pieza.')
         setErrorField('merch')
         return
       }

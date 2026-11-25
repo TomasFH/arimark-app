@@ -339,6 +339,35 @@ describe('merchIntake.handler visita', () => {
     expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
   })
 
+  it('delantero: queda anotado sin gasto ni deuda', () => {
+    const result = getHandler('ipc:confirm-merch-visit')(null, {
+      lines: [{
+        productId: null,
+        name: 'Delantero',
+        catalogUnit: null,
+        purchasePackLabel: null,
+        purchasePackContents: null,
+        kg: null,
+        packCount: null,
+        count: 1,
+        weightsKg: [64.5],
+        unitCost: 0,
+        moneyRole: 'none',
+      }],
+      provider: 'Frigorífico',
+      visitKind: 'media_res',
+      acceptPriceUpdates: false,
+    }) as { ok: boolean; data?: { expenseId: string | null } }
+    expect(result.ok).toBe(true)
+    expect(result.data?.expenseId).toBeNull()
+    const line = db.select().from(merchandiseIntakeLines).all().find(row => row.rubroName === 'Delantero')
+    expect(line?.rubroId).toBe('custom:delantero')
+    expect(line?.netKg).toBe(64.5)
+    expect(line?.costTotal).toBe(0)
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+    expect(db.select().from(providerDebtEvents).all()).toHaveLength(0)
+  })
+
   it('pollo: cajones × precio, kilos como hecho', () => {
     const result = getHandler('ipc:confirm-merch-visit')(null, {
       lines: [{

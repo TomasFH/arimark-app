@@ -841,7 +841,7 @@ export function registerMerchIntakeHandlers(): void {
       const visitKind = parsed.data.visitKind ?? 'catalog'
       if (visitKind === 'media_res') {
         if (computed.lines.some(l => l.template !== 'pieces_weight' || (l.netKg ?? 0) <= 0 || (l.count ?? 0) <= 0)) {
-          return { ok: false, error: 'Cargá el kilo de cada media res.', code: 'INVALID_LINE' }
+          return { ok: false, error: 'Cargá el kilo de cada pieza.', code: 'INVALID_LINE' }
         }
       } else if (computed.lines.some(l => lineEntersVisitTotal(l) && l.unitCost <= 0)) {
         return { ok: false, error: 'Cada producto que se paga necesita el precio de compra.', code: 'INVALID_LINE' }
