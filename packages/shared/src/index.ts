@@ -70,6 +70,7 @@ export {
   MERCH_INTAKE_TEMPLATE_LABELS,
   MERCH_INTAKE_UNITS,
   buildMerchWeekBook,
+  redactMerchWeekBook,
   coerceMerchIntakePaymentKind,
   coerceMerchIntakeTemplate,
   coerceMerchIntakeUnit,

@@ -864,3 +864,44 @@ export function buildMerchWeekBook(rows: MerchWeekIntakeInput[]): MerchWeekBook 
 
   return { rubros: rubroTotals, paid, cashOut, debt, providers: providerBlocks }
 }
+
+function linePriceIsInVisitTotal(line: { moneyRole?: MerchIntakeLineSnapshot['moneyRole'] | null }): boolean {
+  return line.moneyRole !== 'informed' && line.moneyRole !== 'none'
+}
+
+/**
+ * Oculta el precio de las líneas que `hideLine` marca.
+ * Si ese precio entraba al total de la visita, también sale del pagado y de la deuda.
+ * El costo informado (la media res anotada) no está en esos dos números y no los mueve.
+ */
+export function redactMerchWeekBook<T extends MerchWeekBook>(
+  book: T,
+  hideLine: (line: MerchIntakeLineSnapshot) => boolean,
+): T {
+  let paid = 0
+  let debt = 0
+  const providers = book.providers.map(provider => {
+    let providerPaid = 0
+    let providerDebt = 0
+    const deliveries = provider.deliveries.map(delivery => {
+      let hiddenFromTotal = 0
+      const lines = delivery.lines.map(line => {
+        if (!hideLine(line)) return line
+        if (linePriceIsInVisitTotal(line)) {
+          hiddenFromTotal += Math.max(0, Math.round(line.costTotal))
+        }
+        return { ...line, unitCost: 0, costTotal: 0, moneyRole: 'none' as const }
+      })
+      const fromPaid = Math.min(delivery.paid, hiddenFromTotal)
+      const nextPaid = delivery.paid - fromPaid
+      const nextDebt = Math.max(0, delivery.debt - (hiddenFromTotal - fromPaid))
+      providerPaid += nextPaid
+      providerDebt += nextDebt
+      return { ...delivery, lines, paid: nextPaid, debt: nextDebt }
+    })
+    paid += providerPaid
+    debt += providerDebt
+    return { ...provider, deliveries, paid: providerPaid, debt: providerDebt }
+  })
+  return { ...book, providers, paid, debt }
+}

@@ -1,9 +1,17 @@
 /**
- * Libro de ingresos de la semana — solo admin, solo PC.
+ * Mercadería recibida: una fila por visita, con el precio de cada producto.
+ * La cajera entra en solo lectura y el proceso principal ya le sacó el monto de la media res.
  * Una semana en pantalla. No precarga las vecinas.
  */
-import { useEffect, useState } from 'react'
-import { formatMerchVisitQty, formatWeekRangeLabel, isMediaResLine, mondayWeekRange } from '@carniceria/shared'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  formatMerchCostUnit,
+  formatMerchVisitQty,
+  formatWeekRangeLabel,
+  isMediaResLine,
+  merchVisitTotal,
+  mondayWeekRange,
+} from '@carniceria/shared'
 import type { MerchIntakeLineSnapshot } from '@carniceria/shared'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
@@ -18,6 +26,8 @@ const MIN_WEEK_OFFSET = -104
 interface Props {
   onBack: () => void
   onLogout: () => void
+  /** El admin anota el monto de la media res. La cajera no lo ve ni lo edita. */
+  canPriceMediaRes: boolean
 }
 
 function providerKey(providerId: string | null, providerName: string): string {
@@ -77,9 +87,10 @@ function MediaResPaidEditor({
   )
 }
 
-export default function IngresosScreen({ onBack, onLogout }: Props) {
+export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: Props) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [storeIdFilter, setStoreIdFilter] = useState('all')
+  const [providerFilter, setProviderFilter] = useState('all')
   const [stores, setStores] = useState<StoreRow[]>([])
   const [book, setBook] = useState<MerchWeekBookResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -100,6 +111,12 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
     setBook(null)
     setOpenKeys(new Set())
   }, [weekOffset, storeIdFilter])
+
+  useEffect(() => {
+    if (!book || providerFilter === 'all') return
+    const keys = book.providers.map(provider => providerKey(provider.providerId, provider.providerName))
+    if (!keys.includes(providerFilter)) setProviderFilter('all')
+  }, [book, providerFilter])
 
   useEffect(() => {
     let cancelled = false
@@ -124,39 +141,72 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
     setWeekOffset(clamped)
   }
 
-  function toggleProvider(key: string) {
+  function toggleVisit(id: string) {
     setOpenKeys(current => {
       const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
 
-  const empty = book != null && book.providers.length === 0
+  const visits = useMemo(() => {
+    const rows: Array<{
+      providerName: string
+      delivery: MerchWeekBookResult['providers'][number]['deliveries'][number]
+    }> = []
+    for (const provider of book?.providers ?? []) {
+      const key = providerKey(provider.providerId, provider.providerName)
+      if (providerFilter !== 'all' && key !== providerFilter) continue
+      for (const delivery of provider.deliveries) {
+        rows.push({ providerName: provider.providerName, delivery })
+      }
+    }
+    rows.sort((a, b) => b.delivery.createdAt.localeCompare(a.delivery.createdAt))
+    return rows
+  }, [book, providerFilter])
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-app text-ink">
       <AdminSectionHeader
-        title="Ingresos"
-        subtitle="Mercadería que entró, por semana"
+        title="Mercadería recibida"
+        subtitle="Una fila por visita"
         onBack={onBack}
         onLogout={onLogout}
       />
 
       <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto w-full max-w-5xl space-y-5 px-8 py-5">
-          {stores.length > 0 && (
-            <div className="max-w-xs">
-              <label className="mb-1 block text-xs text-muted" htmlFor="ingresos-store">Local</label>
-              <HistoryStoreSelect
-                id="ingresos-store"
-                stores={stores}
-                value={storeIdFilter}
-                onChange={setStoreIdFilter}
-              />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {stores.length > 0 && (
+              <div className="min-w-0">
+                <label className="mb-1 block text-xs text-muted" htmlFor="ingresos-store">Local</label>
+                <HistoryStoreSelect
+                  id="ingresos-store"
+                  stores={stores}
+                  value={storeIdFilter}
+                  onChange={setStoreIdFilter}
+                />
+              </div>
+            )}
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs text-muted" htmlFor="ingresos-provider">Proveedor</label>
+              <select
+                id="ingresos-provider"
+                value={providerFilter}
+                onChange={event => setProviderFilter(event.target.value)}
+                className="h-9 w-full rounded-lg border border-line bg-input px-2 text-sm text-ink focus:border-line-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              >
+                <option value="all">Todos</option>
+                {(book?.providers ?? []).map(provider => {
+                  const key = providerKey(provider.providerId, provider.providerName)
+                  return (
+                    <option key={key} value={key}>{provider.providerName}</option>
+                  )
+                })}
+              </select>
             </div>
-          )}
+          </div>
 
           <div className="flex min-w-0 items-center gap-2">
             <Button
@@ -195,118 +245,86 @@ export default function IngresosScreen({ onBack, onLogout }: Props) {
             <p className="py-8 text-center text-sm text-muted">Cargando…</p>
           )}
 
-          {book && !error && (
-            <>
-              <div className="grid gap-3 md:grid-cols-2">
-                <section className="rounded-2xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">Entró</h2>
-                  {book.rubros.length === 0 ? (
-                    <p className="mt-3 text-sm text-muted">Esta semana no ingresó mercadería.</p>
-                  ) : (
-                    <ul className="mt-3 space-y-2">
-                      {book.rubros.map(rubro => (
-                        <li key={rubro.rubroId} className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm text-ink" title={rubro.rubroName}>
-                            {rubro.rubroName}
-                          </span>
-                          <span className="shrink-0 text-sm text-muted">{rubro.qtyLabel}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+          {book && !error && visits.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted">No hay visitas en este filtro.</p>
+          )}
 
-                <section className="rounded-2xl border border-line bg-panel p-4">
-                  <h2 className="text-sm font-semibold text-ink">Plata de la semana</h2>
-                  <dl className="mt-3 space-y-2 text-sm">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <dt className="min-w-0 flex-1 truncate text-muted" title="Pagado a proveedores">Pagado a proveedores</dt>
-                      <dd className="shrink-0 font-medium text-ink">{formatARS(book.paid)}</dd>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2">
-                      <dt className="min-w-0 flex-1 truncate text-muted" title="Salió de caja">Salió de caja</dt>
-                      <dd className="shrink-0 font-medium text-ink">{formatARS(book.cashOut)}</dd>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2">
-                      <dt className="min-w-0 flex-1 truncate text-muted" title="Deuda nueva">Deuda nueva</dt>
-                      <dd className="shrink-0 font-medium text-ink">{formatARS(book.debt)}</dd>
-                    </div>
-                  </dl>
-                </section>
+          {book && !error && visits.length > 0 && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[8.5rem_minmax(0,1.2fr)_minmax(0,1fr)_5.5rem_5.5rem_6.5rem] gap-2 px-4 text-xs text-muted">
+                <span>Fecha</span>
+                <span>Proveedor</span>
+                <span>Local</span>
+                <span className="text-right">Total</span>
+                <span className="text-right">Pagado</span>
+                <span className="truncate text-right" title="Quedó debiendo">Quedó debiendo</span>
               </div>
-
-              {empty ? null : (
-                <div className="space-y-2">
-                  {book.providers.map(provider => {
-                    const key = providerKey(provider.providerId, provider.providerName)
-                    const open = openKeys.has(key)
-                    return (
-                      <section key={key} className="rounded-2xl border border-line bg-panel">
-                        <button
-                          type="button"
-                          className="flex w-full min-w-0 items-center gap-2 px-4 py-3 text-left"
-                          aria-expanded={open}
-                          onClick={() => toggleProvider(key)}
-                        >
-                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={provider.providerName}>
-                            {provider.providerName}
-                          </span>
-                          <span className="shrink-0 text-xs text-muted">Pagado {formatARS(provider.paid)}</span>
-                          <span className="shrink-0 text-xs text-muted">Salió de caja {formatARS(provider.cashOut)}</span>
-                        </button>
-                        {open && (
-                          <ul className="space-y-4 border-t border-line px-4 py-3">
-                            {provider.deliveries.map(delivery => (
-                              <li key={delivery.id} className="space-y-1">
-                                <p className="text-sm text-ink">{toLocalDateTime(delivery.createdAt)}</p>
-                                <p className="min-w-0 truncate text-sm text-muted" title={delivery.createdByName}>
-                                  Recibió {delivery.createdByName}
-                                </p>
-                                <ul className="space-y-2">
-                                  {delivery.lines.map(line => {
-                                    const qty = formatMerchVisitQty(line)
-                                    return (
-                                      <li key={line.id} className="space-y-1">
-                                        <div className="flex min-w-0 items-center gap-2">
-                                          <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.rubroName}>
-                                            {line.rubroName}
-                                          </span>
-                                          {qty && <span className="shrink-0 text-sm text-muted">{qty}</span>}
-                                        </div>
-                                        {isMediaResLine(line) && (
-                                          <MediaResPaidEditor line={line} onSaved={() => setRevision(value => value + 1)} />
-                                        )}
-                                      </li>
-                                    )
-                                  })}
-                                </ul>
-                                {delivery.notes?.trim() && (
-                                  <p className="min-w-0 truncate text-sm text-muted" title={delivery.notes}>
-                                    {delivery.notes}
-                                  </p>
+            <ul className="space-y-2">
+              {visits.map(({ providerName, delivery }) => {
+                const open = openKeys.has(delivery.id)
+                const total = merchVisitTotal(delivery.lines)
+                const when = toLocalDateTime(delivery.createdAt)
+                return (
+                  <li key={delivery.id} className="rounded-2xl border border-line bg-panel">
+                    <button
+                      type="button"
+                      className="grid w-full grid-cols-[8.5rem_minmax(0,1.2fr)_minmax(0,1fr)_5.5rem_5.5rem_6.5rem] items-center gap-2 px-4 py-3 text-left"
+                      aria-expanded={open}
+                      onClick={() => toggleVisit(delivery.id)}
+                    >
+                      <span className="truncate text-sm text-ink" title={when}>{when}</span>
+                      <span className="min-w-0 truncate text-sm font-semibold text-ink" title={providerName}>
+                        {providerName}
+                      </span>
+                      <span className="min-w-0 truncate text-sm text-muted" title={delivery.storeName}>
+                        {delivery.storeName}
+                      </span>
+                      <span className="truncate text-right text-sm tabular-nums text-ink" title={formatARS(total)}>{formatARS(total)}</span>
+                      <span className="truncate text-right text-sm tabular-nums text-muted" title={formatARS(delivery.paid)}>{formatARS(delivery.paid)}</span>
+                      <span className="truncate text-right text-sm tabular-nums text-muted" title={formatARS(delivery.debt)}>{formatARS(delivery.debt)}</span>
+                    </button>
+                    {open && (
+                      <div className="space-y-2 border-t border-line px-4 py-3">
+                        <p className="min-w-0 truncate text-xs text-muted" title={delivery.createdByName}>
+                          Recibió {delivery.createdByName}
+                        </p>
+                        <ul className="space-y-2">
+                          {delivery.lines.map(line => {
+                            const qty = formatMerchVisitQty(line)
+                            const unit = line.unitCost > 0
+                              ? `${formatARS(line.unitCost)}${line.costUnit ? ` ${formatMerchCostUnit(line.costUnit)}` : ''}`
+                              : ''
+                            return (
+                              <li key={line.id} className="space-y-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.rubroName}>
+                                    {line.rubroName}
+                                  </span>
+                                  {qty && <span className="shrink-0 text-sm text-muted">{qty}</span>}
+                                  {unit && <span className="shrink-0 text-sm tabular-nums text-ink">{unit}</span>}
+                                  {line.costTotal > 0 && (
+                                    <span className="shrink-0 text-sm tabular-nums text-ink">{formatARS(line.costTotal)}</span>
+                                  )}
+                                </div>
+                                {canPriceMediaRes && isMediaResLine(line) && (
+                                  <MediaResPaidEditor line={line} onSaved={() => setRevision(value => value + 1)} />
                                 )}
-                                {storeIdFilter === 'all' && (
-                                  <p className="min-w-0 truncate text-sm text-muted" title={delivery.storeName}>
-                                    {delivery.storeName}
-                                  </p>
-                                )}
-                                <p className="text-xs text-muted">
-                                  Pagado {formatARS(delivery.paid)}
-                                  {' · '}
-                                  Salió de caja {formatARS(delivery.cashOut)}
-                                  {' · '}
-                                  Quedó debiendo {formatARS(delivery.debt)}
-                                </p>
                               </li>
-                            ))}
-                          </ul>
+                            )
+                          })}
+                        </ul>
+                        {delivery.notes?.trim() && (
+                          <p className="min-w-0 truncate text-sm text-muted" title={delivery.notes}>
+                            {delivery.notes}
+                          </p>
                         )}
-                      </section>
-                    )
-                  })}
-                </div>
-              )}
-            </>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+            </div>
           )}
         </div>
       </div>

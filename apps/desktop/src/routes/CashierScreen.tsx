@@ -42,6 +42,7 @@ interface Props {
   onViewDebts?: () => void
   onViewOrders?: () => void
   onViewTransfers?: () => void
+  onViewMerch?: () => void
   isActive?: boolean
   /** Carrito inyectado desde un pedido (se carga al POS al activarse la pantalla) */
   pendingOrderCart?: {
@@ -156,6 +157,12 @@ const IconCebo = () => (
 const IconX = () => (
   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+  </svg>
+)
+
+const IconMerch = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7.5 12 3 4 7.5m16 0L12 12m8-4.5V16.5L12 21m0-9L4 7.5m8 4.5v9M4 7.5V16.5L12 21" />
   </svg>
 )
 
@@ -502,6 +509,7 @@ export default function CashierScreen({
   onViewDebts,
   onViewOrders,
   onViewTransfers,
+  onViewMerch,
   isActive = true,
   pendingOrderCart,
   onOrderCartConsumed,
@@ -1585,6 +1593,14 @@ export default function CashierScreen({
                           title="Entre locales"
                           leading={menuLeading(<IconTransfer />)}
                           onClick={() => { onViewTransfers(); closeMenu() }}
+                        />
+                      )}
+                      {onViewMerch && (
+                        <ListRow
+                          dense
+                          title="Mercadería recibida"
+                          leading={menuLeading(<IconMerch />)}
+                          onClick={() => { onViewMerch(); closeMenu() }}
                         />
                       )}
                     </MenuSection>

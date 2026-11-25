@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildMerchWeekBook,
+  redactMerchWeekBook,
   computeMerchLineFacts,
   coerceMerchIntakeTemplate,
   formatKg3,
@@ -357,5 +358,71 @@ describe('buildMerchWeekBook', () => {
     expect(book.paid).toBe(0)
     expect(book.cashOut).toBe(0)
     expect(book.debt).toBe(0)
+  })
+
+  it('oculta el costo informado y no toca el pagado ni la deuda', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'v',
+        providerName: 'Oso',
+        paidAmount: 5_000,
+        debtAmount: 1_000,
+        lines: [
+          {
+            ...weekLine('weight', 'rubro_bondiola', 'Bondiola', { template: 'weight', kg: 2 }),
+            unitCost: 2500,
+            costTotal: 5000,
+            moneyRole: 'payable',
+          },
+          {
+            ...weekLine('pieces_weight', 'rubro_media_res', 'Media res', {
+              template: 'pieces_weight',
+              weightsKg: [90],
+            }),
+            unitCost: 0,
+            costTotal: 250_000,
+            moneyRole: 'informed',
+          },
+        ],
+      }),
+    ])
+    const redacted = redactMerchWeekBook(book, line => line.rubroId === 'rubro_media_res')
+    const lines = redacted.providers[0]?.deliveries[0]?.lines ?? []
+    expect(lines.find(line => line.rubroId === 'rubro_bondiola')).toMatchObject({
+      unitCost: 2500,
+      costTotal: 5000,
+    })
+    expect(lines.find(line => line.rubroId === 'rubro_media_res')).toMatchObject({
+      unitCost: 0,
+      costTotal: 0,
+      moneyRole: 'none',
+    })
+    expect(redacted.providers[0]?.deliveries[0]?.paid).toBe(5_000)
+    expect(redacted.debt).toBe(1_000)
+    expect(redacted.paid).toBe(5_000)
+  })
+
+  it('si el precio oculto entraba al total, sale del pagado', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'v',
+        providerName: 'Oso',
+        paidAmount: 9_000,
+        debtAmount: 0,
+        lines: [
+          {
+            ...weekLine('pieces_weight', 'rubro_media_res', 'Media res', {
+              template: 'pieces_weight',
+              weightsKg: [90],
+            }),
+            costTotal: 4_000,
+            moneyRole: 'payable',
+          },
+        ],
+      }),
+    ])
+    const redacted = redactMerchWeekBook(book, line => line.rubroId === 'rubro_media_res')
+    expect(redacted.providers[0]?.deliveries[0]?.paid).toBe(5_000)
+    expect(redacted.paid).toBe(5_000)
   })
 })

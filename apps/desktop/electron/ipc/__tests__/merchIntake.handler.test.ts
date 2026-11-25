@@ -954,14 +954,100 @@ describe('merchIntake.handler visita', () => {
     expect(result.code).toBe('INVALID_PAYLOAD')
   })
 
-  it('cajera no puede ver los ingresos de la semana', async () => {
+  it('la cajera lee la semana y no ve el monto de la media res', async () => {
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const bounds = mondayWeekRange(0)
+    const createdAt = new Date(new Date(bounds.startIso).getTime() + 3_600_000).toISOString()
+    insertWeekIntake({
+      id: 'week-cashier',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      createdAt,
+      providerName: 'Oso',
+      rubroName: 'Bondiola',
+    })
+    db.update(merchandiseIntakeLines).set({
+      unitCost: 2500,
+      costTotal: 5000,
+      moneyRole: 'payable',
+    }).run()
+    db.insert(merchandiseIntakeLines).values({
+      id: 'week-cashier-media',
+      intakeId: 'week-cashier',
+      rubroId: 'rubro_media_res',
+      rubroName: 'Media res',
+      template: 'pieces_weight',
+      sortOrder: 1,
+      count: 1,
+      netKg: 90,
+      grossKg: 90,
+      unitCost: 0,
+      costTotal: 250_000,
+      moneyRole: 'informed',
+    }).run()
     const result = await getHandler('ipc:list-merch-week')(null, {
       weekOffset: 0,
       storeIdFilter: 'all',
-    }) as { ok: boolean; code?: string }
-    expect(result.ok).toBe(false)
-    expect(result.code).toBe('FORBIDDEN')
-    expect(vi.mocked(pullMerchandiseIntakesForStoreWeek)).not.toHaveBeenCalled()
+    }) as {
+      ok: boolean
+      data: {
+        paid: number
+        providers: Array<{
+          deliveries: Array<{ paid: number; lines: Array<{ rubroId: string; unitCost: number; costTotal: number; moneyRole: string }> }>
+        }>
+      }
+    }
+    expect(result.ok).toBe(true)
+    const lines = result.data.providers[0]?.deliveries[0]?.lines ?? []
+    expect(lines.find(line => line.rubroId.startsWith('rubro-'))).toMatchObject({
+      unitCost: 2500,
+      costTotal: 5000,
+    })
+    expect(lines.find(line => line.rubroId === 'rubro_media_res')).toMatchObject({
+      unitCost: 0,
+      costTotal: 0,
+      moneyRole: 'none',
+    })
+    expect(result.data.paid).toBe(1_000)
+  })
+
+  it('el admin sigue viendo el monto de la media res', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+    const bounds = mondayWeekRange(0)
+    const createdAt = new Date(new Date(bounds.startIso).getTime() + 3_600_000).toISOString()
+    insertWeekIntake({
+      id: 'week-admin-media',
+      storeId: 'store-001',
+      shiftId: 'shift-001',
+      createdAt,
+      providerName: 'Oso',
+      rubroName: 'Bondiola',
+    })
+    db.insert(merchandiseIntakeLines).values({
+      id: 'week-admin-media-line',
+      intakeId: 'week-admin-media',
+      rubroId: 'rubro_media_res',
+      rubroName: 'Media res',
+      template: 'pieces_weight',
+      sortOrder: 1,
+      count: 1,
+      netKg: 90,
+      grossKg: 90,
+      unitCost: 0,
+      costTotal: 250_000,
+      moneyRole: 'informed',
+    }).run()
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: 0,
+      storeIdFilter: 'all',
+    }) as {
+      ok: boolean
+      data: { providers: Array<{ deliveries: Array<{ lines: Array<{ rubroId: string; costTotal: number }> }> }> }
+    }
+    expect(result.ok).toBe(true)
+    const lines = result.data.providers[0]?.deliveries[0]?.lines ?? []
+    expect(lines.find(line => line.rubroId === 'rubro_media_res')?.costTotal).toBe(250_000)
   })
 
   it('pedir la semana actual no pide la anterior', async () => {

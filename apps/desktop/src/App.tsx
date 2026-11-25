@@ -58,7 +58,7 @@ type AppState =
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
-  | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'transfers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
@@ -553,6 +553,7 @@ export default function App() {
             onViewDebts={() => setState({ screen: 'debts', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewTransfers={() => setState({ screen: 'transfers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
+            onViewMerch={() => setState({ screen: 'ingresos', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             pendingOrderCart={pendingOrderCart}
             onOrderCartConsumed={() => setPendingOrderCart(null)}
           />
@@ -687,7 +688,17 @@ export default function App() {
 
       {state.screen === 'ingresos' && (
         <Page>
-          <IngresosScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
+          <IngresosScreen
+            canPriceMediaRes={state.session.role === 'admin'}
+            onLogout={handleLogout}
+            onBack={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
+          />
         </Page>
       )}
 

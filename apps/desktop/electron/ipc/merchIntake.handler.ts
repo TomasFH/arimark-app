@@ -49,6 +49,7 @@ import {
   MERCH_INTAKE_NOTES_MAX,
   MERCH_INTAKE_QUANTITY_MAX,
   buildMerchWeekBook,
+  redactMerchWeekBook,
   lineEntersVisitTotal,
   merchIntakeExpenseConcept,
   merchNameKey,
@@ -504,10 +505,6 @@ export function registerMerchIntakeHandlers(): void {
 
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-    if (session.role !== 'admin') {
-      return { ok: false, error: 'Solo los administradores pueden ver los ingresos.', code: 'FORBIDDEN' }
-    }
-
     const bounds = mondayWeekRange(parsed.data.weekOffset)
 
     try {
@@ -546,10 +543,13 @@ export function registerMerchIntakeHandlers(): void {
         }
       }
 
-      const data = readMerchWeekBook(db, storeIds, bounds.startIso, bounds.endIso)
-      if (data.providers.length === 0 && data.rubros.length === 0 && refreshFailed) {
+      const loaded = readMerchWeekBook(db, storeIds, bounds.startIso, bounds.endIso)
+      if (loaded.providers.length === 0 && loaded.rubros.length === 0 && refreshFailed) {
         return { ok: false, error: MERCH_WEEK_NO_COPY }
       }
+      const data = session.role === 'cashier'
+        ? redactMerchWeekBook(loaded, isMediaResLine)
+        : loaded
       if (refreshFailed) data.warning = MERCH_WEEK_STALE_WARNING
       return { ok: true, data }
     } catch (err) {

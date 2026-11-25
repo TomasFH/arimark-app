@@ -308,7 +308,7 @@ export default function AdminHubScreen({
             <div className="grid grid-cols-2 items-start gap-2">
               <Tile icon={ICONS.chart} label="Resumen" description="Plata y medias de la semana" onClick={onGoToSummary} />
               <Tile icon={ICONS.chart} label="Historial completo" description="Ventas, gastos y fiados por turno" onClick={onGoToHistory} />
-              <Tile icon={ICONS.inbox} label="Ingresos" description="Mercadería que entró, por semana" onClick={onGoToIngresos} />
+              <Tile icon={ICONS.inbox} label="Mercadería recibida" description="Visitas de la semana, con el precio de cada producto" onClick={onGoToIngresos} />
               {SHOW_ATTENDANCE_UI && (
                 <Tile icon={ICONS.check} label="Asistencia" description="Registro de presencia del personal" onClick={() => setShowAttendance(true)} />
               )}
