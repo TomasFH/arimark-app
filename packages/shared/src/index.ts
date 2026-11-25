@@ -317,9 +317,13 @@ export type {
   ChickenVisit,
 } from './chickenSummary'
 export {
+  DELANTERO_CUSTOM_RUBRO_ID,
+  DELANTERO_RUBRO_ID,
   MEDIA_RES_CUSTOM_RUBRO_ID,
   MEDIA_RES_RUBRO_ID,
+  delanteroVisits,
   filterMediaResProvider,
+  isDelanteroLine,
   isMediaResLine,
   groupMediaResByDay,
   mediaResAverageKg,

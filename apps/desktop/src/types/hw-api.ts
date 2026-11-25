@@ -1443,6 +1443,7 @@ export interface HistoryShiftDetail {
 export interface AdminSummaryResult {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
+  delantero?: MediaResVisit[]
   chicken: ChickenVisit[]
   purchases?: SummaryPurchaseIntake[]
   expenses: SummaryExpenseInput[]

@@ -1,13 +1,18 @@
+import { useState } from 'react'
 import {
   boxAporteAmount,
   civilYmd,
   formatKg3,
+  groupMediaResByDay,
+  mediaResAverageKg,
+  mediaResTotals,
   shiftCloseBoxText,
   storeTransferLabel,
   summaryBoxLabel,
   summaryBoxTally,
   type ChickenVisit,
   type MediaResDay,
+  type MediaResVisit,
   type SummaryMoneyView,
 } from '@carniceria/shared'
 import { cx } from '../../components/ui'
@@ -28,6 +33,15 @@ function mediaHeading(
   average: number | null,
 ): string {
   const base = `${totals.count} ${totals.count === 1 ? 'media' : 'medias'} · ${formatKg3(totals.kg)}`
+  if (average == null) return base
+  return `${base} · promedio ${formatKg3(average)}`
+}
+
+function pieceHeading(
+  totals: { count: number; kg: number },
+  average: number | null,
+): string {
+  const base = `${totals.count} ${totals.count === 1 ? 'pieza' : 'piezas'} · ${formatKg3(totals.kg)}`
   if (average == null) return base
   return `${base} · promedio ${formatKg3(average)}`
 }
@@ -59,6 +73,7 @@ export function SummaryMerchandisePanel({
   totals,
   average,
   chicken,
+  delantero,
   chickenRows,
   showBoxes,
   money,
@@ -83,6 +98,7 @@ export function SummaryMerchandisePanel({
   totals: { count: number; kg: number }
   average: number | null
   chicken: { crates: number; grossKg: number }
+  delantero: MediaResVisit[]
   chickenRows: ChickenVisit[]
   showBoxes: boolean
   money: SummaryMoneyView
@@ -98,6 +114,10 @@ export function SummaryMerchandisePanel({
   transferDetailError: string | null
   storeName: Map<string, string>
 }) {
+  const [openPieceDay, setOpenPieceDay] = useState<string | null>(null)
+  const pieceDays = groupMediaResByDay(delantero)
+  const pieceTotals = mediaResTotals(delantero)
+  const pieceAverage = mediaResAverageKg(delantero)
   return (
     <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
       <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
@@ -163,6 +183,66 @@ export function SummaryMerchandisePanel({
                               <p className="text-sm text-muted">{visit.count} · {formatKg3(visit.kg)}</p>
                             )}
                             <p className="text-sm text-muted">{mediaResPriceText(visit.cost)}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      <section className="min-w-0 space-y-3 rounded-xl border border-line bg-panel p-4">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2 className="shrink-0 text-sm font-semibold text-ink">Delantero</h2>
+          {(pieceTotals.count > 0 || pieceTotals.kg > 0) && (
+            <p className="min-w-0 truncate text-sm font-semibold text-ink" title={pieceHeading(pieceTotals, pieceAverage)}>
+              {pieceHeading(pieceTotals, pieceAverage)}
+            </p>
+          )}
+        </div>
+        {pieceDays.length === 0 ? (
+          <p className="text-sm text-muted">No hay delantero en este período.</p>
+        ) : (
+          <div>
+            <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] gap-2 px-1 text-xs font-medium text-muted">
+              <span>Día</span>
+              <span>Piezas</span>
+              <span className="text-right">Kilos</span>
+            </div>
+            <ul>
+              {pieceDays.map(day => {
+                const open = openPieceDay === day.ymd
+                const label = `${day.ymd.slice(8, 10)}/${day.ymd.slice(5, 7)}`
+                return (
+                  <li key={day.ymd} className="border-t border-line">
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setOpenPieceDay(open ? null : day.ymd)}
+                      className="grid w-full grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-2 px-1 py-2 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                    >
+                      <span className="text-sm font-medium text-ink">{label}</span>
+                      <span className="min-w-0 truncate text-sm text-muted">{day.count}</span>
+                      <span className="text-right text-sm tabular-nums text-ink">{formatKg3(day.kg)}</span>
+                    </button>
+                    {open && (
+                      <ul className="space-y-2 px-1 pb-2">
+                        {day.visits.map(visit => (
+                          <li key={visit.id} className="min-w-0">
+                            <p className="truncate text-sm text-ink" title={`${visit.providerName} · ${visit.receivedByName}`}>
+                              {visit.providerName} · {visit.receivedByName}
+                            </p>
+                            {visit.pieces.length > 0 ? (
+                              <p className="text-sm text-muted">
+                                {visit.pieces.map(piece => formatKg3(piece.kg)).join(' · ')}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-muted">{visit.count} · {formatKg3(visit.kg)}</p>
+                            )}
                           </li>
                         ))}
                       </ul>

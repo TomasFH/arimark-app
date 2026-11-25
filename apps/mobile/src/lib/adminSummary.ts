@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore'
 import {
   civilYmd,
+  delanteroVisits,
   mediaResVisits,
   mondayWeekRange,
   mondayWeeksInRange,
@@ -40,6 +41,7 @@ import {
 export interface MobileSummary {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
+  delantero: MediaResVisit[]
   warning: string | null
 }
 
@@ -323,9 +325,10 @@ export async function loadMobileSummary(
   }
 
   let visits: MediaResVisit[] = []
+  let delantero: MediaResVisit[] = []
   try {
     const rows = await listMerchSpan(storeId, startIso, endIso, now)
-    visits = mediaResVisits(rows
+    const mapped = rows
       .filter(row => row.status !== 'draft')
       .map(row => ({
         id: row.id,
@@ -334,14 +337,17 @@ export async function loadMobileSummary(
         receivedByName: row.createdByName.trim() || '—',
         lines: row.lines.map(line => ({
           rubroId: line.rubroId,
+          rubroName: line.rubroName,
           count: line.count,
           netKg: line.netKg,
           weightsKg: line.weightsKg,
         })),
-      })))
+      }))
+    visits = mediaResVisits(mapped)
+    delantero = delanteroVisits(mapped)
   } catch {
     warning = warning ?? 'No se pudieron cargar las medias reses.'
   }
 
-  return { shifts, visits, warning }
+  return { shifts, visits, delantero, warning }
 }

@@ -66,6 +66,7 @@ export interface FactoryMerchRubro {
 /** Semillas de fábrica (ids estables entre PCs). El admin puede archivarlas o crear otras. */
 export const FACTORY_MERCH_RUBROS: readonly FactoryMerchRubro[] = [
   { id: 'rubro_media_res', name: 'Media res', template: 'pieces_weight', packContents: null, packTareKg: null, packLabel: null, sortOrder: 10 },
+  { id: 'rubro_delantero', name: 'Delantero', template: 'pieces_weight', packContents: null, packTareKg: null, packLabel: null, sortOrder: 15 },
   { id: 'rubro_pollo_entero', name: 'Pollo entero', template: 'packs', packContents: null, packTareKg: null, packLabel: 'Cajón', sortOrder: 20 },
   { id: 'rubro_maple', name: 'Maple', template: 'packs', packContents: null, packTareKg: null, packLabel: 'Maple', sortOrder: 30 },
   { id: 'rubro_cerdo', name: 'Cerdo', template: 'weight', packContents: null, packTareKg: null, packLabel: null, sortOrder: 40 },

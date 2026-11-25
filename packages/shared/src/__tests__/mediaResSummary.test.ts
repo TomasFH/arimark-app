@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  delanteroVisits,
   groupMediaResByDay,
   mediaResAverageKg,
   mediaResTotals,
@@ -119,5 +120,28 @@ describe('mediaResVisits', () => {
     }])
     expect(visits).toEqual([])
     expect(mediaResTotals(visits)).toEqual({ count: 0, kg: 0 })
+  })
+
+  it('deja el delantero en su balde y no lo mezcla en el promedio de medias', () => {
+    const intake = {
+      id: 'v1',
+      createdAt: '2026-10-26T15:00:00.000Z',
+      providerName: 'Frigorífico',
+      receivedByName: 'Luis',
+      lines: [
+        { rubroId: 'custom:media res', count: 2, netKg: 180, weightsKg: [90, 90] },
+        { rubroId: 'custom:delantero', rubroName: 'Delantero', count: 1, netKg: 65, weightsKg: [65] },
+      ],
+    }
+    expect(mediaResVisits([intake])).toMatchObject([{ count: 2, kg: 180 }])
+    expect(mediaResAverageKg(mediaResVisits([intake]))).toBe(90)
+    expect(delanteroVisits([intake])).toMatchObject([{ count: 1, kg: 65, cost: null }])
+    const filedAsMedia = {
+      ...intake,
+      id: 'vieja',
+      lines: [{ rubroId: 'rubro_media_res', rubroName: 'Media res', count: 1, netKg: 62, weightsKg: [62] }],
+    }
+    expect(delanteroVisits([filedAsMedia])).toEqual([])
+    expect(mediaResVisits([filedAsMedia])).toHaveLength(1)
   })
 })

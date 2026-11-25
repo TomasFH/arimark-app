@@ -8,6 +8,7 @@ import log from 'electron-log'
 import {
   chickenVisits,
   civilYmd,
+  delanteroVisits,
   isMediaResLine,
   mediaResVisits,
   mondayWeekRange,
@@ -64,6 +65,7 @@ type ShiftRow = typeof shifts.$inferSelect
 export interface AdminSummaryData {
   shifts: SummaryShiftCard[]
   visits: MediaResVisit[]
+  delantero: MediaResVisit[]
   chicken: ChickenVisit[]
   /** Líneas ya bajadas con las visitas. La cuenta no lee la tabla de gastos. */
   purchases: SummaryPurchaseIntake[]
@@ -535,6 +537,7 @@ async function loadVisits(
   now: Date,
 ): Promise<{
   visits: MediaResVisit[]
+  delantero: MediaResVisit[]
   chicken: ChickenVisit[]
   purchases: SummaryPurchaseIntake[]
   warning: string | null
@@ -623,7 +626,13 @@ async function loadVisits(
       mediaRes: line.mediaRes,
     })),
   }))
-  return { visits: mediaResVisits(mapped), chicken: chickenVisits(mapped), purchases, warning }
+  return {
+    visits: mediaResVisits(mapped),
+    delantero: delanteroVisits(mapped),
+    chicken: chickenVisits(mapped),
+    purchases,
+    warning,
+  }
 }
 
 export async function loadAdminSummary(input: {
@@ -647,6 +656,7 @@ export async function loadAdminSummary(input: {
   return {
     shifts,
     visits: visitResult.visits,
+    delantero: visitResult.delantero,
     chicken: visitResult.chicken,
     purchases: visitResult.purchases,
     expenses: expenseLines,

@@ -70,6 +70,7 @@ export function SummaryScreen({ onBack, stores }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openDay, setOpenDay] = useState<string | null>(null)
+  const [openPieceDay, setOpenPieceDay] = useState<string | null>(null)
   const [provider, setProvider] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
 
@@ -113,13 +114,15 @@ export function SummaryScreen({ onBack, stores }: Props) {
       if (cancelled) return
       const shifts: SummaryShiftCard[] = []
       const visits: MobileSummary['visits'] = []
+      const delantero: MobileSummary['delantero'] = []
       for (const item of loaded) {
         for (const shift of item.result.shifts) {
           shifts.push({ ...shift, storeName: item.store.name })
         }
         visits.push(...item.result.visits)
+        delantero.push(...(item.result.delantero ?? []))
       }
-      setData({ shifts, visits, warning: null })
+      setData({ shifts, visits, delantero, warning: null })
       setOpenDay(null)
       setLoading(false)
     }).catch(() => {
@@ -164,6 +167,15 @@ export function SummaryScreen({ onBack, stores }: Props) {
   const days = useMemo(() => groupMediaResByDay(visits), [visits])
   const totals = mediaResTotals(visits)
   const average = mediaResAverageKg(visits)
+  const shownDelantero = useMemo(() => {
+    if (selected) return []
+    const rows = data?.delantero ?? []
+    if (period === 'today') return rows.filter(visit => visit.ymd === civilYmd())
+    return rows
+  }, [selected, data, period])
+  const pieceDays = useMemo(() => groupMediaResByDay(shownDelantero), [shownDelantero])
+  const pieceTotals = mediaResTotals(shownDelantero)
+  const pieceAverage = mediaResAverageKg(shownDelantero)
   const newDebt = summaryNewDebt(shownShifts)
   const collections = previewOn && selected?.fiado.payments
     ? sumCollections(paymentsInCivilRange(selected.fiado.payments, dates.startYmd, dates.endYmd))
@@ -341,6 +353,58 @@ export function SummaryScreen({ onBack, stores }: Props) {
                 </ul>
               )}
             </section>
+            <section className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-800 p-4">
+              <div className="flex min-w-0 items-baseline justify-between gap-3">
+                <h2 className="shrink-0 text-sm font-semibold text-zinc-100">Delantero</h2>
+                {(pieceTotals.count > 0 || pieceTotals.kg > 0) && (
+                  <p className="min-w-0 truncate text-right text-sm font-semibold text-zinc-100" title={pieceHeading(pieceTotals, pieceAverage)}>
+                    {pieceHeading(pieceTotals, pieceAverage)}
+                  </p>
+                )}
+              </div>
+              {pieceDays.length === 0 ? (
+                <p className="text-sm text-zinc-400">No hay delantero en este período.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {pieceDays.map(day => {
+                    const open = openPieceDay === day.ymd
+                    const label = `${day.ymd.slice(8, 10)}/${day.ymd.slice(5, 7)}`
+                    return (
+                      <li key={day.ymd} className="rounded-lg border border-zinc-700">
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          onClick={() => setOpenPieceDay(open ? null : day.ymd)}
+                          className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
+                        >
+                          <span className="shrink-0 text-sm font-medium text-zinc-100">{label}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm text-zinc-400">
+                            {day.count} {day.count === 1 ? 'pieza' : 'piezas'}
+                          </span>
+                          <span className="shrink-0 text-sm text-zinc-100">{formatKg3(day.kg)}</span>
+                        </button>
+                        {open && (
+                          <ul className="space-y-2 border-t border-zinc-700 px-3 py-2">
+                            {day.visits.map(visit => (
+                              <li key={visit.id} className="min-w-0">
+                                <p className="truncate text-sm text-zinc-100" title={`${visit.providerName} · ${visit.receivedByName}`}>
+                                  {visit.providerName} · {visit.receivedByName}
+                                </p>
+                                {visit.pieces.length > 0 ? (
+                                  <p className="text-sm text-zinc-400">{visit.pieces.map(piece => formatKg3(piece.kg)).join(' · ')}</p>
+                                ) : (
+                                  <p className="text-sm text-zinc-400">{visit.count} · {formatKg3(visit.kg)}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
             {SHOW_SUMMARY_BOXES && <section className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-800 p-4">
               <h2 className="text-sm font-semibold text-zinc-100">Cajas</h2>
               {money.boxes.length === 0 ? (
@@ -390,6 +454,15 @@ function mediaHeading(
   average: number | null,
 ): string {
   const base = `${totals.count} ${totals.count === 1 ? 'media' : 'medias'} · ${formatKg3(totals.kg)}`
+  if (average == null) return base
+  return `${base} · promedio ${formatKg3(average)}`
+}
+
+function pieceHeading(
+  totals: { count: number; kg: number },
+  average: number | null,
+): string {
+  const base = `${totals.count} ${totals.count === 1 ? 'pieza' : 'piezas'} · ${formatKg3(totals.kg)}`
   if (average == null) return base
   return `${base} · promedio ${formatKg3(average)}`
 }

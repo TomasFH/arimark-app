@@ -1,7 +1,8 @@
 /**
- * Medias reses del resumen. Entra el rubro de fábrica, el renglón custom de la visita,
- * o un producto cuyo nombre normalizado es media res y que se mide en piezas.
- * Un corte por kilo, aunque el nombre diga media res, no entra.
+ * Medias reses y delanteros del resumen. Cada uno tiene su balde.
+ * Entra el rubro de fábrica, el renglón custom de la visita,
+ * o un producto cuyo nombre es ese rubro y que se mide en piezas.
+ * Un corte por kilo no entra. Una media res vieja no se reclasifica sola.
  */
 import { linePurchaseCost, merchNameKey } from './merchIntake'
 import { civilYmd, DISPLAY_TIMEZONE } from './pickupHours'
@@ -11,6 +12,9 @@ import type { Weekday } from './storeHours'
 export const MEDIA_RES_RUBRO_ID = 'rubro_media_res'
 /** Lo que escribe hoy la visita de media res. No es el rubro de fábrica. */
 export const MEDIA_RES_CUSTOM_RUBRO_ID = 'custom:media res'
+export const DELANTERO_RUBRO_ID = 'rubro_delantero'
+/** Lo que escribe la visita cuando el renglón se llama Delantero. */
+export const DELANTERO_CUSTOM_RUBRO_ID = 'custom:delantero'
 
 export interface MediaResLineInput {
   rubroId: string
@@ -90,7 +94,15 @@ function measuredInPieces(line: MediaResLineInput): boolean {
   return Number.isFinite(line.count) && line.count > 1
 }
 
+export function isDelanteroLine(line: MediaResLineInput): boolean {
+  if (line.rubroId === DELANTERO_RUBRO_ID || line.rubroId === DELANTERO_CUSTOM_RUBRO_ID) return true
+  if (line.rubroId === MEDIA_RES_RUBRO_ID || line.rubroId === MEDIA_RES_CUSTOM_RUBRO_ID) return false
+  const key = lineNameKey(line)
+  return (key === 'delantero' || key === 'delanteros') && measuredInPieces(line)
+}
+
 export function isMediaResLine(line: MediaResLineInput): boolean {
+  if (isDelanteroLine(line)) return false
   if (line.rubroId === MEDIA_RES_RUBRO_ID || line.rubroId === MEDIA_RES_CUSTOM_RUBRO_ID) return true
   return mentionsMediaRes(lineNameKey(line)) && measuredInPieces(line)
 }
@@ -113,6 +125,21 @@ export function mediaResVisits(
   intakes: MediaResIntakeInput[],
   timeZone = DISPLAY_TIMEZONE,
 ): MediaResVisit[] {
+  return pieceArrivalVisits(intakes, isMediaResLine, timeZone)
+}
+
+export function delanteroVisits(
+  intakes: MediaResIntakeInput[],
+  timeZone = DISPLAY_TIMEZONE,
+): MediaResVisit[] {
+  return pieceArrivalVisits(intakes, isDelanteroLine, timeZone)
+}
+
+function pieceArrivalVisits(
+  intakes: MediaResIntakeInput[],
+  match: (line: MediaResLineInput) => boolean,
+  timeZone: string,
+): MediaResVisit[] {
   const visits: MediaResVisit[] = []
   for (const intake of intakes) {
     const pieces: MediaResPiece[] = []
@@ -120,7 +147,7 @@ export function mediaResVisits(
     let kg = 0
     let cost = 0
     for (const line of intake.lines) {
-      if (!isMediaResLine(line)) continue
+      if (!match(line)) continue
       const part = linePieces(line)
       pieces.push(...part.pieces)
       count += part.count

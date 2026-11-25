@@ -194,6 +194,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
       }
       const shifts: Array<SummaryShiftCard & { storeId: string }> = []
       const visits: AdminSummaryResult['visits'] = []
+      const delantero: AdminSummaryResult['visits'] = []
       const chicken: ChickenVisit[] = []
       const purchases: SummaryPurchaseIntake[] = []
       const expenseLines: AdminSummaryResult['expenses'] = []
@@ -204,6 +205,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
           shifts.push({ ...shift, storeName: item.store.name, storeId: item.store.id })
         }
         visits.push(...item.result.data.visits)
+        delantero.push(...(item.result.data.delantero ?? []))
         purchases.push(...item.result.data.purchases ?? [])
         for (const visit of item.result.data.chicken ?? []) {
           chicken.push({ ...visit, storeName: item.store.name })
@@ -213,7 +215,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
         }
         slices.push(item.result.data.fiado ?? EMPTY_FIADO)
       }
-      setData({ shifts, visits, chicken, purchases, expenses: expenseLines, warning: null, fiado: combineFiadoSlices(slices) })
+      setData({ shifts, visits, delantero, chicken, purchases, expenses: expenseLines, warning: null, fiado: combineFiadoSlices(slices) })
       setOpenDay(null)
       setLoading(false)
     }).catch(() => {
@@ -389,6 +391,13 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
     if (!selected) return period === 'today' ? visits.filter(visit => visit.ymd === civilYmd()) : visits
     return visits.filter(visit => ymdInRange(visit.ymd, dates.startYmd, dates.endYmd))
   }, [selected, data, period, dates.startYmd, dates.endYmd])
+
+  const shownDelantero = useMemo(() => {
+    if (selected) return []
+    const rows = data?.delantero ?? []
+    if (period === 'today') return rows.filter(visit => visit.ymd === civilYmd())
+    return rows
+  }, [selected, data, period])
 
   const shownChicken = useMemo(() => {
     if (selected) return []
@@ -777,6 +786,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
                   totals={totals}
                   average={average}
                   chicken={chicken}
+                  delantero={shownDelantero}
                   chickenRows={shownChicken}
                   showBoxes={SHOW_SUMMARY_BOXES}
                   money={money}
