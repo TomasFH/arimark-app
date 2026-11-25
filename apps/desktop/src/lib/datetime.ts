@@ -46,6 +46,43 @@ export function toLocalDateTime(utcString: string): string {
   })
 }
 
+const VISIT_WEEKDAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'] as const
+
+function visitClockParts(utcString: string): { hour: string; minute: string } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: _timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(utcString))
+  const pick = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? ''
+  return { hour: pick('hour'), minute: pick('minute') }
+}
+
+/** Día y hora cortos, 24 h. La semana ya está en el encabezado de la pantalla. */
+export function toVisitStamp(utcString: string): string {
+  const ymd = utcToLocalYmd(utcString)
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+  const { hour, minute } = visitClockParts(utcString)
+  if (!match) return `${hour}:${minute}`
+  return `${match[3]}/${match[2]} ${hour}:${minute}`
+}
+
+/** Encabezado del día de una visita: «Martes 25/11». El día es el civil local. */
+export function toVisitDayLabel(utcString: string): string {
+  const ymd = utcToLocalYmd(utcString)
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+  if (!match) return ymd
+  const weekday = new Date(`${ymd}T12:00:00.000Z`).getUTCDay()
+  return `${VISIT_WEEKDAYS[weekday]} ${match[3]}/${match[2]}`
+}
+
+/** Hora de la visita, 24 h. El día va en el encabezado del grupo. */
+export function toVisitTime(utcString: string): string {
+  const { hour, minute } = visitClockParts(utcString)
+  return `${hour}:${minute}`
+}
+
 /**
  * Retorna solo la fecha (sin hora) en el timezone de presentación.
  */

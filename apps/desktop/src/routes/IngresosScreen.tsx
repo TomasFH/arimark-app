@@ -9,7 +9,6 @@ import {
   formatMerchVisitQty,
   formatWeekRangeLabel,
   isMediaResLine,
-  merchVisitTotal,
   mondayWeekRange,
 } from '@carniceria/shared'
 import type { MerchIntakeLineSnapshot } from '@carniceria/shared'
@@ -17,7 +16,7 @@ import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import NumericInput from '../components/NumericInput'
 import { Button } from '../components/ui'
-import { formatARS, toLocalDateTime } from '../lib/datetime'
+import { formatARS, toVisitDayLabel, toVisitTime, utcToLocalYmd } from '../lib/datetime'
 import { formatNumericInputValue, parseNumericInput } from '../lib/numericInput'
 import type { MerchWeekBookResult, StoreRow } from '../types/hw-api'
 
@@ -33,6 +32,84 @@ interface Props {
 function providerKey(providerId: string | null, providerName: string): string {
   return providerId ? `id:${providerId}` : `name:${providerName}`
 }
+
+/** 0 no es un precio: es un monto que todavía no se cargó. */
+function priceText(amount: number): string {
+  return amount > 0 ? formatARS(amount) : 'sin precio'
+}
+
+function visitCost(lines: MerchIntakeLineSnapshot[]): number {
+  return lines.reduce((sum, line) => sum + (line.costTotal > 0 ? Math.round(line.costTotal) : 0), 0)
+}
+
+type VisitRow = {
+  providerName: string
+  delivery: MerchWeekBookResult['providers'][number]['deliveries'][number]
+}
+
+interface DayGroup {
+  ymd: string
+  label: string
+  total: number
+  paid: number
+  debt: number
+  unpriced: number
+  visits: VisitRow[]
+}
+
+/** Una entrega sin precio no entra en el total del día. Pagado y deuda sí, porque son montos. */
+function groupVisitsByDay(visits: VisitRow[]): DayGroup[] {
+  const groups = new Map<string, DayGroup>()
+  for (const row of visits) {
+    const ymd = utcToLocalYmd(row.delivery.createdAt)
+    let group = groups.get(ymd)
+    if (!group) {
+      group = {
+        ymd,
+        label: toVisitDayLabel(row.delivery.createdAt),
+        total: 0,
+        paid: 0,
+        debt: 0,
+        unpriced: 0,
+        visits: [],
+      }
+      groups.set(ymd, group)
+    }
+    const cost = visitCost(row.delivery.lines)
+    if (cost > 0) group.total += cost
+    else group.unpriced += 1
+    group.paid += row.delivery.paid
+    group.debt += row.delivery.debt
+    group.visits.push(row)
+  }
+  return [...groups.values()].sort((a, b) => b.ymd.localeCompare(a.ymd))
+}
+
+function unpricedLabel(count: number): string | null {
+  if (count <= 0) return null
+  return count === 1 ? '1 sin precio' : `${count} sin precio`
+}
+
+function DayChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-150 ease-out ${open ? 'rotate-90' : ''}`}
+    >
+      <path
+        d="M6 3.5 11 8 6 12.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+const VISIT_GRID = 'grid w-full min-w-max grid-cols-[max-content_max-content_max-content_minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(8.5rem,1fr)] gap-x-6'
 
 function MediaResPaidEditor({
   line,
@@ -96,6 +173,7 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set())
+  const [openDays, setOpenDays] = useState<Set<string>>(() => new Set())
   const [revision, setRevision] = useState(0)
 
   const week = mondayWeekRange(weekOffset)
@@ -141,6 +219,15 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
     setWeekOffset(clamped)
   }
 
+  function toggleDay(ymd: string) {
+    setOpenDays(current => {
+      const next = new Set(current)
+      if (next.has(ymd)) next.delete(ymd)
+      else next.add(ymd)
+      return next
+    })
+  }
+
   function toggleVisit(id: string) {
     setOpenKeys(current => {
       const next = new Set(current)
@@ -151,10 +238,7 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
   }
 
   const visits = useMemo(() => {
-    const rows: Array<{
-      providerName: string
-      delivery: MerchWeekBookResult['providers'][number]['deliveries'][number]
-    }> = []
+    const rows: VisitRow[] = []
     for (const provider of book?.providers ?? []) {
       const key = providerKey(provider.providerId, provider.providerName)
       if (providerFilter !== 'all' && key !== providerFilter) continue
@@ -165,6 +249,14 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
     rows.sort((a, b) => b.delivery.createdAt.localeCompare(a.delivery.createdAt))
     return rows
   }, [book, providerFilter])
+
+  const dayGroups = useMemo(() => groupVisitsByDay(visits), [visits])
+  const daySignature = dayGroups.map(day => day.ymd).join('|')
+
+  useEffect(() => {
+    const newest = daySignature.split('|')[0] ?? ''
+    setOpenDays(newest ? new Set([newest]) : new Set())
+  }, [daySignature])
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-app text-ink">
@@ -250,80 +342,115 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
           )}
 
           {book && !error && visits.length > 0 && (
-            <div className="space-y-2">
-              <div className="grid grid-cols-[8.5rem_minmax(0,1.2fr)_minmax(0,1fr)_5.5rem_5.5rem_6.5rem] gap-2 px-4 text-xs text-muted">
-                <span>Fecha</span>
-                <span>Proveedor</span>
-                <span>Local</span>
-                <span className="text-right">Total</span>
-                <span className="text-right">Pagado</span>
-                <span className="truncate text-right" title="Quedó debiendo">Quedó debiendo</span>
-              </div>
-            <ul className="space-y-2">
-              {visits.map(({ providerName, delivery }) => {
-                const open = openKeys.has(delivery.id)
-                const total = merchVisitTotal(delivery.lines)
-                const when = toLocalDateTime(delivery.createdAt)
-                return (
-                  <li key={delivery.id} className="rounded-2xl border border-line bg-panel">
-                    <button
-                      type="button"
-                      className="grid w-full grid-cols-[8.5rem_minmax(0,1.2fr)_minmax(0,1fr)_5.5rem_5.5rem_6.5rem] items-center gap-2 px-4 py-3 text-left"
-                      aria-expanded={open}
-                      onClick={() => toggleVisit(delivery.id)}
+            <div className="overflow-x-auto">
+              <div className={`${VISIT_GRID} gap-y-2`}>
+                <div className="col-span-6 grid grid-cols-subgrid items-end px-4 text-xs text-muted">
+                  <span className="whitespace-nowrap">Hora</span>
+                  <span className="whitespace-nowrap">Proveedor</span>
+                  <span className="whitespace-nowrap">Local</span>
+                  <span className="whitespace-nowrap text-right">Total</span>
+                  <span className="whitespace-nowrap text-right">Pagado</span>
+                  <span className="whitespace-nowrap text-right">Quedó debiendo</span>
+                </div>
+                {dayGroups.map((day, index) => {
+                  const dayOpen = openDays.has(day.ymd)
+                  const dayTotal = priceText(day.total)
+                  const missing = unpricedLabel(day.unpriced)
+                  return (
+                    <div
+                      key={day.ymd}
+                      className={`col-span-6 grid grid-cols-subgrid gap-y-2 ${index > 0 ? 'mt-4' : ''}`}
                     >
-                      <span className="truncate text-sm text-ink" title={when}>{when}</span>
-                      <span className="min-w-0 truncate text-sm font-semibold text-ink" title={providerName}>
-                        {providerName}
-                      </span>
-                      <span className="min-w-0 truncate text-sm text-muted" title={delivery.storeName}>
-                        {delivery.storeName}
-                      </span>
-                      <span className="truncate text-right text-sm tabular-nums text-ink" title={formatARS(total)}>{formatARS(total)}</span>
-                      <span className="truncate text-right text-sm tabular-nums text-muted" title={formatARS(delivery.paid)}>{formatARS(delivery.paid)}</span>
-                      <span className="truncate text-right text-sm tabular-nums text-muted" title={formatARS(delivery.debt)}>{formatARS(delivery.debt)}</span>
-                    </button>
-                    {open && (
-                      <div className="space-y-2 border-t border-line px-4 py-3">
-                        <p className="min-w-0 truncate text-xs text-muted" title={delivery.createdByName}>
-                          Recibió {delivery.createdByName}
-                        </p>
-                        <ul className="space-y-2">
-                          {delivery.lines.map(line => {
-                            const qty = formatMerchVisitQty(line)
-                            const unit = line.unitCost > 0
-                              ? `${formatARS(line.unitCost)}${line.costUnit ? ` ${formatMerchCostUnit(line.costUnit)}` : ''}`
-                              : ''
-                            return (
-                              <li key={line.id} className="space-y-1">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="min-w-0 flex-1 truncate text-sm text-ink" title={line.rubroName}>
-                                    {line.rubroName}
-                                  </span>
-                                  {qty && <span className="shrink-0 text-sm text-muted">{qty}</span>}
-                                  {unit && <span className="shrink-0 text-sm tabular-nums text-ink">{unit}</span>}
-                                  {line.costTotal > 0 && (
-                                    <span className="shrink-0 text-sm tabular-nums text-ink">{formatARS(line.costTotal)}</span>
+                      <button
+                        type="button"
+                        className="col-span-6 grid grid-cols-subgrid items-center rounded-lg px-4 py-2 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
+                        aria-expanded={dayOpen}
+                        onClick={() => toggleDay(day.ymd)}
+                      >
+                        <span className="col-span-3 flex min-w-0 items-center gap-2">
+                          <DayChevron open={dayOpen} />
+                          <span className="whitespace-nowrap text-sm font-semibold text-ink">{day.label}</span>
+                          {missing && (
+                            <span className="whitespace-nowrap text-xs text-muted">{missing}</span>
+                          )}
+                        </span>
+                        <span className={`whitespace-nowrap text-right text-sm font-semibold tabular-nums ${day.total > 0 ? 'text-ink' : 'text-muted'}`}>
+                          {dayTotal}
+                        </span>
+                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(day.paid)}</span>
+                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(day.debt)}</span>
+                      </button>
+                      {dayOpen && day.visits.map(({ providerName, delivery }) => {
+                  const open = openKeys.has(delivery.id)
+                  const total = visitCost(delivery.lines)
+                  const totalLabel = priceText(total)
+                  const when = toVisitTime(delivery.createdAt)
+                  return (
+                    <div key={delivery.id} className="col-span-6 grid grid-cols-subgrid overflow-hidden rounded-2xl border border-line bg-panel">
+                      <button
+                        type="button"
+                        className={`col-span-6 grid grid-cols-subgrid items-center px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
+                        aria-expanded={open}
+                        onClick={() => toggleVisit(delivery.id)}
+                      >
+                        <span className="whitespace-nowrap text-sm text-ink">{when}</span>
+                        <span className="whitespace-nowrap text-sm font-semibold text-ink" title={providerName}>
+                          {providerName}
+                        </span>
+                        <span className="whitespace-nowrap text-sm text-muted" title={delivery.storeName}>
+                          {delivery.storeName}
+                        </span>
+                        <span className={`whitespace-nowrap text-right text-sm tabular-nums ${total > 0 ? 'text-ink' : 'text-muted'}`}>
+                          {totalLabel}
+                        </span>
+                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(delivery.paid)}</span>
+                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(delivery.debt)}</span>
+                      </button>
+                      {open && (
+                        <div className="col-span-6 space-y-3 border-t border-line px-4 py-3">
+                          <p className="whitespace-nowrap text-xs text-muted" title={delivery.createdByName}>
+                            Recibió {delivery.createdByName}
+                          </p>
+                          <div className="inline-grid grid-cols-[max-content_max-content_max-content_max-content] gap-x-6 gap-y-2">
+                            <span className="text-xs text-muted">Producto</span>
+                            <span className="text-xs text-muted">Cantidad</span>
+                            <span className="text-right text-xs text-muted">Precio</span>
+                            <span className="text-right text-xs text-muted">Subtotal</span>
+                            {delivery.lines.map(line => {
+                              const qty = formatMerchVisitQty(line)
+                              const unit = line.unitCost > 0
+                                ? `${formatARS(line.unitCost)}${line.costUnit ? ` ${formatMerchCostUnit(line.costUnit)}` : ''}`
+                                : 'sin precio'
+                              const subtotal = priceText(line.costTotal)
+                              return (
+                                <div key={line.id} className="col-span-4 grid grid-cols-subgrid items-baseline">
+                                  <span className="whitespace-nowrap text-sm text-ink" title={line.rubroName}>{line.rubroName}</span>
+                                  <span className="whitespace-nowrap text-sm tabular-nums text-muted">{qty || '—'}</span>
+                                  <span className={`whitespace-nowrap text-right text-sm tabular-nums ${line.unitCost > 0 ? 'text-ink' : 'text-muted'}`}>{unit}</span>
+                                  <span className={`whitespace-nowrap text-right text-sm tabular-nums ${line.costTotal > 0 ? 'text-ink' : 'text-muted'}`}>{subtotal}</span>
+                                  {canPriceMediaRes && isMediaResLine(line) && (
+                                    <div className="col-span-4 pt-1">
+                                      <MediaResPaidEditor line={line} onSaved={() => setRevision(value => value + 1)} />
+                                    </div>
                                   )}
                                 </div>
-                                {canPriceMediaRes && isMediaResLine(line) && (
-                                  <MediaResPaidEditor line={line} onSaved={() => setRevision(value => value + 1)} />
-                                )}
-                              </li>
-                            )
-                          })}
-                        </ul>
-                        {delivery.notes?.trim() && (
-                          <p className="min-w-0 truncate text-sm text-muted" title={delivery.notes}>
-                            {delivery.notes}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
+                              )
+                            })}
+                          </div>
+                          {delivery.notes?.trim() && (
+                            <p className="max-w-xl text-sm text-muted" title={delivery.notes}>
+                              {delivery.notes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

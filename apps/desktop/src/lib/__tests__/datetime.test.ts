@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   nowUtc,
   toLocalDateTime,
+  toVisitStamp,
+  toVisitDayLabel,
+  toVisitTime,
   toLocalDate,
   toLocalTime,
   formatARS,
@@ -48,6 +51,29 @@ describe('toLocalTime', () => {
     const utc = '2026-01-15T15:00:00.000Z'
     const result = toLocalTime(utc)
     expect(result).toMatch(/\d{1,2}:\d{2}/)
+  })
+})
+
+describe('toVisitStamp', () => {
+  it('usa día, mes y hora de 24 horas, sin el año', () => {
+    expect(toVisitStamp('2026-01-15T12:00:00.000Z')).toBe('15/01 09:00')
+  })
+})
+
+describe('toVisitDayLabel', () => {
+  it('nombra el día civil local, sin el año', () => {
+    expect(toVisitDayLabel('2026-11-25T12:53:00.000Z')).toBe('Miércoles 25/11')
+  })
+
+  it('no pasa al día siguiente una visita de la noche en Argentina', () => {
+    expect(toVisitDayLabel('2026-11-25T01:30:00.000Z')).toBe('Martes 24/11')
+    expect(toVisitTime('2026-11-25T01:30:00.000Z')).toBe('22:30')
+  })
+})
+
+describe('toVisitTime', () => {
+  it('muestra solo la hora de 24 horas', () => {
+    expect(toVisitTime('2026-01-15T12:00:00.000Z')).toBe('09:00')
   })
 })
 
