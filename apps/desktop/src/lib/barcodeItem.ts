@@ -155,6 +155,18 @@ export function assignCatalogProduct(item: SaleItemDraft, product: ProductRow): 
   }
 }
 
+/**
+ * El corte de un precio abierto solo cambia el nombre y el producto.
+ * El kilo sigue siendo el importe del ticket dividido por el precio tipeado.
+ */
+export function linkSaleCut(item: SaleItemDraft, cut: ProductRow): SaleItemDraft {
+  return {
+    ...item,
+    productId: cut.id,
+    productName: cut.name,
+  }
+}
+
 export type ValeLineFromBarcode =
   | { ok: true; product: ProductRow; quantityText: string; priceText: string; subtotal: number }
   | { ok: false; needsPrice: OpenPriceRequest }

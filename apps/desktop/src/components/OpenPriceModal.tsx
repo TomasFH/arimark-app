@@ -4,9 +4,9 @@
  */
 
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { floorTicketPesos, searchProductsByQuery } from '@carniceria/shared'
 import NumericInput from './NumericInput'
 import { Button, Modal } from './ui'
-import { floorTicketPesos } from '@carniceria/shared'
 import { buildItemFromBarcode } from '../lib/barcodeItem'
 import { formatARS, formatKg } from '../lib/datetime'
 import { parseNumericInput } from '../lib/numericInput'
@@ -16,7 +16,9 @@ interface Props {
   product: ProductRow
   /** Importe del ticket, en pesos. */
   ticketTotal: number
-  onConfirm: (unitPrice: number) => void
+  /** Cortes de la lista. Elegir uno no cambia el peso. */
+  cuts?: ProductRow[]
+  onConfirm: (unitPrice: number, cut?: ProductRow | null) => void
   onClose: () => void
 }
 
@@ -24,8 +26,11 @@ function kilosUsables(weightKg: number): boolean {
   return Math.round(weightKg * 1000) / 1000 > 0
 }
 
-export default function OpenPriceModal({ product, ticketTotal, onConfirm, onClose }: Props) {
+export default function OpenPriceModal({ product, ticketTotal, cuts = [], onConfirm, onClose }: Props) {
   const [priceRaw, setPriceRaw] = useState('')
+  const [cut, setCut] = useState<ProductRow | null>(null)
+  const [cutQuery, setCutQuery] = useState('')
+  const [cutOpen, setCutOpen] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const inputId = useId()
@@ -61,8 +66,14 @@ export default function OpenPriceModal({ product, ticketTotal, onConfirm, onClos
       return
     }
     setError('')
-    onConfirm(typed)
+    onConfirm(typed, cut)
   }
+
+  const cutMatches = searchProductsByQuery(
+    cuts.filter(row => row.id !== product.id && row.unit === 'kg' && row.price != null && row.price > 0),
+    cutQuery,
+    { nameOf: row => row.name, pluOf: row => row.pluNumber },
+  ).slice(0, 8)
 
   return (
     <Modal
@@ -118,6 +129,56 @@ export default function OpenPriceModal({ product, ticketTotal, onConfirm, onClos
             </p>
           )}
         </div>
+
+        {!perUnit && cuts.length > 0 && (
+          <div className="min-w-0">
+            <label className="mb-1 block text-xs text-muted" htmlFor={`${inputId}-cut`}>
+              Corte (opcional)
+            </label>
+            {cut ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 flex-1 truncate text-sm text-ink" title={cut.name}>{cut.name}</p>
+                <button
+                  type="button"
+                  className="shrink-0 text-xs text-muted hover:text-ink"
+                  onClick={() => { setCut(null); setCutQuery('') }}
+                >
+                  Quitar
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  id={`${inputId}-cut`}
+                  type="text"
+                  value={cutQuery}
+                  maxLength={40}
+                  autoComplete="off"
+                  placeholder="Vacío, asado…"
+                  onChange={event => { setCutQuery(event.target.value); setCutOpen(true) }}
+                  onFocus={() => setCutOpen(true)}
+                  onBlur={() => setTimeout(() => setCutOpen(false), 150)}
+                  className="w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-subtle focus:border-line-accent focus:outline-none"
+                />
+                {cutOpen && cutMatches.length > 0 && (
+                  <ul className="absolute z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-line bg-panel">
+                    {cutMatches.map(row => (
+                      <li key={row.id}>
+                        <button
+                          type="button"
+                          className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-hover"
+                          onMouseDown={() => { setCut(row); setCutQuery(''); setCutOpen(false) }}
+                        >
+                          <span className="min-w-0 flex-1 truncate text-sm text-ink" title={row.name}>{row.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {preview && (
           <div className="flex items-center justify-between gap-3 rounded-lg bg-raised px-3 py-2.5">

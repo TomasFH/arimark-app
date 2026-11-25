@@ -58,7 +58,36 @@ describe('OpenPriceModal', () => {
     await user.type(screen.getByLabelText('Precio por kilo ($)'), '20000')
     expect(screen.getByText(/0,5 kg/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
-    expect(onConfirm).toHaveBeenCalledWith(20000)
+    expect(onConfirm).toHaveBeenCalledWith(20000, null)
+  })
+
+  it('elige un corte y el kilo sigue saliendo del precio tipeado', async () => {
+    const user = userEvent.setup()
+    const onConfirm = vi.fn()
+    const vacio: ProductRow = {
+      id: 'vacio',
+      pluNumber: 12,
+      name: 'Vacío',
+      category: 'beef_cut',
+      unit: 'kg',
+      price: 23000,
+    }
+    render(
+      <OpenPriceModal
+        product={prueba}
+        ticketTotal={25100}
+        cuts={[vacio, prueba]}
+        onConfirm={onConfirm}
+        onClose={() => {}}
+      />,
+    )
+    await user.type(screen.getByLabelText('Precio por kilo ($)'), '20000')
+    expect(screen.getByText(/1,255 kg/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Corte (opcional)'), 'vac')
+    await user.click(screen.getByRole('button', { name: 'Vacío' }))
+    expect(screen.getByText(/1,255 kg/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Agregar' }))
+    expect(onConfirm).toHaveBeenCalledWith(20000, vacio)
   })
 
   it('en un producto por unidad redondea la cantidad', async () => {
@@ -70,6 +99,6 @@ describe('OpenPriceModal', () => {
     await user.type(screen.getByLabelText('Precio por unidad ($)'), '6000')
     expect(screen.getByText(/1 u\./)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
-    expect(onConfirm).toHaveBeenCalledWith(6000)
+    expect(onConfirm).toHaveBeenCalledWith(6000, null)
   })
 })

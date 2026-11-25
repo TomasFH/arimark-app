@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildItemFromBarcode, applySpecialUnitPrice, assignCatalogProduct, resolveScannedItem, valeLineFromBarcode, valeLineFromTypedPrice } from '../barcodeItem'
+import { buildItemFromBarcode, applySpecialUnitPrice, assignCatalogProduct, linkSaleCut, resolveScannedItem, valeLineFromBarcode, valeLineFromTypedPrice } from '../barcodeItem'
 import type { ProductRow } from '../../types/hw-api'
 
 const kgProduct: ProductRow = {
@@ -152,6 +152,19 @@ const unidadAbierta: ProductRow = {
   name: 'Confirmación',
   price: 0,
 }
+
+describe('linkSaleCut', () => {
+  it('cambia el corte y deja el kilo del precio tipeado', () => {
+    const item = buildItemFromBarcode(998, 25100, abierto, 20000)
+    const linked = linkSaleCut(item, kgProduct)
+    expect(linked.productId).toBe(kgProduct.id)
+    expect(linked.productName).toBe('Vacío')
+    expect(linked.pluNumber).toBe(998)
+    expect(linked.unitPrice).toBe(20000)
+    expect(linked.weightKg).toBeCloseTo(25100 / 20000, 5)
+    expect(linked.subtotal).toBe(25100)
+  })
+})
 
 describe('resolveScannedItem — precio abierto', () => {
   it('no arma la línea si la lista está en 0 y no hay precio de cliente', () => {

@@ -28,7 +28,7 @@ import { formatARS, formatKg } from '../lib/datetime'
 import { applyColorScheme, type ColorScheme } from '../lib/theme'
 import { useBarcodeScanner } from '../lib/useBarcodeScanner'
 import { parseKretzBarcode, centsToARS, normalizeCashDiscountRule, parseCashDiscountSchedule, resolveCashDiscountRule, weekdayInTimeZone, type CashDiscountBlock } from '@carniceria/shared'
-import { applySpecialUnitPrice, assignCatalogProduct, buildItemFromBarcode, resolveScannedItem, type OpenPriceRequest } from '../lib/barcodeItem'
+import { applySpecialUnitPrice, assignCatalogProduct, buildItemFromBarcode, linkSaleCut, resolveScannedItem, type OpenPriceRequest } from '../lib/barcodeItem'
 import { addBagToCart, collapseDuplicateBags, removeBagQuantity } from '../lib/bags'
 import { useCatalogSyncReload } from '../lib/useCatalogSyncReload'
 import CatalogQuickSearch from '../components/CatalogQuickSearch'
@@ -771,14 +771,15 @@ export default function CashierScreen({
     flashScannedName(resolved.item.productName)
   }, [products, addItem, specialPriceByProductId, flashScannedName])
 
-  function confirmOpenPrice(unitPrice: number): void {
+  function confirmOpenPrice(unitPrice: number, cut?: ProductRow | null): void {
     if (!openPriceScan) return
-    const item = buildItemFromBarcode(
+    const priced = buildItemFromBarcode(
       openPriceScan.product.pluNumber,
       openPriceScan.totalARS,
       openPriceScan.product,
       unitPrice,
     )
+    const item = cut ? linkSaleCut(priced, cut) : priced
     setOpenPriceScan(null)
     addItem(item)
     flashScannedName(item.productName)
@@ -1767,6 +1768,7 @@ export default function CashierScreen({
         <OpenPriceModal
           product={openPriceScan.product}
           ticketTotal={openPriceScan.totalARS}
+          cuts={products}
           onClose={() => setOpenPriceScan(null)}
           onConfirm={confirmOpenPrice}
         />
