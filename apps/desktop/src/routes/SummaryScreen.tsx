@@ -626,7 +626,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app text-ink">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col bg-app text-ink">
       <AdminSectionHeader
         title="Resumen"
         subtitle={caption}
@@ -688,7 +688,7 @@ export default function SummaryScreen({ onBack, onLogout }: Props) {
             )}
           </div>
 
-          <div className="mt-6 flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:items-start">
+          <div className="mt-6 flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
             <SummaryNav section={section} onChange={setSection} />
             <div
               role="tabpanel"

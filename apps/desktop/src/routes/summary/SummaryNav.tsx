@@ -18,7 +18,7 @@ export function SummaryNav({
   onChange: (id: SummarySectionId) => void
 }) {
   return (
-    <nav aria-label="Secciones del resumen" className="lg:w-44 lg:shrink-0">
+    <nav aria-label="Secciones del resumen" className="lg:w-44 lg:shrink-0 lg:self-start">
       <div role="tablist" aria-label="Secciones del resumen" className="flex gap-1 overflow-x-auto lg:flex-col">
         {SECTIONS.map(item => {
           const selected = item.id === section

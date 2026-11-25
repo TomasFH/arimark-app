@@ -124,6 +124,18 @@ describe('SummaryScreen', () => {
     } as unknown as typeof window.hw
   })
 
+  it('el panel de la pestaña usa el alto que sobra y puede scrollear', async () => {
+    render(<SummaryScreen onBack={vi.fn()} />)
+    await waitFor(() => expect(window.hw.getAdminSummary).toHaveBeenCalled())
+    const panel = screen.getByRole('tabpanel')
+    const row = panel.parentElement
+    expect(panel.className).toContain('overflow-y-auto')
+    expect(panel.className).toContain('min-h-0')
+    expect(row?.className ?? '').toContain('flex-1')
+    expect(row?.className ?? '').toContain('min-h-0')
+    expect(row?.className ?? '').not.toContain('items-start')
+  })
+
   it('arranca en todos los locales y en esta semana, y Hoy no vuelve a consultar', async () => {
     const user = userEvent.setup()
     render(<SummaryScreen onBack={vi.fn()} />)
