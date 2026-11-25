@@ -8,7 +8,7 @@
  * Autocomplete de proveedores (LIST_PROVIDERS). Nombre nuevo se crea al guardar.
  * Deuda pendiente: el exceso entregado se aplica solo. Comprobante al confirmar.
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type KeyboardEvent } from 'react'
 import NumericInput from '../components/NumericInput'
 import { parseNumericInput } from '../lib/numericInput'
 import { formatARS } from '../lib/datetime'
@@ -55,6 +55,11 @@ const FIELD =
 const successNoticeClass =
   'border-line-strong bg-[color-mix(in_srgb,var(--success)_12%,transparent)]'
 
+function markedIndex(index: number, count: number): number {
+  if (count <= 0) return 0
+  return ((index % count) + count) % count
+}
+
 function kindFromExpense(expense: ExpenseRow | undefined): ExpenseKind {
   if (!expense) return 'provider'
   return expense.providerId || expense.provider ? 'provider' : 'simple'
@@ -87,6 +92,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [providerSuggestions, setProviderSuggestions] = useState<ProviderRow[]>([])
   const [providersLoaded, setProvidersLoaded] = useState(false)
   const [showProviderSuggestions, setShowProviderSuggestions] = useState(false)
+  const [providerHighlight, setProviderHighlight] = useState(0)
   const providerInteractedRef = useRef(false)
 
   // --- Concepto ---
@@ -94,6 +100,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [concept, setConcept] = useState(editingExpense?.concept ?? '')
   const [conceptSuggestions, setConceptSuggestions] = useState<string[]>([])
   const [showConceptSuggestions, setShowConceptSuggestions] = useState(false)
+  const [conceptHighlight, setConceptHighlight] = useState(0)
   const conceptInteractedRef = useRef(false)
   const conceptInputRef = useRef<HTMLInputElement>(null)
   const insumosConceptRef = useRef<HTMLInputElement>(null)
@@ -219,6 +226,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     const exact = namedSuggest(conceptSuggestions, next, s => s).exact
     setConcept(exact ?? next)
     conceptInteractedRef.current = true
+    setConceptHighlight(0)
     setShowConceptSuggestions(!exact)
     clearError()
   }
@@ -319,7 +327,43 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     setProviderDebt(null)
     setSuppliesOnly(false)
     setConcept('')
+    setProviderHighlight(0)
     setShowProviderSuggestions(true)
+  }
+
+  function moveSuggest(
+    event: KeyboardEvent<HTMLInputElement>,
+    open: boolean,
+    count: number,
+    highlight: number,
+    setHighlight: (index: number) => void,
+    openList: () => void,
+    closeList: () => void,
+    pick: (index: number) => void,
+  ) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (!open || count <= 0) {
+        openList()
+        setHighlight(0)
+        return
+      }
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      setHighlight(markedIndex(highlight + step, count))
+      return
+    }
+    if (!open || count <= 0) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      pick(markedIndex(highlight, count))
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeList()
+    }
   }
 
   useEffect(() => {
@@ -332,6 +376,10 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const providerResolved = selectedProviderId != null || exactProvider != null
   const isNewProvider = providersLoaded && hasProviderName && !providerResolved && listedProviders.length === 0
   const showVisitFields = kind === 'provider' && (providerResolved || isNewProvider)
+  const providerListOpen = showProviderSuggestions && listedProviders.length > 0 && !showVisitFields
+  const conceptListOpen = showConceptSuggestions && listedConcepts.length > 0
+  const providerMarked = markedIndex(providerHighlight, listedProviders.length)
+  const conceptMarked = markedIndex(conceptHighlight, listedConcepts.length)
   const merchResolved = !suppliesOnly && !isEditing && merchLines.length > 0 ? visitLinesFromForm(merchLines) : null
   const merchTotal = merchResolved?.ok ? merchResolved.total : null
   const totalParsed = showVisitFields
@@ -848,6 +896,19 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             type="text"
             value={providerInput}
             onChange={e => handleProviderInputChange(e.target.value)}
+            onKeyDownCapture={event => moveSuggest(
+              event,
+              providerListOpen,
+              listedProviders.length,
+              providerHighlight,
+              setProviderHighlight,
+              () => { providerInteractedRef.current = true; setShowProviderSuggestions(true) },
+              () => setShowProviderSuggestions(false),
+              index => {
+                const provider = listedProviders[index]
+                if (provider) selectProviderFromList(provider)
+              },
+            )}
             onFocus={() => { if (providerInteractedRef.current) setShowProviderSuggestions(true) }}
             onClick={() => { providerInteractedRef.current = true; setShowProviderSuggestions(true) }}
             onBlur={() => setTimeout(() => setShowProviderSuggestions(false), 150)}
@@ -861,11 +922,13 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             open={showProviderSuggestions && listedProviders.length > 0 && !showVisitFields}
           >
             <ul>
-              {listedProviders.map(p => (
+              {listedProviders.map((p, index) => (
                 <li
                   key={p.id}
+                  data-suggest-marked={providerListOpen && index === providerMarked ? 'true' : undefined}
                   onMouseDown={e => { e.preventDefault(); selectProviderFromList(p) }}
-                  className="px-3 py-2 text-sm cursor-pointer hover:bg-hover flex items-center gap-2"
+                  onMouseEnter={() => setProviderHighlight(index)}
+                  className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 ${providerListOpen && index === providerMarked ? 'bg-accent-soft' : 'hover:bg-hover'}`}
                 >
                   <span className="flex-1 min-w-0 truncate" title={p.name}>{p.name}</span>
                   {p.phone && (
@@ -962,6 +1025,21 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             type="text"
             value={concept}
             onChange={e => handleConceptChange(e.target.value)}
+            onKeyDownCapture={event => moveSuggest(
+              event,
+              conceptListOpen,
+              listedConcepts.length,
+              conceptHighlight,
+              setConceptHighlight,
+              () => { conceptInteractedRef.current = true; setShowConceptSuggestions(true) },
+              () => setShowConceptSuggestions(false),
+              index => {
+                const name = listedConcepts[index]
+                if (!name) return
+                setConcept(name)
+                setShowConceptSuggestions(false)
+              },
+            )}
             placeholder="Bolsas, limpieza…"
             maxLength={80}
             autoComplete="off"
@@ -975,11 +1053,13 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             open={showVisitFields && suppliesOnly && showConceptSuggestions && listedConcepts.length > 0}
           >
             <ul>
-              {listedConcepts.map(s => (
+              {listedConcepts.map((s, index) => (
                 <li
                   key={s}
+                  data-suggest-marked={conceptListOpen && index === conceptMarked ? 'true' : undefined}
                   onMouseDown={e => { e.preventDefault(); setConcept(s); setShowConceptSuggestions(false) }}
-                  className="px-3 py-2 text-sm cursor-pointer hover:bg-hover"
+                  onMouseEnter={() => setConceptHighlight(index)}
+                  className={`px-3 py-2 text-sm cursor-pointer ${conceptListOpen && index === conceptMarked ? 'bg-accent-soft' : 'hover:bg-hover'}`}
                 >
                   {s}
                 </li>
@@ -1192,6 +1272,21 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             type="text"
             value={concept}
             onChange={e => handleConceptChange(e.target.value)}
+            onKeyDownCapture={event => moveSuggest(
+              event,
+              conceptListOpen,
+              listedConcepts.length,
+              conceptHighlight,
+              setConceptHighlight,
+              () => { conceptInteractedRef.current = true; setShowConceptSuggestions(true) },
+              () => setShowConceptSuggestions(false),
+              index => {
+                const name = listedConcepts[index]
+                if (!name) return
+                setConcept(name)
+                setShowConceptSuggestions(false)
+              },
+            )}
             placeholder="Bolsas, limpieza…"
             maxLength={80}
             autoComplete="off"
@@ -1205,11 +1300,13 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
             open={kind === 'simple' && showConceptSuggestions && listedConcepts.length > 0}
           >
             <ul>
-              {listedConcepts.map(s => (
+              {listedConcepts.map((s, index) => (
                 <li
                   key={s}
+                  data-suggest-marked={conceptListOpen && index === conceptMarked ? 'true' : undefined}
                   onMouseDown={e => { e.preventDefault(); setConcept(s); setShowConceptSuggestions(false) }}
-                  className="px-3 py-2 text-sm cursor-pointer hover:bg-hover"
+                  onMouseEnter={() => setConceptHighlight(index)}
+                  className={`px-3 py-2 text-sm cursor-pointer ${conceptListOpen && index === conceptMarked ? 'bg-accent-soft' : 'hover:bg-hover'}`}
                 >
                   {s}
                 </li>
