@@ -70,6 +70,11 @@ describe('índice del período', () => {
         { fieldPath: 'createdAtServer', order: 'ASCENDING' },
       ],
       [
+        { fieldPath: 'customerId', order: 'ASCENDING' },
+        { fieldPath: 'storeId', order: 'ASCENDING' },
+        { fieldPath: 'createdAtServer', order: 'DESCENDING' },
+      ],
+      [
         { fieldPath: 'storeId', order: 'ASCENDING' },
         { fieldPath: 'createdAt', order: 'ASCENDING' },
       ],

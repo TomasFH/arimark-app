@@ -22,6 +22,15 @@
       "collectionGroup": "customerDebtEvents",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "customerId", "order": "ASCENDING" },
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAtServer", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerDebtEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "storeId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
