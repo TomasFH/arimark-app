@@ -238,8 +238,16 @@ export function isMerchIntakeExpenseConcept(concept: string | null | undefined):
   return Boolean(concept && MERCH_INTAKE_EXPENSE_CONCEPT_RE.test(concept.trim()))
 }
 
+const kgAmountFormat = new Intl.NumberFormat('es-AR', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 3,
+  useGrouping: true,
+})
+
+/** Kilos como se leen en Argentina, hasta el gramo y sin ceros de relleno. */
 export function formatKg3(kg: number): string {
-  return `${kg.toFixed(3)} kg`
+  if (!Number.isFinite(kg)) return '0 kg'
+  return `${kgAmountFormat.format(roundKg(kg))} kg`
 }
 
 export function formatMerchLineSummary(

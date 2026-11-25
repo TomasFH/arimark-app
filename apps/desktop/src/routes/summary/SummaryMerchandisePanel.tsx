@@ -44,7 +44,7 @@ function transferDayLabel(iso: string): string {
 }
 
 function transferQuantityText(quantity: number, unit: StoreTransferRow['unit']): string {
-  if (unit === 'kg') return `${quantity} kg`
+  if (unit === 'kg') return formatKg3(quantity)
   if (unit === 'u') return quantity === 1 ? '1 unidad' : `${quantity} unidades`
   return quantity === 1 ? '1 cajón' : `${quantity} cajones`
 }

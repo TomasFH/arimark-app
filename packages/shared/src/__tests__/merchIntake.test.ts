@@ -3,6 +3,7 @@ import {
   buildMerchWeekBook,
   computeMerchLineFacts,
   coerceMerchIntakeTemplate,
+  formatKg3,
   formatMerchLineSummary,
   isMerchIntakeExpenseConcept,
   merchIntakeExpenseConcept,
@@ -17,6 +18,14 @@ import {
 } from '../merchIntake'
 
 describe('merchIntake', () => {
+  it('muestra los kilos como se leen en Argentina', () => {
+    expect(formatKg3(103)).toBe('103 kg')
+    expect(formatKg3(75)).toBe('75 kg')
+    expect(formatKg3(0.234)).toBe('0,234 kg')
+    expect(formatKg3(1.255)).toBe('1,255 kg')
+    expect(formatKg3(1600.9)).toBe('1.600,9 kg')
+  })
+
   it('coacciona plantilla', () => {
     expect(coerceMerchIntakeTemplate('packs')).toBe('packs')
     expect(coerceMerchIntakeTemplate('kg')).toBeNull()
@@ -237,7 +246,7 @@ describe('buildMerchWeekBook', () => {
     expect(book.rubros).toHaveLength(1)
     expect(book.rubros[0]?.pieces).toBe(3)
     expect(book.rubros[0]?.netKg).toBe(260)
-    expect(book.rubros[0]?.qtyLabel).toBe('3 u · 260.000 kg')
+    expect(book.rubros[0]?.qtyLabel).toBe('3 u · 260 kg')
     expect(book.rubros[0]?.qtyLabel.includes('/u')).toBe(false)
     expect(book.providers).toHaveLength(1)
     expect(book.providers[0]?.deliveries.map(d => d.id)).toEqual(['a', 'b'])

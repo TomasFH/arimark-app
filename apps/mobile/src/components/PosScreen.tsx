@@ -5,7 +5,7 @@
  */
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { parseKretzBarcode, injectConceptForReason, quoteCashDiscount, remainderIncludesCash, saleTotalFromQuote, isEmptyBillCount, resolveCashDiscountRule, weekdayInTimeZone, merchProductKey, type CashDiscountBlock, type CashDiscountRule, type InjectReason } from '@carniceria/shared'
+import { parseKretzBarcode, formatKg3, injectConceptForReason, quoteCashDiscount, remainderIncludesCash, saleTotalFromQuote, isEmptyBillCount, resolveCashDiscountRule, weekdayInTimeZone, merchProductKey, type CashDiscountBlock, type CashDiscountRule, type InjectReason } from '@carniceria/shared'
 import { startBarcodeScanning } from '../lib/barcodeScanner'
 import { findByPlu } from '../lib/catalog'
 import { db } from '../lib/db'
@@ -681,7 +681,7 @@ export function PosScreen({ shift, catalog, storeName, viewerRole, viewerName, o
                 <p className="text-white text-sm font-medium truncate" title={item.productName}>{item.productName}</p>
                 <p className="text-gray-400 text-xs">
                   {item.weightKg !== null
-                    ? `${item.weightKg.toFixed(3)} kg · ${formatARS(item.unitPrice)}/kg`
+                    ? `${formatKg3(item.weightKg)} · ${formatARS(item.unitPrice)}/kg`
                     : `${item.quantity} ud · ${formatARS(item.unitPrice)}`}
                   {item.manualEntry && <span className="text-orange-400 ml-1">· manual</span>}
                 </p>

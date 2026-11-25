@@ -56,7 +56,7 @@ describe('OpenPriceModal', () => {
       <OpenPriceModal product={prueba} ticketTotal={10000} onConfirm={onConfirm} onClose={() => {}} />,
     )
     await user.type(screen.getByLabelText('Precio por kilo ($)'), '20000')
-    expect(screen.getByText(/0\.500 kg/)).toBeInTheDocument()
+    expect(screen.getByText(/0,5 kg/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
     expect(onConfirm).toHaveBeenCalledWith(20000)
   })

@@ -239,7 +239,7 @@ describe('merchVisit', () => {
     }, { id: 'l1', sortOrder: 0 })
     expect(pollo.ok).toBe(true)
     if (!pollo.ok) return
-    expect(formatMerchVisitQty(pollo.line)).toBe('2 cajones · 18.500 kg · 19.000 kg')
+    expect(formatMerchVisitQty(pollo.line)).toBe('2 cajones · 18,5 kg · 19 kg')
     expect(pollo.line.weighMode).toBe('each')
 
     const maple = resolveMerchVisitLine({
@@ -272,7 +272,7 @@ describe('merchVisit', () => {
     }, { id: 'l1', sortOrder: 0 })
     expect(bondiola.ok).toBe(true)
     if (!bondiola.ok) return
-    expect(formatMerchVisitQty(bondiola.line)).toBe('5.000 kg')
+    expect(formatMerchVisitQty(bondiola.line)).toBe('5 kg')
 
     const media = resolveMerchVisitLine({
       productId: null,
@@ -288,7 +288,7 @@ describe('merchVisit', () => {
     }, { id: 'l1', sortOrder: 0 })
     expect(media.ok).toBe(true)
     if (!media.ok) return
-    expect(formatMerchVisitQty(media.line)).toBe('2 u · 198.000 kg')
+    expect(formatMerchVisitQty(media.line)).toBe('2 u · 198 kg')
 
     expect(merchVisitReceiptItems([{
       productId: null,
@@ -302,7 +302,7 @@ describe('merchVisit', () => {
       weightsKg: [18.5, 19],
       unitCost: 9000,
       costUnit: 'pack',
-    }])).toEqual([{ name: 'Pollo', qty: '2 cajones · 18.500 kg · 19.000 kg' }])
+    }])).toEqual([{ name: 'Pollo', qty: '2 cajones · 18,5 kg · 19 kg' }])
   })
 
   it('pollo en peso total cobra los cajones y no exige un kilo por cajón', () => {
@@ -325,7 +325,7 @@ describe('merchVisit', () => {
     expect(r.line.costTotal).toBe(27_000)
     expect(r.line.netKg).toBe(55)
     expect(r.line.weighMode).toBe('total')
-    expect(formatMerchVisitQty(r.line)).toBe('3 cajones · peso total 55.000 kg')
+    expect(formatMerchVisitQty(r.line)).toBe('3 cajones · peso total 55 kg')
   })
 
   it('media res con precio arranca como costo informado y se paga si lo piden', () => {

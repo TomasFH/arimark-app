@@ -9,7 +9,7 @@ import DecimalInput from './DecimalInput'
 import { parseDecimalInput } from '../lib/numericInput'
 import { canEditCebo, CEBO_NOTES_MAX, listWeekCebo, upsertLocalCebo } from '../lib/cebo'
 import { triggerSync } from '../lib/sync'
-import { formatWeekRangeLabel, mondayWeekRange } from '@carniceria/shared'
+import { formatWeekRangeLabel, formatKg3, mondayWeekRange } from '@carniceria/shared'
 import type { LocalCebo, LocalShift } from '../types/pos'
 
 interface Props {
@@ -17,10 +17,6 @@ interface Props {
   viewerRole: 'admin' | 'cashier'
   viewerName: string
   onClose: () => void
-}
-
-function formatKg(kg: number): string {
-  return `${kg.toFixed(3)} kg`
 }
 
 function toLocalTime(iso: string): string {
@@ -165,8 +161,8 @@ export function CeboModal({ shift, viewerRole, viewerName, onClose }: Props) {
             return (
               <li key={row.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white" title={formatKg(row.quantityKg)}>
-                    {formatKg(row.quantityKg)}
+                  <p className="truncate text-sm font-medium text-white" title={formatKg3(row.quantityKg)}>
+                    {formatKg3(row.quantityKg)}
                   </p>
                   {row.notes && (
                     <p className="truncate text-xs text-gray-400" title={row.notes}>{row.notes}</p>

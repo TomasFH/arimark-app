@@ -252,7 +252,7 @@ describe('SummaryScreen', () => {
         : { shifts: [], visits: [], warning: null, fiado: { debtNow: null, payments: null } },
     }))
     render(<SummaryScreen onBack={vi.fn()} />)
-    expect(await screen.findByText(/90\.000 kg/)).toBeInTheDocument()
+    expect(await screen.findByText(/90 kg/)).toBeInTheDocument()
     expect(screen.queryByText('cerró bien')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Cajas' })).not.toBeInTheDocument()
     expect(screen.queryByText(/promedio/i)).not.toBeInTheDocument()
@@ -521,8 +521,8 @@ describe('SummaryScreen', () => {
     expect(screen.getByText('Local Norte')).toBeInTheDocument()
     expect(screen.getByText('Local Sur')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
-    expect(screen.getByText('304.300 kg')).toBeInTheDocument()
-    expect(screen.getByText('17 cajones · 344.300 kg brutos')).toBeInTheDocument()
+    expect(screen.getByText('304,3 kg')).toBeInTheDocument()
+    expect(screen.getByText('17 cajones · 344,3 kg brutos')).toBeInTheDocument()
     expect(screen.queryByText('No hay pollo en este período.')).not.toBeInTheDocument()
   })
 

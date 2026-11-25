@@ -74,8 +74,8 @@ describe('formatARS', () => {
 
 describe('formatKg', () => {
   it('muestra 3 decimales', () => {
-    expect(formatKg(1.5)).toBe('1.500 kg')
-    expect(formatKg(0.234)).toBe('0.234 kg')
+    expect(formatKg(1.5)).toBe('1,5 kg')
+    expect(formatKg(0.234)).toBe('0,234 kg')
   })
 })
 

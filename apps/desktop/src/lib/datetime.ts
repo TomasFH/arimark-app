@@ -6,6 +6,8 @@
  * Ningún otro módulo debería hacer conversiones de timezone directamente.
  */
 
+import { formatKg3 } from '@carniceria/shared'
+
 const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires'
 
 let _timezone: string = DEFAULT_TIMEZONE
@@ -127,10 +129,10 @@ export function formatARS(amount: number): string {
 }
 
 /**
- * Formatea un peso en kg con 3 decimales.
+ * Kilos como se leen en Argentina. La misma regla que `formatKg3`.
  */
 export function formatKg(kg: number): string {
-  return `${kg.toFixed(3)} kg`
+  return formatKg3(kg)
 }
 
 /**

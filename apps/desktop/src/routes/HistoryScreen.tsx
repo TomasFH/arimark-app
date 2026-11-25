@@ -9,7 +9,7 @@ import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import ShiftCloseCorrection from '../components/ShiftCloseCorrection'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
-import { formatARS, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
+import { formatARS, formatKg, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
 import { clampHistoryRange, planHistoryFetch, type HistorySpan } from '../lib/historyRange'
 import { exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
@@ -557,7 +557,7 @@ function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCo
                   {sale.items.map((item, i) => (
                     <div key={i} className="flex justify-between text-xs text-muted">
                       <span className="truncate min-w-0 flex-1" title={item.productName}>
-                        {item.productName} × {item.unit === 'kg' ? `${item.quantity.toFixed(3)} kg` : item.quantity}
+                        {item.productName} × {item.unit === 'kg' ? formatKg(item.quantity) : item.quantity}
                       </span>
                       <span className="shrink-0 ml-2">{formatARS(item.subtotal)}</span>
                     </div>

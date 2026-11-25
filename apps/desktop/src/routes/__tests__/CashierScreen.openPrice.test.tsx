@@ -118,7 +118,7 @@ describe('CashierScreen — precio abierto al escanear', () => {
     await user.click(screen.getByRole('button', { name: 'Agregar' }))
 
     expect(screen.getAllByText('Prueba').length).toBeGreaterThan(0)
-    expect(screen.getByText(/0\.500 kg/)).toBeInTheDocument()
+    expect(screen.getByText(/0,5 kg/)).toBeInTheDocument()
     expect(screen.queryByText('Vacío')).not.toBeInTheDocument()
     expect(screen.queryByText('Sin productos')).not.toBeInTheDocument()
   })
@@ -128,6 +128,6 @@ describe('CashierScreen — precio abierto al escanear', () => {
     scanBarcode(kretzBarcode(5, 21000))
     expect((await screen.findAllByText('Vacío')).length).toBeGreaterThan(0)
     expect(screen.queryByRole('dialog', { name: 'Precio de esta venta' })).not.toBeInTheDocument()
-    expect(screen.getByText(/1\.000 kg/)).toBeInTheDocument()
+    expect(screen.getByText(/1 kg @/)).toBeInTheDocument()
   })
 })

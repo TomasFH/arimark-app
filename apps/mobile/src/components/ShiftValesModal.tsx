@@ -1,7 +1,7 @@
 /**
  * Vales / adelantos del POS móvil. Efectivo baja caja; productos no.
  */
-import { isVisibleForVales, valeVisitorCandidates } from '@carniceria/shared'
+import { formatKg3, isVisibleForVales, valeVisitorCandidates } from '@carniceria/shared'
 import { useEffect, useMemo, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useBackLayer } from '../lib/backStack'
@@ -419,7 +419,7 @@ export function ShiftValesModal({ shift, catalog, viewerRole, viewerName, onSave
                   {draftItems.map((item, i) => (
                     <li key={`${item.productId}-${i}`} className="flex items-center justify-between gap-2 text-gray-300">
                       <span className="min-w-0 flex-1 truncate" title={item.productName}>
-                        {item.productName} × {item.unit === 'kg' ? item.quantity.toFixed(3) : item.quantity}
+                        {item.productName} × {item.unit === 'kg' ? formatKg3(item.quantity) : item.quantity}
                       </span>
                       <span className="shrink-0">{formatMoney(item.subtotal)}</span>
                     </li>
