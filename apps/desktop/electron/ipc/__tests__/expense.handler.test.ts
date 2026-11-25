@@ -28,6 +28,19 @@ vi.mock('../../licensing/providerSync', () => ({
   markDebtEventsDeletedInFirestore: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/firebase', () => ({
+  isFirebaseAvailable: vi.fn(() => false),
+  getFirebaseApp: vi.fn(),
+}))
+
+vi.mock('../../licensing/debtBalanceLive', () => ({
+  getLiveDebtBalance: vi.fn(() => null),
+}))
+
+vi.mock('../../licensing/providerCheckpointRead', () => ({
+  readProviderCheckpointBalance: vi.fn(async () => null),
+}))
+
 const { mockPushUnsyncedExpenses, mockMarkExpensesDeleted } = vi.hoisted(() => ({
   mockPushUnsyncedExpenses: vi.fn().mockResolvedValue(undefined),
   mockMarkExpensesDeleted: vi.fn().mockResolvedValue(undefined),
@@ -41,6 +54,9 @@ vi.mock('../../licensing/expenseSync', () => ({
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
+import { isFirebaseAvailable } from '../../licensing/firebase'
+import { getLiveDebtBalance } from '../../licensing/debtBalanceLive'
+import { readProviderCheckpointBalance } from '../../licensing/providerCheckpointRead'
 import { registerExpenseHandlers } from '../expense.handler'
 import { providerIdFromName } from '../providerUtils'
 
@@ -77,6 +93,9 @@ describe('expense.handler', () => {
 
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
     vi.mocked(getActiveSession).mockReturnValue(SESSION as ReturnType<typeof getActiveSession>)
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    vi.mocked(getLiveDebtBalance).mockReturnValue(null)
+    vi.mocked(readProviderCheckpointBalance).mockResolvedValue(0)
 
     registerExpenseHandlers()
   })
@@ -623,15 +642,15 @@ describe('expense.handler', () => {
   })
 
   describe('GET_PROVIDER_DEBT (ipc:get-provider-debt)', () => {
-    it('devuelve null si no hay deuda registrada para el proveedor', () => {
+    it('devuelve null si no hay deuda registrada para el proveedor', async () => {
       const pid = providerIdFromName('proveedor inexistente')
       const handler = getHandler('ipc:get-provider-debt')
-      const result = handler(null, { providerId: pid }) as { ok: boolean; data: null }
+      const result = await handler(null, { providerId: pid }) as { ok: boolean; data: null }
       expect(result.ok).toBe(true)
       expect(result.data).toBeNull()
     })
 
-    it('devuelve saldo correcto tras registrar deuda', () => {
+    it('devuelve saldo correcto tras registrar deuda', async () => {
       const expenseHandler = getHandler('ipc:register-expense')
       expenseHandler(null, {
         provider: 'Proveedor X',
@@ -641,24 +660,24 @@ describe('expense.handler', () => {
 
       const pid = providerIdFromName('Proveedor X')
       const handler = getHandler('ipc:get-provider-debt')
-      const result = handler(null, { providerId: pid }) as { ok: boolean; data: { provider: string; balance: number } }
+      const result = await handler(null, { providerId: pid }) as { ok: boolean; data: { provider: string; balance: number } }
       expect(result.ok).toBe(true)
       expect(result.data?.balance).toBe(20000)
     })
 
-    it('reduce el saldo al registrar pago de deuda', () => {
+    it('reduce el saldo al registrar pago de deuda', async () => {
       const expenseHandler = getHandler('ipc:register-expense')
       expenseHandler(null, { provider: 'Prov Y', amount: 80000, newDebtAmount: 20000 })
       expenseHandler(null, { provider: 'Prov Y', amount: 140000, paysOldDebt: 20000 })
 
       const pid = providerIdFromName('Prov Y')
       const handler = getHandler('ipc:get-provider-debt')
-      const result = handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
+      const result = await handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
       expect(result.ok).toBe(true)
       expect(result.data?.balance).toBe(0)
     })
 
-    it('devuelve saldo a favor (negativo) si solo hay pagos de más', () => {
+    it('devuelve saldo a favor (negativo) si solo hay pagos de más', async () => {
       const now = new Date().toISOString()
       const pid = providerIdFromName('credito x')
       db.insert(providers).values({ id: pid, name: 'Credito X', nameKey: 'credito x', createdAt: now }).run()
@@ -674,12 +693,12 @@ describe('expense.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:get-provider-debt')
-      const result = handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
+      const result = await handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
       expect(result.ok).toBe(true)
       expect(result.data?.balance).toBe(-50000)
     })
 
-    it('incluye lastEventNotes del último movimiento', () => {
+    it('incluye lastEventNotes del último movimiento', async () => {
       const pid = providerIdFromName('Prov Ajuste')
       const now = new Date().toISOString()
       db.insert(providers).values({
@@ -698,7 +717,7 @@ describe('expense.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:get-provider-debt')
-      const result = handler(null, { providerId: pid }) as {
+      const result = await handler(null, { providerId: pid }) as {
         ok: boolean
         data: { balance: number; lastEventNotes?: string }
       }
@@ -709,9 +728,75 @@ describe('expense.handler', () => {
       )
     })
 
-    it('rechaza payload inválido — providerId vacío', () => {
+    it('con Firebase usa el saldo compartido y no el historial local ya plegado', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getLiveDebtBalance).mockReturnValue(255978)
+      const pid = providerIdFromName('oso')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Oso', nameKey: 'oso', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-plegado',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Oso',
+        type: 'debt',
+        amount: 1780914,
+        createdAt: '2026-10-22T12:00:00.000Z',
+        createdBy: 'user-001',
+        syncedAt: '2026-10-22T12:00:01.000Z',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-cola',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Oso',
+        type: 'debt',
+        amount: 255978,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: now,
+      }).run()
+
       const handler = getHandler('ipc:get-provider-debt')
-      const result = handler(null, { providerId: '' }) as { ok: boolean; code: string }
+      const result = await handler(null, { providerId: pid }) as { ok: boolean; data: { balance: number } }
+      expect(result.ok).toBe(true)
+      expect(result.data?.balance).toBe(255978)
+      expect(readProviderCheckpointBalance).not.toHaveBeenCalled()
+    })
+
+    it('si el listener no tiene el par, lee el checkpoint de ese local', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getLiveDebtBalance).mockReturnValue(null)
+      vi.mocked(readProviderCheckpointBalance).mockResolvedValue(132500)
+      const pid = providerIdFromName('bolsas')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Bolsas', nameKey: 'bolsas', createdAt: now }).run()
+      db.insert(stores).values({ id: 'store-002', name: 'Local 2', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-viejo',
+        storeId: 'store-002',
+        providerId: pid,
+        provider: 'Bolsas',
+        type: 'debt',
+        amount: 999999,
+        createdAt: now,
+        createdBy: 'user-001',
+        syncedAt: now,
+      }).run()
+
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = await handler(null, { providerId: pid, storeId: 'store-002' }) as {
+        ok: boolean
+        data: { balance: number }
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data?.balance).toBe(132500)
+      expect(readProviderCheckpointBalance).toHaveBeenCalledWith(pid, 'store-002')
+    })
+
+    it('rechaza payload inválido — providerId vacío', async () => {
+      const handler = getHandler('ipc:get-provider-debt')
+      const result = await handler(null, { providerId: '' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('INVALID_PAYLOAD')
     })

@@ -13,6 +13,10 @@ import { providerIdFromName, providerNameKey } from './providerUtils'
 import { crossStorePaymentFits, expenseCashAmount, splitOldDebtPayments } from './expenseCash'
 import { pushUnsyncedProviders, pushUnsyncedDebtEvents, markDebtEventsDeletedInFirestore } from '../licensing/providerSync'
 import { pushUnsyncedExpenses, markExpensesDeletedInFirestore } from '../licensing/expenseSync'
+import { isFirebaseAvailable } from '../licensing/firebase'
+import { getLiveDebtBalance } from '../licensing/debtBalanceLive'
+import { readProviderCheckpointBalance } from '../licensing/providerCheckpointRead'
+import { providerBalanceFromSources } from '../licensing/providerStoreBalance'
 import type { IpcResult, ExpenseRow, ProviderDebtRow } from '../../src/types/hw-api'
 
 /** Conceptos predefinidos que se sugieren si el local aún no tiene historial */
@@ -640,9 +644,10 @@ export function registerExpenseHandlers(): void {
     }
   })
 
-  // GET_PROVIDER_DEBT — saldo actual de deuda hacia un proveedor
-  //   Si el payload incluye storeId, consulta ese local; de lo contrario usa el local de la sesión.
-  ipcMain.handle(IPC.GET_PROVIDER_DEBT, (_event, payload: unknown): IpcResult<ProviderDebtRow | null> => {
+  // GET_PROVIDER_DEBT — saldo de un proveedor en un local.
+  //   Con Firebase usa checkpoint + cola, igual que Admin Hub. El historial
+  //   local ya plegado no se vuelve a sumar. Sin storeId, el local es el de la sesión.
+  ipcMain.handle(IPC.GET_PROVIDER_DEBT, async (_event, payload: unknown): Promise<IpcResult<ProviderDebtRow | null>> => {
     const parsed = getProviderDebtSchema.safeParse(payload)
     if (!parsed.success) {
       return { ok: false, error: 'Payload inválido.', code: 'INVALID_PAYLOAD' }
@@ -667,6 +672,7 @@ export function registerExpenseHandlers(): void {
           amount: providerDebtEvents.amount,
           createdAt: providerDebtEvents.createdAt,
           notes: providerDebtEvents.notes,
+          syncedAt: providerDebtEvents.syncedAt,
         })
         .from(providerDebtEvents)
         .where(and(
@@ -675,18 +681,38 @@ export function registerExpenseHandlers(): void {
         ))
         .all()
 
-      if (eventRows.length === 0) return { ok: true, data: null }
+      const firebaseOn = isFirebaseAvailable()
+      const liveBalance = firebaseOn
+        ? getLiveDebtBalance('provider', providerId, effectiveStoreId)
+        : null
+      let remoteBalance: number | null = null
+      if (firebaseOn && liveBalance == null) {
+        try {
+          remoteBalance = await readProviderCheckpointBalance(providerId, effectiveStoreId)
+        } catch (err) {
+          log.error('[ipc:get-provider-debt] No se pudo leer el saldo compartido', {
+            providerId,
+            storeId: effectiveStoreId,
+            err,
+          })
+        }
+      }
+      const balance = providerBalanceFromSources({
+        firebaseOn,
+        liveBalance,
+        remoteBalance,
+        events: eventRows,
+      })
+      if (eventRows.length === 0 && balance === 0) return { ok: true, data: null }
 
-      const balance = eventRows.reduce(
-        (sumBal, ev) => sumBal + (ev.type === 'debt' ? Number(ev.amount) : -Number(ev.amount)),
-        0,
-      )
-      const lastEvent = eventRows.reduce(
-        (latest, ev) => (ev.createdAt > latest.createdAt ? ev : latest),
-        eventRows[0],
-      )
-      const lastEventAt = lastEvent.createdAt
-      const lastEventNotes = lastEvent.notes ?? undefined
+      const lastEvent = eventRows.length === 0
+        ? undefined
+        : eventRows.reduce(
+          (latest, ev) => (ev.createdAt > latest.createdAt ? ev : latest),
+          eventRows[0],
+        )
+      const lastEventAt = lastEvent?.createdAt ?? new Date().toISOString()
+      const lastEventNotes = lastEvent?.notes ?? undefined
 
       let lastPaymentBy: string | undefined
       let lastPaymentStoreName: string | undefined
