@@ -377,17 +377,17 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                   return (
                     <div
                       key={day.ymd}
-                      className={`col-span-6 grid grid-cols-subgrid gap-y-2 ${index > 0 ? 'mt-4' : ''}`}
+                      className={`col-span-6 grid grid-cols-subgrid gap-y-3 ${index > 0 ? 'mt-8 border-t border-line-strong pt-6' : ''}`}
                     >
                       <button
                         type="button"
-                        className="col-span-6 grid grid-cols-subgrid items-center rounded-lg px-4 py-2 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
+                        className="col-span-6 grid grid-cols-subgrid items-center border-y border-line-strong bg-app px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
                         aria-expanded={dayOpen}
                         onClick={() => toggleDay(day.ymd)}
                       >
                         <span className="col-span-3 flex min-w-0 items-center gap-2">
                           <DayChevron open={dayOpen} />
-                          <span className="whitespace-nowrap text-sm font-semibold text-ink">{day.label}</span>
+                          <span className="whitespace-nowrap text-base font-semibold text-ink">{day.label}</span>
                           {missing && (
                             <span className="whitespace-nowrap text-xs text-muted">{missing}</span>
                           )}
