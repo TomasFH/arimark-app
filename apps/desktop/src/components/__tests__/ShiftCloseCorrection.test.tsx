@@ -11,10 +11,9 @@ describe('ShiftCloseCorrection', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.getByText('sin anotar')).toBeInTheDocument()
     expect(screen.getByText('Quedó en la caja')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Acciones del cierre' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Acciones del cierre' }))
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('menuitem', { name: 'Corregir cierre' }))
+    await user.click(screen.getByRole('button', { name: 'Corregir cierre' }))
 
     expect(screen.getByRole('textbox', { name: /quedó en la caja/i })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /se retiró/i })).toBeInTheDocument()

@@ -145,6 +145,6 @@ describe('HistoryScreen — gastos del turno', () => {
     const user = userEvent.setup()
     render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: /Ana/ }))
-    expect(screen.getByRole('button', { name: 'Acciones del cierre' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Corregir cierre' })).toBeInTheDocument()
   })
 })

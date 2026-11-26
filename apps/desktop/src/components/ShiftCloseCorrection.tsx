@@ -1,8 +1,8 @@
 /**
- * El cierre se lee. Los campos aparecen recién al elegir «Corregir cierre».
+ * El cierre se lee. «Corregir cierre» queda a la vista: no es una acción del menú.
  */
 import { useState } from 'react'
-import { ActionMenu, CollapseReveal } from './ui'
+import { CollapseReveal } from './ui'
 import ShiftCloseAmountsForm from './ShiftCloseAmountsForm'
 import { formatARS } from '../lib/datetime'
 
@@ -26,14 +26,13 @@ export default function ShiftCloseCorrection({ cashLeft, withdrawn, onSubmit }: 
           <AmountFact label="Quedó en la caja" value={amountText(cashLeft)} />
           <AmountFact label="Se retiró" value={amountText(withdrawn)} />
         </dl>
-        <ActionMenu
-          label="Acciones del cierre"
-          items={[{
-            id: 'correct-close',
-            label: 'Corregir cierre',
-            onSelect: () => setEditing(true),
-          }]}
-        />
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-sm text-ink hover:bg-hover"
+        >
+          Corregir cierre
+        </button>
       </div>
       <CollapseReveal open={editing}>
         {editing && (
