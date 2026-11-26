@@ -377,7 +377,7 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                   return (
                     <div
                       key={day.ymd}
-                      className={`col-span-6 grid grid-cols-subgrid gap-y-3 ${index > 0 ? 'mt-8 border-t border-line-strong pt-6' : ''}`}
+                      className={`col-span-6 grid grid-cols-subgrid ${dayOpen ? 'gap-y-3' : ''} ${index > 0 ? 'mt-8' : ''}`}
                     >
                       <button
                         type="button"
@@ -429,7 +429,7 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                           <p className="whitespace-nowrap text-xs text-muted" title={delivery.createdByName}>
                             Recibió {delivery.createdByName}
                           </p>
-                          <div className="inline-grid grid-cols-[max-content_max-content_max-content_max-content] gap-x-6 gap-y-2">
+                          <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-6 gap-y-2">
                             <span className="text-xs text-muted">Producto</span>
                             <span className="text-xs text-muted">Cantidad</span>
                             <span className="text-right text-xs text-muted">Precio</span>
@@ -442,7 +442,7 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                               const subtotal = priceText(line.costTotal)
                               return (
                                 <div key={line.id} className="col-span-4 grid grid-cols-subgrid items-baseline">
-                                  <span className="whitespace-nowrap text-sm text-ink" title={line.rubroName}>{line.rubroName}</span>
+                                  <span className="min-w-0 truncate text-sm text-ink" title={line.rubroName}>{line.rubroName}</span>
                                   <span className="whitespace-nowrap text-sm tabular-nums text-muted">{qty || '—'}</span>
                                   <span className={`whitespace-nowrap text-right text-sm tabular-nums ${line.unitCost > 0 ? 'text-ink' : 'text-muted'}`}>{unit}</span>
                                   <span className={`whitespace-nowrap text-right text-sm tabular-nums ${line.costTotal > 0 ? 'text-ink' : 'text-muted'}`}>{subtotal}</span>
