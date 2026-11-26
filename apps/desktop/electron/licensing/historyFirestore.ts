@@ -21,7 +21,7 @@ import {
   depositPaymentsToJson,
 } from '../lib/depositPayments'
 import { buildCashHandoverAudit, parseBillLines, parseMerchLinesFromUnknown } from '@carniceria/shared'
-import { historyVisitLinesFromSnapshots } from './historyVisitLines'
+import { historyVisitLinesFromSnapshots, unpaidArrivalFromIntake } from './historyVisitLines'
 import type {
   HistoryShiftRow,
   HistoryShiftDetail,
@@ -355,6 +355,16 @@ export function historyShiftDetailIsEmpty(detail: HistoryShiftDetail): boolean {
   )
 }
 
+function unionUnpaidArrivals(
+  remote: HistoryShiftDetail['unpaidArrivals'],
+  local: HistoryShiftDetail['unpaidArrivals'],
+): NonNullable<HistoryShiftDetail['unpaidArrivals']> {
+  const byId = new Map<string, NonNullable<HistoryShiftDetail['unpaidArrivals']>[number]>()
+  for (const row of remote ?? []) byId.set(row.intakeId, row)
+  for (const row of local ?? []) byId.set(row.intakeId, row)
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
 function unionById<T extends { id: string; createdAt: string }>(remote: T[], local: T[]): T[] {
   const byId = new Map<string, T>()
   for (const row of remote) byId.set(row.id, row)
@@ -412,6 +422,7 @@ export function mergeHistoryShiftDetails(
     debts,
     deposits,
     vales,
+    unpaidArrivals: unionUnpaidArrivals(remote.unpaidArrivals, local.unpaidArrivals),
     summary: {
       salesCount: confirmed.length,
       totalRevenue,
@@ -507,26 +518,39 @@ export async function fetchHistoryShiftDetailFromFirestore(
       collection(firestore, 'licenses', tenant, 'merchandiseIntakes'),
       where('shiftId', '==', shiftId),
     ))
+    const unpaidArrivals: NonNullable<HistoryShiftDetail['unpaidArrivals']> = []
     for (const intakeDoc of intakesSnap.docs) {
       const data = intakeDoc.data() as Record<string, unknown>
       if (data['deleted'] === true || data['status'] === 'draft') continue
+      const lines = parseMerchLinesFromUnknown(data['lines'], {
+        intakeId: intakeDoc.id,
+        category: data['category'],
+        unit: data['unit'],
+        quantity: data['quantity'],
+      })
+      const intakeId = typeof data['id'] === 'string' ? data['id'] : intakeDoc.id
+      const createdAt = typeof data['createdAt'] === 'string' ? data['createdAt'] : ''
+      if (data['paymentKind'] === 'none') {
+        const arrival = unpaidArrivalFromIntake({
+          intakeId,
+          createdAt,
+          providerName: typeof data['providerName'] === 'string' ? data['providerName'] : null,
+          paymentKind: 'none',
+          status: typeof data['status'] === 'string' ? data['status'] : 'confirmed',
+          lines,
+        })
+        if (arrival) unpaidArrivals.push(arrival)
+        continue
+      }
       const expenseId = typeof data['expenseId'] === 'string' ? data['expenseId'] : ''
       const expense = historyExpenses.find(row => row.id === expenseId)
       if (!expense) continue
-      const lines = historyVisitLinesFromSnapshots(
-        parseMerchLinesFromUnknown(data['lines'], {
-          intakeId: intakeDoc.id,
-          category: data['category'],
-          unit: data['unit'],
-          quantity: data['quantity'],
-        }),
-        hideMediaResPrice,
-      )
-      if (lines.length === 0) continue
-      expense.lineNames = lines.map(line => line.name)
-      expense.visitLines = lines
-      expense.intakeId = typeof data['id'] === 'string' ? data['id'] : intakeDoc.id
-      expense.intakeCreatedAt = typeof data['createdAt'] === 'string' ? data['createdAt'] : expense.createdAt
+      const visitLines = historyVisitLinesFromSnapshots(lines, hideMediaResPrice)
+      if (visitLines.length === 0) continue
+      expense.lineNames = visitLines.map(line => line.name)
+      expense.visitLines = visitLines
+      expense.intakeId = intakeId
+      expense.intakeCreatedAt = createdAt || expense.createdAt
     }
 
     const saleIds = [...new Set(historySales.filter(s => s.isDebt).map(s => s.id))]
@@ -698,6 +722,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
       debts: historyDebts,
       deposits: historyDeposits,
       vales: historyVales,
+      unpaidArrivals,
       summary: {
         salesCount: confirmedSales.length,
         totalRevenue,

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { clearHistoryDetailCache } from '../../lib/historyDetailCache'
+import { clearHistoryVisitReturn } from '../../lib/historyVisitReturn'
 import HistoryScreen from '../HistoryScreen'
 import { todayLocalYmd } from '../../lib/datetime'
 import type { HistoryShiftDetail, HistoryShiftRow } from '../../types/hw-api'
@@ -84,6 +86,8 @@ const DETAIL: HistoryShiftDetail = {
 
 describe('HistoryScreen — gastos del turno', () => {
   beforeEach(() => {
+    clearHistoryVisitReturn()
+    clearHistoryDetailCache()
     window.hw = {
       getStores: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       getHistoryShifts: vi.fn().mockResolvedValue({ ok: true, data: [ROW] }),
@@ -146,5 +150,45 @@ describe('HistoryScreen — gastos del turno', () => {
     render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: /Ana/ }))
     expect(screen.getByRole('button', { name: 'Corregir cierre' })).toBeInTheDocument()
+  })
+
+  it('volver de ver visita deja abierto el mismo gasto', async () => {
+    const user = userEvent.setup()
+    const onOpenVisit = vi.fn()
+    const view = render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} onOpenVisit={onOpenVisit} />)
+    await user.click(await screen.findByRole('button', { name: /Ana/ }))
+    await user.click(await screen.findByRole('button', { name: /Gastos \(1\)/ }))
+    await user.click(screen.getByRole('button', { name: /Guido/ }))
+    await user.click(screen.getByRole('button', { name: 'Ver visita' }))
+    view.unmount()
+
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} onOpenVisit={onOpenVisit} resumeAfterVisit />)
+    expect(await screen.findByText('Falda')).toBeInTheDocument()
+    expect(screen.getByText('Producto').closest('div')).toHaveClass('w-full')
+  })
+
+  it('muestra la media res y el delantero que no se pagaron acá', async () => {
+    window.hw.getHistoryShiftDetail = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        ...DETAIL,
+        unpaidArrivals: [{
+          intakeId: 'visita-media',
+          createdAt: ROW.startedAt,
+          providerName: 'Frigorífico',
+          lines: [
+            { name: 'Media res', quantityLabel: '2 u · 130 kg' },
+            { name: 'Delantero', quantityLabel: '1 u · 65 kg' },
+          ],
+        }],
+      },
+    })
+    const user = userEvent.setup()
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: /Ana/ }))
+    expect(await screen.findByText('Entró y no se pagó acá')).toBeInTheDocument()
+    expect(screen.getByText('Media res')).toBeInTheDocument()
+    expect(screen.getByText('Delantero')).toBeInTheDocument()
+    expect(screen.getByText(/No entra en la caja/)).toBeInTheDocument()
   })
 })

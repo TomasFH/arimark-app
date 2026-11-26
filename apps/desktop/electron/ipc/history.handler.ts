@@ -32,7 +32,7 @@ import type {
 import { cashAmountFromDeposit, digitalAmountFromDeposit } from '../lib/depositPayments'
 import { buildCashHandoverAudit, cashierHistoryWindow, civilYmd } from '@carniceria/shared'
 import { merchDbLineToSnapshot } from '../licensing/merchIntakeDb'
-import { historyVisitLinesFromSnapshots } from '../licensing/historyVisitLines'
+import { historyVisitLinesFromSnapshots, unpaidArrivalFromIntake, type HistoryUnpaidArrival } from '../licensing/historyVisitLines'
 
 const getHistoryShiftsSchema = z.object({
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -294,7 +294,7 @@ export function registerHistoryHandlers(): void {
               return CASHIER_WINDOW_DENIED
             }
             if (remoteDetail) {
-              return { ok: true, data: withLocalVisits(db, remoteDetail, session.role === 'cashier') }
+              return { ok: true, data: finishHistoryDetail(db, remoteDetail, session.role === 'cashier') }
             }
           } catch (fbErr) {
             log.warn('[ipc:get-history-shift-detail] Firestore no disponible', fbErr)
@@ -694,7 +694,7 @@ export function registerHistoryHandlers(): void {
           if (remoteDetail) {
             return {
               ok: true,
-              data: withLocalVisits(db, mergeHistoryShiftDetails(localDetail, remoteDetail), session.role === 'cashier'),
+              data: finishHistoryDetail(db, mergeHistoryShiftDetails(localDetail, remoteDetail), session.role === 'cashier'),
             }
           }
         } catch (fbErr) {
@@ -702,7 +702,7 @@ export function registerHistoryHandlers(): void {
         }
       }
 
-      return { ok: true, data: localDetail }
+      return { ok: true, data: finishHistoryDetail(db, localDetail, session.role === 'cashier') }
     } catch (err) {
       log.error('[ipc:get-history-shift-detail] Error inesperado', err)
       return { ok: false, error: 'Error al obtener el detalle del turno.' }
@@ -758,6 +758,80 @@ const CASHIER_WINDOW_DENIED = {
   ok: false as const,
   error: 'Solo podés ver la semana en curso y la anterior.',
   code: 'FORBIDDEN' as const,
+}
+
+function finishHistoryDetail(
+  db: ReturnType<typeof getDb>,
+  detail: HistoryShiftDetail,
+  hideMediaResPrice: boolean,
+): HistoryShiftDetail {
+  return withLocalUnpaid(db, withLocalVisits(db, detail, hideMediaResPrice))
+}
+
+function withLocalUnpaid(
+  db: ReturnType<typeof getDb>,
+  detail: HistoryShiftDetail,
+): HistoryShiftDetail {
+  const local = unpaidArrivalsForShift(db, detail.shift.id)
+  const unpaidArrivals = unionUnpaid(detail.unpaidArrivals, local)
+  if (unpaidArrivals.length === 0) return detail
+  return { ...detail, unpaidArrivals }
+}
+
+function unionUnpaid(
+  remote: HistoryUnpaidArrival[] | undefined,
+  local: HistoryUnpaidArrival[],
+): HistoryUnpaidArrival[] {
+  const byId = new Map<string, HistoryUnpaidArrival>()
+  for (const row of remote ?? []) byId.set(row.intakeId, row)
+  for (const row of local) byId.set(row.intakeId, row)
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+function unpaidArrivalsForShift(
+  db: ReturnType<typeof getDb>,
+  shiftId: string,
+): HistoryUnpaidArrival[] {
+  const intakes = db
+    .select({
+      id: merchandiseIntakes.id,
+      createdAt: merchandiseIntakes.createdAt,
+      providerName: merchandiseIntakes.providerName,
+      paymentKind: merchandiseIntakes.paymentKind,
+      status: merchandiseIntakes.status,
+    })
+    .from(merchandiseIntakes)
+    .where(and(
+      eq(merchandiseIntakes.shiftId, shiftId),
+      eq(merchandiseIntakes.status, 'confirmed'),
+      eq(merchandiseIntakes.paymentKind, 'none'),
+    ))
+    .all()
+  if (intakes.length === 0) return []
+  const lines = db
+    .select()
+    .from(merchandiseIntakeLines)
+    .where(inArray(merchandiseIntakeLines.intakeId, intakes.map(intake => intake.id)))
+    .all()
+  const linesByIntake = new Map<string, typeof lines>()
+  for (const line of lines) {
+    const list = linesByIntake.get(line.intakeId) ?? []
+    list.push(line)
+    linesByIntake.set(line.intakeId, list)
+  }
+  const arrivals: HistoryUnpaidArrival[] = []
+  for (const intake of intakes) {
+    const arrival = unpaidArrivalFromIntake({
+      intakeId: intake.id,
+      createdAt: intake.createdAt,
+      providerName: intake.providerName,
+      paymentKind: intake.paymentKind,
+      status: intake.status,
+      lines: (linesByIntake.get(intake.id) ?? []).map(merchDbLineToSnapshot),
+    })
+    if (arrival) arrivals.push(arrival)
+  }
+  return arrivals
 }
 
 function withLocalVisits(

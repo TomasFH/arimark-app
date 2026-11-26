@@ -1445,6 +1445,13 @@ export interface HistoryShiftDetail {
   debts: HistoryDebtRow[]
   deposits: HistoryOrderRow[]
   vales: HistoryValeRow[]
+  /** Media res y delantero que entraron sin mover la caja. */
+  unpaidArrivals?: Array<{
+    intakeId: string
+    createdAt: string
+    providerName: string | null
+    lines: Array<{ name: string; quantityLabel: string }>
+  }>
   summary: {
     salesCount: number
     totalRevenue: number

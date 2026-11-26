@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MerchIntakeLineSnapshot } from '@carniceria/shared'
-import { historyVisitLinesFromSnapshots } from '../historyVisitLines'
+import { historyVisitLinesFromSnapshots, unpaidArrivalFromIntake } from '../historyVisitLines'
 
 function line(partial: Partial<MerchIntakeLineSnapshot> & Pick<MerchIntakeLineSnapshot, 'id' | 'rubroName'>): MerchIntakeLineSnapshot {
   return {
@@ -61,5 +61,51 @@ describe('historyVisitLinesFromSnapshots', () => {
       }),
     ], false)
     expect(lines[0]?.subtotal).toBe(225000)
+  })
+})
+
+describe('unpaidArrivalFromIntake', () => {
+  it('arma media res y delantero, y deja afuera una visita paga', () => {
+    const arrival = unpaidArrivalFromIntake({
+      intakeId: 'visita-1',
+      createdAt: '2026-11-25T12:00:00.000Z',
+      providerName: 'Frigorífico',
+      paymentKind: 'none',
+      status: 'confirmed',
+      lines: [
+        line({
+          id: 'media',
+          rubroId: 'custom:media res',
+          rubroName: 'Media res',
+          template: 'pieces_weight',
+          count: 2,
+          netKg: 130,
+          unitCost: 0,
+          costTotal: 0,
+          moneyRole: 'none',
+        }),
+        line({
+          id: 'delantero',
+          rubroId: 'custom:delantero',
+          rubroName: 'Delantero',
+          template: 'pieces_weight',
+          count: 1,
+          netKg: 65,
+          sortOrder: 1,
+          unitCost: 0,
+          costTotal: 0,
+          moneyRole: 'none',
+        }),
+        line({ id: 'asado', rubroName: 'Asado', netKg: 3, unitCost: 4000, costTotal: 12000 }),
+      ],
+    })
+    expect(arrival?.lines.map(row => row.name)).toEqual(['Media res', 'Delantero'])
+    expect(unpaidArrivalFromIntake({
+      intakeId: 'visita-2',
+      createdAt: '2026-11-25T12:00:00.000Z',
+      providerName: 'Oso',
+      paymentKind: 'on_account',
+      lines: [line({ id: 'a', rubroId: 'custom:media res', rubroName: 'Media res', template: 'pieces_weight' })],
+    })).toBeNull()
   })
 })

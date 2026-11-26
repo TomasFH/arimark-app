@@ -25,6 +25,7 @@ import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
+import { ingresosBackTarget } from './lib/ingresosReturn'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 import { resetOrderCreateDraft } from './lib/orderCreateDraft'
 import { resetOrderChargeDrafts } from './lib/orderChargeDraft'
@@ -56,7 +57,7 @@ type AppState =
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
-  | { screen: 'history'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
+  | { screen: 'history'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; resumeAfterVisit?: boolean }
   | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; focusVisit?: { id: string; createdAt: string }; returnTo?: 'providers' | 'history' }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
@@ -687,6 +688,7 @@ export default function App() {
             }}
             onLogout={handleLogout}
             limitedToRecentWeeks={state.session.role === 'cashier'}
+            resumeAfterVisit={state.resumeAfterVisit === true}
             onOpenVisit={visit => setState({
               screen: 'ingresos',
               session: state.session,
@@ -712,12 +714,22 @@ export default function App() {
             focusVisit={state.focusVisit ?? null}
             onLogout={handleLogout}
             onBack={() => {
-              if (state.fromCashier) {
-                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
-              } else if (state.returnTo === 'providers') {
+              const target = ingresosBackTarget({
+                returnTo: state.returnTo,
+                fromCashier: state.fromCashier != null,
+              })
+              if (target === 'history') {
+                setState({
+                  screen: 'history',
+                  session: state.session,
+                  initStatus: state.initStatus,
+                  fromCashier: state.fromCashier,
+                  resumeAfterVisit: true,
+                })
+              } else if (target === 'providers') {
                 setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })
-              } else if (state.returnTo === 'history') {
-                setState({ screen: 'history', session: state.session, initStatus: state.initStatus, fromCashier: state.fromCashier })
+              } else if (target === 'cashier' && state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
               } else {
                 handleReturnToAdminHub()
               }

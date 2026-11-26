@@ -854,6 +854,63 @@ describe('history.handler', () => {
       expect(res.data.vales[0].cancelledAt).toBeNull()
     })
 
+    it('la media res sin pago queda aparte y no suma al gasto', async () => {
+      db.insert(merchandiseIntakes).values({
+        id: 'intake-media',
+        storeId: STORE_ID,
+        shiftId: SHIFT_ID,
+        paymentKind: 'none',
+        providerName: 'Frigorífico',
+        status: 'confirmed',
+        createdBy: USER_ID,
+        createdAt: '2026-07-01T11:00:00.000Z',
+      }).run()
+      db.insert(merchandiseIntakeLines).values([
+        {
+          id: 'line-media',
+          intakeId: 'intake-media',
+          rubroId: 'custom:media res',
+          rubroName: 'Media res',
+          template: 'pieces_weight',
+          sortOrder: 0,
+          count: 2,
+          netKg: 130,
+          unitCost: 0,
+          costTotal: 0,
+        },
+        {
+          id: 'line-delantero',
+          intakeId: 'intake-media',
+          rubroId: 'custom:delantero',
+          rubroName: 'Delantero',
+          template: 'pieces_weight',
+          sortOrder: 1,
+          count: 1,
+          netKg: 65,
+          unitCost: 0,
+          costTotal: 0,
+        },
+      ]).run()
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId: SHIFT_ID }) as {
+        ok: boolean
+        data: {
+          expenses: unknown[]
+          summary: { totalExpenses: number }
+          unpaidArrivals?: Array<{ providerName: string | null; lines: Array<{ name: string; quantityLabel: string }> }>
+        }
+      }
+      expect(res.ok).toBe(true)
+      expect(res.data.expenses).toHaveLength(0)
+      expect(res.data.summary.totalExpenses).toBe(0)
+      expect(res.data.unpaidArrivals).toHaveLength(1)
+      expect(res.data.unpaidArrivals?.[0]?.providerName).toBe('Frigorífico')
+      expect(res.data.unpaidArrivals?.[0]?.lines.map(line => line.name)).toEqual(['Media res', 'Delantero'])
+      expect(res.data.unpaidArrivals?.[0]?.lines[0]?.quantityLabel).toContain('2 u')
+      expect(res.data.unpaidArrivals?.[0]?.lines[1]?.quantityLabel).toContain('1 u')
+    })
+
     it('incluye fiados del turno aunque el evento no tenga shiftId (vía saleId)', async () => {
       const now = '2026-07-01T10:00:00.000Z'
       const saleId = '00000000-0000-0000-0000-0000000000aa'

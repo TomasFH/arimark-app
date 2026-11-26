@@ -11,6 +11,13 @@ import ShiftCloseCorrection from '../components/ShiftCloseCorrection'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { formatARS, formatKg, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
+import {
+  clearHistoryVisitReturn,
+  readHistoryVisitReturn,
+  rememberHistoryVisitReturn,
+  type HistoryDetailTab,
+  type HistoryVisitReturnState,
+} from '../lib/historyVisitReturn'
 import { clampHistoryRange, planHistoryFetch, type HistorySpan } from '../lib/historyRange'
 import { cashierHistoryWindow, exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
@@ -49,17 +56,31 @@ interface Props {
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
   /** Cajera: la semana en curso y la anterior. El proceso principal rechaza lo demás. */
   limitedToRecentWeeks?: boolean
+  /** Vuelta desde «Ver visita»: restaura turno, solapa y gasto abierto. */
+  resumeAfterVisit?: boolean
 }
 
-export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedToRecentWeeks = false }: Props) {
+export default function HistoryScreen({
+  onBack,
+  onLogout,
+  onOpenVisit,
+  limitedToRecentWeeks = false,
+  resumeAfterVisit = false,
+}: Props) {
+  const resumeRef = useRef<HistoryVisitReturnState | null | undefined>(undefined)
+  if (resumeRef.current === undefined) {
+    resumeRef.current = resumeAfterVisit ? readHistoryVisitReturn() : null
+    if (!resumeAfterVisit) clearHistoryVisitReturn()
+  }
+  const resume = resumeRef.current
   const recentWindow = limitedToRecentWeeks ? cashierHistoryWindow() : null
   const [shifts, setShifts] = useState<HistoryShiftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [fromDate, setFromDate] = useState(() => addDaysYmd(todayLocalYmd(), -7))
-  const [toDate, setToDate] = useState(() => todayLocalYmd())
-  const [storeIdFilter, setStoreIdFilter] = useState<string>('all')
+  const [fromDate, setFromDate] = useState(() => resume?.fromDate ?? addDaysYmd(todayLocalYmd(), -7))
+  const [toDate, setToDate] = useState(() => resume?.toDate ?? todayLocalYmd())
+  const [storeIdFilter, setStoreIdFilter] = useState<string>(resume?.storeIdFilter ?? 'all')
   const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
   const [loadedSpan, setLoadedSpan] = useState<HistorySpan | null>(null)
   const listCache = useRef<{ store: string; span: HistorySpan | null; shifts: HistoryShiftRow[] }>({
@@ -68,7 +89,9 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedTo
     shifts: [],
   })
 
-  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null)
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(resume?.selectedShiftId ?? null)
+  const [detailTab, setDetailTab] = useState<HistoryDetailTab>(resume?.activeTab ?? 'sales')
+  const [openExpenseId, setOpenExpenseId] = useState<string | null>(resume?.openExpenseId ?? null)
   const [detail, setDetail] = useState<HistoryShiftDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
@@ -151,12 +174,7 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedTo
     void loadShifts('auto')
   }, [loadShifts])
 
-  async function handleSelectShift(shiftId: string) {
-    if (selectedShiftId === shiftId) {
-      setSelectedShiftId(null)
-      setDetail(null)
-      return
-    }
+  async function openShift(shiftId: string) {
     const cached = getCachedHistoryDetail(shiftId)
     if (cached) {
       detailRequest.current += 1
@@ -182,6 +200,25 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedTo
     setDetailLoading(false)
   }
 
+  async function handleSelectShift(shiftId: string) {
+    if (selectedShiftId === shiftId) {
+      setSelectedShiftId(null)
+      setDetail(null)
+      return
+    }
+    setDetailTab('sales')
+    setOpenExpenseId(null)
+    await openShift(shiftId)
+  }
+
+  const resumeShiftId = useRef(resume?.selectedShiftId ?? null)
+  useEffect(() => {
+    const shiftId = resumeShiftId.current
+    if (!shiftId) return
+    resumeShiftId.current = null
+    void openShift(shiftId)
+  }, [])
+
   async function reloadSelectedDetail(shiftId: string) {
     const ticket = ++detailRequest.current
     const r = await window.hw.getHistoryShiftDetail({ shiftId })
@@ -202,7 +239,10 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedTo
         subtitle={recentWindow
           ? 'Semana en curso y la anterior, de todos los locales'
           : 'Lo vendido, cómo se cobró y el cierre de cada turno'}
-        onBack={onBack}
+        onBack={() => {
+          clearHistoryVisitReturn()
+          onBack()
+        }}
         onLogout={onLogout}
       />
 
@@ -328,7 +368,21 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedTo
             <ShiftDetail
               detail={detail}
               canCorrectClose={!limitedToRecentWeeks}
-              onOpenVisit={onOpenVisit}
+              activeTab={detailTab}
+              onActiveTab={setDetailTab}
+              openExpenseId={openExpenseId}
+              onOpenExpense={setOpenExpenseId}
+              onOpenVisit={onOpenVisit ? visit => {
+                rememberHistoryVisitReturn({
+                  fromDate,
+                  toDate,
+                  storeIdFilter,
+                  selectedShiftId,
+                  activeTab: detailTab,
+                  openExpenseId,
+                })
+                onOpenVisit(visit)
+              } : undefined}
               onCorrected={() => { void reloadSelectedDetail(detail.shift.id) }}
             />
           )}
@@ -399,19 +453,26 @@ function saleCountLabel(count: number): string {
 function ShiftDetail({
   detail,
   canCorrectClose,
+  activeTab,
+  onActiveTab,
+  openExpenseId,
+  onOpenExpense,
   onCorrected,
   onOpenVisit,
 }: {
   detail: HistoryShiftDetail
   /** La cajera no corrige cierres hasta la tanda B: si lo ve y no guarda, cree que corrigió. */
   canCorrectClose: boolean
+  activeTab: HistoryDetailTab
+  onActiveTab: (tab: HistoryDetailTab) => void
+  openExpenseId: string | null
+  onOpenExpense: (expenseId: string | null) => void
   onCorrected: () => void
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }) {
   const { shift, sales, expenses, debts, deposits, summary } = detail
   const vales = detail.vales ?? []
-  const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'injects' | 'debts' | 'deposits' | 'vales'>('sales')
-  const [openExpenseId, setOpenExpenseId] = useState<string | null>(null)
+  const unpaidArrivals = detail.unpaidArrivals ?? []
 
   const shiftLabel = SHIFT_TYPE_LABEL[shift.shiftType]
   const start = toLocalDateTime(shift.startedAt)
@@ -473,6 +534,39 @@ function ShiftDetail({
           <p className="text-xs text-muted">Notas: <span className="text-ink">{shift.notes}</span></p>
         )}
 
+        {unpaidArrivals.length > 0 && (
+          <div className="space-y-2 border-t border-line pt-3">
+            <p className="text-sm font-medium text-ink">Entró y no se pagó acá</p>
+            <p className="text-xs text-muted">Media res y delantero. No entra en la caja.</p>
+            {unpaidArrivals.map(arrival => {
+              const who = arrival.providerName?.trim() || 'Sin proveedor'
+              return (
+                <div key={arrival.intakeId} className="space-y-1">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <p className="min-w-0 flex-1 truncate text-sm text-ink" title={who}>{who}</p>
+                    <span className="shrink-0 text-xs text-muted">{toLocalTime(arrival.createdAt)}</span>
+                  </div>
+                  {arrival.lines.map((line, index) => (
+                    <div key={`${arrival.intakeId}-${index}`} className="flex min-w-0 items-baseline gap-3 text-xs">
+                      <span className="min-w-0 flex-1 truncate text-ink" title={line.name}>{line.name}</span>
+                      <span className="shrink-0 tabular-nums text-muted">{line.quantityLabel || '—'}</span>
+                    </div>
+                  ))}
+                  {onOpenVisit && (
+                    <button
+                      type="button"
+                      className="rounded-md px-1.5 py-0.5 text-xs text-ink underline decoration-line underline-offset-2 hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      onClick={() => onOpenVisit({ id: arrival.intakeId, createdAt: arrival.createdAt })}
+                    >
+                      Ver visita
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {shift.closedAt && canCorrectClose && (
           <div className="border-t border-line pt-3">
             <ShiftCloseCorrection
@@ -503,7 +597,7 @@ function ShiftDetail({
         ] as const).map(tab => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => onActiveTab(tab.key)}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               activeTab === tab.key
                 ? 'border-b-2 border-b-accent text-ink'
@@ -617,7 +711,7 @@ function ShiftDetail({
               <button
                 type="button"
                 aria-expanded={open}
-                onClick={() => setOpenExpenseId(open ? null : exp.id)}
+                onClick={() => onOpenExpense(open ? null : exp.id)}
                 className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${open ? 'rounded-t-lg' : 'rounded-lg'}`}
               >
                 <div className="min-w-0">
@@ -649,14 +743,14 @@ function ShiftDetail({
                   )}
                   {exp.notes && <p className="break-words text-muted">{exp.notes}</p>}
                   {visitLines.length > 0 && (
-                    <div className="inline-grid grid-cols-[max-content_max-content_max-content_max-content] gap-x-4 gap-y-1 pt-1">
+                    <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-6 gap-y-1 pt-1">
                       <span className="text-muted">Producto</span>
                       <span className="text-muted">Cantidad</span>
                       <span className="text-right text-muted">Precio</span>
                       <span className="text-right text-muted">Subtotal</span>
                       {visitLines.map((line, index) => (
                         <div key={`${exp.id}-${index}`} className="col-span-4 grid grid-cols-subgrid items-baseline">
-                          <span className="whitespace-nowrap text-ink" title={line.name}>{line.name}</span>
+                          <span className="min-w-0 truncate text-ink" title={line.name}>{line.name}</span>
                           <span className="whitespace-nowrap tabular-nums text-muted">{line.quantityLabel || '—'}</span>
                           <span className={`whitespace-nowrap text-right tabular-nums ${line.unitPrice > 0 ? 'text-ink' : 'text-muted'}`}>
                             {line.unitPrice > 0 ? formatARS(line.unitPrice) : 'sin precio'}
