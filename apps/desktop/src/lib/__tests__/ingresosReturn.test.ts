@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ingresosBackTarget } from '../ingresosReturn'
+import { historyStaysMounted, ingresosBackTarget } from '../ingresosReturn'
 
 describe('ingresosBackTarget', () => {
   it('desde Consultas, Ver visita vuelve al historial y no al POS', () => {
@@ -20,5 +20,18 @@ describe('ingresosBackTarget', () => {
 
   it('sin origen vuelve al hub', () => {
     expect(ingresosBackTarget({ fromCashier: false })).toBe('hub')
+  })
+})
+
+describe('historyStaysMounted', () => {
+  it('sigue montado en el historial y en la visita que vuelve a él', () => {
+    expect(historyStaysMounted('history')).toBe(true)
+    expect(historyStaysMounted('ingresos', 'history')).toBe(true)
+  })
+
+  it('se desmonta si la visita no vuelve al historial', () => {
+    expect(historyStaysMounted('ingresos', 'providers')).toBe(false)
+    expect(historyStaysMounted('ingresos')).toBe(false)
+    expect(historyStaysMounted('cashier')).toBe(false)
   })
 })

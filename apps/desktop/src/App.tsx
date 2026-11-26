@@ -25,7 +25,7 @@ import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
-import { ingresosBackTarget } from './lib/ingresosReturn'
+import { historyStaysMounted, ingresosBackTarget } from './lib/ingresosReturn'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 import { resetOrderCreateDraft } from './lib/orderCreateDraft'
 import { resetOrderChargeDrafts } from './lib/orderChargeDraft'
@@ -676,29 +676,35 @@ export default function App() {
         </Page>
       )}
 
-      {state.screen === 'history' && (
-        <Page>
-          <HistoryScreen
-            onBack={() => {
-              if (state.fromCashier) {
-                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
-              } else {
-                handleReturnToAdminHub()
-              }
-            }}
-            onLogout={handleLogout}
-            limitedToRecentWeeks={state.session.role === 'cashier'}
-            resumeAfterVisit={state.resumeAfterVisit === true}
-            onOpenVisit={visit => setState({
-              screen: 'ingresos',
-              session: state.session,
-              initStatus: state.initStatus,
-              focusVisit: visit,
-              returnTo: 'history',
-              fromCashier: state.fromCashier,
-            })}
-          />
-        </Page>
+      {historyStaysMounted(state.screen, state.screen === 'ingresos' ? state.returnTo : undefined) && (state.screen === 'history' || state.screen === 'ingresos') && (
+        <div className={state.screen === 'history' ? 'contents' : 'hidden'} aria-hidden={state.screen !== 'history'}>
+          <Page>
+            <HistoryScreen
+              onBack={() => {
+                if (state.screen !== 'history' && state.screen !== 'ingresos') return
+                if (state.fromCashier) {
+                  setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+                } else {
+                  handleReturnToAdminHub()
+                }
+              }}
+              onLogout={handleLogout}
+              limitedToRecentWeeks={state.session.role === 'cashier'}
+              resumeAfterVisit={state.screen === 'history' && state.resumeAfterVisit === true}
+              onOpenVisit={visit => {
+                if (state.screen !== 'history' && state.screen !== 'ingresos') return
+                setState({
+                  screen: 'ingresos',
+                  session: state.session,
+                  initStatus: state.initStatus,
+                  focusVisit: visit,
+                  returnTo: 'history',
+                  fromCashier: state.fromCashier,
+                })
+              }}
+            />
+          </Page>
+        </div>
       )}
 
       {state.screen === 'summary' && (

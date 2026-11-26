@@ -16,3 +16,8 @@ export function ingresosBackTarget(input: {
   if (input.fromCashier) return 'cashier'
   return 'hub'
 }
+
+/** El historial sigue montado mientras se mira una visita, para no perder la lista ni el scroll. */
+export function historyStaysMounted(screen: string, returnTo?: string): boolean {
+  return screen === 'history' || (screen === 'ingresos' && returnTo === 'history')
+}
