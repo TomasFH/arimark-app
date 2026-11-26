@@ -437,7 +437,7 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
           {shift.totalsSealed && shift.totalRevenue != null ? (
             <p className="text-sm font-semibold font-mono text-ink">{formatARS(shift.totalRevenue)}</p>
           ) : (
-            <p className="text-xs text-muted">Al abrirlo</p>
+            <p className="text-xs text-muted">{shift.closedAt ? 'Sin dato' : 'En curso'}</p>
           )}
         </div>
       </div>

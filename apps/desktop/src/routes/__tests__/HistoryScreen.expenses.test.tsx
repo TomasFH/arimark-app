@@ -192,4 +192,20 @@ describe('HistoryScreen — gastos del turno', () => {
     expect(screen.getByText('Delantero')).toBeInTheDocument()
     expect(screen.getByText(/No entra en la caja/)).toBeInTheDocument()
   })
+
+  it('un turno abierto dice En curso', async () => {
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    expect(await screen.findByText('En curso')).toBeInTheDocument()
+    expect(screen.queryByText('Sin dato')).not.toBeInTheDocument()
+  })
+
+  it('un turno cerrado sin ficha dice Sin dato', async () => {
+    window.hw.getHistoryShifts = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [{ ...ROW, closedAt: `${day}T20:00:00.000Z` }],
+    })
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    expect(await screen.findByText('Sin dato')).toBeInTheDocument()
+    expect(screen.queryByText('En curso')).not.toBeInTheDocument()
+  })
 })
