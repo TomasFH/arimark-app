@@ -54,7 +54,7 @@ Leyenda: `[C]` = crítico, `[ ]` = pendiente, `[x]` = verificado.
 
 - [C] [ ] Las migraciones nuevas se probaron **sobre una copia de la base real** antes de actualizar una PC de local.
 - [ ] Las columnas nuevas aceptan vacío (nulo) cuando "sin dato" no es lo mismo que 0.
-- [C] [ ] Antes de actualizar cada PC de local se hace una **copia de seguridad** de `app.sqlite`.
+- [C] [ ] Antes de actualizar cada PC de local se hace una **copia de seguridad** de `app.sqlite` (+ WAL/SHM si existen) en `%APPDATA%\@carniceria\desktop` (ver `apps/desktop/BUILD-PRODUCCION.md`).
 - [ ] Los datos personales de clientes (nombre, teléfono, deudas) solo se muestran a quien corresponde y no se exportan ni se registran sin necesidad.
 - [ ] Se sabe qué acciones **escriben** en producción sin que el usuario lo note (por ejemplo, el Resumen sella fichas de turnos cerrados sin ficha).
 - [ ] Hay un procedimiento escrito para reiniciar datos de prueba (base de cada PC y Firebase).

@@ -103,6 +103,36 @@ No hace falta copiar `business.json` manualmente post-instalación si se compil�
 
 ---
 
+## Datos locales (SQLite) y respaldo manual
+
+Electron guarda los datos del usuario en `%APPDATA%`, con el nombre del paquete (`@carniceria/desktop`). En la PC del local (app instalada, `APP_ENV=production`) la carpeta es:
+
+```
+%APPDATA%\@carniceria\desktop
+```
+
+Equivalente expandido (cambiar el usuario de Windows):
+
+```
+C:\Users\<usuario>\AppData\Roaming\@carniceria\desktop
+```
+
+| Archivo / carpeta | Rol |
+|---|---|
+| `app.sqlite` | Base operativa de producción (ventas, turnos, stock, etc.) |
+| `app.sqlite-wal` | Journal WAL — **copiar si existe** (la app usa `journal_mode = WAL`) |
+| `app.sqlite-shm` | Shared memory WAL — **copiar si existe** |
+| `backups\` | Copias automáticas (pre-migración y diarias) |
+| `logs\` | Logs del proceso main (`main.log`) |
+| `dev\app.sqlite` | Solo si alguna vez se corrió modo pruebas en esa PC — **no** es la DB del local |
+| `.secrets\` | Secretos cifrados con DPAPI del usuario de Windows; no sirven en otra PC |
+
+**Respaldo manual antes de actualizar o tocar la PC:** cerrar la app por completo y copiar, como mínimo, `app.sqlite` más `app.sqlite-wal` y `app.sqlite-shm` si están presentes. Conviene llevar también la carpeta `backups\`.
+
+La DB de desarrollo (`pnpm dev`) vive en la misma carpeta padre, pero en `dev\app.sqlite`. Nunca mezclar ni restaurar una sobre la otra.
+
+---
+
 ## Comportamientos de producción relevantes
 
 ### Cierre de turno
@@ -128,7 +158,7 @@ Los mensajes `debug` y `warn` (p. ej. reconexión de balanza sin puerto configur
 | `inactivityThresholdHours` | Sí — editar `resources/business.json` y reiniciar la app | `{Program Files}/Arimark App/resources/business.json` |
 | Credenciales Firebase | **No** — requiere recompilar con `.env.production` actualizado | — |
 | Puerto serial KRETZ | Sí — desde el panel admin de la app | Guardado en `safeStorage` |
-| Datos operativos (ventas, turnos) | Sí — son locales en SQLite | `%APPDATA%/…/app.sqlite` |
+| Datos operativos (ventas, turnos) | Sí — son locales en SQLite | `%APPDATA%\@carniceria\desktop\app.sqlite` |
 
 ---
 
