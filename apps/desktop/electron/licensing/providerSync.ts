@@ -192,6 +192,10 @@ export function applyRemoteProviderDebtEvent(data: {
         provider: data.provider || parent.name,
         notes,
         syncedAt: now,
+        // Si el gasto o el turno ya están en esta PC, se recupera el vínculo.
+        // No se pisa con null: la primera bajada lo borra cuando el padre falta.
+        ...(expenseId ? { expenseId } : {}),
+        ...(shiftId ? { shiftId } : {}),
       },
     })
     .run()

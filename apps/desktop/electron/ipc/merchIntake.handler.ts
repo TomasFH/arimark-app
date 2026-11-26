@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
@@ -49,6 +49,7 @@ import {
   MERCH_INTAKE_NOTES_MAX,
   MERCH_INTAKE_QUANTITY_MAX,
   buildMerchWeekBook,
+  oldDebtByIntake,
   redactMerchWeekBook,
   lineEntersVisitTotal,
   merchIntakeExpenseConcept,
@@ -444,21 +445,35 @@ function readMerchWeekBook(
     : db.select({ id: expenses.id, amount: expenses.amount }).from(expenses).where(inArray(expenses.id, expenseIds)).all()
   const expenseAmount = new Map(expenseRows.map(row => [row.id, row.amount]))
 
-  const paymentRows = expenseIds.length === 0
+  const shiftIds = [...new Set(intakes.map(row => row.shiftId))]
+  const paymentFilters = [
+    ...(expenseIds.length > 0 ? [inArray(providerDebtEvents.expenseId, expenseIds)] : []),
+    ...(shiftIds.length > 0
+      ? [and(inArray(providerDebtEvents.shiftId, shiftIds), isNull(providerDebtEvents.expenseId))]
+      : []),
+  ]
+  const paymentRows = paymentFilters.length === 0
     ? []
     : db.select({
       expenseId: providerDebtEvents.expenseId,
       amount: providerDebtEvents.amount,
+      providerId: providerDebtEvents.providerId,
+      providerName: providerDebtEvents.provider,
+      shiftId: providerDebtEvents.shiftId,
     }).from(providerDebtEvents).where(and(
-      inArray(providerDebtEvents.expenseId, expenseIds),
       eq(providerDebtEvents.type, 'payment'),
+      paymentFilters.length === 1 ? paymentFilters[0] : or(...paymentFilters),
     )).all()
-  const oldDebtByExpense = new Map<string, number>()
-  for (const payment of paymentRows) {
-    if (!payment.expenseId) continue
-    if (!Number.isFinite(payment.amount) || payment.amount <= 0) continue
-    oldDebtByExpense.set(payment.expenseId, (oldDebtByExpense.get(payment.expenseId) ?? 0) + payment.amount)
-  }
+  const oldDebtByVisit = oldDebtByIntake(
+    intakes.map(row => ({
+      id: row.id,
+      expenseId: row.expenseId,
+      providerId: row.providerId,
+      providerName: row.providerName ?? '',
+      shiftId: row.shiftId,
+    })),
+    paymentRows,
+  )
 
   const nameMap = namesById(db, intakes.map(row => row.createdBy))
   const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).where(inArray(stores.id, storeIds)).all()
@@ -476,7 +491,7 @@ function readMerchWeekBook(
     paidAmount: row.paidAmount,
     debtAmount: row.debtAmount,
     cashOut: cashLeftDrawer(row.paymentChannel, row.expenseId, row.expenseId ? expenseAmount.get(row.expenseId) : undefined),
-    oldDebtSettled: row.expenseId ? Math.round(oldDebtByExpense.get(row.expenseId) ?? 0) : 0,
+    oldDebtSettled: oldDebtByVisit.get(row.id) ?? 0,
     lines: linesByIntake.get(row.id) ?? [],
   })))
   return { ...book, warning: null }

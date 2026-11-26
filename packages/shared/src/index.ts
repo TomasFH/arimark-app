@@ -83,6 +83,8 @@ export {
   merchIntakeExpenseConcept,
   merchLineToFirestore,
   merchNameKey,
+  merchPaidCaption,
+  oldDebtByIntake,
   parseMerchLinesFromUnknown,
   parseMerchLineSnapshot,
   roundPurchaseUnitCost,

@@ -8,6 +8,8 @@ import {
   formatMerchLineSummary,
   isMerchIntakeExpenseConcept,
   merchIntakeExpenseConcept,
+  merchPaidCaption,
+  oldDebtByIntake,
   parseMerchLinesFromUnknown,
   parseMerchWeightsJson,
   resolveMerchLineFacts,
@@ -454,5 +456,85 @@ describe('buildMerchWeekBook', () => {
     expect(delivery?.oldDebtSettled).toBe(5_000)
     expect(delivery?.paid).toBe(10_000)
     expect(redacted.paid).toBe(10_000)
+  })
+})
+
+describe('oldDebtByIntake', () => {
+  const guidoVisit = {
+    id: '91ef1877-2636-4db1-9180-962037dc4f13',
+    expenseId: '22cf8a30-91e7-4bb3-b34f-20f7460a6175',
+    providerId: '677569646f',
+    providerName: 'Guido',
+    shiftId: '88de0685-1686-4af2-9627-c7296a1b6cef',
+  }
+
+  it('el pago de Guido del 26/11 sin gasto local queda en esa visita', () => {
+    const totals = oldDebtByIntake(
+      [guidoVisit],
+      [{
+        amount: 836_307,
+        expenseId: null,
+        providerId: '677569646f',
+        providerName: 'Guido',
+        shiftId: guidoVisit.shiftId,
+      }],
+    )
+    expect(totals.get(guidoVisit.id)).toBe(836_307)
+  })
+
+  it('usa el gasto cuando el pago lo trae', () => {
+    const totals = oldDebtByIntake(
+      [guidoVisit],
+      [{
+        amount: 836_307,
+        expenseId: guidoVisit.expenseId,
+        providerId: '677569646f',
+        providerName: 'Guido',
+        shiftId: null,
+      }],
+    )
+    expect(totals.get(guidoVisit.id)).toBe(836_307)
+  })
+
+  it('no reparte un pago suelto entre dos visitas del mismo proveedor', () => {
+    const totals = oldDebtByIntake(
+      [guidoVisit, { ...guidoVisit, id: 'otra', expenseId: 'otro-gasto' }],
+      [{
+        amount: 836_307,
+        expenseId: null,
+        providerId: '677569646f',
+        providerName: 'Guido',
+        shiftId: guidoVisit.shiftId,
+      }],
+    )
+    expect(totals.size).toBe(0)
+  })
+
+  it('no atribuye el pago de otro proveedor del mismo turno', () => {
+    const totals = oldDebtByIntake(
+      [guidoVisit],
+      [{
+        amount: 90_000,
+        expenseId: null,
+        providerId: 'provoletas',
+        providerName: 'Provoletas',
+        shiftId: guidoVisit.shiftId,
+      }],
+    )
+    expect(totals.size).toBe(0)
+  })
+})
+
+describe('merchPaidCaption', () => {
+  it('todo el pago a deuda anterior', () => {
+    expect(merchPaidCaption(836_307, 836_307)).toBe('all')
+  })
+
+  it('parte a esta visita y parte a deuda anterior', () => {
+    expect(merchPaidCaption(25_000, 5_000)).toBe('part')
+  })
+
+  it('sin deuda anterior no hay aclaración', () => {
+    expect(merchPaidCaption(90_000, 0)).toBe('none')
   })
 })
