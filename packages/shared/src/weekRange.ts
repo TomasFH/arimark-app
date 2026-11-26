@@ -98,6 +98,17 @@ export function inclusiveCivilSpan(
   }
 }
 
+/** Semana en curso y la anterior, lunes a domingo. */
+export function cashierHistoryWindow(
+  now: Date = new Date(),
+  timeZone = DISPLAY_TIMEZONE,
+): { fromYmd: string; toYmd: string } {
+  return {
+    fromYmd: mondayWeekRange(-1, now, timeZone).startYmd,
+    toYmd: mondayWeekRange(0, now, timeZone).endInclusiveYmd,
+  }
+}
+
 export function mondayWeekRange(
   weekOffset = 0,
   now: Date = new Date(),

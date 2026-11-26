@@ -726,6 +726,7 @@ export async function fetchHistoryShiftDetailFromFirestore(
  */
 export async function fetchEmployeeValesFromFirestore(
   storeIdFilter: string | null,
+  createdAtFrom?: string,
 ): Promise<RemoteEmployeeValeRow[]> {
   if (!isFirebaseAvailable()) return []
 
@@ -736,7 +737,9 @@ export async function fetchEmployeeValesFromFirestore(
     const valesCol = collection(firestore, 'licenses', config.tenant_id, 'employeeVales')
     const valesSnap = storeIdFilter
       ? await getDocs(query(valesCol, where('storeId', '==', storeIdFilter)))
-      : await getDocs(valesCol)
+      : createdAtFrom
+        ? await getDocs(query(valesCol, where('createdAt', '>=', createdAtFrom)))
+        : await getDocs(valesCol)
 
     const rows: RemoteEmployeeValeRow[] = []
     for (const d of valesSnap.docs) {

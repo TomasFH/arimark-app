@@ -56,7 +56,7 @@ type AppState =
   | { screen: 'debts'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'special-customers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
-  | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
+  | { screen: 'history'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; focusVisit?: { id: string; createdAt: string }; returnTo?: 'providers' | 'history' }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
@@ -554,6 +554,7 @@ export default function App() {
             onViewOrders={() => setState({ screen: 'orders', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewTransfers={() => setState({ screen: 'transfers', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             onViewMerch={() => setState({ screen: 'ingresos', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
+            onViewHistory={() => setState({ screen: 'history', session: bgCashierState.session, initStatus: bgCashierState.initStatus, fromCashier: bgCashierState.shift })}
             pendingOrderCart={pendingOrderCart}
             onOrderCartConsumed={() => setPendingOrderCart(null)}
           />
@@ -677,14 +678,22 @@ export default function App() {
       {state.screen === 'history' && (
         <Page>
           <HistoryScreen
-            onBack={handleReturnToAdminHub}
+            onBack={() => {
+              if (state.fromCashier) {
+                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+              } else {
+                handleReturnToAdminHub()
+              }
+            }}
             onLogout={handleLogout}
+            limitedToRecentWeeks={state.session.role === 'cashier'}
             onOpenVisit={visit => setState({
               screen: 'ingresos',
               session: state.session,
               initStatus: state.initStatus,
               focusVisit: visit,
               returnTo: 'history',
+              fromCashier: state.fromCashier,
             })}
           />
         </Page>
@@ -708,7 +717,7 @@ export default function App() {
               } else if (state.returnTo === 'providers') {
                 setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })
               } else if (state.returnTo === 'history') {
-                setState({ screen: 'history', session: state.session, initStatus: state.initStatus })
+                setState({ screen: 'history', session: state.session, initStatus: state.initStatus, fromCashier: state.fromCashier })
               } else {
                 handleReturnToAdminHub()
               }

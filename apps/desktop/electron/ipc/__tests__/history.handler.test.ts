@@ -3,6 +3,7 @@ import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, shifts, sales, salePayments, expenses, orders, employees, employeeVales, customers, debtEvents, providerDebtEvents, merchandiseIntakes, merchandiseIntakeLines } from '../../db/schema'
 import { eq } from 'drizzle-orm'
 import type { HistoryShiftDetail } from '../../../src/types/hw-api'
+import { cashierHistoryWindow } from '@carniceria/shared'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -101,12 +102,41 @@ describe('history.handler', () => {
       expect(res.data).toHaveLength(0)
     })
 
-    it('rechaza si el rol es cajera', async () => {
+    it('rechaza si el rol es cajera y no manda fechas', async () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:get-history-shifts')
       const res = await handler(null) as { ok: boolean; code: string }
       expect(res.ok).toBe(false)
       expect(res.code).toBe('FORBIDDEN')
+    })
+
+    it('la cajera ve la ventana y un pedido más viejo se rechaza', async () => {
+      const window = cashierHistoryWindow()
+      const recentId = '11111111-1111-4111-8111-111111111111'
+      db.insert(shifts).values({
+        id: recentId,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'evening',
+        startedAt: `${window.fromYmd}T15:00:00.000Z`,
+        closedAt: `${window.fromYmd}T20:00:00.000Z`,
+        openingCash: 0,
+        source: 'desktop',
+      }).run()
+      vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>)
+      const list = getHandler('ipc:get-history-shifts')
+      const oldRange = await list(null, { fromDate: '2026-07-01', toDate: '2026-07-02' }) as { ok: boolean; code: string }
+      expect(oldRange.ok).toBe(false)
+      expect(oldRange.code).toBe('FORBIDDEN')
+      const recent = await list(null, { fromDate: window.fromYmd, toDate: window.toYmd }) as { ok: boolean; data: { id: string }[] }
+      expect(recent.ok).toBe(true)
+      expect(recent.data.map(row => row.id)).toContain(recentId)
+      expect(recent.data.map(row => row.id)).not.toContain(SHIFT_ID)
+      const detail = getHandler('ipc:get-history-shift-detail')
+      const denied = await detail(null, { shiftId: SHIFT_ID }) as { ok: boolean; code: string }
+      expect(denied.code).toBe('FORBIDDEN')
+      const allowed = await detail(null, { shiftId: recentId }) as { ok: boolean }
+      expect(allowed.ok).toBe(true)
     })
 
     it('rechaza si no hay sesión', async () => {
@@ -909,15 +939,44 @@ describe('history.handler', () => {
   })
 
   describe('GET_REMOTE_EMPLOYEE_VALES', () => {
-    it('rechaza cajera con FORBIDDEN', async () => {
+    it('la cajera ve vales de la ventana y no los anteriores', async () => {
       vi.mocked(getActiveSession).mockReturnValue(
         CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>,
       )
       vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      const window = cashierHistoryWindow()
+      vi.mocked(fetchEmployeeValesFromFirestore).mockResolvedValue([
+        {
+          id: 'vale-viejo',
+          employeeId: 'emp-1',
+          employeeName: 'Carnicero',
+          storeId: STORE_ID,
+          shiftId: null,
+          amount: 100,
+          description: null,
+          items: [],
+          paidAt: '2026-07-01T15:00:00.000Z',
+          createdAt: '2026-07-01T15:00:00.000Z',
+          cancelledAt: null,
+        },
+        {
+          id: 'vale-nuevo',
+          employeeId: 'emp-1',
+          employeeName: 'Carnicero',
+          storeId: STORE_ID,
+          shiftId: null,
+          amount: 200,
+          description: null,
+          items: [],
+          paidAt: `${window.fromYmd}T15:00:00.000Z`,
+          createdAt: `${window.fromYmd}T15:00:00.000Z`,
+          cancelledAt: null,
+        },
+      ])
       const handler = getHandler('ipc:get-remote-employee-vales')
-      const res = await handler(null, {}) as { ok: boolean; code?: string }
-      expect(res.ok).toBe(false)
-      expect(res.code).toBe('FORBIDDEN')
+      const res = await handler(null, {}) as { ok: boolean; data: { id: string }[] }
+      expect(res.ok).toBe(true)
+      expect(res.data.map(row => row.id)).toEqual(['vale-nuevo'])
     })
 
     it('payload inválido → INVALID_PAYLOAD', async () => {
@@ -961,7 +1020,7 @@ describe('history.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data).toHaveLength(1)
       expect(res.data[0].amount).toBe(1500)
-      expect(fetchEmployeeValesFromFirestore).toHaveBeenCalledWith(STORE_ID)
+      expect(fetchEmployeeValesFromFirestore).toHaveBeenCalledWith(STORE_ID, undefined)
     })
   })
 })

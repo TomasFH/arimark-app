@@ -29,7 +29,7 @@ import type {
   ValeItem,
 } from '../../src/types/hw-api'
 import { cashAmountFromDeposit, digitalAmountFromDeposit } from '../lib/depositPayments'
-import { buildCashHandoverAudit } from '@carniceria/shared'
+import { buildCashHandoverAudit, cashierHistoryWindow, civilYmd } from '@carniceria/shared'
 import { merchDbLineToSnapshot } from '../licensing/merchIntakeDb'
 import { historyVisitLinesFromSnapshots } from '../licensing/historyVisitLines'
 
@@ -63,7 +63,12 @@ export function registerHistoryHandlers(): void {
 
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-    if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden ver el historial.', code: 'FORBIDDEN' }
+    if (session.role === 'cashier' && cashierListOutsideWindow(parsed.data?.fromDate, parsed.data?.toDate)) {
+      return CASHIER_WINDOW_DENIED
+    }
+    if (session.role !== 'admin' && session.role !== 'cashier') {
+      return { ok: false, error: 'Solo los administradores pueden ver el historial.', code: 'FORBIDDEN' }
+    }
 
     const filter = parsed.data ?? { limit: 50, offset: 0 }
     const pageLimit = filter.limit ?? 50
@@ -269,7 +274,9 @@ export function registerHistoryHandlers(): void {
 
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-    if (session.role !== 'admin') return { ok: false, error: 'Solo los administradores pueden ver el historial.', code: 'FORBIDDEN' }
+    if (session.role !== 'admin' && session.role !== 'cashier') {
+      return { ok: false, error: 'Solo los administradores pueden ver el historial.', code: 'FORBIDDEN' }
+    }
 
     const { shiftId } = parsed.data
 
@@ -282,6 +289,9 @@ export function registerHistoryHandlers(): void {
         if (isFirebaseAvailable()) {
           try {
             const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId, session.role === 'cashier')
+            if (remoteDetail && cashierShiftOutsideWindow(session.role, remoteDetail.shift.startedAt)) {
+              return CASHIER_WINDOW_DENIED
+            }
             if (remoteDetail) return { ok: true, data: remoteDetail }
           } catch (fbErr) {
             log.warn('[ipc:get-history-shift-detail] Firestore no disponible', fbErr)
@@ -289,6 +299,7 @@ export function registerHistoryHandlers(): void {
         }
         return { ok: false, error: 'Turno no encontrado.', code: 'NOT_FOUND' }
       }
+      if (cashierShiftOutsideWindow(session.role, shift.startedAt)) return CASHIER_WINDOW_DENIED
 
       const cashierRow = db.select({ name: users.name }).from(users).where(eq(users.id, shift.userId)).all()[0]
       const cashierName = cashierRow?.name ?? shift.userId
@@ -706,7 +717,7 @@ export function registerHistoryHandlers(): void {
 
       const session = getActiveSession()
       if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-      if (session.role !== 'admin') {
+      if (session.role !== 'admin' && session.role !== 'cashier') {
         return { ok: false, error: 'Solo los administradores pueden ver vales remotos.', code: 'FORBIDDEN' }
       }
 
@@ -722,14 +733,47 @@ export function registerHistoryHandlers(): void {
         const filter = parsed.data?.storeIdFilter
         const storeIdFilter =
           !filter || filter === 'all' ? null : filter
-        const rows = await fetchEmployeeValesFromFirestore(storeIdFilter)
-        return { ok: true, data: rows }
+        const window = session.role === 'cashier' ? cashierHistoryWindow() : null
+        const rows = await fetchEmployeeValesFromFirestore(
+          storeIdFilter,
+          window ? `${window.fromYmd}T03:00:00.000Z` : undefined,
+        )
+        const visible = window
+          ? rows.filter(row => {
+              const stamp = row.paidAt || row.createdAt
+              if (!stamp) return false
+              const ymd = civilYmd(new Date(stamp))
+              return ymd >= window.fromYmd && ymd <= window.toYmd
+            })
+          : rows
+        return { ok: true, data: visible }
       } catch (err) {
         log.error('[ipc:get-remote-employee-vales] Error inesperado', err)
         return { ok: false, error: 'Error al obtener vales remotos.' }
       }
     },
   )
+}
+
+const CASHIER_WINDOW_DENIED = {
+  ok: false as const,
+  error: 'Solo podés ver la semana en curso y la anterior.',
+  code: 'FORBIDDEN' as const,
+}
+
+function cashierListOutsideWindow(fromDate?: string, toDate?: string): boolean {
+  if (!fromDate) return true
+  const window = cashierHistoryWindow()
+  if (fromDate < window.fromYmd || fromDate > window.toYmd) return true
+  if (toDate !== undefined && (toDate < window.fromYmd || toDate > window.toYmd || toDate < fromDate)) return true
+  return false
+}
+
+function cashierShiftOutsideWindow(role: string, startedAt: string): boolean {
+  if (role !== 'cashier') return false
+  const ymd = civilYmd(new Date(startedAt))
+  const window = cashierHistoryWindow()
+  return ymd < window.fromYmd || ymd > window.toYmd
 }
 
 function intakeVisitsByExpense(

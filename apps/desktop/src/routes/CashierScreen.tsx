@@ -43,6 +43,7 @@ interface Props {
   onViewOrders?: () => void
   onViewTransfers?: () => void
   onViewMerch?: () => void
+  onViewHistory?: () => void
   isActive?: boolean
   /** Carrito inyectado desde un pedido (se carga al POS al activarse la pantalla) */
   pendingOrderCart?: {
@@ -157,6 +158,14 @@ const IconCebo = () => (
 const IconX = () => (
   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+  </svg>
+)
+
+const IconHistory = () => (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-3.2-6.9" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 4.5V8h-3.5" />
   </svg>
 )
 
@@ -510,6 +519,7 @@ export default function CashierScreen({
   onViewOrders,
   onViewTransfers,
   onViewMerch,
+  onViewHistory,
   isActive = true,
   pendingOrderCart,
   onOrderCartConsumed,
@@ -1601,6 +1611,14 @@ export default function CashierScreen({
                           title="Mercadería recibida"
                           leading={menuLeading(<IconMerch />)}
                           onClick={() => { onViewMerch(); closeMenu() }}
+                        />
+                      )}
+                      {onViewHistory && (
+                        <ListRow
+                          dense
+                          title="Historial"
+                          leading={menuLeading(<IconHistory />)}
+                          onClick={() => { onViewHistory(); closeMenu() }}
                         />
                       )}
                     </MenuSection>

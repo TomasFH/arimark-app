@@ -1,5 +1,5 @@
 /**
- * Pantalla de historial completo — solo admin.
+ * Historial de turnos. El admin ve todo; la cajera, la semana en curso y la anterior.
  *
  * Panel izquierdo: lista de turnos (abiertos y cerrados) con filtro por rango de fechas.
  * Panel derecho: detalle completo del turno seleccionado.
@@ -12,7 +12,7 @@ import { AdminSectionHeader } from '../components/AdminSectionHeader'
 import { formatARS, formatKg, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
 import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
 import { clampHistoryRange, planHistoryFetch, type HistorySpan } from '../lib/historyRange'
-import { exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
+import { cashierHistoryWindow, exceptionalDiscountLabel, injectHistoryLabel } from '@carniceria/shared'
 import type { HistoryShiftRow, HistoryShiftDetail, HistoryOrderRow, GetHistoryShiftsPayload, StoreRow } from '../types/hw-api'
 
 const SHIFT_TYPE_LABEL = { morning: 'Mañana', evening: 'Tarde' }
@@ -47,9 +47,12 @@ interface Props {
   onBack: () => void
   onLogout: () => void
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
+  /** Cajera: la semana en curso y la anterior. El proceso principal rechaza lo demás. */
+  limitedToRecentWeeks?: boolean
 }
 
-export default function HistoryScreen({ onBack, onLogout, onOpenVisit }: Props) {
+export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedToRecentWeeks = false }: Props) {
+  const recentWindow = limitedToRecentWeeks ? cashierHistoryWindow() : null
   const [shifts, setShifts] = useState<HistoryShiftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -196,7 +199,9 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit }: Props) 
     <div className="flex flex-col flex-1 h-full bg-app text-ink overflow-hidden">
       <AdminSectionHeader
         title="Historial de turnos"
-        subtitle="Lo vendido, cómo se cobró y el cierre de cada turno"
+        subtitle={recentWindow
+          ? 'Semana en curso y la anterior, de todos los locales'
+          : 'Lo vendido, cómo se cobró y el cierre de cada turno'}
         onBack={onBack}
         onLogout={onLogout}
       />
@@ -224,10 +229,13 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit }: Props) 
                   id="history-from"
                   type="date"
                   value={fromDate}
-                  max={todayLocalYmd()}
+                  min={recentWindow?.fromYmd}
+                  max={recentWindow && recentWindow.toYmd < todayLocalYmd() ? recentWindow.toYmd : todayLocalYmd()}
                   onChange={e => {
                     const today = todayLocalYmd()
-                    const next = e.target.value > today ? today : e.target.value
+                    let next = e.target.value > today ? today : e.target.value
+                    if (recentWindow && next < recentWindow.fromYmd) next = recentWindow.fromYmd
+                    if (recentWindow && next > recentWindow.toYmd) next = recentWindow.toYmd
                     setFromDate(next)
                     if (next > toDate) setToDate(next)
                   }}
@@ -240,10 +248,13 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit }: Props) 
                   id="history-to"
                   type="date"
                   value={toDate}
-                  max={todayLocalYmd()}
+                  min={recentWindow?.fromYmd}
+                  max={recentWindow && recentWindow.toYmd < todayLocalYmd() ? recentWindow.toYmd : todayLocalYmd()}
                   onChange={e => {
                     const today = todayLocalYmd()
-                    const next = e.target.value > today ? today : e.target.value
+                    let next = e.target.value > today ? today : e.target.value
+                    if (recentWindow && next < recentWindow.fromYmd) next = recentWindow.fromYmd
+                    if (recentWindow && next > recentWindow.toYmd) next = recentWindow.toYmd
                     setToDate(next)
                     if (fromDate > next) setFromDate(next)
                   }}
@@ -262,7 +273,7 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit }: Props) 
             >
               Últimos 7 días
             </button>
-            {loadedSpan && fromDate < loadedSpan.from && (
+            {loadedSpan && fromDate < loadedSpan.from && (!recentWindow || loadedSpan.from > recentWindow.fromYmd) && (
               <button
                 type="button"
                 onClick={() => void loadShifts('older')}

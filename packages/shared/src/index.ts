@@ -199,6 +199,7 @@ export {
   lastMondayOfMonth,
   mondayWeekContaining,
   mondayWeekRange,
+  cashierHistoryWindow,
   mondayWeeksInRange,
   monthOfWeekMonday,
   formatSummaryRange,

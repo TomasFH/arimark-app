@@ -7,6 +7,7 @@ import {
   inclusiveCivilSpan,
   lastMondayOfMonth,
   mondayWeekContaining,
+  cashierHistoryWindow,
   mondayWeekRange,
   monthOfWeekMonday,
   summaryMonthSpan,
@@ -131,5 +132,12 @@ describe('weekRange', () => {
     expect(range.month).toBe(8)
     expect(range.startYmd).toBe('2026-08-01')
     expect(range.endInclusiveYmd).toBe('2026-08-31')
+  })
+
+  it('la cajera ve la semana en curso y la anterior, de lunes a domingo', () => {
+    expect(cashierHistoryWindow(new Date('2026-11-25T15:00:00.000Z'))).toEqual({
+      fromYmd: '2026-11-16',
+      toYmd: '2026-11-29',
+    })
   })
 })
