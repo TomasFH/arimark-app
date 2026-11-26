@@ -10,6 +10,7 @@ import { formatARS, toLocalDateTime } from '../lib/datetime'
 import { formatIntegerWithDots, parseNumericInput } from '../lib/numericInput'
 import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
+import { normalizeProviderAccount } from '../lib/providerAccount'
 import type { ProviderWithDebtRow, ProviderRow, ProviderAccountHistory, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
 import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
 import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer } from '../components/ui'
@@ -577,7 +578,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }:
     const r = await window.hw.getProviderDebtHistory({ providerId: provider.id })
     setLoading(false)
     if (r.ok) {
-      setAccount(r.data)
+      setAccount(normalizeProviderAccount(r.data))
     } else {
       setError(r.error ?? 'Error al cargar historial.')
     }
@@ -679,7 +680,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }:
   const pagedEvents = displayEvents.slice(historyPage * HISTORY_PAGE, (historyPage + 1) * HISTORY_PAGE)
 
   useEffect(() => {
-    historyListRef.current?.scrollTo({ top: 0 })
+    historyListRef.current?.scrollTo?.({ top: 0 })
   }, [historyPage, storeFilter])
 
   async function refreshAfterChange() {

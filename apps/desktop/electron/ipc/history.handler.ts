@@ -16,6 +16,7 @@ import {
   fetchHistoryShiftsFromFirestore,
   fetchHistoryShiftDetailFromFirestore,
   fetchEmployeeValesFromFirestore,
+  defaultHistoryFromDate,
   mergeHistoryShiftRows,
   mergeHistoryShiftDetails,
   sortHistoryShiftRowsNewestFirst,
@@ -292,7 +293,9 @@ export function registerHistoryHandlers(): void {
             if (remoteDetail && cashierShiftOutsideWindow(session.role, remoteDetail.shift.startedAt)) {
               return CASHIER_WINDOW_DENIED
             }
-            if (remoteDetail) return { ok: true, data: remoteDetail }
+            if (remoteDetail) {
+              return { ok: true, data: withLocalVisits(db, remoteDetail, session.role === 'cashier') }
+            }
           } catch (fbErr) {
             log.warn('[ipc:get-history-shift-detail] Firestore no disponible', fbErr)
           }
@@ -689,7 +692,10 @@ export function registerHistoryHandlers(): void {
         try {
           const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId, session.role === 'cashier')
           if (remoteDetail) {
-            return { ok: true, data: mergeHistoryShiftDetails(localDetail, remoteDetail) }
+            return {
+              ok: true,
+              data: withLocalVisits(db, mergeHistoryShiftDetails(localDetail, remoteDetail), session.role === 'cashier'),
+            }
           }
         } catch (fbErr) {
           log.warn('[ipc:get-history-shift-detail] Firestore no disponible; se usa detalle local', fbErr)
@@ -704,7 +710,9 @@ export function registerHistoryHandlers(): void {
   })
 
   // --------------------------------------------------------------------------
-  // GET_REMOTE_EMPLOYEE_VALES — vales desde Firestore (admin remoto)
+  // GET_REMOTE_EMPLOYEE_VALES — vales desde Firestore (solo admin)
+  // La cajera no tiene pantalla que lo use. La consulta siempre lleva fecha,
+  // también cuando pide un local: no se bajan todos los vales de ese local.
   // --------------------------------------------------------------------------
   ipcMain.handle(
     IPC.GET_REMOTE_EMPLOYEE_VALES,
@@ -717,7 +725,7 @@ export function registerHistoryHandlers(): void {
 
       const session = getActiveSession()
       if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-      if (session.role !== 'admin' && session.role !== 'cashier') {
+      if (session.role !== 'admin') {
         return { ok: false, error: 'Solo los administradores pueden ver vales remotos.', code: 'FORBIDDEN' }
       }
 
@@ -733,20 +741,11 @@ export function registerHistoryHandlers(): void {
         const filter = parsed.data?.storeIdFilter
         const storeIdFilter =
           !filter || filter === 'all' ? null : filter
-        const window = session.role === 'cashier' ? cashierHistoryWindow() : null
         const rows = await fetchEmployeeValesFromFirestore(
           storeIdFilter,
-          window ? `${window.fromYmd}T03:00:00.000Z` : undefined,
+          `${defaultHistoryFromDate()}T03:00:00.000Z`,
         )
-        const visible = window
-          ? rows.filter(row => {
-              const stamp = row.paidAt || row.createdAt
-              if (!stamp) return false
-              const ymd = civilYmd(new Date(stamp))
-              return ymd >= window.fromYmd && ymd <= window.toYmd
-            })
-          : rows
-        return { ok: true, data: visible }
+        return { ok: true, data: rows }
       } catch (err) {
         log.error('[ipc:get-remote-employee-vales] Error inesperado', err)
         return { ok: false, error: 'Error al obtener vales remotos.' }
@@ -759,6 +758,31 @@ const CASHIER_WINDOW_DENIED = {
   ok: false as const,
   error: 'Solo podés ver la semana en curso y la anterior.',
   code: 'FORBIDDEN' as const,
+}
+
+function withLocalVisits(
+  db: ReturnType<typeof getDb>,
+  detail: HistoryShiftDetail,
+  hideMediaResPrice: boolean,
+): HistoryShiftDetail {
+  const missing = detail.expenses.filter(row => !row.visitLines || row.visitLines.length === 0)
+  if (missing.length === 0) return detail
+  const visits = intakeVisitsByExpense(db, missing.map(row => row.id), hideMediaResPrice)
+  return {
+    ...detail,
+    expenses: detail.expenses.map(row => {
+      if (row.visitLines && row.visitLines.length > 0) return row
+      const visit = visits.get(row.id)
+      if (!visit || visit.lines.length === 0) return row
+      return {
+        ...row,
+        lineNames: visit.lines.map(line => line.name),
+        visitLines: visit.lines,
+        intakeId: visit.intakeId,
+        intakeCreatedAt: visit.createdAt,
+      }
+    }),
+  }
 }
 
 function cashierListOutsideWindow(fromDate?: string, toDate?: string): boolean {

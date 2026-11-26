@@ -43,6 +43,7 @@ import {
   fetchHistoryShiftsFromFirestore,
   fetchHistoryShiftDetailFromFirestore,
   fetchEmployeeValesFromFirestore,
+  defaultHistoryFromDate,
 } from '../../licensing/historyFirestore'
 import { registerHistoryHandlers } from '../history.handler'
 
@@ -62,11 +63,13 @@ const CASHIER_SESSION = { userId: USER_ID, storeId: STORE_ID, role: 'cashier', s
 
 describe('history.handler', () => {
   let db: Awaited<ReturnType<typeof createInMemoryDb>>['db']
+  let sqlite: Awaited<ReturnType<typeof createInMemoryDb>>['sqlite']
 
   beforeEach(async () => {
     vi.clearAllMocks()
     const result = await createInMemoryDb()
     db = result.db
+    sqlite = result.sqlite
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
     vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as unknown as ReturnType<typeof getActiveSession>)
     vi.mocked(isFirebaseAvailable).mockReturnValue(false)
@@ -481,6 +484,103 @@ describe('history.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.shift.id).toBe(remoteShiftId)
       expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(remoteShiftId, false)
+    })
+
+    it('completa el gasto de Oso con la visita que esta PC ya tiene, aunque el turno no esté en SQLite', async () => {
+      const shiftId = 'fa85503f-9041-4849-b2d2-7d5df302dac6'
+      const expenseId = 'd9e906ac-e4c7-4245-8e23-b2efd13ccea2'
+      const intakeId = '891b80eb-8fea-420a-9c96-b7e8ce87c88d'
+      const createdAt = '2026-11-25T12:53:24.793Z'
+      db.insert(shifts).values({
+        id: shiftId,
+        storeId: STORE_ID,
+        userId: USER_ID,
+        shiftType: 'morning',
+        startedAt: '2026-11-25T11:00:00.000Z',
+        closedAt: '2026-11-25T17:00:00.000Z',
+        openingCash: 0,
+        source: 'desktop',
+      }).run()
+      db.insert(merchandiseIntakes).values({
+        id: intakeId,
+        storeId: STORE_ID,
+        shiftId,
+        paymentKind: 'on_account',
+        providerName: 'Oso',
+        expenseId,
+        status: 'confirmed',
+        createdBy: USER_ID,
+        createdAt,
+      }).run()
+      db.insert(merchandiseIntakeLines).values([
+        { id: 'line-morcilla', intakeId, rubroId: 'r1', rubroName: 'Morcilla', template: 'weight', sortOrder: 0, count: 1, netKg: 16.95, unitCost: 2970, costTotal: 50342 },
+        { id: 'line-chorizo', intakeId, rubroId: 'r2', rubroName: 'Chorizo de cerdo', template: 'weight', sortOrder: 1, count: 1, netKg: 19.2, unitCost: 4620, costTotal: 88704 },
+        { id: 'line-pechito-1', intakeId, rubroId: 'r3', rubroName: 'Pechito', template: 'weight', sortOrder: 2, count: 1, netKg: 24.95, unitCost: 5800, costTotal: 144710 },
+        { id: 'line-pechito-2', intakeId, rubroId: 'r3', rubroName: 'Pechito', template: 'weight', sortOrder: 3, count: 1, netKg: 32.95, unitCost: 5800, costTotal: 191110 },
+      ]).run()
+      sqlite.exec('PRAGMA foreign_keys = OFF')
+      sqlite.exec(`DELETE FROM shifts WHERE id = '${shiftId}'`)
+      sqlite.exec('PRAGMA foreign_keys = ON')
+
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(fetchHistoryShiftDetailFromFirestore).mockResolvedValue({
+        shift: {
+          id: shiftId,
+          shiftType: 'morning',
+          startedAt: '2026-11-25T11:00:00.000Z',
+          closedAt: '2026-11-25T17:00:00.000Z',
+          cashierName: 'Cajera',
+          openingCash: 0,
+          closingCash: 0,
+          deliveredAmount: null,
+          deliveredTo: null,
+          notes: null,
+        },
+        sales: [],
+        debts: [],
+        deposits: [],
+        vales: [],
+        expenses: [{
+          id: expenseId,
+          createdAt: '2026-11-25T12:55:00.000Z',
+          provider: 'Oso',
+          concept: 'Mercadería: Morcilla, Chorizo de cerdo, Pechito…',
+          amount: 822000,
+          notes: null,
+          createdBy: 'Cajera',
+        }],
+        summary: {
+          salesCount: 0,
+          totalRevenue: 0,
+          totalCashSales: 0,
+          totalDebitSales: 0,
+          totalWalletSales: 0,
+          totalCreditSales: 0,
+          totalExpenses: 822000,
+          totalCashInjects: 0,
+          cashDeposits: 0,
+          digitalDeposits: 0,
+          cashInHand: 0,
+          debtsCount: 0,
+          totalDebts: 0,
+        },
+      })
+
+      const handler = getHandler('ipc:get-history-shift-detail')
+      const res = await handler(null, { shiftId }) as {
+        ok: boolean
+        data: HistoryShiftDetail
+      }
+      expect(res.ok).toBe(true)
+      const expense = res.data.expenses.find(row => row.id === expenseId)
+      expect(expense?.concept).toBe('Mercadería: Morcilla, Chorizo de cerdo, Pechito…')
+      expect(expense?.visitLines?.map(line => line.name)).toEqual([
+        'Morcilla', 'Chorizo de cerdo', 'Pechito', 'Pechito',
+      ])
+      expect(expense?.visitLines?.[0]).toMatchObject({ name: 'Morcilla', unitPrice: 2970, subtotal: 50342 })
+      expect(expense?.visitLines?.[2]).toMatchObject({ name: 'Pechito', subtotal: 144710 })
+      expect(expense?.visitLines?.[3]).toMatchObject({ name: 'Pechito', subtotal: 191110 })
+      expect(expense?.intakeId).toBe(intakeId)
     })
 
     it('usa detalle de Firestore si el turno local no tiene movimientos', async () => {
@@ -939,44 +1039,16 @@ describe('history.handler', () => {
   })
 
   describe('GET_REMOTE_EMPLOYEE_VALES', () => {
-    it('la cajera ve vales de la ventana y no los anteriores', async () => {
+    it('la cajera recibe FORBIDDEN y no se consulta Firestore', async () => {
       vi.mocked(getActiveSession).mockReturnValue(
         CASHIER_SESSION as unknown as ReturnType<typeof getActiveSession>,
       )
       vi.mocked(isFirebaseAvailable).mockReturnValue(true)
-      const window = cashierHistoryWindow()
-      vi.mocked(fetchEmployeeValesFromFirestore).mockResolvedValue([
-        {
-          id: 'vale-viejo',
-          employeeId: 'emp-1',
-          employeeName: 'Carnicero',
-          storeId: STORE_ID,
-          shiftId: null,
-          amount: 100,
-          description: null,
-          items: [],
-          paidAt: '2026-07-01T15:00:00.000Z',
-          createdAt: '2026-07-01T15:00:00.000Z',
-          cancelledAt: null,
-        },
-        {
-          id: 'vale-nuevo',
-          employeeId: 'emp-1',
-          employeeName: 'Carnicero',
-          storeId: STORE_ID,
-          shiftId: null,
-          amount: 200,
-          description: null,
-          items: [],
-          paidAt: `${window.fromYmd}T15:00:00.000Z`,
-          createdAt: `${window.fromYmd}T15:00:00.000Z`,
-          cancelledAt: null,
-        },
-      ])
       const handler = getHandler('ipc:get-remote-employee-vales')
-      const res = await handler(null, {}) as { ok: boolean; data: { id: string }[] }
-      expect(res.ok).toBe(true)
-      expect(res.data.map(row => row.id)).toEqual(['vale-nuevo'])
+      const res = await handler(null, { storeIdFilter: STORE_ID }) as { ok: boolean; code?: string }
+      expect(res.ok).toBe(false)
+      expect(res.code).toBe('FORBIDDEN')
+      expect(fetchEmployeeValesFromFirestore).not.toHaveBeenCalled()
     })
 
     it('payload inválido → INVALID_PAYLOAD', async () => {
@@ -1020,7 +1092,10 @@ describe('history.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data).toHaveLength(1)
       expect(res.data[0].amount).toBe(1500)
-      expect(fetchEmployeeValesFromFirestore).toHaveBeenCalledWith(STORE_ID, undefined)
+      expect(fetchEmployeeValesFromFirestore).toHaveBeenCalledWith(
+        STORE_ID,
+        `${defaultHistoryFromDate()}T03:00:00.000Z`,
+      )
     })
   })
 })

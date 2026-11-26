@@ -45,6 +45,11 @@ vi.mock('../../licensing/firebase', () => ({
   getFirebaseApp: vi.fn(),
 }))
 
+vi.mock('../../licensing/providerCheckpointRead', () => ({
+  readProviderAccountSlice: vi.fn(),
+  readProviderCheckpointBalance: vi.fn(),
+}))
+
 vi.mock('firebase/firestore', () => ({
   getFirestore: vi.fn(),
   collection: vi.fn(),
@@ -57,6 +62,8 @@ vi.mock('firebase/firestore', () => ({
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
+import { isFirebaseAvailable } from '../../licensing/firebase'
+import { readProviderAccountSlice } from '../../licensing/providerCheckpointRead'
 import { registerProvidersHandlers } from '../providers.handler'
 import { providerIdFromName } from '../providerUtils'
 
@@ -607,6 +614,65 @@ describe('providers.handler', () => {
       const payment = result.data.events.find(event => event.id === 'evt-002')
       expect(debt?.intakeId).toBe('visita-1')
       expect(payment?.intakeId ?? null).toBeNull()
+    })
+
+    it('el corte de Oso en Camarones llega como lista de openings', async () => {
+      const camarones = 'a497ca07-3777-4855-be66-b6e47950886b'
+      const oso = '6f736f'
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(readProviderAccountSlice).mockImplementation(async (_providerId, storeId) => {
+        if (storeId === camarones) {
+          return {
+            openingBalance: 255978,
+            hasCheckpoint: true,
+            events: [{
+              id: 'f2da4f63-78dc-4ac2-96d7-9b5630fda6c3',
+              type: 'payment' as const,
+              amount: 255978,
+              createdAt: '2026-11-25T19:19:45.844Z',
+              createdBy: 'admin-001',
+              expenseId: null,
+              notes: 'Ajuste de admin (Admin Prueba): dejó el saldo en $ 0',
+            }],
+          }
+        }
+        return { openingBalance: 0, hasCheckpoint: false, events: [] }
+      })
+      db.insert(stores).values({
+        id: camarones,
+        name: 'Camarones',
+        createdAt: new Date().toISOString(),
+      }).run()
+      db.insert(providers).values({
+        id: oso,
+        name: 'Oso',
+        nameKey: 'oso',
+        createdAt: new Date().toISOString(),
+      }).run()
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+
+      try {
+        const handler = getHandler('ipc:get-provider-debt-history')
+        const result = await (handler(null, { providerId: oso }) as Promise<{
+          ok: boolean
+          data: {
+            openings: Array<{ storeId: string; storeName: string; balance: number; hasCheckpoint: boolean }>
+            events: Array<{ id: string; amount: number }>
+          }
+        }>)
+        expect(result.ok).toBe(true)
+        const seen: number[] = []
+        for (const opening of result.data.openings) seen.push(opening.balance)
+        expect(seen).toEqual([255978])
+        expect(result.data.openings[0]).toMatchObject({
+          storeId: camarones,
+          storeName: 'Camarones',
+          hasCheckpoint: true,
+        })
+        expect(result.data.events.map(event => event.id)).toEqual(['f2da4f63-78dc-4ac2-96d7-9b5630fda6c3'])
+      } finally {
+        vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+      }
     })
 
     it('no hay sesión retorna NO_SESSION', async () => {

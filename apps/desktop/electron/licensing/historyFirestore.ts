@@ -722,7 +722,9 @@ export async function fetchHistoryShiftDetailFromFirestore(
 
 /**
  * Vales desde Firestore, filtrables por local.
- * Docs viejos sin `storeId` no entran al filtro por local (no se baja `shifts` entero).
+ * Siempre hay un piso de fecha (default: últimos 7 días). Si viene un local,
+ * la fecha entra en la misma consulta: no se bajan todos los vales de ese local.
+ * Docs viejos sin `storeId` no entran al filtro por local.
  */
 export async function fetchEmployeeValesFromFirestore(
   storeIdFilter: string | null,
@@ -735,11 +737,12 @@ export async function fetchEmployeeValesFromFirestore(
     const app = getFirebaseApp()
     const firestore = getFirestore(app)
     const valesCol = collection(firestore, 'licenses', config.tenant_id, 'employeeVales')
-    const valesSnap = storeIdFilter
-      ? await getDocs(query(valesCol, where('storeId', '==', storeIdFilter)))
-      : createdAtFrom
-        ? await getDocs(query(valesCol, where('createdAt', '>=', createdAtFrom)))
-        : await getDocs(valesCol)
+    const from = createdAtFrom ?? `${defaultHistoryFromDate()}T03:00:00.000Z`
+    const constraints = [
+      ...(storeIdFilter ? [where('storeId', '==', storeIdFilter)] : []),
+      where('createdAt', '>=', from),
+    ]
+    const valesSnap = await getDocs(query(valesCol, ...constraints))
 
     const rows: RemoteEmployeeValeRow[] = []
     for (const d of valesSnap.docs) {

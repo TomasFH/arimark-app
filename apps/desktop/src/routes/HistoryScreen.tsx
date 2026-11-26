@@ -327,6 +327,7 @@ export default function HistoryScreen({ onBack, onLogout, onOpenVisit, limitedTo
           {detail && (
             <ShiftDetail
               detail={detail}
+              canCorrectClose={!limitedToRecentWeeks}
               onOpenVisit={onOpenVisit}
               onCorrected={() => { void reloadSelectedDetail(detail.shift.id) }}
             />
@@ -397,10 +398,13 @@ function saleCountLabel(count: number): string {
 
 function ShiftDetail({
   detail,
+  canCorrectClose,
   onCorrected,
   onOpenVisit,
 }: {
   detail: HistoryShiftDetail
+  /** La cajera no corrige cierres hasta la tanda B: si lo ve y no guarda, cree que corrigió. */
+  canCorrectClose: boolean
   onCorrected: () => void
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }) {
@@ -469,7 +473,7 @@ function ShiftDetail({
           <p className="text-xs text-muted">Notas: <span className="text-ink">{shift.notes}</span></p>
         )}
 
-        {shift.closedAt && (
+        {shift.closedAt && canCorrectClose && (
           <div className="border-t border-line pt-3">
             <ShiftCloseCorrection
               key={`${shift.id}:${shift.cashLeft ?? ''}:${shift.deliveredAmount ?? ''}`}
@@ -650,8 +654,8 @@ function ShiftDetail({
                       <span className="text-muted">Cantidad</span>
                       <span className="text-right text-muted">Precio</span>
                       <span className="text-right text-muted">Subtotal</span>
-                      {visitLines.map(line => (
-                        <div key={`${exp.id}-${line.name}`} className="col-span-4 grid grid-cols-subgrid items-baseline">
+                      {visitLines.map((line, index) => (
+                        <div key={`${exp.id}-${index}`} className="col-span-4 grid grid-cols-subgrid items-baseline">
                           <span className="whitespace-nowrap text-ink" title={line.name}>{line.name}</span>
                           <span className="whitespace-nowrap tabular-nums text-muted">{line.quantityLabel || '—'}</span>
                           <span className={`whitespace-nowrap text-right tabular-nums ${line.unitPrice > 0 ? 'text-ink' : 'text-muted'}`}>

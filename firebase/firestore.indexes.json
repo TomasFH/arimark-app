@@ -68,6 +68,14 @@
       ]
     },
     {
+      "collectionGroup": "employeeVales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "salaryPayments",
       "queryScope": "COLLECTION",
       "fields": [

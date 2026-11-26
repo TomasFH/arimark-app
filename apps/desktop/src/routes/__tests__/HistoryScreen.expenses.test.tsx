@@ -118,4 +118,33 @@ describe('HistoryScreen — gastos del turno', () => {
     await user.click(screen.getByRole('button', { name: /Guido/ }))
     expect(screen.queryByText('Falda')).not.toBeInTheDocument()
   })
+
+  it('la cajera no ve el formulario de corrección de un turno cerrado', async () => {
+    window.hw.getHistoryShiftDetail = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        ...DETAIL,
+        shift: { ...DETAIL.shift, closedAt: `${day}T20:00:00.000Z` },
+      },
+    })
+    const user = userEvent.setup()
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} limitedToRecentWeeks />)
+    await user.click(await screen.findByRole('button', { name: /Ana/ }))
+    expect(screen.queryByRole('button', { name: 'Acciones del cierre' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Corregir cierre' })).not.toBeInTheDocument()
+  })
+
+  it('el admin ve la acción de corregir el cierre', async () => {
+    window.hw.getHistoryShiftDetail = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        ...DETAIL,
+        shift: { ...DETAIL.shift, closedAt: `${day}T20:00:00.000Z` },
+      },
+    })
+    const user = userEvent.setup()
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: /Ana/ }))
+    expect(screen.getByRole('button', { name: 'Acciones del cierre' })).toBeInTheDocument()
+  })
 })

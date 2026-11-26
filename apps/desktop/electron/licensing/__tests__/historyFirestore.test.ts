@@ -28,9 +28,11 @@ vi.mock('electron-log', () => ({
 import {
   mergeHistoryShiftRows,
   fetchHistoryShiftsFromFirestore,
+  fetchEmployeeValesFromFirestore,
   sortHistoryShiftRowsNewestFirst,
   historyShiftDetailIsEmpty,
 } from '../historyFirestore'
+import { getDocs, where } from 'firebase/firestore'
 import { isFirebaseAvailable } from '../firebase'
 import type { HistoryShiftDetail } from '../../../src/types/hw-api'
 
@@ -173,6 +175,16 @@ describe('historyFirestore', () => {
     it('retorna [] si Firebase no está disponible', async () => {
       const rows = await fetchHistoryShiftsFromFirestore({ effectiveStoreId: null })
       expect(rows).toEqual([])
+    })
+  })
+
+  describe('fetchEmployeeValesFromFirestore', () => {
+    it('con local la consulta también lleva el piso de fecha', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getDocs).mockResolvedValue({ docs: [] } as never)
+      await fetchEmployeeValesFromFirestore('a497ca07-3777-4855-be66-b6e47950886b', '2026-11-18T03:00:00.000Z')
+      expect(where).toHaveBeenCalledWith('storeId', '==', 'a497ca07-3777-4855-be66-b6e47950886b')
+      expect(where).toHaveBeenCalledWith('createdAt', '>=', '2026-11-18T03:00:00.000Z')
     })
   })
 })
