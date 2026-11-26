@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { eq, and, sum, count, gte, lte, asc, desc, sql, inArray } from 'drizzle-orm'
+import { eq, and, gte, lte, asc, desc, inArray } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
@@ -32,6 +32,7 @@ import type {
 import { cashAmountFromDeposit, digitalAmountFromDeposit } from '../lib/depositPayments'
 import { buildCashHandoverAudit, cashierHistoryWindow, civilYmd } from '@carniceria/shared'
 import { merchDbLineToSnapshot } from '../licensing/merchIntakeDb'
+import { historyListRowFromFicha } from '../licensing/historyListRow'
 import { historyVisitLinesFromSnapshots, unpaidArrivalFromIntake, type HistoryUnpaidArrival } from '../licensing/historyVisitLines'
 
 const getHistoryShiftsSchema = z.object({
@@ -53,7 +54,7 @@ const getRemoteEmployeeValesSchema = z.object({
 
 export function registerHistoryHandlers(): void {
   // --------------------------------------------------------------------------
-  // GET_HISTORY_SHIFTS — lista de turnos (abiertos y cerrados) con resumen (solo admin)
+  // GET_HISTORY_SHIFTS — lista de fichas. El detalle baja ventas y gastos al abrir un turno.
   // --------------------------------------------------------------------------
   ipcMain.handle(IPC.GET_HISTORY_SHIFTS, async (_event, payload: unknown): Promise<IpcResult<HistoryShiftRow[]>> => {
     const parsed = getHistoryShiftsSchema.safeParse(payload ?? {})
@@ -102,7 +103,6 @@ export function registerHistoryHandlers(): void {
 
       if (shiftRows.length === 0 && !useRemote) return { ok: true, data: [] }
 
-      const shiftIds = shiftRows.map(s => s.id)
       const userIds = [...new Set(shiftRows.map(s => s.userId))]
 
       // Nombres de cajeras
@@ -111,129 +111,23 @@ export function registerHistoryHandlers(): void {
         : []
       const userMap = new Map(userRows.map(u => [u.id, u.name]))
 
-      // Ventas por turno (solo confirmed)
-      const salesByShift = new Map<string, { count: number; total: number; cash: number }>()
-      const salesData = db
-        .select({
-          shiftId: sales.shiftId,
-          salesCount: count(sales.id),
-          totalRevenue: sum(sales.total),
-        })
-        .from(sales)
-        .where(and(
-          eq(sales.status, 'confirmed'),
-          // Filter by shiftIds - we'll post-filter since drizzle inArray may not exist at runtime
-        ))
-        .groupBy(sales.shiftId)
-        .all()
-        .filter(r => shiftIds.includes(r.shiftId))
-
-      for (const r of salesData) {
-        salesByShift.set(r.shiftId, {
-          count: r.salesCount,
-          total: Number(r.totalRevenue ?? 0),
-          cash: 0,
-        })
-      }
-
-      // Efectivo por turno
-      const cashData = db
-        .select({
-          shiftId: sales.shiftId,
-          totalCash: sum(salePayments.amount),
-        })
-        .from(salePayments)
-        .innerJoin(sales, eq(salePayments.saleId, sales.id))
-        .where(and(
-          eq(sales.status, 'confirmed'),
-          eq(salePayments.paymentMethod, 'cash'),
-        ))
-        .groupBy(sales.shiftId)
-        .all()
-        .filter(r => shiftIds.includes(r.shiftId))
-
-      for (const r of cashData) {
-        const entry = salesByShift.get(r.shiftId)
-        if (entry) entry.cash = Number(r.totalCash ?? 0)
-      }
-
-      // Gastos y aportes por turno (un solo groupBy)
-      const expensesByShift = new Map<string, number>()
-      const injectsByShift = new Map<string, number>()
-      const expData = db
-        .select({
-          shiftId: expenses.shiftId,
-          totalExpenses: sql<number>`coalesce(sum(case when ${expenses.kind} = 'inject' then 0 else ${expenses.amount} end), 0)`,
-          totalInjects: sql<number>`coalesce(sum(case when ${expenses.kind} = 'inject' then ${expenses.amount} else 0 end), 0)`,
-        })
-        .from(expenses)
-        .groupBy(expenses.shiftId)
-        .all()
-        .filter(r => shiftIds.includes(r.shiftId))
-
-      for (const r of expData) {
-        expensesByShift.set(r.shiftId, Number(r.totalExpenses ?? 0))
-        injectsByShift.set(r.shiftId, Number(r.totalInjects ?? 0))
-      }
-
-      // Señas en efectivo por turno (parsea depositPayments mixto, igual que el cierre)
-      const depositsByShift = new Map<string, number>()
-      if (shiftIds.length > 0) {
-        const depositRows = db
-          .select({
-            shiftId: orders.depositShiftId,
-            depositAmount: orders.depositAmount,
-            depositMethod: orders.depositMethod,
-            depositPayments: orders.depositPayments,
-          })
-          .from(orders)
-          .all()
-          .filter(r => r.shiftId && shiftIds.includes(r.shiftId) && r.depositAmount > 0)
-
-        for (const r of depositRows) {
-          if (!r.shiftId) continue
-          depositsByShift.set(r.shiftId, (depositsByShift.get(r.shiftId) ?? 0) + cashAmountFromDeposit(r))
-        }
-      }
-
-      // Cobranzas de fiado en efectivo por turno (amount negativo en ledger)
-      const cashDebtByShift = new Map<string, number>()
-      const cashDebtData = db
-        .select({
-          shiftId: debtEvents.shiftId,
-          total: sum(debtEvents.amount),
-        })
-        .from(debtEvents)
-        .where(eq(debtEvents.paymentMethod, 'cash'))
-        .groupBy(debtEvents.shiftId)
-        .all()
-        .filter(r => r.shiftId && shiftIds.includes(r.shiftId))
-
-      for (const r of cashDebtData) {
-        if (r.shiftId) cashDebtByShift.set(r.shiftId, Math.abs(Number(r.total ?? 0)))
-      }
-
-      const localResult: HistoryShiftRow[] = shiftRows.map(s => {
-        const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
-        const exp = expensesByShift.get(s.id) ?? 0
-        const inj = injectsByShift.get(s.id) ?? 0
-        const dep = depositsByShift.get(s.id) ?? 0
-        const debtCash = cashDebtByShift.get(s.id) ?? 0
-        return {
-          id: s.id,
-          shiftType: s.shiftType,
-          startedAt: s.startedAt,
-          closedAt: s.closedAt ?? null,
-          cashierName: userMap.get(s.userId) ?? s.userId,
-          salesCount: sv.count,
-          totalRevenue: sv.total,
-          totalCashSales: sv.cash,
-          totalExpenses: exp,
-          cashInHand: s.openingCash + sv.cash + dep + debtCash + inj - exp,
-          totalDeposits: dep,
-          source: s.source === 'mobile' ? 'mobile' : 'desktop',
-        }
-      })
+      const localResult: HistoryShiftRow[] = shiftRows.map(s => historyListRowFromFicha({
+        id: s.id,
+        shiftType: s.shiftType,
+        startedAt: s.startedAt,
+        closedAt: s.closedAt ?? null,
+        cashierName: userMap.get(s.userId) ?? s.userId,
+        openingCash: s.openingCash,
+        source: s.source,
+        soldTotal: s.soldTotal,
+        cashTotal: s.cashTotal,
+        cardWalletTotal: s.cardWalletTotal,
+        debtTotal: s.debtTotal,
+        expenseTotal: s.expenseTotal,
+        contributionTotal: s.contributionTotal,
+        walletCashTotal: s.walletCashTotal,
+        moneySnapshottedAt: s.moneySnapshottedAt,
+      }))
 
       if (!useRemote) {
         return {

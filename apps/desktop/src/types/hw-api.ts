@@ -1264,12 +1264,16 @@ export interface HistoryShiftRow {
   /** Null si el turno sigue abierto. */
   closedAt: string | null
   cashierName: string
-  salesCount: number
-  totalRevenue: number
-  totalCashSales: number
-  totalExpenses: number
-  cashInHand: number
-  totalDeposits: number
+  /** Null: la ficha no guarda la cantidad. Se cuenta al abrir el turno. */
+  salesCount: number | null
+  /** Null si el turno está abierto o la ficha no está sellada. */
+  totalRevenue: number | null
+  totalCashSales: number | null
+  totalExpenses: number | null
+  cashInHand: number | null
+  totalDeposits: number | null
+  /** True si los montos salen de la ficha sellada, no de las ventas. */
+  totalsSealed: boolean
   /** Origen del turno. Ausente en filas viejas = desktop. */
   source?: 'desktop' | 'mobile'
 }

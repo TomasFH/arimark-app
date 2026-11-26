@@ -151,7 +151,7 @@ Pantallas móviles de Proveedores / Fiados: saldos por este listener; el detalle
 | Pedidos celu admin | colección entera | misma query `pending`/`ready`. |
 | Turnos (`shiftSync` reconcile) | todos los shifts del filtro | `closedAt == null` + `getDoc` de los turnos **locales abiertos** que no vinieron en el query (para aplicar un cierre remoto). |
 | Staging móvil (`mobileSync`) | 4 `getDocs` de hijos enteros por turno | hijos con `importedAt == null`; al importar, `updateDoc({ importedAt })`. El create móvil escribe `importedAt: null`. |
-| Historial PC remota | 5 colecciones enteras | `shifts` por `startedAt` (default **últimos 7 días**) y opcional `storeId`; totales por `shiftId in (...)` (chunks de 30). |
+| Historial PC remota | 5 colecciones enteras | Lista: solo `shifts` por `startedAt` (default **últimos 7 días**) y opcional `storeId`, una lectura por ficha. Ventas, gastos, señas, fiados, vales y visitas se piden al abrir ese turno (`shiftId`). |
 | Historial celu | `sales`/`expenses` enteras al abrir un turno | turnos por fecha; ventas/gastos/deudas por `shiftId`. |
 | Vales PC remota | `employeeVales` + **todos** los `shifts` para resolver `storeId` | query por `storeId` si hay filtro; docs viejos **sin** `storeId` no aparecen en el filtro por local. |
 | Restaurar/purgar proveedor (celu) | `getDocs` de todo el ledger | `where providerId == id`. |

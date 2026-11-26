@@ -15,12 +15,13 @@ const ROW: HistoryShiftRow = {
   startedAt: `${day}T12:00:00.000Z`,
   closedAt: null,
   cashierName: 'Ana',
-  salesCount: 0,
-  totalRevenue: 0,
-  totalCashSales: 0,
-  totalExpenses: 1000,
-  cashInHand: 0,
-  totalDeposits: 0,
+  salesCount: null,
+  totalRevenue: null,
+  totalCashSales: null,
+  totalExpenses: null,
+  cashInHand: null,
+  totalDeposits: null,
+  totalsSealed: false,
 }
 
 const DETAIL: HistoryShiftDetail = {

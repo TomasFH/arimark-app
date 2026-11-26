@@ -41,12 +41,13 @@ function row(partial: Partial<HistoryShiftRow> & { id: string; startedAt: string
     shiftType: 'morning',
     closedAt: '2026-07-01T16:00:00.000Z',
     cashierName: 'c1',
-    salesCount: 0,
+    salesCount: null,
     totalRevenue: 0,
-    totalCashSales: 0,
+    totalCashSales: null,
     totalExpenses: 0,
     cashInHand: 0,
-    totalDeposits: 0,
+    totalDeposits: null,
+    totalsSealed: false,
     ...partial,
   }
 }
@@ -88,6 +89,20 @@ describe('historyFirestore', () => {
       expect(merged[0].cashierName).toBe('Remote')
       expect(merged[0].salesCount).toBe(3)
       expect(merged[0].totalRevenue).toBe(149620)
+    })
+
+    it('una ficha sellada gana a un local sin sellar aunque el vendido sea cero', () => {
+      const local = [row({ id: 'a', startedAt: '2026-07-01T08:00:00.000Z', totalsSealed: false, totalRevenue: null })]
+      const remote = [row({
+        id: 'a',
+        startedAt: '2026-07-01T08:00:00.000Z',
+        totalsSealed: true,
+        totalRevenue: 0,
+        cashierName: 'Remote',
+      })]
+      const merged = mergeHistoryShiftRows(local, remote)
+      expect(merged[0].cashierName).toBe('Remote')
+      expect(merged[0].totalsSealed).toBe(true)
     })
 
     it('incluye turnos solo remotos', () => {
@@ -175,6 +190,62 @@ describe('historyFirestore', () => {
     it('retorna [] si Firebase no está disponible', async () => {
       const rows = await fetchHistoryShiftsFromFirestore({ effectiveStoreId: null })
       expect(rows).toEqual([])
+    })
+
+    it('pide solo las fichas del rango', async () => {
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getDocs).mockResolvedValue({
+        docs: [
+          {
+            id: 'sealed',
+            data: () => ({
+              shiftType: 'morning',
+              startedAt: '2026-11-20T11:00:00.000Z',
+              closedAt: '2026-11-20T16:00:00.000Z',
+              openingCash: 1000,
+              cashierName: 'Ana',
+              userId: 'uid-ana',
+              soldTotal: 500_000,
+              cashTotal: 400_000,
+              cardWalletTotal: 100_000,
+              debtTotal: 0,
+              expenseTotal: 20_000,
+              contributionTotal: 5_000,
+              walletCashTotal: 0,
+              moneySnapshottedAt: '2026-11-20T16:00:00.000Z',
+            }),
+          },
+          {
+            id: 'open',
+            data: () => ({
+              shiftType: 'evening',
+              startedAt: '2026-11-20T20:00:00.000Z',
+              closedAt: null,
+              openingCash: 2000,
+              cashierName: 'Ana',
+              userId: 'uid-ana',
+            }),
+          },
+        ],
+      } as never)
+
+      const rows = await fetchHistoryShiftsFromFirestore({
+        fromDate: '2026-11-18',
+        toDate: '2026-11-25',
+        effectiveStoreId: null,
+      })
+
+      expect(getDocs).toHaveBeenCalledTimes(1)
+      expect(where).not.toHaveBeenCalledWith('shiftId', 'in', expect.anything())
+      expect(where).not.toHaveBeenCalledWith('depositShiftId', 'in', expect.anything())
+      const sealed = rows.find(item => item.id === 'sealed')
+      expect(sealed?.totalsSealed).toBe(true)
+      expect(sealed?.totalRevenue).toBe(500_000)
+      expect(sealed?.salesCount).toBeNull()
+      expect(sealed?.cashInHand).toBe(1000 + 400_000 + 5_000 - 20_000)
+      const open = rows.find(item => item.id === 'open')
+      expect(open?.totalsSealed).toBe(false)
+      expect(open?.totalRevenue).toBeNull()
     })
   })
 

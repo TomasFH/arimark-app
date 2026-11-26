@@ -434,8 +434,11 @@ function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; s
           <p className="text-xs text-muted truncate" title={shift.cashierName}>{shift.cashierName}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-sm font-semibold font-mono text-ink">{formatARS(shift.totalRevenue)}</p>
-          <p className="text-xs text-muted">{shift.salesCount} ventas</p>
+          {shift.totalsSealed && shift.totalRevenue != null ? (
+            <p className="text-sm font-semibold font-mono text-ink">{formatARS(shift.totalRevenue)}</p>
+          ) : (
+            <p className="text-xs text-muted">Al abrirlo</p>
+          )}
         </div>
       </div>
     </button>

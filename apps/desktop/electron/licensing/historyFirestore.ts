@@ -21,6 +21,7 @@ import {
   depositPaymentsToJson,
 } from '../lib/depositPayments'
 import { buildCashHandoverAudit, parseBillLines, parseMerchLinesFromUnknown } from '@carniceria/shared'
+import { historyListRowFromFicha } from './historyListRow'
 import { historyVisitLinesFromSnapshots, unpaidArrivalFromIntake } from './historyVisitLines'
 import type {
   HistoryShiftRow,
@@ -57,6 +58,14 @@ interface FsShift {
   handoverFromShiftId?: string | null
   handoverFromCashierName?: string | null
   handoverFromClosedAt?: string | null
+  soldTotal?: number | null
+  cashTotal?: number | null
+  cardWalletTotal?: number | null
+  debtTotal?: number | null
+  expenseTotal?: number | null
+  contributionTotal?: number | null
+  walletCashTotal?: number | null
+  moneySnapshottedAt?: string | null
 }
 
 interface FsSaleItem {
@@ -187,7 +196,7 @@ function saleToHistoryRow(s: FsSale): HistorySaleRow {
 
 /**
  * Lista turnos desde Firestore recortados por fecha (default 7 días) y local.
- * Los totales se piden por shiftId in (...), no bajando sales/gastos enteros.
+ * Una lectura por ficha. Ventas, gastos, señas y fiados se piden al abrir el turno.
  */
 export async function fetchHistoryShiftsFromFirestore(
   filter: HistoryShiftsFilter,
@@ -212,110 +221,33 @@ export async function fetchHistoryShiftsFromFirestore(
   }
   const shiftsSnap = await getDocs(query(shiftsCol, ...shiftConstraints))
 
-  const shifts: FsShift[] = []
+  const rows: HistoryShiftRow[] = []
   for (const d of shiftsSnap.docs) {
     const s = d.data() as FsShift
-    shifts.push({ ...s, id: s.id ?? d.id })
-  }
-  const shiftIds = shifts.map(s => s.id)
-  if (shiftIds.length === 0) return []
-
-  const salesCol = collection(firestore, 'licenses', tenant, 'sales')
-  const expensesCol = collection(firestore, 'licenses', tenant, 'expenses')
-  const ordersCol = collection(firestore, 'licenses', tenant, 'orders')
-  const debtsCol = collection(firestore, 'licenses', tenant, 'customerDebtEvents')
-
-  const salesSnaps = await Promise.all(
-    chunkIds(shiftIds).map(chunk => getDocs(query(salesCol, where('shiftId', 'in', chunk)))),
-  )
-  const expensesSnaps = await Promise.all(
-    chunkIds(shiftIds).map(chunk => getDocs(query(expensesCol, where('shiftId', 'in', chunk)))),
-  )
-  const ordersSnaps = await Promise.all(
-    chunkIds(shiftIds).map(chunk => getDocs(query(ordersCol, where('depositShiftId', 'in', chunk)))),
-  )
-  const debtsSnaps = await Promise.all(
-    chunkIds(shiftIds).map(chunk => getDocs(query(debtsCol, where('shiftId', 'in', chunk)))),
-  )
-
-  const salesByShift = new Map<string, { count: number; total: number; cash: number }>()
-  for (const snap of salesSnaps) {
-    for (const d of snap.docs) {
-      const s = d.data() as FsSale
-      if (s.status !== 'confirmed') continue
-      const entry = salesByShift.get(s.shiftId) ?? { count: 0, total: 0, cash: 0 }
-      entry.count += 1
-      entry.total += s.total
-      entry.cash += (s.payments ?? [])
-        .filter(p => p.paymentMethod === 'cash')
-        .reduce((a, p) => a + p.amount, 0)
-      salesByShift.set(s.shiftId, entry)
-    }
-  }
-
-  const expensesByShift = new Map<string, number>()
-  const injectsByShift = new Map<string, number>()
-  for (const snap of expensesSnaps) {
-    for (const d of snap.docs) {
-      const e = d.data() as FsExpense
-      if (e.deleted === true) continue
-      if (e.kind === 'inject') {
-        injectsByShift.set(e.shiftId, (injectsByShift.get(e.shiftId) ?? 0) + e.amount)
-      } else {
-        expensesByShift.set(e.shiftId, (expensesByShift.get(e.shiftId) ?? 0) + e.amount)
-      }
-    }
-  }
-
-  const depositsByShift = new Map<string, number>()
-  for (const snap of ordersSnaps) {
-    for (const d of snap.docs) {
-      const o = d.data() as FsOrder
-      if (o.deleted === true) continue
-      if (!o.depositShiftId || (o.depositAmount ?? 0) <= 0) continue
-      const cash = cashAmountFromDeposit({
-        depositAmount: o.depositAmount ?? 0,
-        depositMethod: o.depositMethod ?? null,
-        depositPayments: depositPaymentsToJson(o.depositPayments),
-      })
-      depositsByShift.set(o.depositShiftId, (depositsByShift.get(o.depositShiftId) ?? 0) + cash)
-    }
-  }
-
-  const cashDebtByShift = new Map<string, number>()
-  for (const snap of debtsSnaps) {
-    for (const d of snap.docs) {
-      const e = d.data() as FsDebtEvent
-      if (e.deleted === true) continue
-      if (!e.shiftId || e.paymentMethod !== 'cash') continue
-      cashDebtByShift.set(e.shiftId, (cashDebtByShift.get(e.shiftId) ?? 0) + Math.abs(e.amount ?? 0))
-    }
-  }
-
-  return shifts.map(s => {
-    const sv = salesByShift.get(s.id) ?? { count: 0, total: 0, cash: 0 }
-    const exp = expensesByShift.get(s.id) ?? 0
-    const inj = injectsByShift.get(s.id) ?? 0
-    const dep = depositsByShift.get(s.id) ?? 0
-    const debtCash = cashDebtByShift.get(s.id) ?? 0
-    return {
-      id: s.id,
+    if (s.shiftType !== 'morning' && s.shiftType !== 'evening') continue
+    if (!s.startedAt) continue
+    rows.push(historyListRowFromFicha({
+      id: s.id ?? d.id,
       shiftType: s.shiftType,
       startedAt: s.startedAt,
       closedAt: s.closedAt ?? null,
       cashierName: s.cashierName ?? s.userId,
-      salesCount: sv.count,
-      totalRevenue: sv.total,
-      totalCashSales: sv.cash,
-      totalExpenses: exp,
-      cashInHand: s.openingCash + sv.cash + dep + debtCash + inj - exp,
-      totalDeposits: dep,
-      source: s.source === 'mobile' ? 'mobile' : 'desktop',
-    }
-  })
+      openingCash: Number(s.openingCash ?? 0),
+      source: s.source,
+      soldTotal: s.soldTotal ?? null,
+      cashTotal: s.cashTotal ?? null,
+      cardWalletTotal: s.cardWalletTotal ?? null,
+      debtTotal: s.debtTotal ?? null,
+      expenseTotal: s.expenseTotal ?? null,
+      contributionTotal: s.contributionTotal ?? null,
+      walletCashTotal: s.walletCashTotal ?? null,
+      moneySnapshottedAt: s.moneySnapshottedAt ?? null,
+    }))
+  }
+  return rows
 }
 
-/** Preferir la fila con más movimiento. Empate → local (esta PC es fuente de verdad). */
+/** Preferir la ficha sellada y, si ambas lo están, la de más vendido. Empate → local. */
 export function mergeHistoryShiftRows(
   local: HistoryShiftRow[],
   remote: HistoryShiftRow[],
@@ -332,7 +264,8 @@ export function mergeHistoryShiftRows(
 }
 
 export function historyShiftRowScore(row: HistoryShiftRow): number {
-  return row.salesCount * 1_000_000 + row.totalRevenue + row.totalExpenses + row.totalDeposits
+  const sealed = row.totalsSealed ? 1_000_000_000 : 0
+  return sealed + (row.totalRevenue ?? 0) + (row.totalExpenses ?? 0) + (row.totalDeposits ?? 0)
 }
 
 /** Abiertos primero, después los más recientes. Aplicar antes de paginar. */
