@@ -21,3 +21,8 @@ export function ingresosBackTarget(input: {
 export function historyStaysMounted(screen: string, returnTo?: string): boolean {
   return screen === 'history' || (screen === 'ingresos' && returnTo === 'history')
 }
+
+/** Proveedores sigue montado mientras se mira una visita, para no perder el modal, la pestaña ni el scroll. */
+export function providersStaysMounted(screen: string, returnTo?: string): boolean {
+  return screen === 'providers' || (screen === 'ingresos' && returnTo === 'providers')
+}

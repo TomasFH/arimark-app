@@ -25,7 +25,7 @@ import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
-import { historyStaysMounted, ingresosBackTarget } from './lib/ingresosReturn'
+import { historyStaysMounted, ingresosBackTarget, providersStaysMounted } from './lib/ingresosReturn'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 import { resetOrderCreateDraft } from './lib/orderCreateDraft'
 import { resetOrderChargeDrafts } from './lib/orderChargeDraft'
@@ -744,20 +744,25 @@ export default function App() {
         </Page>
       )}
 
-      {state.screen === 'providers' && (
-        <Page>
-          <ProvidersScreen
-            onBack={handleReturnToAdminHub}
-            onLogout={handleLogout}
-            onOpenVisit={visit => setState({
-              screen: 'ingresos',
-              session: state.session,
-              initStatus: state.initStatus,
-              focusVisit: visit,
-              returnTo: 'providers',
-            })}
-          />
-        </Page>
+      {providersStaysMounted(state.screen, state.screen === 'ingresos' ? state.returnTo : undefined) && (state.screen === 'providers' || state.screen === 'ingresos') && (
+        <div className={state.screen === 'providers' ? 'contents' : 'hidden'} aria-hidden={state.screen !== 'providers'}>
+          <Page>
+            <ProvidersScreen
+              onBack={handleReturnToAdminHub}
+              onLogout={handleLogout}
+              onOpenVisit={visit => {
+                if (state.screen !== 'providers' && state.screen !== 'ingresos') return
+                setState({
+                  screen: 'ingresos',
+                  session: state.session,
+                  initStatus: state.initStatus,
+                  focusVisit: visit,
+                  returnTo: 'providers',
+                })
+              }}
+            />
+          </Page>
+        </div>
       )}
 
       {state.screen === 'transfers' && (
