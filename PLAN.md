@@ -1286,3 +1286,11 @@ Distinto de la caja colgada. Ahí alguien que está en el local cierra el turno 
 
 Hoy `pushUnsyncedShifts` sube la ficha local entera con `merge`. Eso no borra las ventas (van en otro documento), pero un turno local vacío y todavía abierto puede pisar `closedAt` o el arqueo que se cargó en la nube. El flujo de arriba tiene que cerrar esa puerta.
 
+---
+
+### Anotado 2026-11-25 — no va en el instalador de mañana
+
+- **«Entró y no se pagó acá».** El bloque queda donde está (media res y delantero, fuera de la caja). La ubicación en el historial no convence; se revisa más adelante. No moverlo en un retoque suelto.
+- **Sobre aparte, con la tanda B.** Los movimientos nuevos de efectivo por digital se guardan con el motivo `sobre_aparte`. No suman a la caja. Tienen número propio en la ficha sellada y el campo entra en `fichaMoneyKeys`, protegido en las reglas. Los `wallet_cash` viejos siguen sumando como hoy. Se publica junto con el resto de reglas de la tanda B, en la misma publicación. No va en el instalador de mañana. El celular queda para después de la 1.0.
+- **Lista del historial, versión siguiente.** Al abrir el historial se vuelve a pedir toda la lista (SQLite y Firestore), aunque los turnos cerrados casi no cambian. El detalle de un turno cerrado ya visto se guarda en memoria de la sesión; la lista, no. Guardar los cerrados ya vistos y volver a pedir solo el abierto, o al tocar «Actualizar», no es un cambio chico: el ahorro está en el proceso principal, no en la pantalla, y una corrección de la tanda B tiene que invalidar ese turno. Queda para la versión siguiente.
+
