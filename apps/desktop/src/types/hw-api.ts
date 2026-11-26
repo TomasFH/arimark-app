@@ -671,8 +671,16 @@ export interface CustomerDebtSummary {
   customerName: string
   customerDni: string | null
   customerPhone: string | null
-  /** Saldo algebraico. >0 = debe; ≤0 = saldado/sin deuda. */
+  /** Local de esta cuenta. Una fila por cliente y local. */
+  storeId: string
+  storeName: string
+  /**
+   * Saldo del corte más la cola.
+   * Mayor a 0: el cliente debe. Menor a 0: saldo a favor. Cero no se lista.
+   */
   balance: number
+  /** Saldo ya plegado en el corte. Cero si no hay corte. */
+  openingBalance: number
   lastEventAt: string
   events: DebtEventRow[]
 }
@@ -2130,7 +2138,7 @@ export interface HwApi {
   createCustomerWithInitialDebt: (
     payload: CreateCustomerWithInitialDebtPayload,
   ) => Promise<IpcResult<CreateCustomerWithInitialDebtResult>>
-  /** Lista deudas activas con saldo algebraico por cliente */
+  /** Lista de cuentas con saldo. Una fila por cliente y local. Cero no entra. */
   getDebts: (payload?: { storeIdFilter?: string }) => Promise<IpcResult<CustomerDebtSummary[]>>
   /** Saldo y ledger completo de un cliente */
   getCustomerBalance: (payload: { customerId: string }) => Promise<IpcResult<CustomerDebtSummary>>

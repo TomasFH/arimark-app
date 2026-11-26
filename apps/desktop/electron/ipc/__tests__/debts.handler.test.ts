@@ -28,11 +28,22 @@ vi.mock('../../licensing/customerDebtSync', () => ({
   pushUnsyncedCustomers: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../licensing/firebase', () => ({
+  isFirebaseAvailable: vi.fn(() => false),
+}))
+
+vi.mock('../../licensing/debtBalanceLive', () => ({
+  getLiveCustomerPairs: vi.fn(() => []),
+}))
+
 import { ipcMain } from 'electron'
 import { getDb } from '../../db/client'
 import { getActiveSession } from '../../activeSession'
 import { registerDebtHandlers } from '../debts.handler'
 import { pushUnsyncedCustomerDebtOps } from '../../licensing/customerDebtSync'
+import { isFirebaseAvailable } from '../../licensing/firebase'
+import { getLiveCustomerPairs } from '../../licensing/debtBalanceLive'
+import { liveSaldoFromCheckpoint, storeLiveFiadoBalance } from '@carniceria/shared'
 
 type HandlerFn = (_event: unknown, payload?: unknown) => unknown
 
@@ -81,6 +92,8 @@ describe('debts.handler', () => {
 
     vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>)
     vi.mocked(getActiveSession).mockReturnValue(SESSION as ReturnType<typeof getActiveSession>)
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    vi.mocked(getLiveCustomerPairs).mockReturnValue([])
 
     registerDebtHandlers()
   })
@@ -294,14 +307,14 @@ describe('debts.handler', () => {
   // ---------------------------------------------------------------------------
 
   describe('GET_DEBTS (ipc:get-debts)', () => {
-    it('retorna lista vacía si no hay deudas', () => {
+    it('retorna lista vacía si no hay deudas', async () => {
       const handler = getHandler('ipc:get-debts')
-      const result = handler(null) as { ok: boolean; data: unknown[] }
+      const result = await handler(null) as { ok: boolean; data: unknown[] }
       expect(result.ok).toBe(true)
       expect(result.data).toHaveLength(0)
     })
 
-    it('retorna deuda activa con saldo correcto', () => {
+    it('retorna deuda activa con saldo correcto', async () => {
       const now = new Date().toISOString()
       db.insert(customers).values({
         id: CUST_ID, storeId: 'store-001', name: 'Cliente Saldo',
@@ -313,14 +326,14 @@ describe('debts.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:get-debts')
-      const result = handler(null) as { ok: boolean; data: Array<{ balance: number; customerName: string }> }
+      const result = await handler(null) as { ok: boolean; data: Array<{ balance: number; customerName: string }> }
       expect(result.ok).toBe(true)
       expect(result.data).toHaveLength(1)
       expect(result.data[0].balance).toBe(15000)
       expect(result.data[0].customerName).toBe('Cliente Saldo')
     })
 
-    it('no incluye clientes con saldo saldado', () => {
+    it('no incluye clientes con saldo saldado', async () => {
       const now = new Date().toISOString()
       db.insert(customers).values({
         id: CUST_ID_2, storeId: 'store-001', name: 'Cliente Pagado',
@@ -332,12 +345,12 @@ describe('debts.handler', () => {
       ]).run()
 
       const handler = getHandler('ipc:get-debts')
-      const result = handler(null) as { ok: boolean; data: unknown[] }
+      const result = await handler(null) as { ok: boolean; data: unknown[] }
       expect(result.ok).toBe(true)
       expect(result.data).toHaveLength(0)
     })
 
-    it('no muestra en un local una deuda ya saldada en el ledger global', () => {
+    it('muestra el saldo a favor y no lo netea con otro local', async () => {
       const now = new Date().toISOString()
       const STORE_2 = 'store-002'
       db.insert(stores).values({ id: STORE_2, name: 'Local 2', createdAt: now }).run()
@@ -355,10 +368,82 @@ describe('debts.handler', () => {
       } as unknown as ReturnType<typeof getActiveSession>)
 
       const handler = getHandler('ipc:get-debts')
-      const allTab = handler(null, { storeIdFilter: 'all' }) as { ok: boolean; data: unknown[] }
-      const store2Tab = handler(null, { storeIdFilter: STORE_2 }) as { ok: boolean; data: unknown[] }
-      expect(allTab.data).toHaveLength(0)
-      expect(store2Tab.data).toHaveLength(0)
+      const allTab = await handler(null, { storeIdFilter: 'all' }) as { ok: boolean; data: Array<{ storeId: string; balance: number }> }
+      const store2Tab = await handler(null, { storeIdFilter: STORE_2 }) as { ok: boolean; data: Array<{ balance: number }> }
+      const store1Tab = await handler(null, { storeIdFilter: 'store-001' }) as { ok: boolean; data: Array<{ balance: number }> }
+      expect(allTab.data).toHaveLength(2)
+      expect(store2Tab.data).toEqual([expect.objectContaining({ balance: 28000 })])
+      expect(store1Tab.data).toEqual([expect.objectContaining({ balance: -28000 })])
+    })
+
+    it('usa el corte y no vuelve a sumar los cargos que ya plegó', async () => {
+      const customerId = 'fb368d55-2126-450b-8ec4-5a2438e6bee7'
+      const checkpointAt = {
+        seconds: Math.floor(Date.parse('2026-11-20T00:00:00.000Z') / 1000),
+        nanos: 0,
+      }
+      const foldedAt = '2026-11-01T12:00:00.000Z'
+      const cancelAt = '2026-11-25T17:30:42.467Z'
+      const firstChargeAt = '2026-11-26T15:09:30.832Z'
+      const secondChargeAt = '2026-11-26T15:14:57.859Z'
+      db.insert(customers).values({
+        id: customerId, storeId: 'store-001', name: 'Tomas Deudor',
+        active: true, createdAt: foldedAt, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values([
+        {
+          id: 'plegado-local', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'created', amount: 99_999, createdAt: foldedAt, createdBy: 'user-001',
+          syncedAt: foldedAt,
+        },
+        {
+          id: 'd4f227c7-c333-4b29-8ecd-dcbf3be0b39b', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'cancelled', amount: -99_999, createdAt: cancelAt, createdBy: 'user-001',
+          syncedAt: cancelAt,
+        },
+        {
+          id: '7a7dbd75-4bef-405f-9637-3c45e96885af', customerId, saleId: SALE_ID, storeId: 'store-001',
+          eventType: 'created', amount: 22_419, createdAt: firstChargeAt, createdBy: 'user-001',
+          syncedAt: firstChargeAt,
+        },
+        {
+          id: '878fe8f9-5781-4313-9b56-265b92877329', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'created', amount: 50_000, createdAt: secondChargeAt, createdBy: 'user-001',
+          syncedAt: secondChargeAt,
+        },
+      ]).run()
+
+      const pair = {
+        customerId,
+        storeId: 'store-001',
+        checkpoint: {
+          kind: 'customer' as const,
+          entityId: customerId,
+          storeId: 'store-001',
+          saldoAcumulado: 99_999,
+          checkpointAt,
+          foldedCount: 1,
+        },
+        events: [
+          { id: 'd4f227c7-c333-4b29-8ecd-dcbf3be0b39b', serverAt: { seconds: checkpointAt.seconds + 10, nanos: 0 }, customerEventType: 'cancelled', amount: -99_999 },
+          { id: '7a7dbd75-4bef-405f-9637-3c45e96885af', serverAt: { seconds: checkpointAt.seconds + 20, nanos: 0 }, customerEventType: 'created', amount: 22_419 },
+          { id: '878fe8f9-5781-4313-9b56-265b92877329', serverAt: { seconds: checkpointAt.seconds + 30, nanos: 0 }, customerEventType: 'created', amount: 50_000 },
+        ],
+      }
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getLiveCustomerPairs).mockReturnValue([pair])
+
+      const result = await getHandler('ipc:get-debts')(null) as {
+        ok: boolean
+        data: Array<{ balance: number; openingBalance: number; events: Array<{ id: string }> }>
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0]?.balance).toBe(72_419)
+      expect(result.data[0]?.openingBalance).toBe(99_999)
+      expect(result.data[0]?.events.map(event => event.id)).not.toContain('plegado-local')
+      expect(result.data[0]?.balance).toBe(liveSaldoFromCheckpoint('customer', pair.checkpoint, pair.events))
+      expect(storeLiveFiadoBalance('store-001', [pair])).toBe(result.data[0]?.balance)
     })
   })
 
@@ -379,9 +464,9 @@ describe('debts.handler', () => {
       }).run()
     })
 
-    it('registra pago parcial', () => {
+    it('registra pago parcial', async () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as {
+      const result = await handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as {
         ok: boolean; data: { eventType: string; amount: number; paymentMethod: string }
       }
       expect(result.ok).toBe(true)
@@ -390,9 +475,9 @@ describe('debts.handler', () => {
       expect(result.data.paymentMethod).toBe('cash')
     })
 
-    it('registra pago total y devuelve eventType=paid', () => {
+    it('registra pago total y devuelve eventType=paid', async () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 20000, paymentMethod: 'debit' }) as {
+      const result = await handler(null, { customerId: CUST_PAY_ID, amount: 20000, paymentMethod: 'debit' }) as {
         ok: boolean; data: { eventType: string; paymentMethod: string }
       }
       expect(result.ok).toBe(true)
@@ -400,47 +485,47 @@ describe('debts.handler', () => {
       expect(result.data.paymentMethod).toBe('debit')
     })
 
-    it('rechaza pago mayor al saldo', () => {
+    it('rechaza pago mayor al saldo', async () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 99999, paymentMethod: 'cash' }) as { ok: boolean; code: string }
+      const result = await handler(null, { customerId: CUST_PAY_ID, amount: 99999, paymentMethod: 'cash' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('OVERPAYMENT')
     })
 
-    it('rechaza si no hay deuda activa', () => {
+    it('rechaza si no hay deuda activa', async () => {
       const now = new Date().toISOString()
       db.insert(customers).values({
         id: CUST_NO_DEBT_ID, storeId: 'store-001', name: 'Sin Deuda',
         active: true, createdAt: now, createdBy: 'user-001',
       }).run()
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_NO_DEBT_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean; code: string }
+      const result = await handler(null, { customerId: CUST_NO_DEBT_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NO_DEBT')
     })
 
-    it('rechaza payload sin medio de pago', () => {
+    it('rechaza payload sin medio de pago', async () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000 }) as { ok: boolean; code: string }
+      const result = await handler(null, { customerId: CUST_PAY_ID, amount: 5000 }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('VALIDATION_ERROR')
     })
 
-    it('asocia el cobro en efectivo al turno activo', () => {
+    it('asocia el cobro en efectivo al turno activo', async () => {
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean }
+      const result = await handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean }
       expect(result.ok).toBe(true)
       const row = db.select().from(debtEvents).where(eq(debtEvents.eventType, 'partial_payment')).all()[0]
       expect(row?.paymentMethod).toBe('cash')
       expect(row?.shiftId).toBe('shift-001')
     })
 
-    it('cajera sin turno no puede cobrar en efectivo', () => {
+    it('cajera sin turno no puede cobrar en efectivo', async () => {
       vi.mocked(getActiveSession).mockReturnValue({
         userId: 'user-001', storeId: 'store-001', role: 'cashier', shiftId: null,
       } as unknown as ReturnType<typeof getActiveSession>)
       const handler = getHandler('ipc:add-debt-payment')
-      const result = handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean; code: string }
+      const result = await handler(null, { customerId: CUST_PAY_ID, amount: 5000, paymentMethod: 'cash' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NO_SHIFT')
     })
@@ -451,7 +536,7 @@ describe('debts.handler', () => {
   // ---------------------------------------------------------------------------
 
   describe('GET_CUSTOMER_BALANCE (ipc:get-customer-balance)', () => {
-    it('retorna saldo y ledger completo', () => {
+    it('retorna saldo y ledger completo', async () => {
       const now = new Date().toISOString()
       db.insert(customers).values({
         id: CUST_LEDGER_ID, storeId: 'store-001', name: 'Ledger Test',
@@ -463,7 +548,7 @@ describe('debts.handler', () => {
       ]).run()
 
       const handler = getHandler('ipc:get-customer-balance')
-      const result = handler(null, { customerId: CUST_LEDGER_ID }) as {
+      const result = await handler(null, { customerId: CUST_LEDGER_ID }) as {
         ok: boolean; data: { balance: number; events: unknown[] }
       }
       expect(result.ok).toBe(true)
@@ -471,9 +556,9 @@ describe('debts.handler', () => {
       expect(result.data.events).toHaveLength(2)
     })
 
-    it('retorna NOT_FOUND para cliente inexistente', () => {
+    it('retorna NOT_FOUND para cliente inexistente', async () => {
       const handler = getHandler('ipc:get-customer-balance')
-      const result = handler(null, { customerId: '00000000-0000-0000-0000-000000000099' }) as { ok: boolean; code: string }
+      const result = await handler(null, { customerId: '00000000-0000-0000-0000-000000000099' }) as { ok: boolean; code: string }
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NOT_FOUND')
     })
@@ -484,7 +569,7 @@ describe('debts.handler', () => {
   // ---------------------------------------------------------------------------
 
   describe('CANCEL_DEBT (ipc:cancel-debt)', () => {
-    it('registra un evento negativo que cancela el saldo vigente', () => {
+    it('registra un evento negativo que cancela el saldo vigente', async () => {
       const now = new Date().toISOString()
       db.insert(customers).values({
         id: CUST_ID, storeId: 'store-001', name: 'Cliente a cancelar',
@@ -496,7 +581,7 @@ describe('debts.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:cancel-debt')
-      const result = handler(null, { customerId: CUST_ID, notes: 'Venta anulada' }) as { ok: boolean }
+      const result = await handler(null, { customerId: CUST_ID, notes: 'Venta anulada' }) as { ok: boolean }
       expect(result.ok).toBe(true)
 
       const amounts = db.select({ amount: debtEvents.amount }).from(debtEvents)
@@ -504,7 +589,7 @@ describe('debts.handler', () => {
       expect(amounts.map(event => event.amount)).toEqual([15000, -15000])
     })
 
-    it('admin desde Todos cancela el saldo en el local donde vive la deuda', () => {
+    it('admin desde Todos cancela el saldo en el local donde vive la deuda', async () => {
       const now = new Date().toISOString()
       const STORE_2 = 'store-002'
       db.insert(stores).values({ id: STORE_2, name: 'Local 2', createdAt: now }).run()
@@ -522,14 +607,59 @@ describe('debts.handler', () => {
       } as unknown as ReturnType<typeof getActiveSession>)
 
       const cancel = getHandler('ipc:cancel-debt')
-      const cancelled = cancel(null, { customerId: CUST_ID, storeId: 'all' }) as { ok: boolean }
+      const cancelled = await cancel(null, { customerId: CUST_ID, storeId: 'all' }) as { ok: boolean }
       expect(cancelled.ok).toBe(true)
 
       const list = getHandler('ipc:get-debts')
-      const allTab = list(null, { storeIdFilter: 'all' }) as { ok: boolean; data: unknown[] }
-      const store2Tab = list(null, { storeIdFilter: STORE_2 }) as { ok: boolean; data: unknown[] }
+      const allTab = await list(null, { storeIdFilter: 'all' }) as { ok: boolean; data: unknown[] }
+      const store2Tab = await list(null, { storeIdFilter: STORE_2 }) as { ok: boolean; data: unknown[] }
       expect(allTab.data).toHaveLength(0)
       expect(store2Tab.data).toHaveLength(0)
+    })
+
+    it('cancela el saldo del corte, no la suma de los eventos que quedaron en la PC', async () => {
+      const customerId = 'ab0f51f2-824a-4828-ad71-f58e874a2259'
+      const now = '2026-11-26T15:14:57.859Z'
+      db.insert(customers).values({
+        id: customerId, storeId: 'store-001', name: 'Fede Bugarini',
+        active: true, createdAt: now, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values([
+        {
+          id: 'cancel-vieja', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'cancelled', amount: -221_203, createdAt: '2026-11-25T17:30:42.467Z',
+          createdBy: 'user-001', syncedAt: '2026-11-26T12:05:56.450Z',
+        },
+        {
+          id: 'cargo-nuevo', customerId, saleId: SALE_ID, storeId: 'store-001',
+          eventType: 'created', amount: 22_419, createdAt: now, createdBy: 'user-001',
+          syncedAt: now,
+        },
+      ]).run()
+      const pair = {
+        customerId,
+        storeId: 'store-001',
+        checkpoint: {
+          kind: 'customer' as const,
+          entityId: customerId,
+          storeId: 'store-001',
+          saldoAcumulado: 221_203,
+          checkpointAt: { seconds: Math.floor(Date.parse('2026-11-20T00:00:00.000Z') / 1000), nanos: 0 },
+          foldedCount: 2,
+        },
+        events: [
+          { id: 'cancel-vieja', serverAt: { seconds: Math.floor(Date.parse('2026-11-25T17:30:42.467Z') / 1000), nanos: 0 }, customerEventType: 'cancelled', amount: -221_203 },
+          { id: 'cargo-nuevo', serverAt: { seconds: Math.floor(Date.parse(now) / 1000), nanos: 0 }, customerEventType: 'created', amount: 22_419 },
+        ],
+      }
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getLiveCustomerPairs).mockReturnValue([pair])
+
+      const cancelled = await getHandler('ipc:cancel-debt')(null, { customerId }) as { ok: boolean }
+      expect(cancelled.ok).toBe(true)
+      const amounts = db.select({ amount: debtEvents.amount, eventType: debtEvents.eventType }).from(debtEvents)
+        .where(eq(debtEvents.customerId, customerId)).all()
+      expect(amounts).toContainEqual({ amount: -22_419, eventType: 'cancelled' })
     })
   })
 

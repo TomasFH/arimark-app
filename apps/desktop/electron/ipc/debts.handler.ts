@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import { eq, asc, inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { IPC } from './channels'
@@ -9,7 +9,16 @@ import { customers, debtEvents, sales, stores } from '../db/schema'
 import { insertCustomerRecord, type CustomerRow } from './customers.handler'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
+import { readCustomerAccountSlice } from '../licensing/customerCheckpointRead'
 import { pushUnsyncedCustomerDebtOps } from '../licensing/customerDebtSync'
+import { getLiveCustomerPairs } from '../licensing/debtBalanceLive'
+import { isFirebaseAvailable } from '../licensing/firebase'
+import {
+  buildCustomerStoreLedgers,
+  isOpenCustomerBalance,
+  type CustomerLedgerEvent,
+  type CustomerStoreLedger,
+} from '../licensing/customerStoreBalance'
 import { nowUtc } from '../../src/lib/datetime'
 import type { IpcResult } from '../../src/types/hw-api'
 
@@ -109,17 +118,17 @@ export type CustomerDebtSummary = {
   customerName: string
   customerDni: string | null
   customerPhone: string | null
+  /** Local de esta cuenta. Una fila por cliente y local. */
+  storeId: string
+  storeName: string
+  /**
+   * Saldo del corte más la cola. >0 = debe; <0 = saldo a favor; 0 no se lista.
+   */
   balance: number
+  /** Saldo ya plegado en el corte. Cero si no hay corte. */
+  openingBalance: number
   lastEventAt: string
   events: DebtEventRow[]
-}
-
-function remainingByStore(events: Array<{ storeId: string; amount: number }>): Map<string, number> {
-  const map = new Map<string, number>()
-  for (const e of events) {
-    map.set(e.storeId, Math.round(((map.get(e.storeId) ?? 0) + e.amount) * 100) / 100)
-  }
-  return map
 }
 
 function resolveLedgerTarget(
@@ -131,6 +140,96 @@ function resolveLedgerTarget(
     return payloadStoreId
   }
   return session.storeId
+}
+
+function paymentMethodOf(value: string | null): DebtEventRow['paymentMethod'] {
+  if (value === 'cash' || value === 'debit' || value === 'wallet' || value === 'credit') return value
+  return null
+}
+
+function toDebtEventRow(event: CustomerLedgerEvent, customerName: string): DebtEventRow {
+  return {
+    id: event.id,
+    customerId: event.customerId,
+    customerName,
+    saleId: event.saleId,
+    storeId: event.storeId,
+    eventType: event.eventType as DebtEventRow['eventType'],
+    amount: event.amount,
+    dueDate: event.dueDate,
+    notes: event.notes,
+    paymentMethod: paymentMethodOf(event.paymentMethod),
+    createdAt: event.createdAt,
+    createdBy: event.createdBy,
+  }
+}
+
+/**
+ * Saldos por cliente y local. Con Firebase es el corte más la cola.
+ * Sin Firebase, la suma del libro local.
+ */
+async function loadCustomerLedgers(storeId: string | null): Promise<CustomerStoreLedger[]> {
+  const db = getDb()
+  const rows = db
+    .select({
+      id: debtEvents.id,
+      customerId: debtEvents.customerId,
+      storeId: debtEvents.storeId,
+      eventType: debtEvents.eventType,
+      amount: debtEvents.amount,
+      createdAt: debtEvents.createdAt,
+      syncedAt: debtEvents.syncedAt,
+      saleId: debtEvents.saleId,
+      dueDate: debtEvents.dueDate,
+      notes: debtEvents.notes,
+      paymentMethod: debtEvents.paymentMethod,
+      createdBy: debtEvents.createdBy,
+    })
+    .from(debtEvents)
+    .where(storeId !== null ? eq(debtEvents.storeId, storeId) : undefined)
+    .all()
+
+  const localEvents: CustomerLedgerEvent[] = rows.map(row => ({
+    id: row.id,
+    customerId: row.customerId,
+    storeId: row.storeId,
+    eventType: row.eventType,
+    amount: row.amount,
+    createdAt: row.createdAt,
+    syncedAt: row.syncedAt ?? null,
+    saleId: row.saleId ?? null,
+    dueDate: row.dueDate ?? null,
+    notes: row.notes ?? null,
+    paymentMethod: paymentMethodOf(row.paymentMethod ?? null),
+    createdBy: row.createdBy,
+  }))
+
+  const firebaseOn = isFirebaseAvailable()
+  const pairs = firebaseOn
+    ? getLiveCustomerPairs().filter(pair =>
+      pair.checkpoint.kind === 'customer' && (storeId === null || pair.storeId === storeId))
+    : []
+  const pairKeys = new Set(pairs.map(pair => `${pair.customerId}\0${pair.storeId}`))
+  const remoteByKey = new Map<string, Awaited<ReturnType<typeof readCustomerAccountSlice>>>()
+  if (firebaseOn) {
+    const missing = new Set<string>()
+    for (const event of localEvents) {
+      const key = `${event.customerId}\0${event.storeId}`
+      if (!pairKeys.has(key)) missing.add(key)
+    }
+    for (const key of missing) {
+      const sep = key.indexOf('\0')
+      const customerId = key.slice(0, sep)
+      const sid = key.slice(sep + 1)
+      try {
+        remoteByKey.set(key, await readCustomerAccountSlice(customerId, sid))
+      } catch (err) {
+        log.error('[ipc:debts] No se pudo leer el saldo compartido', { customerId, storeId: sid, err })
+      }
+    }
+  }
+
+  return buildCustomerStoreLedgers({ firebaseOn, pairs, localEvents, remoteByKey })
 }
 
 // ---------------------------------------------------------------------------
@@ -354,13 +453,12 @@ export function registerDebtHandlers(): void {
     },
   )
 
-  // GET_DEBTS — listado de deudas con saldo algebraico por cliente
-  ipcMain.handle(IPC.GET_DEBTS, (_event, payload: unknown): IpcResult<CustomerDebtSummary[]> => {
+  // GET_DEBTS — un renglón por cliente y local, con corte + cola
+  ipcMain.handle(IPC.GET_DEBTS, async (_event, payload: unknown): Promise<IpcResult<CustomerDebtSummary[]>> => {
     const parsed = z.object({ storeIdFilter: z.string().optional() }).optional().safeParse(payload ?? {})
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
 
-    // Determinar filtro de local
     const filter = parsed.success ? (parsed.data ?? {}) : {}
     const effectiveStoreId: string | null =
       session.role === 'admin' && filter.storeIdFilter === 'all'
@@ -371,100 +469,39 @@ export function registerDebtHandlers(): void {
 
     try {
       const db = getDb()
+      const ledgers = await loadCustomerLedgers(effectiveStoreId)
+      const open = ledgers.filter(ledger => isOpenCustomerBalance(ledger.balance))
+      if (open.length === 0) return { ok: true, data: [] }
 
-      // Traer eventos filtrados por storeId
-      const events = db
-        .select({
-          id: debtEvents.id,
-          customerId: debtEvents.customerId,
-          saleId: debtEvents.saleId,
-          storeId: debtEvents.storeId,
-          eventType: debtEvents.eventType,
-          amount: debtEvents.amount,
-          dueDate: debtEvents.dueDate,
-          notes: debtEvents.notes,
-          paymentMethod: debtEvents.paymentMethod,
-          createdAt: debtEvents.createdAt,
-          createdBy: debtEvents.createdBy,
-        })
-        .from(debtEvents)
-        .where(effectiveStoreId !== null ? eq(debtEvents.storeId, effectiveStoreId) : undefined)
-        .orderBy(asc(debtEvents.createdAt))
-        .all()
+      const customerIds = [...new Set(open.map(ledger => ledger.customerId))]
+      const customerRows = db.select().from(customers).where(inArray(customers.id, customerIds)).all()
+      const customerMap = new Map(customerRows.map(customer => [customer.id, customer]))
+      const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).all()
+      const storeNames = new Map(storeRows.map(store => [store.id, store.name]))
 
-      if (events.length === 0) return { ok: true, data: [] }
-
-      // Traer clientes únicos involucrados
-      const customerIds = [...new Set(events.map(e => e.customerId))]
-      const customerRows = db
-        .select()
-        .from(customers)
-        .where(inArray(customers.id, customerIds))
-        .all()
-
-      const customerMap = new Map(customerRows.map(c => [c.id, c]))
-
-      // Agrupar eventos por cliente y calcular saldo
-      const summaries = new Map<string, CustomerDebtSummary>()
-
-      for (const event of events) {
-        const customer = customerMap.get(event.customerId)
+      const result: CustomerDebtSummary[] = []
+      for (const ledger of open) {
+        const customer = customerMap.get(ledger.customerId)
         if (!customer) continue
-
-        if (!summaries.has(event.customerId)) {
-          summaries.set(event.customerId, {
-            customerId: event.customerId,
-            customerName: customer.name,
-            customerDni: customer.dni ?? null,
-            customerPhone: customer.phone ?? null,
-            balance: 0,
-            lastEventAt: event.createdAt,
-            events: [],
-          })
-        }
-
-        const summary = summaries.get(event.customerId)!
-        summary.events.push({
-          id: event.id,
-          customerId: event.customerId,
+        const lastEventAt = ledger.events.reduce(
+          (latest, event) => (event.createdAt > latest ? event.createdAt : latest),
+          ledger.events[0]?.createdAt ?? customer.createdAt,
+        )
+        result.push({
+          customerId: ledger.customerId,
           customerName: customer.name,
-          saleId: event.saleId ?? null,
-          storeId: event.storeId,
-          eventType: event.eventType as DebtEventRow['eventType'],
-          amount: event.amount,
-          dueDate: event.dueDate ?? null,
-          notes: event.notes ?? null,
-          paymentMethod: (event.paymentMethod as DebtEventRow['paymentMethod']) ?? null,
-          createdAt: event.createdAt,
-          createdBy: event.createdBy,
+          customerDni: customer.dni ?? null,
+          customerPhone: customer.phone ?? null,
+          storeId: ledger.storeId,
+          storeName: storeNames.get(ledger.storeId) ?? ledger.storeId,
+          balance: ledger.balance,
+          openingBalance: ledger.openingBalance,
+          lastEventAt,
+          events: ledger.events.map(event => toDebtEventRow(event, customer.name)),
         })
-        summary.balance += event.amount
-        if (event.createdAt > summary.lastEventAt) {
-          summary.lastEventAt = event.createdAt
-        }
       }
 
-      // Solo devolver clientes con saldo > 0 (deudas activas)
-      let result = [...summaries.values()].filter(s => s.balance > 0.01)
-
-      // Vista por local: si el ledger global ya está en 0 (p. ej. cancelación
-      // escrita en otro storeId), no mostrar el cliente en esta pestaña.
-      if (effectiveStoreId !== null && result.length > 0) {
-        const ids = result.map(s => s.customerId)
-        const allForCustomers = db
-          .select({ customerId: debtEvents.customerId, amount: debtEvents.amount })
-          .from(debtEvents)
-          .where(inArray(debtEvents.customerId, ids))
-          .all()
-        const global = new Map<string, number>()
-        for (const e of allForCustomers) {
-          global.set(e.customerId, (global.get(e.customerId) ?? 0) + e.amount)
-        }
-        result = result.filter(s => (global.get(s.customerId) ?? 0) > 0.01)
-      }
-
-      result.sort((a, b) => b.lastEventAt.localeCompare(a.lastEventAt))
-
+      result.sort((a, b) => b.lastEventAt.localeCompare(a.lastEventAt) || a.storeName.localeCompare(b.storeName))
       return { ok: true, data: result }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -473,8 +510,8 @@ export function registerDebtHandlers(): void {
     }
   })
 
-  // GET_CUSTOMER_BALANCE — saldo de un cliente específico + historial de eventos
-  ipcMain.handle(IPC.GET_CUSTOMER_BALANCE, (_event, payload: unknown): IpcResult<CustomerDebtSummary> => {
+  // GET_CUSTOMER_BALANCE — saldo de un cliente en todos sus locales
+  ipcMain.handle(IPC.GET_CUSTOMER_BALANCE, async (_event, payload: unknown): Promise<IpcResult<CustomerDebtSummary>> => {
     const parsed = z.object({ customerId: z.string().uuid() }).safeParse(payload)
     if (!parsed.success) return { ok: false, error: 'ID de cliente inválido.', code: 'VALIDATION_ERROR' }
     const session = getActiveSession()
@@ -487,15 +524,14 @@ export function registerDebtHandlers(): void {
       const customer = db.select().from(customers).where(eq(customers.id, customerId)).get()
       if (!customer) return { ok: false, error: 'Cliente no encontrado.', code: 'NOT_FOUND' }
 
-      const events = db
-        .select()
-        .from(debtEvents)
-        .where(eq(debtEvents.customerId, customerId))
-        .orderBy(asc(debtEvents.createdAt))
-        .all()
-
-      const balance = events.reduce((acc, e) => acc + e.amount, 0)
-      const lastEventAt = events.length > 0 ? events[events.length - 1].createdAt : customer.createdAt
+      const ledgers = (await loadCustomerLedgers(null)).filter(ledger => ledger.customerId === customerId)
+      const events = ledgers.flatMap(ledger => ledger.events).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      const balance = Math.round(ledgers.reduce((sum, ledger) => sum + ledger.balance, 0) * 100) / 100
+      const openingBalance = Math.round(ledgers.reduce((sum, ledger) => sum + ledger.openingBalance, 0) * 100) / 100
+      const primary = ledgers.find(ledger => ledger.storeId === session.storeId) ?? ledgers[0]
+      const storeRow = primary
+        ? db.select({ name: stores.name }).from(stores).where(eq(stores.id, primary.storeId)).get()
+        : undefined
 
       return {
         ok: true,
@@ -504,22 +540,12 @@ export function registerDebtHandlers(): void {
           customerName: customer.name,
           customerDni: customer.dni ?? null,
           customerPhone: customer.phone ?? null,
+          storeId: primary?.storeId ?? session.storeId,
+          storeName: storeRow?.name ?? primary?.storeId ?? session.storeId,
           balance,
-          lastEventAt,
-          events: events.map(e => ({
-            id: e.id,
-            customerId: e.customerId,
-            customerName: customer.name,
-            saleId: e.saleId ?? null,
-            storeId: e.storeId,
-            eventType: e.eventType as DebtEventRow['eventType'],
-            amount: e.amount,
-            dueDate: e.dueDate ?? null,
-            notes: e.notes ?? null,
-            paymentMethod: (e.paymentMethod as DebtEventRow['paymentMethod']) ?? null,
-            createdAt: e.createdAt,
-            createdBy: e.createdBy,
-          })),
+          openingBalance,
+          lastEventAt: events.length > 0 ? events[events.length - 1]!.createdAt : customer.createdAt,
+          events: events.map(event => toDebtEventRow(event, customer.name)),
         },
       }
     } catch (err) {
@@ -530,7 +556,7 @@ export function registerDebtHandlers(): void {
   })
 
   // ADD_DEBT_PAYMENT — pago parcial o total
-  ipcMain.handle(IPC.ADD_DEBT_PAYMENT, (_event, payload: unknown): IpcResult<DebtEventRow> => {
+  ipcMain.handle(IPC.ADD_DEBT_PAYMENT, async (_event, payload: unknown): Promise<IpcResult<DebtEventRow>> => {
     const parsed = addPaymentSchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:add-debt-payment] Payload inválido', parsed.error)
@@ -556,12 +582,8 @@ export function registerDebtHandlers(): void {
       const customer = db.select().from(customers).where(eq(customers.id, customerId)).get()
       if (!customer) return { ok: false, error: 'Cliente no encontrado.', code: 'NOT_FOUND' }
 
-      const events = db
-        .select({ amount: debtEvents.amount, storeId: debtEvents.storeId, createdAt: debtEvents.createdAt })
-        .from(debtEvents)
-        .where(eq(debtEvents.customerId, customerId))
-        .all()
-      const remaining = remainingByStore(events)
+      const ledgers = (await loadCustomerLedgers(null)).filter(ledger => ledger.customerId === customerId)
+      const remaining = new Map(ledgers.map(ledger => [ledger.storeId, ledger.balance]))
       const globalBalance = [...remaining.values()].reduce((a, b) => a + b, 0)
 
       if (globalBalance <= 0) {
@@ -649,8 +671,8 @@ export function registerDebtHandlers(): void {
     }
   })
 
-  // CANCEL_DEBT — cancela una deuda (anula el evento original)
-  ipcMain.handle(IPC.CANCEL_DEBT, (_event, payload: unknown): IpcResult => {
+  // CANCEL_DEBT — cancela una deuda (anula el saldo vigente, no los eventos)
+  ipcMain.handle(IPC.CANCEL_DEBT, async (_event, payload: unknown): Promise<IpcResult> => {
     const parsed = cancelDebtSchema.safeParse(payload)
     if (!parsed.success) {
       return { ok: false, error: 'Datos inválidos.', code: 'VALIDATION_ERROR' }
@@ -667,12 +689,8 @@ export function registerDebtHandlers(): void {
       const customer = db.select().from(customers).where(eq(customers.id, customerId)).get()
       if (!customer) return { ok: false, error: 'Cliente no encontrado.', code: 'NOT_FOUND' }
 
-      const allEvents = db
-        .select({ amount: debtEvents.amount, storeId: debtEvents.storeId })
-        .from(debtEvents)
-        .where(eq(debtEvents.customerId, customerId))
-        .all()
-      const remaining = remainingByStore(allEvents)
+      const ledgers = (await loadCustomerLedgers(null)).filter(ledger => ledger.customerId === customerId)
+      const remaining = new Map(ledgers.map(ledger => [ledger.storeId, ledger.balance]))
 
       const targets: Array<{ storeId: string; amount: number }> =
         target === 'all'
