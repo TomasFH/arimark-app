@@ -117,6 +117,7 @@ export function registerHistoryHandlers(): void {
         startedAt: s.startedAt,
         closedAt: s.closedAt ?? null,
         cashierName: userMap.get(s.userId) ?? s.userId,
+        storeId: s.storeId,
         openingCash: s.openingCash,
         source: s.source,
         soldTotal: s.soldTotal,

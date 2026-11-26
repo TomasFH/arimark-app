@@ -10,6 +10,7 @@ export interface HistoryListFicha {
   startedAt: string
   closedAt: string | null
   cashierName: string
+  storeId?: string | null
   openingCash: number
   source?: string | null
   soldTotal: number | null
@@ -56,6 +57,7 @@ export function historyListRowFromFicha(ficha: HistoryListFicha): HistoryShiftRo
     startedAt: ficha.startedAt,
     closedAt: ficha.closedAt,
     cashierName: ficha.cashierName,
+    storeId: ficha.storeId ?? null,
     salesCount: null,
     totalRevenue: sealed ? soldTotal : null,
     totalCashSales: null,

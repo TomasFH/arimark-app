@@ -9,7 +9,7 @@ import CashHandoverAuditCard from '../components/CashHandoverAuditCard'
 import HistoryStoreSelect from '../components/HistoryStoreSelect'
 import ShiftCloseCorrection from '../components/ShiftCloseCorrection'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
-import { formatARS, formatKg, toLocalDate, toLocalDateTime, toLocalTime, todayLocalYmd, addDaysYmd } from '../lib/datetime'
+import { formatARS, formatKg, toLocalDate, toLocalDateTime, toLocalTime, toVisitDayLabel, todayLocalYmd, addDaysYmd, utcToLocalYmd } from '../lib/datetime'
 import { getCachedHistoryDetail, rememberHistoryDetail } from '../lib/historyDetailCache'
 import {
   clearHistoryVisitReturn,
@@ -336,13 +336,21 @@ export default function HistoryScreen({
             {!loading && !error && shifts.length === 0 && (
               <p className="text-muted text-sm text-center py-8">No hay turnos en el período.</p>
             )}
-            {shifts.map(shift => (
-              <ShiftListItem
-                key={shift.id}
-                shift={shift}
-                selected={selectedShiftId === shift.id}
-                onClick={() => void handleSelectShift(shift.id)}
-              />
+            {groupHistoryShiftsByDay(shifts).map(day => (
+              <section key={day.ymd}>
+                <h3 className="sticky top-0 z-10 border-b border-line-strong bg-app px-3 py-2 text-sm font-semibold text-ink">
+                  {day.label}
+                </h3>
+                {day.shifts.map(shift => (
+                  <ShiftListItem
+                    key={shift.id}
+                    shift={shift}
+                    storeName={storeIdFilter === 'all' ? storeNameById(availableStores, shift.storeId) : null}
+                    selected={selectedShiftId === shift.id}
+                    onClick={() => void handleSelectShift(shift.id)}
+                  />
+                ))}
+              </section>
             ))}
           </div>
         </div>
@@ -392,53 +400,91 @@ export default function HistoryScreen({
   )
 }
 
+function storeNameById(stores: StoreRow[], storeId: string | null | undefined): string | null {
+  if (!storeId) return null
+  return stores.find(store => store.id === storeId)?.name ?? null
+}
+
+/** Días más nuevos primero. Dentro del día, el abierto arriba y después el más tardío. */
+function groupHistoryShiftsByDay(shifts: HistoryShiftRow[]): Array<{ ymd: string; label: string; shifts: HistoryShiftRow[] }> {
+  const groups = new Map<string, HistoryShiftRow[]>()
+  for (const shift of shifts) {
+    const ymd = utcToLocalYmd(shift.startedAt)
+    const list = groups.get(ymd) ?? []
+    list.push(shift)
+    groups.set(ymd, list)
+  }
+  return [...groups.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([ymd, dayShifts]) => ({
+      ymd,
+      label: toVisitDayLabel(dayShifts[0]?.startedAt ?? `${ymd}T15:00:00.000Z`),
+      shifts: [...dayShifts].sort((a, b) => {
+        const aOpen = a.closedAt ? 0 : 1
+        const bOpen = b.closedAt ? 0 : 1
+        if (aOpen !== bOpen) return bOpen - aOpen
+        return b.startedAt.localeCompare(a.startedAt)
+      }),
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Shift list item
 // ---------------------------------------------------------------------------
 
-function ShiftListItem({ shift, selected, onClick }: { shift: HistoryShiftRow; selected: boolean; onClick: () => void }) {
-  const date = toLocalDate(shift.startedAt)
+function ShiftListItem({
+  shift,
+  storeName,
+  selected,
+  onClick,
+}: {
+  shift: HistoryShiftRow
+  storeName: string | null
+  selected: boolean
+  onClick: () => void
+}) {
   const isOpen = !shift.closedAt
+  const identity = storeName
+    ? `${SHIFT_TYPE_LABEL[shift.shiftType]} · ${storeName}`
+    : SHIFT_TYPE_LABEL[shift.shiftType]
 
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-3 border-b border-line transition-colors ${
+      className={`w-full border-b border-line px-3 py-3 text-left transition-colors ${
         selected ? 'bg-accent-soft' : 'hover:bg-hover'
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <p className="text-sm font-medium text-ink min-w-0 truncate" title={`${date} — ${SHIFT_TYPE_LABEL[shift.shiftType]}`}>
-              {date} — {SHIFT_TYPE_LABEL[shift.shiftType]}
-            </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-medium text-ink">{identity}</p>
+          <p className="break-words text-xs text-muted">{shift.cashierName}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="flex items-center justify-end gap-1">
             <span
-              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+              className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                 isOpen
-                  ? 'bg-accent-soft text-success border border-line-accent'
-                  : 'bg-raised text-muted border border-line'
+                  ? 'border border-line-accent bg-accent-soft text-success'
+                  : 'border border-line bg-raised text-muted'
               }`}
             >
-              {isOpen ? 'Abierto' : 'Cerrado'}
+              {isOpen ? 'En curso' : 'Cerrado'}
             </span>
             {shift.source === 'mobile' && (
               <span
-                className="shrink-0 rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                className="whitespace-nowrap rounded-full border border-line bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent"
                 title="Cierre hecho en el celular"
               >
                 Móvil
               </span>
             )}
           </div>
-          <p className="text-xs text-muted truncate" title={shift.cashierName}>{shift.cashierName}</p>
-        </div>
-        <div className="shrink-0 text-right">
           {shift.totalsSealed && shift.totalRevenue != null ? (
-            <p className="text-sm font-semibold font-mono text-ink">{formatARS(shift.totalRevenue)}</p>
-          ) : (
-            <p className="text-xs text-muted">{shift.closedAt ? 'Sin dato' : 'En curso'}</p>
-          )}
+            <p className="mt-1 whitespace-nowrap font-mono text-sm font-semibold tabular-nums text-ink">{formatARS(shift.totalRevenue)}</p>
+          ) : shift.closedAt ? (
+            <p className="mt-1 whitespace-nowrap text-xs text-muted">Sin dato</p>
+          ) : null}
         </div>
       </div>
     </button>

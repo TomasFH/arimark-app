@@ -193,6 +193,49 @@ describe('HistoryScreen — gastos del turno', () => {
     expect(screen.getByText(/No entra en la caja/)).toBeInTheDocument()
   })
 
+  it('agrupa por día y muestra el local sin cortar el texto', async () => {
+    window.hw.getStores = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'store-a', name: 'Camarones' },
+        { id: 'store-b', name: 'San Martín' },
+      ],
+    })
+    window.hw.getHistoryShifts = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          ...ROW,
+          id: 's1',
+          storeId: 'store-a',
+          startedAt: '2026-11-25T12:00:00.000Z',
+          closedAt: '2026-11-25T16:00:00.000Z',
+          cashierName: 'Ana María del turno largo',
+          totalsSealed: true,
+          totalRevenue: 1_250_000,
+        },
+        {
+          ...ROW,
+          id: 's2',
+          storeId: 'store-b',
+          shiftType: 'evening',
+          startedAt: '2026-11-24T21:00:00.000Z',
+          closedAt: '2026-11-24T23:00:00.000Z',
+          cashierName: 'Luis',
+        },
+      ],
+    })
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Miércoles 25/11' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Martes 24/11' })).toBeInTheDocument()
+    const row = await screen.findByRole('button', { name: /Ana María del turno largo/ })
+    expect(row).toHaveTextContent('Mañana')
+    expect(row).toHaveTextContent('Camarones')
+    expect(row).not.toHaveTextContent('25/11')
+    expect(row.querySelector('.truncate')).toBeNull()
+    expect(screen.getByRole('button', { name: /Luis/ })).toHaveTextContent('San Martín')
+  })
+
   it('un turno abierto dice En curso', async () => {
     render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
     expect(await screen.findByText('En curso')).toBeInTheDocument()

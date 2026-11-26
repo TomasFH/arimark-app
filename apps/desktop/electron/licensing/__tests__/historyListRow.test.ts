@@ -36,6 +36,7 @@ const sealedMoney = {
 describe('historyListRowFromFicha', () => {
   it('un turno sellado muestra el vendido y no inventa la cantidad de ventas', () => {
     const row = historyListRowFromFicha(ficha(sealedMoney))
+    expect(historyListRowFromFicha(ficha({ ...sealedMoney, storeId: 'store-a' })).storeId).toBe('store-a')
     expect(row.totalsSealed).toBe(true)
     expect(row.totalRevenue).toBe(500_000)
     expect(row.totalExpenses).toBe(20_000)

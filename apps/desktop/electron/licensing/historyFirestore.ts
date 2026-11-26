@@ -232,6 +232,7 @@ export async function fetchHistoryShiftsFromFirestore(
       startedAt: s.startedAt,
       closedAt: s.closedAt ?? null,
       cashierName: s.cashierName ?? s.userId,
+      storeId: s.storeId,
       openingCash: Number(s.openingCash ?? 0),
       source: s.source,
       soldTotal: s.soldTotal ?? null,

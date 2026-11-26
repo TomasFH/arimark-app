@@ -1264,6 +1264,8 @@ export interface HistoryShiftRow {
   /** Null si el turno sigue abierto. */
   closedAt: string | null
   cashierName: string
+  /** Local del turno. La lista lo muestra cuando el filtro es todos. */
+  storeId?: string | null
   /** Null: la ficha no guarda la cantidad. Se cuenta al abrir el turno. */
   salesCount: number | null
   /** Null si el turno está abierto o la ficha no está sellada. */
