@@ -528,6 +528,21 @@ export function registerExpenseHandlers(): void {
         return { ok: false, error: 'Solo se pueden eliminar gastos del turno activo.' }
       }
 
+      const visit = db.select({ id: merchandiseIntakes.id })
+        .from(merchandiseIntakes)
+        .where(and(
+          eq(merchandiseIntakes.expenseId, id),
+          eq(merchandiseIntakes.status, 'confirmed'),
+        ))
+        .get()
+      if (visit) {
+        return {
+          ok: false,
+          error: 'No se puede eliminar: es el gasto de una visita. Borrarlo sacaría la deuda de esa visita.',
+          code: 'VISIT_EXPENSE',
+        }
+      }
+
       // Antes de borrar, capturar IDs ya sincronizados (gasto + eventos de deuda)
       const expenseSyncedAt = db
         .select({ syncedAt: expenses.syncedAt })

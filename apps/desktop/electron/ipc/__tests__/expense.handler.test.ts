@@ -434,6 +434,84 @@ describe('expense.handler', () => {
     })
   })
 
+  describe('DELETE_EXPENSE (ipc:delete-expense)', () => {
+    it('no elimina el gasto de una visita ni su deuda, tampoco siendo admin', async () => {
+      vi.mocked(getActiveSession).mockReturnValue({
+        ...SESSION,
+        role: 'admin',
+      } as ReturnType<typeof getActiveSession>)
+
+      const pid = providerIdFromName('Guido')
+      const now = '2026-11-26T11:20:49.286Z'
+      const expenseId = '22cf8a30-91e7-4bb3-b34f-20f7460a6175'
+      db.insert(providers).values({
+        id: pid, name: 'Guido', nameKey: 'guido', createdAt: now,
+      }).run()
+      db.insert(expenses).values({
+        id: expenseId,
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        providerId: pid,
+        amount: 0,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(merchandiseIntakes).values({
+        id: '91ef1877-2636-4db1-9180-962037dc4f13',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        paymentKind: 'on_account',
+        paidAmount: 0,
+        debtAmount: 1_563_693,
+        providerId: pid,
+        providerName: 'Guido',
+        expenseId,
+        status: 'confirmed',
+        paymentChannel: 'cash',
+        createdBy: 'user-001',
+        createdAt: now,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'debt-guido-visita',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Guido',
+        type: 'debt',
+        amount: 1_563_693,
+        expenseId,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const result = await getHandler('ipc:delete-expense')(null, { id: expenseId }) as {
+        ok: boolean
+        code?: string
+      }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('VISIT_EXPENSE')
+      expect(db.select().from(expenses).all()).toHaveLength(1)
+      expect(db.select().from(providerDebtEvents).all()[0]?.amount).toBe(1_563_693)
+      expect(db.select().from(merchandiseIntakes).all()[0]?.debtAmount).toBe(1_563_693)
+    })
+
+    it('sigue eliminando un gasto que no es de una visita', async () => {
+      const expenseId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+      db.insert(expenses).values({
+        id: expenseId,
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        concept: 'Hielo',
+        amount: 5000,
+        createdAt: new Date().toISOString(),
+        createdBy: 'user-001',
+      }).run()
+
+      const result = await getHandler('ipc:delete-expense')(null, { id: expenseId }) as { ok: boolean }
+      expect(result.ok).toBe(true)
+      expect(db.select().from(expenses).all()).toHaveLength(0)
+    })
+  })
+
   describe('GET_SHIFT_EXPENSES (ipc:get-shift-expenses)', () => {
     it('retorna lista vacía si no hay gastos', () => {
       const handler = getHandler('ipc:get-shift-expenses')

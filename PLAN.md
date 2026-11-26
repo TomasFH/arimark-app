@@ -1304,3 +1304,16 @@ Hoy `pushUnsyncedShifts` sube la ficha local entera con `merge`. Eso no borra la
 - **Motivo obligatorio al cancelar.** Cancelar una deuda pide un motivo y lo guarda. Hoy, si no se escribe nada, queda el texto fijo «Deuda cancelada por administrador.» y no se sabe por qué.
 - **Desde qué PC.** Cada movimiento de fiado (alta, cobro, cancelación) guarda la PC que lo hizo. Hoy el evento solo tiene el usuario, y por eso las cancelaciones del 25/11 no se pueden atribuir a un equipo.
 
+### Anotado 2026-11-26 — corregir o anular una visita, tanda B, sin implementar
+
+Hoy, confirmada la visita, no hay forma de corregir un precio o una cantidad. El formulario solo se edita antes de confirmar (o se descarta el borrador). Después, editar el gasto cambia el pago de deuda anterior y no el total de la visita. En la 0.6.14 tampoco se puede eliminar ese gasto: borrarlo sacaba la deuda y dejaba la visita. Un ajuste en Proveedores mueve el saldo y deja mal Mercadería recibida. No es la corrección.
+
+**Cuando se codee, en la tanda B:**
+
+- **Corregir es editar la visita, no el gasto.** Desde la visita, con el turno todavía abierto: cantidad, kilos y precio. El total se recalcula. Pagado de esa mercadería + quedó debiendo = mercadería recibida, también después de la corrección.
+- **La deuda de esa visita sigue el total nuevo.** El evento de deuda de la visita queda en el monto nuevo. No se borra y se vuelve a crear desde el formulario del gasto. El pago de deuda anterior que iba en el mismo gasto no se toca.
+- **La caja se mueve solo por la diferencia** de lo pagado de esa mercadería. La deuda anterior no entra en esa diferencia.
+- **Mercadería recibida muestra la visita corregida**, no una segunda visita ni un ajuste suelto. Proveedores muestra el mismo saldo, porque el evento de esa visita cambió.
+- **Anular la visita es otra acción**, con motivo. Saca la mercadería, la deuda de esa visita y el efectivo de esa mercadería. No es el botón Eliminar de la lista de gastos. El gasto de la visita sigue sin poder borrarse desde ahí.
+- Si el turno ya está cerrado, la corrección y la anulación quedan para el admin y tienen que dejar asentado el cambio en la ficha del turno, no reescribirla en silencio.
+

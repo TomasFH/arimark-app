@@ -266,7 +266,7 @@ export default function ExpenseListModal({ onClose, onChanged }: Props) {
                           >
                             Editar
                           </button>
-                          {confirmDeleteId === e.id ? (
+                          {e.visit ? null : confirmDeleteId === e.id ? (
                             <div className="flex-1 flex gap-1">
                               <button
                                 onClick={() => setConfirmDeleteId(null)}
@@ -291,6 +291,11 @@ export default function ExpenseListModal({ onClose, onChanged }: Props) {
                             </button>
                           )}
                         </div>
+                        {e.visit && (
+                          <p className="text-xs text-muted">
+                            No se puede eliminar. Este gasto es de una visita: borrarlo sacaría la deuda de esa visita.
+                          </p>
+                        )}
 
                         {/* Metadatos */}
                         <div className="flex items-center justify-between text-xs text-muted pt-1">

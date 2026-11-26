@@ -77,4 +77,29 @@ describe('ExpenseListModal — aviso al efectivo en caja', () => {
     }))
     expect(onChanged).toHaveBeenCalledTimes(1)
   })
+
+  it('no deja eliminar el gasto de una visita y dice por qué', async () => {
+    const visitExpense: ExpenseRow = {
+      id: 'exp-visita',
+      provider: 'Guido',
+      providerId: 'guido',
+      amount: 0,
+      newDebtAmount: 1_563_693,
+      createdAt: '2026-11-26T11:20:49.286Z',
+      createdBy: 'Ana',
+      visit: { paidAmount: 0, debtAmount: 1_563_693 },
+    }
+    installHw({
+      getShiftExpenses: vi.fn().mockResolvedValue({ ok: true, data: [visitExpense] }),
+      getProviderDebt: vi.fn().mockResolvedValue({ ok: true, data: null }),
+    })
+    const user = userEvent.setup()
+    render(<ExpenseListModal onClose={() => {}} />)
+
+    await user.click(await screen.findByRole('button', { name: /Guido/ }))
+
+    expect(screen.queryByRole('button', { name: 'Eliminar' })).not.toBeInTheDocument()
+    expect(screen.getByText(/No se puede eliminar/)).toBeInTheDocument()
+    expect(window.hw.deleteExpense).not.toHaveBeenCalled()
+  })
 })
