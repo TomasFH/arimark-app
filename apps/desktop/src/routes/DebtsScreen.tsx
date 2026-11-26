@@ -1,7 +1,8 @@
 /**
  * Pantalla de deudas pendientes.
- * Muestra el listado de clientes con saldo activo, con opción de
- * registrar pagos parciales o totales y cancelar deudas.
+ * Muestra las cuentas con saldo de cada cliente en un local.
+ * El saldo sale del corte más los eventos posteriores. Un saldo negativo
+ * es saldo a favor y se muestra. Cero no entra en la lista.
  *
  * Accesible desde el panel de cajera (botón "📒 Fiados") y desde el Admin Hub.
  */
@@ -25,7 +26,7 @@ const PAYMENT_METHOD_LABELS: Record<NonNullable<DebtEventRow['paymentMethod']>, 
 // Sub-componente: ledger de eventos de un cliente
 // ---------------------------------------------------------------------------
 
-function DebtLedger({ events }: { events: DebtEventRow[] }) {
+function DebtLedger({ events, openingBalance }: { events: DebtEventRow[]; openingBalance: number }) {
   const eventLabels: Record<DebtEventRow['eventType'], string> = {
     created: 'Deuda registrada',
     partial_payment: 'Pago parcial',
@@ -42,7 +43,7 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
   }
 
   return (
-    <ul className="divide-y divide-line text-xs mt-2">
+    <ul className="mt-2 divide-y divide-line text-xs">
       {[...events].reverse().map(e => (
         <li key={e.id} className="flex items-start justify-between gap-2 py-2">
           <div className="flex-1 min-w-0">
@@ -71,6 +72,14 @@ function DebtLedger({ events }: { events: DebtEventRow[] }) {
           </span>
         </li>
       ))}
+      {openingBalance !== 0 && (
+        <li className="flex items-start justify-between gap-2 py-2">
+          <span className="font-medium text-muted">Deuda anterior</span>
+          <span className={`shrink-0 font-mono font-semibold ${openingBalance > 0 ? 'text-danger' : 'text-success'}`}>
+            {openingBalance > 0 ? '+' : ''}{formatARS(Math.abs(openingBalance))}
+          </span>
+        </li>
+      )}
     </ul>
   )
 }
@@ -118,6 +127,7 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
               {[summary.customerDni, summary.customerPhone].filter(Boolean).join(' · ')}
             </p>
           )}
+          <p className="mt-0.5 truncate text-xs text-muted" title={summary.storeName}>{summary.storeName}</p>
           {nextDueDate && (
             <p className={`mt-0.5 text-xs ${isDue ? 'text-danger' : 'text-amber-600'}`}>
               Fecha acordada: {new Date(nextDueDate).toLocaleDateString('es-AR')}
@@ -125,8 +135,10 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
           )}
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-mono text-lg font-bold text-ink">{formatARS(summary.balance)}</p>
-          <p className="text-[10px] text-subtle">saldo pendiente</p>
+          <p className={`font-mono text-lg font-bold ${summary.balance < 0 ? 'text-success' : 'text-ink'}`}>
+            {formatARS(Math.abs(summary.balance))}
+          </p>
+          <p className="text-[10px] text-subtle">{summary.balance < 0 ? 'saldo a favor' : 'saldo pendiente'}</p>
         </div>
         <svg
           className={`mt-1 h-4 w-4 shrink-0 text-subtle transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -137,17 +149,19 @@ function DebtCard({ summary, onPayment, onCancel }: DebtCardProps) {
         </svg>
       </button>
 
-      <div className="flex items-center gap-2 px-4 py-3">
-        <Button size="sm" onClick={onPayment}>Registrar pago</Button>
-        <ActionMenu
-          items={[{ id: 'cancel', label: 'Cancelar deuda', danger: true, onSelect: onCancel }]}
-        />
-      </div>
+      {summary.balance > 0.01 && (
+        <div className="flex items-center gap-2 px-4 py-3">
+          <Button size="sm" onClick={onPayment}>Registrar pago</Button>
+          <ActionMenu
+            items={[{ id: 'cancel', label: 'Cancelar deuda', danger: true, onSelect: onCancel }]}
+          />
+        </div>
+      )}
 
       {expanded && (
         <div className="border-t border-line px-4 pb-3">
           <p className="mb-1 mt-2 text-[10px] text-subtle">Historial de eventos</p>
-          <DebtLedger events={summary.events} />
+          <DebtLedger events={summary.events} openingBalance={summary.openingBalance} />
         </div>
       )}
     </div>
@@ -463,7 +477,7 @@ export default function DebtsScreen({ onBack, onLogout, isAdmin = false }: Props
       amount,
       paymentMethod,
       notes,
-      storeId: isAdmin ? storeIdFilter : undefined,
+      storeId: payTarget.storeId,
     })
     setPayLoading(false)
     if (!res.ok) {
@@ -480,7 +494,7 @@ export default function DebtsScreen({ onBack, onLogout, isAdmin = false }: Props
     setCancelError(null)
     const res = await window.hw.cancelDebt({
       customerId: cancelTarget.customerId,
-      storeId: isAdmin ? storeIdFilter : undefined,
+      storeId: cancelTarget.storeId,
     })
     setCancelLoading(false)
     if (!res.ok) {
@@ -509,7 +523,7 @@ export default function DebtsScreen({ onBack, onLogout, isAdmin = false }: Props
     <div className="flex h-full flex-1 flex-col bg-app text-ink">
       <AdminSectionHeader
         title="Fiados / Cuentas corrientes"
-        subtitle={debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cliente${debts.length > 1 ? 's' : ''} con saldo activo`}
+        subtitle={debts.length === 0 ? 'Sin deudas pendientes' : `${debts.length} cuenta${debts.length > 1 ? 's' : ''} con saldo`}
         onBack={onBack}
         onLogout={onLogout}
         actions={
