@@ -30,6 +30,8 @@ import type {
 } from '../../src/types/hw-api'
 import { cashAmountFromDeposit, digitalAmountFromDeposit } from '../lib/depositPayments'
 import { buildCashHandoverAudit } from '@carniceria/shared'
+import { merchDbLineToSnapshot } from '../licensing/merchIntakeDb'
+import { historyVisitLinesFromSnapshots } from '../licensing/historyVisitLines'
 
 const getHistoryShiftsSchema = z.object({
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -279,7 +281,7 @@ export function registerHistoryHandlers(): void {
         // PC sin SQLite del local: intentar Firestore
         if (isFirebaseAvailable()) {
           try {
-            const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId)
+            const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId, session.role === 'cashier')
             if (remoteDetail) return { ok: true, data: remoteDetail }
           } catch (fbErr) {
             log.warn('[ipc:get-history-shift-detail] Firestore no disponible', fbErr)
@@ -430,10 +432,10 @@ export function registerHistoryHandlers(): void {
             .filter(p => expProviderIds.includes(p.id))
         : []
       const expProviderMap = new Map(expProviderRows.map(p => [p.id, p.name]))
-      const lineNamesByExpense = intakeLineNamesByExpense(db, expRows.map(r => r.id))
+      const visitsByExpense = intakeVisitsByExpense(db, expRows.map(r => r.id), session.role === 'cashier')
 
       const historyExpenses = expRows.map(r => {
-        const lineNames = lineNamesByExpense.get(r.id)
+        const visit = visitsByExpense.get(r.id)
         return {
           id: r.id,
           createdAt: r.createdAt,
@@ -446,7 +448,12 @@ export function registerHistoryHandlers(): void {
           injectReason: r.kind === 'inject'
             ? (r.injectReason === 'wallet_cash' ? 'wallet_cash' as const : 'aporte' as const)
             : undefined,
-          ...(lineNames && lineNames.length > 0 ? { lineNames } : {}),
+          ...(visit && visit.lines.length > 0 ? {
+            lineNames: visit.lines.map(line => line.name),
+            visitLines: visit.lines,
+            intakeId: visit.intakeId,
+            intakeCreatedAt: visit.createdAt,
+          } : {}),
         }
       })
 
@@ -669,7 +676,7 @@ export function registerHistoryHandlers(): void {
       // (ventas, gastos, fiados, señas y vales). Un dato local no tapa al resto.
       if (isFirebaseAvailable()) {
         try {
-          const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId)
+          const remoteDetail = await fetchHistoryShiftDetailFromFirestore(shiftId, session.role === 'cashier')
           if (remoteDetail) {
             return { ok: true, data: mergeHistoryShiftDetails(localDetail, remoteDetail) }
           }
@@ -725,41 +732,44 @@ export function registerHistoryHandlers(): void {
   )
 }
 
-/** Nombres de renglón de las visitas ligadas a esos gastos, en el orden cargado. */
-function intakeLineNamesByExpense(
+function intakeVisitsByExpense(
   db: ReturnType<typeof getDb>,
   expenseIds: string[],
-): Map<string, string[]> {
-  const names = new Map<string, string[]>()
-  if (expenseIds.length === 0) return names
+  hideMediaResPrice: boolean,
+): Map<string, { intakeId: string; createdAt: string; lines: ReturnType<typeof historyVisitLinesFromSnapshots> }> {
+  const visits = new Map<string, { intakeId: string; createdAt: string; lines: ReturnType<typeof historyVisitLinesFromSnapshots> }>()
+  if (expenseIds.length === 0) return visits
   const intakes = db
-    .select({ id: merchandiseIntakes.id, expenseId: merchandiseIntakes.expenseId })
+    .select({
+      id: merchandiseIntakes.id,
+      expenseId: merchandiseIntakes.expenseId,
+      createdAt: merchandiseIntakes.createdAt,
+      status: merchandiseIntakes.status,
+    })
     .from(merchandiseIntakes)
     .where(inArray(merchandiseIntakes.expenseId, expenseIds))
     .all()
-  const expenseByIntake = new Map<string, string>()
-  for (const intake of intakes) {
-    if (intake.expenseId) expenseByIntake.set(intake.id, intake.expenseId)
-  }
-  const intakeIds = [...expenseByIntake.keys()]
-  if (intakeIds.length === 0) return names
+  const confirmed = intakes.filter(intake => intake.expenseId && intake.status === 'confirmed')
+  if (confirmed.length === 0) return visits
   const lines = db
-    .select({
-      intakeId: merchandiseIntakeLines.intakeId,
-      rubroName: merchandiseIntakeLines.rubroName,
-      sortOrder: merchandiseIntakeLines.sortOrder,
-    })
+    .select()
     .from(merchandiseIntakeLines)
-    .where(inArray(merchandiseIntakeLines.intakeId, intakeIds))
-    .orderBy(asc(merchandiseIntakeLines.sortOrder))
+    .where(inArray(merchandiseIntakeLines.intakeId, confirmed.map(intake => intake.id)))
     .all()
+  const linesByIntake = new Map<string, typeof lines>()
   for (const line of lines) {
-    const expenseId = expenseByIntake.get(line.intakeId)
-    const name = line.rubroName.trim()
-    if (!expenseId || !name) continue
-    const list = names.get(expenseId) ?? []
-    list.push(name)
-    names.set(expenseId, list)
+    const list = linesByIntake.get(line.intakeId) ?? []
+    list.push(line)
+    linesByIntake.set(line.intakeId, list)
   }
-  return names
+  for (const intake of confirmed) {
+    if (!intake.expenseId) continue
+    const snapshots = (linesByIntake.get(intake.id) ?? []).map(merchDbLineToSnapshot)
+    visits.set(intake.expenseId, {
+      intakeId: intake.id,
+      createdAt: intake.createdAt,
+      lines: historyVisitLinesFromSnapshots(snapshots, hideMediaResPrice),
+    })
+  }
+  return visits
 }

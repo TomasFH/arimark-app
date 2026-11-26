@@ -46,9 +46,10 @@ function depositBreakdown(dep: HistoryOrderRow): string | null {
 interface Props {
   onBack: () => void
   onLogout: () => void
+  onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }
 
-export default function HistoryScreen({ onBack, onLogout }: Props) {
+export default function HistoryScreen({ onBack, onLogout, onOpenVisit }: Props) {
   const [shifts, setShifts] = useState<HistoryShiftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -315,6 +316,7 @@ export default function HistoryScreen({ onBack, onLogout }: Props) {
           {detail && (
             <ShiftDetail
               detail={detail}
+              onOpenVisit={onOpenVisit}
               onCorrected={() => { void reloadSelectedDetail(detail.shift.id) }}
             />
           )}
@@ -382,10 +384,18 @@ function saleCountLabel(count: number): string {
   return count === 1 ? '1 venta' : `${count} ventas`
 }
 
-function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCorrected: () => void }) {
+function ShiftDetail({
+  detail,
+  onCorrected,
+  onOpenVisit,
+}: {
+  detail: HistoryShiftDetail
+  onCorrected: () => void
+  onOpenVisit?: (visit: { id: string; createdAt: string }) => void
+}) {
   const { shift, sales, expenses, debts, deposits, summary } = detail
   const vales = detail.vales ?? []
-  const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'debts' | 'deposits' | 'vales'>('sales')
+  const [activeTab, setActiveTab] = useState<'sales' | 'expenses' | 'injects' | 'debts' | 'deposits' | 'vales'>('sales')
   const [openExpenseId, setOpenExpenseId] = useState<string | null>(null)
 
   const shiftLabel = SHIFT_TYPE_LABEL[shift.shiftType]
@@ -470,7 +480,8 @@ function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCo
       <div className="flex gap-1 border-b border-line">
         {([
           { key: 'sales', label: `Ventas (${sales.length})` },
-          { key: 'expenses', label: `Gastos (${expenses.length})` },
+          { key: 'expenses', label: `Gastos (${expenses.filter(row => row.kind !== 'inject').length})` },
+          { key: 'injects', label: `Ingresos (${expenses.filter(row => row.kind === 'inject').length})` },
           { key: 'debts', label: `Fiados (${debts.length})` },
           { key: 'deposits', label: `Señas (${deposits.length})` },
           { key: 'vales', label: `Vales (${vales.length})` },
@@ -571,22 +582,28 @@ function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCo
         </div>
       )}
 
-      {activeTab === 'expenses' && (
+      {(activeTab === 'expenses' || activeTab === 'injects') && (
         <div className="space-y-2">
-          {expenses.length === 0 && <p className="text-muted text-sm py-4 text-center">Sin gastos en este turno.</p>}
-          {expenses.map(exp => {
+          {(activeTab === 'injects' ? expenses.filter(row => row.kind === 'inject') : expenses.filter(row => row.kind !== 'inject')).length === 0 && (
+            <p className="text-muted text-sm py-4 text-center">
+              {activeTab === 'injects' ? 'Sin ingresos en este turno.' : 'Sin gastos en este turno.'}
+            </p>
+          )}
+          {(activeTab === 'injects' ? expenses.filter(row => row.kind === 'inject') : expenses.filter(row => row.kind !== 'inject')).map(exp => {
             const isInject = exp.kind === 'inject'
             const injectLabel = isInject ? injectHistoryLabel(exp.injectReason, exp.concept) : ''
             const title = isInject ? injectLabel : (exp.provider ?? exp.concept ?? '')
             const open = openExpenseId === exp.id
-            const lineNames = exp.lineNames ?? []
+            const visitLines = exp.visitLines && exp.visitLines.length > 0
+              ? exp.visitLines
+              : (exp.lineNames ?? []).map(name => ({ name, quantityLabel: '', unitPrice: 0, subtotal: 0 }))
             return (
-            <div key={exp.id} className="rounded-lg border border-line bg-panel text-sm">
+            <div key={exp.id} className="overflow-hidden rounded-lg border border-line bg-panel text-sm">
               <button
                 type="button"
                 aria-expanded={open}
                 onClick={() => setOpenExpenseId(open ? null : exp.id)}
-                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${open ? 'rounded-t-lg' : 'rounded-lg'}`}
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 min-w-0">
@@ -616,12 +633,34 @@ function ShiftDetail({ detail, onCorrected }: { detail: HistoryShiftDetail; onCo
                     <p className="break-words text-muted">{exp.concept}</p>
                   )}
                   {exp.notes && <p className="break-words text-muted">{exp.notes}</p>}
-                  {lineNames.length > 0 && (
-                    <ul className="space-y-0.5">
-                      {lineNames.map((name, index) => (
-                        <li key={`${exp.id}-${index}`} className="break-words text-ink">{name}</li>
+                  {visitLines.length > 0 && (
+                    <div className="inline-grid grid-cols-[max-content_max-content_max-content_max-content] gap-x-4 gap-y-1 pt-1">
+                      <span className="text-muted">Producto</span>
+                      <span className="text-muted">Cantidad</span>
+                      <span className="text-right text-muted">Precio</span>
+                      <span className="text-right text-muted">Subtotal</span>
+                      {visitLines.map(line => (
+                        <div key={`${exp.id}-${line.name}`} className="col-span-4 grid grid-cols-subgrid items-baseline">
+                          <span className="whitespace-nowrap text-ink" title={line.name}>{line.name}</span>
+                          <span className="whitespace-nowrap tabular-nums text-muted">{line.quantityLabel || '—'}</span>
+                          <span className={`whitespace-nowrap text-right tabular-nums ${line.unitPrice > 0 ? 'text-ink' : 'text-muted'}`}>
+                            {line.unitPrice > 0 ? formatARS(line.unitPrice) : 'sin precio'}
+                          </span>
+                          <span className={`whitespace-nowrap text-right tabular-nums ${line.subtotal > 0 ? 'text-ink' : 'text-muted'}`}>
+                            {line.subtotal > 0 ? formatARS(line.subtotal) : 'sin precio'}
+                          </span>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
+                  )}
+                  {exp.intakeId && exp.intakeCreatedAt && onOpenVisit && (
+                    <button
+                      type="button"
+                      className="rounded-md px-1.5 py-0.5 text-ink underline decoration-line underline-offset-2 hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      onClick={() => onOpenVisit({ id: exp.intakeId!, createdAt: exp.intakeCreatedAt! })}
+                    >
+                      Ver visita
+                    </button>
                   )}
                 </div>
               )}

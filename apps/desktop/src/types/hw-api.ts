@@ -1339,6 +1339,14 @@ export interface HistoryExpenseRow {
   injectReason?: 'aporte' | 'wallet_cash'
   /** Nombres de los renglones cuando el gasto salió de una visita. El concepto guardado solo conserva los tres primeros. */
   lineNames?: string[]
+  visitLines?: Array<{
+    name: string
+    quantityLabel: string
+    unitPrice: number
+    subtotal: number
+  }>
+  intakeId?: string
+  intakeCreatedAt?: string
 }
 
 export interface HistoryDebtRow {

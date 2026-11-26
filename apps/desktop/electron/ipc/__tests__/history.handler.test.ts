@@ -231,7 +231,7 @@ describe('history.handler', () => {
         createdAt: now,
       }).run()
       db.insert(merchandiseIntakeLines).values([
-        { id: 'line-1', intakeId, rubroId: 'r1', rubroName: 'Asado', template: 'weight', sortOrder: 0, count: 1 },
+        { id: 'line-1', intakeId, rubroId: 'r1', rubroName: 'Asado', template: 'weight', sortOrder: 0, count: 1, netKg: 2.5, unitCost: 4000, costTotal: 10000 },
         { id: 'line-2', intakeId, rubroId: 'r2', rubroName: 'Vacío', template: 'weight', sortOrder: 1, count: 1 },
         { id: 'line-3', intakeId, rubroId: 'r3', rubroName: 'Matambre', template: 'weight', sortOrder: 2, count: 1 },
         { id: 'line-4', intakeId, rubroId: 'r4', rubroName: 'Falda', template: 'weight', sortOrder: 3, count: 1 },
@@ -240,12 +240,14 @@ describe('history.handler', () => {
       const detail = getHandler('ipc:get-history-shift-detail')
       const opened = await detail(null, { shiftId: SHIFT_ID }) as {
         ok: boolean
-        data: { expenses: Array<{ id: string; concept?: string; lineNames?: string[] }> }
+        data: { expenses: Array<{ id: string; concept?: string; lineNames?: string[]; intakeId?: string; visitLines?: Array<{ name: string; unitPrice: number; subtotal: number }> }> }
       }
       expect(opened.ok).toBe(true)
       const expense = opened.data.expenses.find(row => row.id === expenseId)
       expect(expense?.concept).toBe('Mercadería: Asado, Vacío, Matambre…')
       expect(expense?.lineNames).toEqual(['Asado', 'Vacío', 'Matambre', 'Falda'])
+      expect(expense?.intakeId).toBe(intakeId)
+      expect(expense?.visitLines?.[0]).toMatchObject({ name: 'Asado', unitPrice: 4000, subtotal: 10000 })
     })
 
     it('incluye turnos abiertos (closedAt null) en la lista', async () => {
@@ -448,7 +450,7 @@ describe('history.handler', () => {
       }
       expect(res.ok).toBe(true)
       expect(res.data.shift.id).toBe(remoteShiftId)
-      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(remoteShiftId)
+      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(remoteShiftId, false)
     })
 
     it('usa detalle de Firestore si el turno local no tiene movimientos', async () => {
@@ -509,7 +511,7 @@ describe('history.handler', () => {
       expect(res.ok).toBe(true)
       expect(res.data.summary.totalRevenue).toBe(149620)
       expect(res.data.sales).toHaveLength(1)
-      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID)
+      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID, false)
     })
 
     it('completa las ventas desde Firestore si el turno local solo tiene un fiado', async () => {
@@ -638,7 +640,7 @@ describe('history.handler', () => {
       expect(res.data.sales).toHaveLength(1)
       expect(res.data.sales[0].total).toBe(5000)
       expect(res.data.summary.totalRevenue).toBe(5000)
-      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID)
+      expect(fetchHistoryShiftDetailFromFirestore).toHaveBeenCalledWith(SHIFT_ID, false)
     })
 
     it('retorna el detalle de un turno de otro local (cross-store)', async () => {

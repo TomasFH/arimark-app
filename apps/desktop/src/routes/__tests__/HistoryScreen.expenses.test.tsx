@@ -47,6 +47,23 @@ const DETAIL: HistoryShiftDetail = {
     notes: 'Dejó el cuarto corte en el renglón',
     createdBy: 'Ana',
     lineNames: ['Asado', 'Vacío', 'Matambre', 'Falda'],
+    visitLines: [
+      { name: 'Asado', quantityLabel: '2,500 kg', unitPrice: 4000, subtotal: 10000 },
+      { name: 'Vacío', quantityLabel: '1 kg', unitPrice: 0, subtotal: 0 },
+      { name: 'Matambre', quantityLabel: '1 kg', unitPrice: 0, subtotal: 0 },
+      { name: 'Falda', quantityLabel: '1 kg', unitPrice: 0, subtotal: 0 },
+    ],
+    intakeId: 'visita-1',
+    intakeCreatedAt: ROW.startedAt,
+  }, {
+    id: 'inj-1',
+    createdAt: ROW.startedAt,
+    concept: 'Aporte',
+    amount: 500,
+    notes: 'De la dueña',
+    createdBy: 'Ana',
+    kind: 'inject',
+    injectReason: 'aporte',
   }],
   summary: {
     salesCount: 0,
@@ -83,15 +100,21 @@ describe('HistoryScreen — gastos del turno', () => {
 
   it('abre el gasto y muestra el renglón que el concepto no guardó', async () => {
     const user = userEvent.setup()
-    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} onOpenVisit={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: /Ana/ }))
     await user.click(await screen.findByRole('button', { name: /Gastos \(1\)/ }))
 
     expect(screen.queryByText('Falda')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Guido/ }))
     expect(screen.getByText('Falda')).toBeInTheDocument()
+    expect(screen.getAllByText('sin precio').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Ver visita' })).toBeInTheDocument()
     const notes = screen.getAllByText('Dejó el cuarto corte en el renglón')
     expect(notes.some(node => node.classList.contains('break-words'))).toBe(true)
+    expect(screen.queryByText('De la dueña')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Ingresos \(1\)/ }))
+    expect(screen.getByText('De la dueña')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Gastos \(1\)/ }))
     await user.click(screen.getByRole('button', { name: /Guido/ }))
     expect(screen.queryByText('Falda')).not.toBeInTheDocument()
   })

@@ -20,7 +20,8 @@ import {
   digitalAmountFromDeposit,
   depositPaymentsToJson,
 } from '../lib/depositPayments'
-import { buildCashHandoverAudit, parseBillLines } from '@carniceria/shared'
+import { buildCashHandoverAudit, parseBillLines, parseMerchLinesFromUnknown } from '@carniceria/shared'
+import { historyVisitLinesFromSnapshots } from './historyVisitLines'
 import type {
   HistoryShiftRow,
   HistoryShiftDetail,
@@ -434,6 +435,7 @@ export function mergeHistoryShiftDetails(
  */
 export async function fetchHistoryShiftDetailFromFirestore(
   shiftId: string,
+  hideMediaResPrice = false,
 ): Promise<HistoryShiftDetail | null> {
   if (!isFirebaseAvailable()) return null
 
@@ -500,6 +502,32 @@ export async function fetchHistoryShiftDetailFromFirestore(
       })
     }
     historyExpenses.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+    const intakesSnap = await getDocs(query(
+      collection(firestore, 'licenses', tenant, 'merchandiseIntakes'),
+      where('shiftId', '==', shiftId),
+    ))
+    for (const intakeDoc of intakesSnap.docs) {
+      const data = intakeDoc.data() as Record<string, unknown>
+      if (data['deleted'] === true || data['status'] === 'draft') continue
+      const expenseId = typeof data['expenseId'] === 'string' ? data['expenseId'] : ''
+      const expense = historyExpenses.find(row => row.id === expenseId)
+      if (!expense) continue
+      const lines = historyVisitLinesFromSnapshots(
+        parseMerchLinesFromUnknown(data['lines'], {
+          intakeId: intakeDoc.id,
+          category: data['category'],
+          unit: data['unit'],
+          quantity: data['quantity'],
+        }),
+        hideMediaResPrice,
+      )
+      if (lines.length === 0) continue
+      expense.lineNames = lines.map(line => line.name)
+      expense.visitLines = lines
+      expense.intakeId = typeof data['id'] === 'string' ? data['id'] : intakeDoc.id
+      expense.intakeCreatedAt = typeof data['createdAt'] === 'string' ? data['createdAt'] : expense.createdAt
+    }
 
     const saleIds = [...new Set(historySales.filter(s => s.isDebt).map(s => s.id))]
     const extraDebtSnaps = await Promise.all(

@@ -58,7 +58,7 @@ type AppState =
   | { screen: 'orders'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
-  | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; focusVisit?: { id: string; createdAt: string }; returnTo?: 'providers' }
+  | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; focusVisit?: { id: string; createdAt: string }; returnTo?: 'providers' | 'history' }
   | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'transfers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
@@ -676,7 +676,17 @@ export default function App() {
 
       {state.screen === 'history' && (
         <Page>
-          <HistoryScreen onBack={handleReturnToAdminHub} onLogout={handleLogout} />
+          <HistoryScreen
+            onBack={handleReturnToAdminHub}
+            onLogout={handleLogout}
+            onOpenVisit={visit => setState({
+              screen: 'ingresos',
+              session: state.session,
+              initStatus: state.initStatus,
+              focusVisit: visit,
+              returnTo: 'history',
+            })}
+          />
         </Page>
       )}
 
@@ -697,6 +707,8 @@ export default function App() {
                 setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
               } else if (state.returnTo === 'providers') {
                 setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })
+              } else if (state.returnTo === 'history') {
+                setState({ screen: 'history', session: state.session, initStatus: state.initStatus })
               } else {
                 handleReturnToAdminHub()
               }
