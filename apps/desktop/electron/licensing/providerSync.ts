@@ -29,7 +29,7 @@ import {
 import log from 'electron-log'
 import { isNull } from 'drizzle-orm'
 import { getDb } from '../db/client'
-import { providers, providerDebtEvents, stores, shifts, expenses, users } from '../db/schema'
+import { providers, providerDebtEvents, stores, shifts, users } from '../db/schema'
 import { eq } from 'drizzle-orm'
 import { getFirebaseApp, isFirebaseAvailable } from './firebase'
 import { ensureUserStub } from './syncUserStub'
@@ -162,11 +162,10 @@ export function applyRemoteProviderDebtEvent(data: {
     const shift = db.select({ id: shifts.id }).from(shifts).where(eq(shifts.id, shiftId)).get()
     if (!shift) shiftId = null
   }
-  let expenseId: string | null = data.expenseId ?? null
-  if (expenseId) {
-    const exp = db.select({ id: expenses.id }).from(expenses).where(eq(expenses.id, expenseId)).get()
-    if (!exp) expenseId = null
-  }
+  // El id del gasto viaja en el evento. No depende de que el gasto esté en esta PC.
+  const expenseId = typeof data.expenseId === 'string' && data.expenseId.trim().length > 0
+    ? data.expenseId.trim()
+    : null
 
   const notes = data.notes ?? data.description ?? null
 
@@ -192,8 +191,7 @@ export function applyRemoteProviderDebtEvent(data: {
         provider: data.provider || parent.name,
         notes,
         syncedAt: now,
-        // Si el gasto o el turno ya están en esta PC, se recupera el vínculo.
-        // No se pisa con null: la primera bajada lo borra cuando el padre falta.
+        // Una copia vieja pudo haber perdido el id. Si Firestore lo trae, se recupera.
         ...(expenseId ? { expenseId } : {}),
         ...(shiftId ? { shiftId } : {}),
       },

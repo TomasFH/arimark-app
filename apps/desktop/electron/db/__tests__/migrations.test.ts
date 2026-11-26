@@ -872,4 +872,71 @@ describe('migrations', () => {
     original.close()
     copy.close()
   })
+
+  it('conserva el expenseId del pago aunque el gasto no esté (migración 0064)', async () => {
+    const journal = JSON.parse(fs.readFileSync(
+      path.resolve(__dirname, '../../../drizzle/meta/_journal.json'),
+      'utf8',
+    )) as { entries: { tag: string; when: number }[] }
+    const previous = journal.entries.find(entry => entry.tag === '0063_store_transfers')
+    const current = journal.entries.find(entry => entry.tag === '0064_provider_debt_expense_id')
+    expect(previous?.when).toBe(1795155911175)
+    expect(current?.when).toBeGreaterThan(1795155911175)
+
+    const initSqlJs = (await import('sql.js')).default
+    const sqlJsDir = path.dirname(require.resolve('sql.js'))
+    const SQL = await initSqlJs({
+      locateFile: (file: string) => path.resolve(sqlJsDir, file),
+    })
+    const original = new SQL.Database()
+    const folder = path.resolve(__dirname, '../../../drizzle')
+    for (const entry of journal.entries) {
+      if (entry.tag === '0064_provider_debt_expense_id') break
+      const sqlText = fs.readFileSync(path.join(folder, `${entry.tag}.sql`), 'utf8')
+      for (const statement of sqlText.split('--> statement-breakpoint')) {
+        const trimmed = statement.trim()
+        if (trimmed) original.run(trimmed)
+      }
+    }
+    original.run('PRAGMA foreign_keys = OFF')
+    original.run(`INSERT INTO stores (id, name, created_at) VALUES ('store-1', 'Norte', '2026-01-01T00:00:00.000Z')`)
+    original.run(`INSERT INTO users (id, name, created_at) VALUES ('user-1', 'Ana', '2026-01-01T00:00:00.000Z')`)
+    original.run(`INSERT INTO shifts (
+      id, store_id, user_id, shift_type, started_at, opening_cash, source
+    ) VALUES ('shift-viejo', 'store-1', 'user-1', 'morning', '2026-10-01T12:00:00.000Z', 0, 'desktop')`)
+    original.run(`INSERT INTO expenses (
+      id, store_id, shift_id, amount, created_at, created_by
+    ) VALUES ('exp-viejo', 'store-1', 'shift-viejo', 25000, '2026-10-01T12:00:00.000Z', 'user-1')`)
+    original.run(`INSERT INTO provider_debt_events (
+      id, store_id, provider, type, amount, expense_id, shift_id, created_at, created_by, notes
+    ) VALUES (
+      'pago-viejo', 'store-1', 'Oso', 'payment', 25000, 'exp-viejo', 'shift-viejo',
+      '2026-10-01T12:00:00.000Z', 'user-1', 'deuda anterior'
+    )`)
+
+    const copy = new SQL.Database(original.export())
+    const migrationSql = fs.readFileSync(path.join(folder, '0064_provider_debt_expense_id.sql'), 'utf8')
+    for (const statement of migrationSql.split('--> statement-breakpoint')) {
+      const trimmed = statement.trim()
+      if (trimmed) copy.run(trimmed)
+    }
+
+    expect(copy.exec(`SELECT expense_id, notes FROM provider_debt_events WHERE id = 'pago-viejo'`)[0]?.values[0])
+      .toEqual(['exp-viejo', 'deuda anterior'])
+    const fks = copy.exec('PRAGMA foreign_key_list(provider_debt_events)')[0]?.values ?? []
+    const tables = fks.map(row => String(row[2]))
+    expect(tables).not.toContain('expenses')
+
+    copy.run('PRAGMA foreign_keys = ON')
+    copy.run(`INSERT INTO provider_debt_events (
+      id, store_id, provider, type, amount, expense_id, shift_id, created_at, created_by
+    ) VALUES (
+      'pago-sin-gasto', 'store-1', 'Oso', 'payment', 10000, 'gasto-que-no-esta', 'shift-viejo',
+      '2026-10-01T13:00:00.000Z', 'user-1'
+    )`)
+    expect(copy.exec(`SELECT expense_id FROM provider_debt_events WHERE id = 'pago-sin-gasto'`)[0]?.values[0]?.[0])
+      .toBe('gasto-que-no-esta')
+    original.close()
+    copy.close()
+  })
 })

@@ -944,6 +944,96 @@ describe('merchIntake.handler visita', () => {
     expect(result.data.warning).toBeNull()
   })
 
+  it('dos visitas del mismo proveedor en el turno, cada una con su pago, sin gastos locales', async () => {
+    asAdmin()
+    vi.mocked(isFirebaseAvailable).mockReturnValue(false)
+    const bounds = mondayWeekRange(0)
+    const createdAt = new Date(new Date(bounds.startIso).getTime() + 3_600_000).toISOString()
+    db.insert(providers).values({
+      id: 'oso',
+      name: 'Oso',
+      nameKey: 'oso',
+      createdAt,
+    }).run()
+
+    function visit(id: string, expenseId: string, paidAmount: number, debtAmount: number): void {
+      db.insert(merchandiseIntakes).values({
+        id,
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        paymentKind: paidAmount > 0 ? 'paid_now' : 'on_account',
+        paidAmount,
+        debtAmount,
+        providerId: 'oso',
+        providerName: 'Oso',
+        expenseId,
+        status: 'confirmed',
+        paymentChannel: 'cash',
+        createdBy: 'user-001',
+        createdAt,
+      }).run()
+      db.insert(merchandiseIntakeLines).values({
+        id: `${id}-l1`,
+        intakeId: id,
+        rubroId: 'rubro-bondiola',
+        rubroName: 'Bondiola',
+        template: 'weight',
+        sortOrder: 0,
+        count: 1,
+        netKg: 2,
+        grossKg: 2,
+        costTotal: paidAmount + debtAmount,
+      }).run()
+    }
+
+    visit('visita-manana', 'gasto-manana', 0, 100_000)
+    visit('visita-tarde', 'gasto-tarde', 40_000, 60_000)
+    db.insert(providerDebtEvents).values([
+      {
+        id: 'pago-manana',
+        storeId: 'store-001',
+        providerId: 'oso',
+        provider: 'Oso',
+        type: 'payment',
+        amount: 25_000,
+        expenseId: 'gasto-manana',
+        shiftId: 'shift-001',
+        createdAt,
+        createdBy: 'user-001',
+      },
+      {
+        id: 'pago-tarde',
+        storeId: 'store-001',
+        providerId: 'oso',
+        provider: 'Oso',
+        type: 'payment',
+        amount: 10_000,
+        expenseId: 'gasto-tarde',
+        shiftId: 'shift-001',
+        createdAt,
+        createdBy: 'user-001',
+      },
+    ]).run()
+    expect(db.select().from(expenses).all()).toHaveLength(0)
+
+    const result = await getHandler('ipc:list-merch-week')(null, {
+      weekOffset: 0,
+      storeIdFilter: 'all',
+    }) as {
+      ok: boolean
+      data: {
+        providers: Array<{
+          deliveries: Array<{ id: string; paid: number; oldDebtSettled: number }>
+        }>
+      }
+    }
+    expect(result.ok).toBe(true)
+    const deliveries = result.data.providers[0]?.deliveries ?? []
+    const byId = new Map(deliveries.map(row => [row.id, row]))
+    expect(byId.get('visita-manana')).toMatchObject({ paid: 25_000, oldDebtSettled: 25_000 })
+    expect(byId.get('visita-tarde')).toMatchObject({ paid: 50_000, oldDebtSettled: 10_000 })
+  })
+
   it('zod rechaza el listado de semana malformado', async () => {
     asAdmin()
     const result = await getHandler('ipc:list-merch-week')(null, {

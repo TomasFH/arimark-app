@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
 import { stores, users, providers, providerDebtEvents, shifts } from '../../db/schema'
-import { isNull, isNotNull } from 'drizzle-orm'
+import { eq, isNull, isNotNull } from 'drizzle-orm'
 
 // ---------------------------------------------------------------------------
 // Mocks de Firebase
@@ -397,6 +397,41 @@ describe('providerSync', () => {
       expect(events[0]?.amount).toBe(400000)
       expect(events[0]?.type).toBe('payment')
       expect(events[0]?.createdAt).toBe(now)
+    })
+
+    it('guarda el expenseId del pago aunque el gasto no esté en esta PC', () => {
+      const pid = providerIdFromName('oso remoto')
+      const now = new Date().toISOString()
+      db.insert(providers).values({
+        id: pid, name: 'Oso Remoto', nameKey: 'oso remoto', createdAt: now,
+      }).run()
+
+      applyRemoteProviderDebtEvent({
+        id: 'evt-oso',
+        providerId: pid,
+        provider: 'Oso Remoto',
+        storeId: 'store-001',
+        type: 'payment',
+        amount: 25_000,
+        expenseId: 'gasto-que-no-esta',
+        createdAt: now,
+      }, 'evt-oso')
+
+      expect(db.select().from(providerDebtEvents).all()[0]?.expenseId).toBe('gasto-que-no-esta')
+
+      db.update(providerDebtEvents).set({ expenseId: null }).where(eq(providerDebtEvents.id, 'evt-oso')).run()
+      applyRemoteProviderDebtEvent({
+        id: 'evt-oso',
+        providerId: pid,
+        provider: 'Oso Remoto',
+        storeId: 'store-001',
+        type: 'payment',
+        amount: 25_000,
+        expenseId: 'gasto-que-no-esta',
+        createdAt: now,
+      }, 'evt-oso')
+
+      expect(db.select().from(providerDebtEvents).all()[0]?.expenseId).toBe('gasto-que-no-esta')
     })
 
     it('borra el evento local cuando Firestore lo marca deleted', () => {

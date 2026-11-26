@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
 import {
@@ -445,33 +445,17 @@ function readMerchWeekBook(
     : db.select({ id: expenses.id, amount: expenses.amount }).from(expenses).where(inArray(expenses.id, expenseIds)).all()
   const expenseAmount = new Map(expenseRows.map(row => [row.id, row.amount]))
 
-  const shiftIds = [...new Set(intakes.map(row => row.shiftId))]
-  const paymentFilters = [
-    ...(expenseIds.length > 0 ? [inArray(providerDebtEvents.expenseId, expenseIds)] : []),
-    ...(shiftIds.length > 0
-      ? [and(inArray(providerDebtEvents.shiftId, shiftIds), isNull(providerDebtEvents.expenseId))]
-      : []),
-  ]
-  const paymentRows = paymentFilters.length === 0
+  const paymentRows = expenseIds.length === 0
     ? []
     : db.select({
       expenseId: providerDebtEvents.expenseId,
       amount: providerDebtEvents.amount,
-      providerId: providerDebtEvents.providerId,
-      providerName: providerDebtEvents.provider,
-      shiftId: providerDebtEvents.shiftId,
     }).from(providerDebtEvents).where(and(
+      inArray(providerDebtEvents.expenseId, expenseIds),
       eq(providerDebtEvents.type, 'payment'),
-      paymentFilters.length === 1 ? paymentFilters[0] : or(...paymentFilters),
     )).all()
   const oldDebtByVisit = oldDebtByIntake(
-    intakes.map(row => ({
-      id: row.id,
-      expenseId: row.expenseId,
-      providerId: row.providerId,
-      providerName: row.providerName ?? '',
-      shiftId: row.shiftId,
-    })),
+    intakes.map(row => ({ id: row.id, expenseId: row.expenseId })),
     paymentRows,
   )
 

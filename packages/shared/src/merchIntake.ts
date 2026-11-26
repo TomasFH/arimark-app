@@ -915,73 +915,37 @@ export function redactMerchWeekBook<T extends MerchWeekBook>(
 export interface OldDebtIntakeRef {
   id: string
   expenseId: string | null
-  providerId: string | null
-  providerName: string
-  shiftId: string | null
 }
 
 export interface OldDebtPaymentRef {
   amount: number
   expenseId: string | null
-  providerId: string | null
-  providerName: string
-  shiftId: string | null
-}
-
-function sameMerchProvider(
-  left: { providerId: string | null; providerName: string },
-  right: { providerId: string | null; providerName: string },
-): boolean {
-  if (left.providerId && right.providerId) return left.providerId === right.providerId
-  const a = merchNameKey(left.providerName)
-  const b = merchNameKey(right.providerName)
-  return a.length > 0 && a === b
 }
 
 /**
  * Cuánto de deuda anterior corresponde a cada visita.
- * Primero por el gasto compartido. Si el pago llegó sin ese gasto
- * (la fila de caja no está en esta PC), queda la visita del mismo
- * turno cuando es la única de ese proveedor.
+ * El pago y la visita comparten `expenseId`. Sin ese id no hay unión:
+ * dos visitas del mismo proveedor en el mismo turno no se adivinan.
  */
 export function oldDebtByIntake(
   intakes: readonly OldDebtIntakeRef[],
   payments: readonly OldDebtPaymentRef[],
 ): Map<string, number> {
   const totals = new Map<string, number>()
-  const add = (intakeId: string, amount: number) => {
-    const pesos = Math.round(amount)
-    if (pesos <= 0) return
-    totals.set(intakeId, (totals.get(intakeId) ?? 0) + pesos)
-  }
-
   const byExpense = new Map<string, string>()
   for (const intake of intakes) {
     if (intake.expenseId && !byExpense.has(intake.expenseId)) {
       byExpense.set(intake.expenseId, intake.id)
     }
   }
-
-  const used = new Set<OldDebtPaymentRef>()
   for (const payment of payments) {
     if (!payment.expenseId) continue
     const intakeId = byExpense.get(payment.expenseId)
     if (!intakeId) continue
-    add(intakeId, payment.amount)
-    used.add(payment)
+    const pesos = Math.round(payment.amount)
+    if (pesos <= 0) continue
+    totals.set(intakeId, (totals.get(intakeId) ?? 0) + pesos)
   }
-
-  for (const payment of payments) {
-    if (used.has(payment) || payment.expenseId || !payment.shiftId) continue
-    const candidates = intakes.filter(intake =>
-      intake.shiftId === payment.shiftId
-      && Boolean(intake.expenseId)
-      && sameMerchProvider(intake, payment),
-    )
-    if (candidates.length !== 1) continue
-    add(candidates[0].id, payment.amount)
-  }
-
   return totals
 }
 

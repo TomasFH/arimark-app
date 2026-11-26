@@ -655,8 +655,12 @@ export const providerDebtEvents = sqliteTable(
     /** 'debt' = nueva deuda generada al pagar menos de lo facturado; 'payment' = pago de deuda anterior */
     type: text('type', { enum: ['debt', 'payment'] }).notNull(),
     amount: real('amount').notNull(),
-    /** Gasto origen de este evento (puede ser null para pagos de deuda previos) */
-    expenseId: text('expense_id').references(() => expenses.id),
+    /**
+     * Gasto del mismo acto. Sin FK, igual que en la visita: en otra PC
+     * el gasto puede no estar, y el id igual une el pago con esa visita.
+     * Null en un pago que no salió de una visita (ajuste, compensación).
+     */
+    expenseId: text('expense_id'),
     /** null cuando el pago lo registra un admin fuera de turno (SETTLE_PROVIDER_DEBT). */
     shiftId: text('shift_id').references(() => shifts.id),
     createdAt: text('created_at').notNull(),

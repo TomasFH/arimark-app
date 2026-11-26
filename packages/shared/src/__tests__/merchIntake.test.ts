@@ -460,68 +460,49 @@ describe('buildMerchWeekBook', () => {
 })
 
 describe('oldDebtByIntake', () => {
-  const guidoVisit = {
-    id: '91ef1877-2636-4db1-9180-962037dc4f13',
-    expenseId: '22cf8a30-91e7-4bb3-b34f-20f7460a6175',
-    providerId: '677569646f',
-    providerName: 'Guido',
-    shiftId: '88de0685-1686-4af2-9627-c7296a1b6cef',
+  const shift = 'turno-1'
+  const morning = {
+    id: 'visita-manana',
+    expenseId: 'gasto-manana',
+    providerId: 'oso',
+    shiftId: shift,
+  }
+  const afternoon = {
+    id: 'visita-tarde',
+    expenseId: 'gasto-tarde',
+    providerId: 'oso',
+    shiftId: shift,
   }
 
-  it('el pago de Guido del 26/11 sin gasto local queda en esa visita', () => {
+  it('dos visitas del mismo proveedor en el turno quedan cada una con su pago', () => {
     const totals = oldDebtByIntake(
-      [guidoVisit],
-      [{
-        amount: 836_307,
-        expenseId: null,
-        providerId: '677569646f',
-        providerName: 'Guido',
-        shiftId: guidoVisit.shiftId,
-      }],
+      [morning, afternoon],
+      [
+        { amount: 25_000, expenseId: morning.expenseId },
+        { amount: 10_000, expenseId: afternoon.expenseId },
+      ],
     )
-    expect(totals.get(guidoVisit.id)).toBe(836_307)
+    expect(totals.get(morning.id)).toBe(25_000)
+    expect(totals.get(afternoon.id)).toBe(10_000)
   })
 
-  it('usa el gasto cuando el pago lo trae', () => {
+  it('un pago sin expenseId no se une aunque sea la única visita del turno', () => {
     const totals = oldDebtByIntake(
-      [guidoVisit],
-      [{
-        amount: 836_307,
-        expenseId: guidoVisit.expenseId,
-        providerId: '677569646f',
-        providerName: 'Guido',
-        shiftId: null,
-      }],
-    )
-    expect(totals.get(guidoVisit.id)).toBe(836_307)
-  })
-
-  it('no reparte un pago suelto entre dos visitas del mismo proveedor', () => {
-    const totals = oldDebtByIntake(
-      [guidoVisit, { ...guidoVisit, id: 'otra', expenseId: 'otro-gasto' }],
-      [{
-        amount: 836_307,
-        expenseId: null,
-        providerId: '677569646f',
-        providerName: 'Guido',
-        shiftId: guidoVisit.shiftId,
-      }],
+      [morning],
+      [{ amount: 836_307, expenseId: null }],
     )
     expect(totals.size).toBe(0)
   })
 
-  it('no atribuye el pago de otro proveedor del mismo turno', () => {
+  it('suma los dos tramos del mismo gasto', () => {
     const totals = oldDebtByIntake(
-      [guidoVisit],
-      [{
-        amount: 90_000,
-        expenseId: null,
-        providerId: 'provoletas',
-        providerName: 'Provoletas',
-        shiftId: guidoVisit.shiftId,
-      }],
+      [morning],
+      [
+        { amount: 2_000, expenseId: morning.expenseId },
+        { amount: 3_000, expenseId: morning.expenseId },
+      ],
     )
-    expect(totals.size).toBe(0)
+    expect(totals.get(morning.id)).toBe(5_000)
   })
 })
 
