@@ -979,6 +979,20 @@ export interface ProviderDebtEventRow {
   expenseId: string | null
   /** Nota visible (ajuste de admin, compensación, etc.). */
   notes?: string | null
+  /** Visita de mercadería de este movimiento, si el gasto es un ingreso. */
+  intakeId?: string | null
+  intakeCreatedAt?: string | null
+}
+
+/** Saldo ya plegado de un local, más los movimientos que siguen abiertos. */
+export interface ProviderAccountHistory {
+  openings: Array<{
+    storeId: string
+    storeName: string
+    balance: number
+    hasCheckpoint: boolean
+  }>
+  events: ProviderDebtEventRow[]
 }
 
 export interface SettleProviderDebtPayload {
@@ -2018,7 +2032,7 @@ export interface HwApi {
   /** Lista proveedores con deuda combinada cross-local (solo admin; lee Firestore). */
   getProvidersWithDebt: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<ProviderWithDebtRow[]>>
   /** Historial de eventos de deuda de un proveedor (solo admin). */
-  getProviderDebtHistory: (payload: { providerId: string }) => Promise<IpcResult<ProviderDebtEventRow[]>>
+  getProviderDebtHistory: (payload: { providerId: string }) => Promise<IpcResult<ProviderAccountHistory>>
   /**
    * Registra un pago de deuda con un proveedor (solo admin, sin caja).
    * El monto puede ser parcial.

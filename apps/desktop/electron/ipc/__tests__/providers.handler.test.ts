@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, providers, providerDebtEvents, shifts, expenses } from '../../db/schema'
+import { stores, users, providers, providerDebtEvents, shifts, expenses, merchandiseIntakes } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -538,29 +539,74 @@ describe('providers.handler', () => {
       const handler = getHandler('ipc:get-provider-debt-history')
       const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
         ok: boolean
-        data: Array<{
-          id: string
-          type: string
-          amount: number
-          storeName: string
-          createdByName: string
-        }>
+        data: {
+          openings: unknown[]
+          events: Array<{
+            id: string
+            type: string
+            amount: number
+            storeName: string
+            createdByName: string
+            intakeId?: string | null
+          }>
+        }
       }>)
 
       expect(result.ok).toBe(true)
-      expect(result.data).toHaveLength(2)
+      expect(result.data.events).toHaveLength(2)
+      expect(result.data.openings).toEqual([])
       // Primer elemento es el más reciente (evt-001 se insertó con Date.now())
-      expect(result.data[0].id).toBe('evt-001')
-      expect(result.data[0].type).toBe('debt')
-      expect(result.data[0].amount).toBe(5000)
-      expect(result.data[0].storeName).toBe('Local A')
-      expect(result.data[0].createdByName).toBe('Cajera Test')
+      expect(result.data.events[0].id).toBe('evt-001')
+      expect(result.data.events[0].type).toBe('debt')
+      expect(result.data.events[0].amount).toBe(5000)
+      expect(result.data.events[0].storeName).toBe('Local A')
+      expect(result.data.events[0].createdByName).toBe('Cajera Test')
 
-      expect(result.data[1].id).toBe('evt-002')
-      expect(result.data[1].type).toBe('payment')
-      expect(result.data[1].amount).toBe(2000)
-      expect(result.data[1].storeName).toBe('Local B')
-      expect(result.data[1].createdByName).toBe('Admin')
+      expect(result.data.events[1].id).toBe('evt-002')
+      expect(result.data.events[1].type).toBe('payment')
+      expect(result.data.events[1].amount).toBe(2000)
+      expect(result.data.events[1].storeName).toBe('Local B')
+      expect(result.data.events[1].createdByName).toBe('Admin')
+    })
+
+    it('un movimiento con visita apunta al ingreso y un ajuste no', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      insertTestData()
+      const now = new Date().toISOString()
+      db.insert(expenses).values({
+        id: 'exp-visita',
+        storeId: 'store-001',
+        shiftId: SHIFT_ID,
+        amount: 5000,
+        concept: 'Mercadería',
+        createdBy: 'user-001',
+        createdAt: now,
+      }).run()
+      db.update(providerDebtEvents).set({ expenseId: 'exp-visita' }).where(eq(providerDebtEvents.id, 'evt-001')).run()
+      db.insert(merchandiseIntakes).values({
+        id: 'visita-1',
+        storeId: 'store-001',
+        shiftId: SHIFT_ID,
+        paymentKind: 'on_account',
+        paidAmount: 0,
+        debtAmount: 5000,
+        providerId: PROVIDER_ID,
+        providerName: 'Proveedor Test',
+        expenseId: 'exp-visita',
+        status: 'confirmed',
+        createdBy: 'user-001',
+        createdAt: now,
+      }).run()
+
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
+        ok: boolean
+        data: { events: Array<{ id: string; intakeId?: string | null }> }
+      }>)
+      const debt = result.data.events.find(event => event.id === 'evt-001')
+      const payment = result.data.events.find(event => event.id === 'evt-002')
+      expect(debt?.intakeId).toBe('visita-1')
+      expect(payment?.intakeId ?? null).toBeNull()
     })
 
     it('no hay sesión retorna NO_SESSION', async () => {
@@ -582,9 +628,9 @@ describe('providers.handler', () => {
       }).run()
 
       const handler = getHandler('ipc:get-provider-debt-history')
-      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; data: unknown[] }>)
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; data: { events: unknown[] } }>)
       expect(result.ok).toBe(true)
-      expect(result.data).toHaveLength(0)
+      expect(result.data.events).toHaveLength(0)
     })
   })
 

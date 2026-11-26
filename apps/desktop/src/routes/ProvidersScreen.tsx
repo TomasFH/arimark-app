@@ -10,7 +10,7 @@ import { formatARS, toLocalDateTime } from '../lib/datetime'
 import { formatIntegerWithDots, parseNumericInput } from '../lib/numericInput'
 import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
-import type { ProviderWithDebtRow, ProviderRow, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
+import type { ProviderWithDebtRow, ProviderRow, ProviderAccountHistory, ProviderDebtEventRow, StoreRow } from '../types/hw-api'
 import { formatPhoneInput, parsePhoneNumber, digitsOnly } from '../lib/phoneInput'
 import { ActionMenu, Button, CollapseReveal, ModalCloseButton, ModalLayer } from '../components/ui'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
@@ -18,6 +18,7 @@ import { AdminSectionHeader } from '../components/AdminSectionHeader'
 interface Props {
   onBack: () => void
   onLogout: () => void
+  onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }
 
 type ModalMode =
@@ -71,7 +72,7 @@ function LedgerStoreSelect({
   )
 }
 
-export default function ProvidersScreen({ onBack, onLogout }: Props) {
+export default function ProvidersScreen({ onBack, onLogout, onOpenVisit }: Props) {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<ProviderWithDebtRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -384,6 +385,7 @@ export default function ProvidersScreen({ onBack, onLogout }: Props) {
           provider={modal.provider}
           onClose={() => setModal({ type: 'none' })}
           onSettled={() => void load()}
+          onOpenVisit={onOpenVisit}
         />
       )}
     </div>
@@ -556,11 +558,12 @@ interface ProviderDebtHistoryModalProps {
   provider: ProviderWithDebtRow
   onClose: () => void
   onSettled?: () => void
+  onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }
 
-function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebtHistoryModalProps) {
+function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }: ProviderDebtHistoryModalProps) {
   const [loading, setLoading] = useState(true)
-  const [events, setEvents] = useState<ProviderDebtEventRow[]>([])
+  const [account, setAccount] = useState<ProviderAccountHistory>({ openings: [], events: [] })
   const [error, setError] = useState<string | null>(null)
   const [storeFilter, setStoreFilter] = useState<string | null>(null)
   const [stores, setStores] = useState<StoreRow[]>([])
@@ -574,7 +577,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
     const r = await window.hw.getProviderDebtHistory({ providerId: provider.id })
     setLoading(false)
     if (r.ok) {
-      setEvents(r.data)
+      setAccount(r.data)
     } else {
       setError(r.error ?? 'Error al cargar historial.')
     }
@@ -588,9 +591,17 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider.id])
 
+  const events = account.events
+
   const storeList = useMemo(() => {
     const seen = new Set<string>()
     const result: Array<{ storeId: string; storeName: string }> = []
+    for (const opening of account.openings) {
+      if (!seen.has(opening.storeId)) {
+        seen.add(opening.storeId)
+        result.push({ storeId: opening.storeId, storeName: opening.storeName })
+      }
+    }
     for (const evt of events) {
       if (!seen.has(evt.storeId)) {
         seen.add(evt.storeId)
@@ -604,32 +615,50 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
       }
     }
     return result
-  }, [events, stores])
+  }, [account.openings, events, stores])
 
   const displayEvents = useMemo(() => {
     const filtered = storeFilter
       ? events.filter(e => e.storeId === storeFilter)
       : events
-    const reversed = [...filtered].reverse()
-    let balance = 0
-    const result = reversed.map(evt => {
+    const openings = account.openings.filter(opening =>
+      opening.hasCheckpoint && (!storeFilter || opening.storeId === storeFilter),
+    )
+    const openingBalance = openings.reduce((sum, opening) => sum + opening.balance, 0)
+    const chronological = [...filtered].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    let balance = openingBalance
+    const lines: Array<ProviderDebtEventRow & { runningBalance: number; opening?: boolean }> = chronological.map(evt => {
       balance += evt.type === 'debt' ? evt.amount : -evt.amount
       return { ...evt, runningBalance: balance }
     })
-    return result.reverse()
-  }, [events, storeFilter])
+    if (openings.length > 0) {
+      lines.unshift({
+        id: storeFilter ? `corte:${storeFilter}` : 'corte',
+        type: 'debt',
+        amount: 0,
+        storeId: storeFilter ?? '',
+        storeName: '',
+        createdAt: '',
+        createdByName: '',
+        expenseId: null,
+        opening: true,
+        runningBalance: openingBalance,
+      })
+    }
+    return lines.reverse()
+  }, [account.openings, events, storeFilter])
 
   const currentBalance = displayEvents[0]?.runningBalance ?? (
     storeFilter
-      ? events.filter(e => e.storeId === storeFilter).reduce(
-          (b, e) => b + (e.type === 'debt' ? e.amount : -e.amount),
-          0,
-        )
+      ? (account.openings.find(opening => opening.storeId === storeFilter)?.balance ?? 0)
       : provider.total
   )
 
   const allStoreBalances = useMemo(() => {
     const map: Record<string, { storeName: string; balance: number }> = {}
+    for (const opening of account.openings) {
+      map[opening.storeId] = { storeName: opening.storeName, balance: opening.balance }
+    }
     for (const evt of events) {
       if (!map[evt.storeId]) map[evt.storeId] = { storeName: evt.storeName, balance: 0 }
       map[evt.storeId].balance += evt.type === 'debt' ? evt.amount : -evt.amount
@@ -638,7 +667,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
       if (!map[s.storeId]) map[s.storeId] = { storeName: s.storeName, balance: 0 }
     }
     return Object.entries(map).map(([storeId, v]) => ({ storeId, ...v }))
-  }, [events, storeList])
+  }, [account.openings, events, storeList])
 
   const anyDebt = allStoreBalances.some(s => s.balance > 0)
   const canSettle = storeFilter
@@ -722,7 +751,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
             </div>
           )}
 
-          {!loading && !error && events.length === 0 && (
+          {!loading && !error && events.length === 0 && !account.openings.some(opening => opening.hasCheckpoint) && (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
               <p className="text-muted text-sm">Sin movimientos registrados</p>
               <p className="text-subtle text-xs mt-1">
@@ -740,6 +769,23 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
           {!loading && !error && displayEvents.length > 0 && (
             <div className="divide-y divide-line">
               {pagedEvents.map(evt => {
+                if (evt.opening) {
+                  const balanceLabel = evt.runningBalance > 0
+                    ? formatARS(evt.runningBalance)
+                    : evt.runningBalance < 0
+                      ? `Saldo a favor ${formatARS(Math.abs(evt.runningBalance))}`
+                      : 'Saldado'
+                  return (
+                    <div key={evt.id} className="px-4 py-3 flex items-center gap-3">
+                      <div className="shrink-0 w-2 h-2 rounded-full bg-line" />
+                      <p className="min-w-0 flex-1 text-sm font-semibold text-ink">Saldo al corte</p>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs text-subtle">Saldo</p>
+                        <p className="text-sm font-semibold text-ink">{balanceLabel}</p>
+                      </div>
+                    </div>
+                  )
+                }
                 const isAdjust = isAdminAdjustNote(evt.notes)
                 const isDebt = evt.type === 'debt'
                 const balanceColor =
@@ -793,6 +839,15 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled }: ProviderDebt
                         <span className="text-xs text-muted shrink-0">
                           {toLocalDateTime(evt.createdAt)}
                         </span>
+                        {evt.intakeId && evt.intakeCreatedAt && onOpenVisit && (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-md px-1.5 py-0.5 text-xs text-ink underline decoration-line underline-offset-2 hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                            onClick={() => onOpenVisit({ id: evt.intakeId!, createdAt: evt.intakeCreatedAt! })}
+                          >
+                            Ver visita
+                          </button>
+                        )}
                         <span className="text-xs text-subtle shrink-0">·</span>
                         <span
                           className="text-xs text-muted min-w-0 truncate"

@@ -9,6 +9,7 @@ import {
   formatMerchVisitQty,
   formatWeekRangeLabel,
   isMediaResLine,
+  mondayWeekContaining,
   mondayWeekRange,
 } from '@carniceria/shared'
 import type { MerchIntakeLineSnapshot } from '@carniceria/shared'
@@ -27,6 +28,15 @@ interface Props {
   onLogout: () => void
   /** El admin anota el monto de la media res. La cajera no lo ve ni lo edita. */
   canPriceMediaRes: boolean
+  /** Abre la semana de esta visita y la deja desplegada. */
+  focusVisit?: { id: string; createdAt: string } | null
+}
+
+function weekOffsetFor(createdAt: string): number {
+  const target = Date.parse(`${mondayWeekContaining(createdAt).startYmd}T12:00:00.000Z`)
+  const current = Date.parse(`${mondayWeekRange(0).startYmd}T12:00:00.000Z`)
+  const weeks = Math.round((target - current) / (7 * 24 * 60 * 60 * 1000))
+  return Math.max(MIN_WEEK_OFFSET, Math.min(0, weeks))
 }
 
 function providerKey(providerId: string | null, providerName: string): string {
@@ -164,15 +174,15 @@ function MediaResPaidEditor({
   )
 }
 
-export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: Props) {
-  const [weekOffset, setWeekOffset] = useState(0)
+export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, focusVisit = null }: Props) {
+  const [weekOffset, setWeekOffset] = useState(() => focusVisit ? weekOffsetFor(focusVisit.createdAt) : 0)
   const [storeIdFilter, setStoreIdFilter] = useState('all')
   const [providerFilter, setProviderFilter] = useState('all')
   const [stores, setStores] = useState<StoreRow[]>([])
   const [book, setBook] = useState<MerchWeekBookResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set())
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set(focusVisit ? [focusVisit.id] : []))
   const [openDays, setOpenDays] = useState<Set<string>>(() => new Set())
   const [revision, setRevision] = useState(0)
 
@@ -187,8 +197,8 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
 
   useEffect(() => {
     setBook(null)
-    setOpenKeys(new Set())
-  }, [weekOffset, storeIdFilter])
+    setOpenKeys(new Set(focusVisit ? [focusVisit.id] : []))
+  }, [weekOffset, storeIdFilter, focusVisit])
 
   useEffect(() => {
     if (!book || providerFilter === 'all') return
@@ -254,9 +264,17 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes }: P
   const daySignature = dayGroups.map(day => day.ymd).join('|')
 
   useEffect(() => {
+    if (focusVisit) {
+      const ymd = utcToLocalYmd(focusVisit.createdAt)
+      if (daySignature.split('|').includes(ymd)) {
+        setOpenDays(new Set([ymd]))
+        setOpenKeys(current => new Set(current).add(focusVisit.id))
+        return
+      }
+    }
     const newest = daySignature.split('|')[0] ?? ''
     setOpenDays(newest ? new Set([newest]) : new Set())
-  }, [daySignature])
+  }, [daySignature, focusVisit])
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-app text-ink">

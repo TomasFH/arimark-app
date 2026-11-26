@@ -13,11 +13,11 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import log from 'electron-log'
-import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { providers, providerDebtEvents, stores, users, expenses } from '../db/schema'
+import { providers, providerDebtEvents, stores, users, expenses, merchandiseIntakes } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import type { ActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
@@ -30,9 +30,11 @@ import {
 import { pushUnsyncedExpenses } from '../licensing/expenseSync'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
 import { getLiveProviderStoreBalances } from '../licensing/debtBalanceLive'
+import { mergeProviderAccountTails } from '../licensing/providerAccountHistory'
+import { readProviderAccountSlice } from '../licensing/providerCheckpointRead'
 import { PROVIDER_DEBT_CHECKPOINTS_COL } from '@carniceria/shared'
-import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore'
-import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderDebtEventRow } from '../../src/types/hw-api'
+import { getFirestore, collection, getDocs } from 'firebase/firestore'
+import type { IpcResult, ProviderRow, ProviderWithDebtRow, ProviderAccountHistory, ProviderDebtEventRow } from '../../src/types/hw-api'
 import { stampAdminAdjustAuthor } from '../../src/lib/providerLedgerNotes'
 import { coerceProviderIntakeKind, isMerchIntakeExpenseConcept, PROVIDER_INTAKE_KINDS } from '@carniceria/shared'
 
@@ -522,7 +524,7 @@ export function registerProvidersHandlers(): void {
   //   Orden descendente por createdAt (más reciente primero).
   //   Fuente primaria: Firestore. Fallback: SQLite local.
   // -----------------------------------------------------------------------
-  ipcMain.handle(IPC.GET_PROVIDER_DEBT_HISTORY, async (_event, payload: unknown): Promise<IpcResult<ProviderDebtEventRow[]>> => {
+  ipcMain.handle(IPC.GET_PROVIDER_DEBT_HISTORY, async (_event, payload: unknown): Promise<IpcResult<ProviderAccountHistory>> => {
     const parsed = getProviderDebtHistorySchema.safeParse(payload)
     if (!parsed.success) {
       log.error('[ipc:get-provider-debt-history] Payload inválido', parsed.error)
@@ -985,73 +987,100 @@ async function getProvidersWithDebtFromFirestore(includeArchived: boolean): Prom
 // Helpers para GET_PROVIDER_DEBT_HISTORY
 // ---------------------------------------------------------------------------
 
-async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<IpcResult<ProviderDebtEventRow[]>> {
-  const config = getBusinessConfig()
-  const app = getFirebaseApp()
-  const firestore = getFirestore(app)
+async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<IpcResult<ProviderAccountHistory>> {
   const db = getDb()
-
-  const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).all()
+  const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).where(isNull(stores.archivedAt)).all()
   const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]))
-
   const userRows = db.select({ id: users.id, name: users.name }).from(users).all()
   const userNameMap = new Map(userRows.map(u => [u.id, u.name]))
 
-  const eventsCol = collection(firestore, 'licenses', config.tenant_id, 'providerDebtEvents')
-  const q = query(eventsCol, where('providerId', '==', providerId))
-  const snap = await getDocs(q)
-
-  const result: ProviderDebtEventRow[] = []
-  const seenIds = new Set<string>()
-
-  for (const docSnap of snap.docs) {
-    const evt = docSnap.data() as {
-      id?: string
-      type: 'debt' | 'payment'
-      amount: number
-      storeId: string
-      createdAt: string
-      createdBy: string
-      expenseId?: string | null
-      deleted?: boolean
-      description?: string | null
-      notes?: string | null
-    }
-
-    if (evt.deleted === true) continue
-
-    seenIds.add(docSnap.id)
-    result.push({
-      id: docSnap.id,
-      type: evt.type,
-      amount: evt.amount,
-      storeId: evt.storeId,
-      storeName: storeNameMap.get(evt.storeId) ?? evt.storeId,
-      createdAt: evt.createdAt ?? (evt as { date?: string }).date ?? '',
-      createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
-      expenseId: evt.expenseId ?? null,
-      notes: evt.notes ?? evt.description ?? null,
+  const slices = []
+  for (const store of storeRows) {
+    const slice = await readProviderAccountSlice(providerId, store.id)
+    slices.push({
+      storeId: store.id,
+      openingBalance: slice.openingBalance,
+      hasCheckpoint: slice.hasCheckpoint,
+      events: slice.events.map(event => ({ ...event, storeId: store.id })),
     })
   }
 
-  // Incluir eventos locales aún no sincronizados con Firestore.
-  // Esto garantiza que pagos recién registrados en esta PC aparecen inmediatamente
-  // en el historial sin esperar a que el push async a Firestore complete.
-  const localResult = getProviderDebtHistoryLocal(providerId)
-  if (localResult.ok) {
-    for (const evt of localResult.data) {
-      if (!seenIds.has(evt.id)) {
-        result.push(evt)
-      }
-    }
+  const unsynced = db.select({
+    id: providerDebtEvents.id,
+    type: providerDebtEvents.type,
+    amount: providerDebtEvents.amount,
+    storeId: providerDebtEvents.storeId,
+    createdAt: providerDebtEvents.createdAt,
+    createdBy: providerDebtEvents.createdBy,
+    expenseId: providerDebtEvents.expenseId,
+    notes: providerDebtEvents.notes,
+  }).from(providerDebtEvents).where(and(
+    eq(providerDebtEvents.providerId, providerId),
+    isNull(providerDebtEvents.syncedAt),
+  )).all()
+
+  const merged = mergeProviderAccountTails({
+    slices,
+    unsynced: unsynced.map(event => ({
+      id: event.id,
+      type: event.type,
+      amount: event.amount,
+      storeId: event.storeId,
+      createdAt: event.createdAt,
+      createdBy: event.createdBy,
+      expenseId: event.expenseId ?? null,
+      notes: event.notes ?? null,
+    })),
+  })
+
+  const events = attachIntakeLinks(db, merged.events.map(event => ({
+    id: event.id,
+    type: event.type,
+    amount: event.amount,
+    storeId: event.storeId,
+    storeName: storeNameMap.get(event.storeId) ?? event.storeId,
+    createdAt: event.createdAt,
+    createdByName: userNameMap.get(event.createdBy) ?? event.createdBy,
+    expenseId: event.expenseId,
+    notes: event.notes,
+  })))
+
+  return {
+    ok: true,
+    data: {
+      openings: merged.openings.map(opening => ({
+        ...opening,
+        storeName: storeNameMap.get(opening.storeId) ?? opening.storeId,
+      })),
+      events,
+    },
   }
-
-  result.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-
-  return { ok: true, data: result }
 }
 
-function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderDebtEventRow[]> {
+function attachIntakeLinks(
+  db: ReturnType<typeof getDb>,
+  events: ProviderDebtEventRow[],
+): ProviderDebtEventRow[] {
+  const expenseIds = events.map(event => event.expenseId).filter((id): id is string => Boolean(id))
+  if (expenseIds.length === 0) return events
+  const rows = db.select({
+    id: merchandiseIntakes.id,
+    expenseId: merchandiseIntakes.expenseId,
+    createdAt: merchandiseIntakes.createdAt,
+    status: merchandiseIntakes.status,
+  }).from(merchandiseIntakes).where(inArray(merchandiseIntakes.expenseId, expenseIds)).all()
+  const byExpense = new Map<string, { id: string; createdAt: string }>()
+  for (const row of rows) {
+    if (!row.expenseId || row.status !== 'confirmed') continue
+    byExpense.set(row.expenseId, { id: row.id, createdAt: row.createdAt })
+  }
+  return events.map(event => {
+    const visit = event.expenseId ? byExpense.get(event.expenseId) : undefined
+    return visit ? { ...event, intakeId: visit.id, intakeCreatedAt: visit.createdAt } : event
+  })
+}
+
+function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderAccountHistory> {
   const db = getDb()
 
   const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).all()
@@ -1088,7 +1117,7 @@ function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderDebt
 
   result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
-  return { ok: true, data: result }
+  return { ok: true, data: { openings: [], events: attachIntakeLinks(db, result) } }
 }
 
 function getProvidersWithDebtLocal(includeArchived: boolean): IpcResult<ProviderWithDebtRow[]> {

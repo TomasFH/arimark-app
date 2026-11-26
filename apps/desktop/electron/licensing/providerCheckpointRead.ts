@@ -18,7 +18,6 @@ import {
 } from 'firebase/firestore'
 import {
   debtCheckpointDocId,
-  liveSaldoFromCheckpoint,
   parseCheckpointData,
   parseCompactableEvent,
   PROVIDER_DEBT_CHECKPOINTS_COL,
@@ -27,10 +26,31 @@ import {
 import { getBusinessConfig } from '../businessConfig'
 import { getFirebaseApp } from './firebase'
 
-export async function readProviderCheckpointBalance(
+export interface ProviderAccountSliceEvent {
+  id: string
+  type: 'debt' | 'payment'
+  amount: number
+  createdAt: string
+  createdBy: string
+  expenseId: string | null
+  notes: string | null
+}
+
+export interface ProviderAccountSlice {
+  openingBalance: number
+  hasCheckpoint: boolean
+  events: ProviderAccountSliceEvent[]
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+/** Checkpoint de un local y solo los eventos posteriores. No baja el ledger plegado. */
+export async function readProviderAccountSlice(
   providerId: string,
   storeId: string,
-): Promise<number> {
+): Promise<ProviderAccountSlice> {
   const tenant = getBusinessConfig().tenant_id
   const firestore = getFirestore(getFirebaseApp())
   const checkpointSnap = await getDoc(doc(
@@ -62,10 +82,36 @@ export async function readProviderCheckpointBalance(
     collection(firestore, 'licenses', tenant, PROVIDER_DEBT_EVENTS_COL),
     ...constraints,
   ))
-  const events = []
+  const events: ProviderAccountSliceEvent[] = []
   for (const row of snap.docs) {
-    const parsed = parseCompactableEvent('provider', row.id, row.data() as Record<string, unknown>)
-    if (parsed) events.push(parsed)
+    const data = row.data() as Record<string, unknown>
+    const parsed = parseCompactableEvent('provider', row.id, data)
+    if (!parsed || parsed.deleted === true) continue
+    const createdAt = textOrNull(data.createdAt) ?? textOrNull(data.date) ?? ''
+    events.push({
+      id: row.id,
+      type: parsed.providerType === 'payment' ? 'payment' : 'debt',
+      amount: parsed.amount,
+      createdAt,
+      createdBy: textOrNull(data.createdBy) ?? '',
+      expenseId: textOrNull(data.expenseId),
+      notes: textOrNull(data.notes) ?? textOrNull(data.description),
+    })
   }
-  return liveSaldoFromCheckpoint('provider', checkpoint, events)
+  return {
+    openingBalance: checkpoint.saldoAcumulado,
+    hasCheckpoint: checkpoint.checkpointAt != null,
+    events,
+  }
+}
+
+export async function readProviderCheckpointBalance(
+  providerId: string,
+  storeId: string,
+): Promise<number> {
+  const slice = await readProviderAccountSlice(providerId, storeId)
+  return slice.events.reduce(
+    (sum, event) => sum + (event.type === 'debt' ? event.amount : -event.amount),
+    slice.openingBalance,
+  )
 }
