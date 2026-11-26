@@ -1,21 +1,19 @@
 /**
  * Saldo de un cliente en un local: el checkpoint más lo que todavía no
  * se plegó. Es la misma cuenta que el Resumen (liveSaldoFromCheckpoint).
- * Un movimiento local posterior al corte que la cola todavía no tiene
- * se suma una sola vez. Lo ya plegado, aunque siga en SQLite, no se
- * vuelve a sumar.
+ * Un movimiento de esta PC que todavía no se subió se suma una sola vez.
+ * Lo ya plegado no se vuelve a sumar aunque siga en SQLite, ni aunque
+ * un push le haya corrido la fecha de servidor por delante del corte.
  *
  * Sin Firebase el libro local es el ledger completo.
  */
 import {
   applyCustomerEventToSaldo,
-  compareTsRank,
+  eventCountsAfterCheckpoint,
   liveSaldoFromCheckpoint,
-  msToTsRank,
   type CompactableDebtEvent,
   type CustomerLivePair,
   type DebtCheckpointFields,
-  type TsRank,
 } from '@carniceria/shared'
 
 export interface CustomerLedgerEvent {
@@ -63,13 +61,6 @@ function pairKey(customerId: string, storeId: string): string {
   return `${customerId}\0${storeId}`
 }
 
-function afterCheckpoint(createdAt: string, checkpointAt: TsRank | null): boolean {
-  if (!checkpointAt) return true
-  const ms = Date.parse(createdAt)
-  if (!Number.isFinite(ms)) return false
-  return compareTsRank(msToTsRank(ms), checkpointAt) > 0
-}
-
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -96,36 +87,54 @@ function syntheticFromTail(
   }
 }
 
+function withBusinessDate(
+  tail: CompactableDebtEvent[],
+  localById: ReadonlyMap<string, CustomerLedgerEvent>,
+  remoteById: ReadonlyMap<string, CustomerLedgerEvent>,
+): CompactableDebtEvent[] {
+  return tail.map(event => {
+    if (event.createdAt) return event
+    const createdAt = localById.get(event.id)?.createdAt ?? remoteById.get(event.id)?.createdAt
+    return createdAt ? { ...event, createdAt } : event
+  })
+}
+
 function sharedLedger(
   customerId: string,
   storeId: string,
   checkpoint: DebtCheckpointFields,
-  tail: CompactableDebtEvent[],
+  rawTail: CompactableDebtEvent[],
   localEvents: CustomerLedgerEvent[],
   remoteDisplay: CustomerLedgerEvent[],
 ): CustomerStoreLedger {
-  const liveIds = new Set(tail.filter(event => event.deleted !== true).map(event => event.id))
+  const localById = new Map(localEvents.map(event => [event.id, event]))
+  const remoteById = new Map(remoteDisplay.map(event => [event.id, event]))
+  const tail = withBusinessDate(rawTail, localById, remoteById)
   let balance = liveSaldoFromCheckpoint('customer', checkpoint, tail)
+  const counted = new Set(
+    tail.filter(event => eventCountsAfterCheckpoint(event, checkpoint.checkpointAt)).map(event => event.id),
+  )
   const shown: CustomerLedgerEvent[] = []
   const seen = new Set<string>()
-  const localById = new Map(localEvents.map(event => [event.id, event]))
 
   for (const event of localEvents) {
-    if (liveIds.has(event.id)) {
+    if (counted.has(event.id)) {
       shown.push(event)
       seen.add(event.id)
       continue
     }
-    if (!afterCheckpoint(event.createdAt, checkpoint.checkpointAt)) continue
+    // Ya subido y fuera de lo que cuenta: el corte lo incluye.
+    // El reloj de esta PC puede haber dejado createdAt después de la frontera.
+    // Lo que esta PC todavía no subió no está en el corte: se suma igual.
+    if (event.syncedAt != null) continue
     balance = applyCustomerEventToSaldo(balance, event.eventType, event.amount)
     shown.push(event)
     seen.add(event.id)
   }
 
-  const extras = new Map(remoteDisplay.map(event => [event.id, event]))
   for (const event of tail) {
-    if (event.deleted === true || seen.has(event.id)) continue
-    const known = localById.get(event.id) ?? extras.get(event.id) ?? syntheticFromTail(customerId, storeId, event)
+    if (!counted.has(event.id) || seen.has(event.id)) continue
+    const known = localById.get(event.id) ?? remoteById.get(event.id) ?? syntheticFromTail(customerId, storeId, event)
     shown.push(known)
     seen.add(event.id)
   }

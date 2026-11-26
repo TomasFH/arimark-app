@@ -445,6 +445,151 @@ describe('debts.handler', () => {
       expect(result.data[0]?.balance).toBe(liveSaldoFromCheckpoint('customer', pair.checkpoint, pair.events))
       expect(storeLiveFiadoBalance('store-001', [pair])).toBe(result.data[0]?.balance)
     })
+
+    it('no suma el cargo viejo que sigue en la PC y también en la cola', async () => {
+      const customerId = 'fb368d55-2126-450b-8ec4-5a2438e6bee7'
+      const checkpointAt = {
+        seconds: Math.floor(Date.parse('2026-11-20T00:00:00.000Z') / 1000),
+        nanos: 0,
+      }
+      const foldedAt = '2026-10-15T10:35:25.298Z'
+      const cancelAt = '2026-11-25T17:30:42.467Z'
+      const firstChargeAt = '2026-11-26T15:09:30.832Z'
+      const secondChargeAt = '2026-11-26T15:14:57.859Z'
+      const oldId = 'cargo-15-10'
+      db.insert(customers).values({
+        id: customerId, storeId: 'store-001', name: 'Tomas Deudor',
+        active: true, createdAt: foldedAt, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values([
+        {
+          id: oldId, customerId, saleId: null, storeId: 'store-001',
+          eventType: 'created', amount: 99_999, createdAt: foldedAt, createdBy: 'user-001',
+          syncedAt: foldedAt,
+        },
+        {
+          id: 'd4f227c7-c333-4b29-8ecd-dcbf3be0b39b', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'cancelled', amount: -99_999, createdAt: cancelAt, createdBy: 'user-001',
+          syncedAt: cancelAt,
+        },
+        {
+          id: '7a7dbd75-4bef-405f-9637-3c45e96885af', customerId, saleId: SALE_ID, storeId: 'store-001',
+          eventType: 'created', amount: 22_419, createdAt: firstChargeAt, createdBy: 'user-001',
+          syncedAt: firstChargeAt,
+        },
+        {
+          id: '878fe8f9-5781-4313-9b56-265b92877329', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'created', amount: 50_000, createdAt: secondChargeAt, createdBy: 'user-001',
+          syncedAt: secondChargeAt,
+        },
+      ]).run()
+
+      const pair = {
+        customerId,
+        storeId: 'store-001',
+        checkpoint: {
+          kind: 'customer' as const,
+          entityId: customerId,
+          storeId: 'store-001',
+          saldoAcumulado: 99_999,
+          checkpointAt,
+          foldedCount: 1,
+        },
+        events: [
+          {
+            id: oldId,
+            serverAt: { seconds: checkpointAt.seconds + 10, nanos: 0 },
+            customerEventType: 'created',
+            amount: 99_999,
+            createdAt: foldedAt,
+          },
+          { id: 'd4f227c7-c333-4b29-8ecd-dcbf3be0b39b', serverAt: { seconds: checkpointAt.seconds + 20, nanos: 0 }, customerEventType: 'cancelled', amount: -99_999, createdAt: cancelAt },
+          { id: '7a7dbd75-4bef-405f-9637-3c45e96885af', serverAt: { seconds: checkpointAt.seconds + 30, nanos: 0 }, customerEventType: 'created', amount: 22_419, createdAt: firstChargeAt },
+          { id: '878fe8f9-5781-4313-9b56-265b92877329', serverAt: { seconds: checkpointAt.seconds + 40, nanos: 0 }, customerEventType: 'created', amount: 50_000, createdAt: secondChargeAt },
+        ],
+      }
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getLiveCustomerPairs).mockReturnValue([pair])
+
+      const result = await getHandler('ipc:get-debts')(null) as {
+        ok: boolean
+        data: Array<{ balance: number; openingBalance: number; events: Array<{ id: string }> }>
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data).toHaveLength(1)
+      expect(result.data[0]?.balance).toBe(72_419)
+      expect(result.data[0]?.openingBalance).toBe(99_999)
+      expect(result.data[0]?.events.map(event => event.id)).not.toContain(oldId)
+      expect(storeLiveFiadoBalance('store-001', [pair])).toBe(72_419)
+    })
+
+    it('no suma un cargo ya subido cuyo reloj local quedó después del corte', async () => {
+      const customerId = 'fb368d55-2126-450b-8ec4-5a2438e6bee7'
+      const checkpointAt = {
+        seconds: Math.floor(Date.parse('2026-10-15T10:35:25.298Z') / 1000),
+        nanos: 298_000_000,
+      }
+      const foldedAt = '2026-10-15T13:35:25.298Z'
+      const cancelAt = '2026-11-25T17:30:42.467Z'
+      const firstChargeAt = '2026-11-26T15:09:30.832Z'
+      const secondChargeAt = '2026-11-26T15:14:57.859Z'
+      const oldId = 'cargo-15-10'
+      db.insert(customers).values({
+        id: customerId, storeId: 'store-001', name: 'Tomas Deudor',
+        active: true, createdAt: foldedAt, createdBy: 'user-001',
+      }).run()
+      db.insert(debtEvents).values([
+        {
+          id: oldId, customerId, saleId: null, storeId: 'store-001',
+          eventType: 'created', amount: 99_999, createdAt: foldedAt, createdBy: 'user-001',
+          syncedAt: foldedAt,
+        },
+        {
+          id: 'd4f227c7-c333-4b29-8ecd-dcbf3be0b39b', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'cancelled', amount: -99_999, createdAt: cancelAt, createdBy: 'user-001',
+          syncedAt: cancelAt,
+        },
+        {
+          id: '7a7dbd75-4bef-405f-9637-3c45e96885af', customerId, saleId: SALE_ID, storeId: 'store-001',
+          eventType: 'created', amount: 22_419, createdAt: firstChargeAt, createdBy: 'user-001',
+          syncedAt: firstChargeAt,
+        },
+        {
+          id: '878fe8f9-5781-4313-9b56-265b92877329', customerId, saleId: null, storeId: 'store-001',
+          eventType: 'created', amount: 50_000, createdAt: secondChargeAt, createdBy: 'user-001',
+          syncedAt: secondChargeAt,
+        },
+      ]).run()
+
+      const pair = {
+        customerId,
+        storeId: 'store-001',
+        checkpoint: {
+          kind: 'customer' as const,
+          entityId: customerId,
+          storeId: 'store-001',
+          saldoAcumulado: 99_999,
+          checkpointAt,
+          foldedCount: 1,
+        },
+        events: [
+          { id: 'd4f227c7-c333-4b29-8ecd-dcbf3be0b39b', serverAt: { seconds: Math.floor(Date.parse(cancelAt) / 1000), nanos: 0 }, customerEventType: 'cancelled', amount: -99_999, createdAt: cancelAt },
+          { id: '7a7dbd75-4bef-405f-9637-3c45e96885af', serverAt: { seconds: Math.floor(Date.parse(firstChargeAt) / 1000), nanos: 0 }, customerEventType: 'created', amount: 22_419, createdAt: firstChargeAt },
+          { id: '878fe8f9-5781-4313-9b56-265b92877329', serverAt: { seconds: Math.floor(Date.parse(secondChargeAt) / 1000), nanos: 0 }, customerEventType: 'created', amount: 50_000, createdAt: secondChargeAt },
+        ],
+      }
+      vi.mocked(isFirebaseAvailable).mockReturnValue(true)
+      vi.mocked(getLiveCustomerPairs).mockReturnValue([pair])
+
+      const result = await getHandler('ipc:get-debts')(null) as {
+        ok: boolean
+        data: Array<{ balance: number; openingBalance: number; events: Array<{ id: string }> }>
+      }
+      expect(result.ok).toBe(true)
+      expect(result.data[0]?.balance).toBe(72_419)
+      expect(result.data[0]?.openingBalance).toBe(99_999)
+      expect(result.data[0]?.events.map(event => event.id)).not.toContain(oldId)
+    })
   })
 
   // ---------------------------------------------------------------------------

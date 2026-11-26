@@ -118,4 +118,50 @@ describe('getLiveCustomerPairs', () => {
     expect(mockGetDocs).not.toHaveBeenCalled()
     expect(mockOnSnapshot.mock.calls.length).toBe(listensBefore + 1)
   })
+
+  it('no suma en el resumen un evento cuya fecha ya está en el corte', () => {
+    startDebtBalanceLiveSync('tenant', {} as never)
+    const customer = callbacks.get('licenses/tenant/customerDebtCheckpoints')
+    const checkpointAt = { seconds: Math.floor(Date.parse('2026-11-20T00:00:00.000Z') / 1000), nanoseconds: 0 }
+    customer?.({
+      docs: [{
+        id: 'c1__store-001',
+        data: () => ({
+          entityId: 'c1',
+          storeId: 'store-001',
+          saldoAcumulado: 99_999,
+          checkpointAt,
+          foldedCount: 1,
+        }),
+      }],
+    })
+    const tail = [...callbacks.keys()].find(key => key.includes('customerDebtEvents'))
+    callbacks.get(tail ?? '')?.({
+      docs: [
+        {
+          id: 'viejo',
+          data: () => ({
+            customerId: 'c1',
+            storeId: 'store-001',
+            eventType: 'created',
+            amount: 99_999,
+            createdAt: '2026-10-15T10:35:25.298Z',
+            createdAtServer: { seconds: checkpointAt.seconds + 10, nanoseconds: 0 },
+          }),
+        },
+        {
+          id: 'nuevo',
+          data: () => ({
+            customerId: 'c1',
+            storeId: 'store-001',
+            eventType: 'created',
+            amount: 22_419,
+            createdAt: '2026-11-26T15:09:30.832Z',
+            createdAtServer: { seconds: checkpointAt.seconds + 20, nanoseconds: 0 },
+          }),
+        },
+      ],
+    })
+    expect(storeLiveFiadoBalance('store-001', getLiveCustomerPairs())).toBe(122_418)
+  })
 })

@@ -7,7 +7,10 @@ import {
   debtCheckpointDocId,
   emptyCheckpoint,
   eventBelongsInCheckpoint,
+  createdAtInsideCheckpoint,
+  eventCountsAfterCheckpoint,
   foldEventsIntoCheckpoint,
+  liveSaldoFromCheckpoint,
   pairHasPendingFold,
   planCreatedAtServerBackfill,
   CHECKPOINT_SAFETY_MS,
@@ -140,6 +143,43 @@ describe('foldEventsIntoCheckpoint', () => {
   })
 })
 
+describe('liveSaldoFromCheckpoint', () => {
+  const checkpointAt = msToTsRank(Date.parse('2026-11-20T00:00:00.000Z'))
+  const checkpoint = {
+    kind: 'customer' as const,
+    entityId: 'c1',
+    storeId: 'norte',
+    saldoAcumulado: 99_999,
+    checkpointAt,
+    foldedCount: 1,
+  }
+
+  it('no vuelve a sumar un evento cuya fecha de negocio ya está en el corte', () => {
+    const saldo = liveSaldoFromCheckpoint('customer', checkpoint, [
+      {
+        id: 'viejo',
+        serverAt: { seconds: checkpointAt.seconds + 10, nanos: 0 },
+        customerEventType: 'created',
+        amount: 99_999,
+        createdAt: '2026-10-15T10:35:25.298Z',
+      },
+      {
+        id: 'nuevo',
+        serverAt: { seconds: checkpointAt.seconds + 20, nanos: 0 },
+        customerEventType: 'created',
+        amount: 22_419,
+        createdAt: '2026-11-26T15:09:30.832Z',
+      },
+    ])
+    expect(saldo).toBe(122_418)
+    expect(createdAtInsideCheckpoint('2026-10-15T10:35:25.298Z', checkpointAt)).toBe(true)
+    expect(eventCountsAfterCheckpoint({
+      serverAt: { seconds: checkpointAt.seconds + 10, nanos: 0 },
+      createdAt: '2026-10-15T10:35:25.298Z',
+    }, checkpointAt)).toBe(false)
+  })
+})
+
 describe('parseCompactableEvent', () => {
   it('omite eventos sin createdAtServer', () => {
     expect(parseCompactableEvent('provider', 'e1', { type: 'debt', amount: 1 })).toBeNull()
@@ -153,6 +193,17 @@ describe('parseCompactableEvent', () => {
     })
     expect(parsed?.serverAt).toEqual({ seconds: 100, nanos: 5 })
     expect(parsed?.providerType).toBe('payment')
+    expect(parsed?.createdAt).toBeUndefined()
+  })
+
+  it('guarda la fecha de negocio para no recontar lo ya plegado', () => {
+    const parsed = parseCompactableEvent('customer', 'e1', {
+      createdAtServer: { seconds: 100, nanoseconds: 0 },
+      eventType: 'created',
+      amount: 99_999,
+      createdAt: '2026-10-15T10:35:25.298Z',
+    })
+    expect(parsed?.createdAt).toBe('2026-10-15T10:35:25.298Z')
   })
 })
 

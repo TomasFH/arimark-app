@@ -153,6 +153,8 @@ export interface CompactableDebtEvent {
   providerType?: ProviderDebtEventType
   customerEventType?: string
   amount: number
+  /** Fecha de negocio (`createdAt`). No es el timestamp de servidor. */
+  createdAt?: string
 }
 
 export interface FoldCheckpointInput {
@@ -283,6 +285,28 @@ export function pairHasPendingFold(input: {
   return compareTsRank(firstEventAt, cutoff) <= 0
 }
 
+/**
+ * La fecha de negocio ya quedó adentro del corte.
+ * Vale aunque un push posterior haya movido `createdAtServer`.
+ */
+export function createdAtInsideCheckpoint(createdAt: string, checkpointAt: TsRank | null): boolean {
+  if (checkpointAt == null) return false
+  const ms = Date.parse(createdAt)
+  if (!Number.isFinite(ms)) return false
+  return compareTsRank(msToTsRank(ms), checkpointAt) <= 0
+}
+
+/** Cola que todavía no está plegada. La fecha de negocio gana al timestamp de servidor. */
+export function eventCountsAfterCheckpoint(
+  event: Pick<CompactableDebtEvent, 'serverAt' | 'deleted' | 'createdAt'>,
+  checkpointAt: TsRank | null,
+): boolean {
+  if (event.deleted === true) return false
+  if (checkpointAt != null && compareTsRank(event.serverAt, checkpointAt) <= 0) return false
+  if (event.createdAt != null && createdAtInsideCheckpoint(event.createdAt, checkpointAt)) return false
+  return true
+}
+
 export function liveSaldoFromCheckpoint(
   kind: DebtCheckpointKind,
   checkpoint: DebtCheckpointFields,
@@ -294,8 +318,7 @@ export function liveSaldoFromCheckpoint(
     return cmp !== 0 ? cmp : a.id.localeCompare(b.id)
   })
   for (const ev of sorted) {
-    if (ev.deleted === true) continue
-    if (checkpoint.checkpointAt && compareTsRank(ev.serverAt, checkpoint.checkpointAt) <= 0) continue
+    if (!eventCountsAfterCheckpoint(ev, checkpoint.checkpointAt)) continue
     if (kind === 'provider') {
       const type = ev.providerType === 'payment' ? 'payment' : 'debt'
       saldo = applyProviderEventToSaldo(saldo, type, ev.amount)
@@ -343,6 +366,12 @@ export function planCreatedAtServerBackfill(data: Record<string, unknown>): Crea
   return { action: 'leave-unset', reason: 'unparseable', raw }
 }
 
+function businessCreatedAt(data: Record<string, unknown>): string | undefined {
+  if (typeof data.createdAt === 'string' && data.createdAt.trim()) return data.createdAt
+  if (typeof data.date === 'string' && data.date.trim()) return data.date
+  return undefined
+}
+
 export function parseCompactableEvent(
   kind: DebtCheckpointKind,
   id: string,
@@ -351,6 +380,7 @@ export function parseCompactableEvent(
   const serverAt = timestampToRank(data[DEBT_EVENT_SERVER_TS_FIELD])
   if (serverAt == null) return null
   const amount = typeof data.amount === 'number' ? data.amount : 0
+  const createdAt = businessCreatedAt(data)
   if (kind === 'provider') {
     return {
       id,
@@ -358,6 +388,7 @@ export function parseCompactableEvent(
       deleted: data.deleted === true,
       providerType: data.type === 'payment' ? 'payment' : 'debt',
       amount,
+      createdAt,
     }
   }
   return {
@@ -366,6 +397,7 @@ export function parseCompactableEvent(
     deleted: data.deleted === true,
     customerEventType: typeof data.eventType === 'string' ? data.eventType : 'created',
     amount,
+    createdAt,
   }
 }
 

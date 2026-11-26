@@ -17,6 +17,7 @@ import {
   type QueryConstraint,
 } from 'firebase/firestore'
 import {
+  createdAtInsideCheckpoint,
   debtCheckpointDocId,
   parseCheckpointData,
   parseCompactableEvent,
@@ -98,10 +99,11 @@ export async function readProviderAccountSlice(
       notes: textOrNull(data.notes) ?? textOrNull(data.description),
     })
   }
+  const visible = events.filter(event => !createdAtInsideCheckpoint(event.createdAt, checkpoint.checkpointAt))
   return {
     openingBalance: checkpoint.saldoAcumulado,
     hasCheckpoint: checkpoint.checkpointAt != null,
-    events,
+    events: visible,
   }
 }
 
