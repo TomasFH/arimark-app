@@ -61,13 +61,20 @@ interface DayGroup {
   ymd: string
   label: string
   total: number
-  paid: number
+  visitPaid: number
+  oldDebt: number
   debt: number
   unpriced: number
   visits: VisitRow[]
 }
 
-/** Una entrega sin precio no entra en el total del día. Pagado y deuda sí, porque son montos. */
+/** Lo pagado de esta mercadería. `paid` también incluye la deuda anterior. */
+function visitPaidOf(delivery: { paid: number; oldDebtSettled: number }): number {
+  const oldDebt = Math.max(0, delivery.oldDebtSettled)
+  return Math.max(0, delivery.paid - oldDebt)
+}
+
+/** Una entrega sin precio no entra en el total del día. Los pagos y la deuda sí, porque son montos. */
 function groupVisitsByDay(visits: VisitRow[]): DayGroup[] {
   const groups = new Map<string, DayGroup>()
   for (const row of visits) {
@@ -78,7 +85,8 @@ function groupVisitsByDay(visits: VisitRow[]): DayGroup[] {
         ymd,
         label: toVisitDayLabel(row.delivery.createdAt),
         total: 0,
-        paid: 0,
+        visitPaid: 0,
+        oldDebt: 0,
         debt: 0,
         unpriced: 0,
         visits: [],
@@ -88,7 +96,8 @@ function groupVisitsByDay(visits: VisitRow[]): DayGroup[] {
     const cost = visitCost(row.delivery.lines)
     if (cost > 0) group.total += cost
     else group.unpriced += 1
-    group.paid += row.delivery.paid
+    group.visitPaid += visitPaidOf(row.delivery)
+    group.oldDebt += Math.max(0, row.delivery.oldDebtSettled)
     group.debt += row.delivery.debt
     group.visits.push(row)
   }
@@ -119,7 +128,16 @@ function DayChevron({ open }: { open: boolean }) {
   )
 }
 
-const VISIT_GRID = 'grid w-full min-w-max grid-cols-[max-content_max-content_max-content_minmax(7rem,1fr)_minmax(7rem,1fr)_minmax(8.5rem,1fr)] gap-x-6'
+const VISIT_GRID = 'grid w-full min-w-max grid-cols-[max-content_max-content_max-content_minmax(7rem,1fr)_minmax(7.5rem,1fr)_minmax(8.5rem,1fr)_minmax(8.5rem,1fr)] gap-x-6'
+
+/** Un pago de cero es un dato: se muestra $0, en el mismo tono que el resto de la columna. */
+function PaymentAmount({ amount }: { amount: number }) {
+  return (
+    <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">
+      {formatARS(amount)}
+    </span>
+  )
+}
 
 function MediaResPaidEditor({
   line,
@@ -362,13 +380,15 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
           {book && !error && visits.length > 0 && (
             <div className="overflow-x-auto">
               <div className={`${VISIT_GRID} gap-y-2`}>
-                <div className="col-span-6 grid grid-cols-subgrid items-end px-4 text-xs text-muted">
-                  <span className="whitespace-nowrap">Hora</span>
-                  <span className="whitespace-nowrap">Proveedor</span>
-                  <span className="whitespace-nowrap">Local</span>
-                  <span className="whitespace-nowrap text-right">Total</span>
-                  <span className="whitespace-nowrap text-right">Pagado</span>
-                  <span className="whitespace-nowrap text-right">Quedó debiendo</span>
+                <div className="col-span-7 grid grid-cols-subgrid items-end gap-y-1 px-4 text-xs text-muted">
+                  <span className="col-start-1 row-start-1 row-span-2 self-end whitespace-nowrap">Hora</span>
+                  <span className="col-start-2 row-start-1 row-span-2 self-end whitespace-nowrap">Proveedor</span>
+                  <span className="col-start-3 row-start-1 row-span-2 self-end whitespace-nowrap">Local</span>
+                  <span className="col-start-4 row-start-1 row-span-2 self-end whitespace-nowrap text-right">Total</span>
+                  <span className="col-start-5 col-span-2 row-start-1 whitespace-nowrap text-center">Pagado</span>
+                  <span className="col-start-5 row-start-2 whitespace-nowrap text-right">Esta visita</span>
+                  <span className="col-start-6 row-start-2 whitespace-nowrap text-right">Deuda anterior</span>
+                  <span className="col-start-7 row-start-1 row-span-2 self-end whitespace-nowrap text-right">Quedó debiendo</span>
                 </div>
                 {dayGroups.map((day, index) => {
                   const dayOpen = openDays.has(day.ymd)
@@ -377,11 +397,11 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                   return (
                     <div
                       key={day.ymd}
-                      className={`col-span-6 grid grid-cols-subgrid ${dayOpen ? 'gap-y-3' : ''} ${index > 0 ? 'mt-8' : ''}`}
+                      className={`col-span-7 grid grid-cols-subgrid ${dayOpen ? 'gap-y-3' : ''} ${index > 0 ? 'mt-8' : ''}`}
                     >
                       <button
                         type="button"
-                        className="col-span-6 grid grid-cols-subgrid items-center border-y border-line-strong bg-app px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
+                        className="col-span-7 grid grid-cols-subgrid items-center border-y border-line-strong bg-app px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
                         aria-expanded={dayOpen}
                         onClick={() => toggleDay(day.ymd)}
                       >
@@ -395,7 +415,8 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                         <span className={`whitespace-nowrap text-right text-sm font-semibold tabular-nums ${day.total > 0 ? 'text-ink' : 'text-muted'}`}>
                           {dayTotal}
                         </span>
-                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(day.paid)}</span>
+                        <PaymentAmount amount={day.visitPaid} />
+                        <PaymentAmount amount={day.oldDebt} />
                         <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(day.debt)}</span>
                       </button>
                       {dayOpen && day.visits.map(({ providerName, delivery }) => {
@@ -404,10 +425,10 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                   const totalLabel = priceText(total)
                   const when = toVisitTime(delivery.createdAt)
                   return (
-                    <div key={delivery.id} className="col-span-6 grid grid-cols-subgrid overflow-hidden rounded-2xl border border-line bg-panel">
+                    <div key={delivery.id} className="col-span-7 grid grid-cols-subgrid overflow-hidden rounded-2xl border border-line bg-panel">
                       <button
                         type="button"
-                        className={`col-span-6 grid grid-cols-subgrid items-center px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
+                        className={`col-span-7 grid grid-cols-subgrid items-center px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
                         aria-expanded={open}
                         onClick={() => toggleVisit(delivery.id)}
                       >
@@ -421,11 +442,12 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                         <span className={`whitespace-nowrap text-right text-sm tabular-nums ${total > 0 ? 'text-ink' : 'text-muted'}`}>
                           {totalLabel}
                         </span>
-                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(delivery.paid)}</span>
+                        <PaymentAmount amount={visitPaidOf(delivery)} />
+                        <PaymentAmount amount={Math.max(0, delivery.oldDebtSettled)} />
                         <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(delivery.debt)}</span>
                       </button>
                       {open && (
-                        <div className="col-span-6 space-y-3 border-t border-line px-4 py-3">
+                        <div className="col-span-7 space-y-3 border-t border-line px-4 py-3">
                           <p className="whitespace-nowrap text-xs text-muted" title={delivery.createdByName}>
                             Recibió {delivery.createdByName}
                           </p>

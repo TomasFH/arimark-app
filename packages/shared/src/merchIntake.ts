@@ -649,7 +649,10 @@ export interface MerchWeekDelivery {
   storeName: string
   notes: string | null
   lines: MerchIntakeLineSnapshot[]
+  /** Efectivo de esta visita más lo que se usó para deuda vieja. */
   paid: number
+  /** Parte de `paid` que canceló deuda de visitas anteriores. */
+  oldDebtSettled: number
   cashOut: number
   debt: number
 }
@@ -812,6 +815,7 @@ export function buildMerchWeekBook(rows: MerchWeekIntakeInput[]): MerchWeekBook 
       notes: row.notes,
       lines: [...row.lines].sort((a, b) => a.sortOrder - b.sortOrder),
       paid: money.paid,
+      oldDebtSettled: pesos(row.oldDebtSettled),
       cashOut: money.cashOut,
       debt: money.debt,
     }
@@ -871,8 +875,8 @@ function linePriceIsInVisitTotal(line: { moneyRole?: MerchIntakeLineSnapshot['mo
 
 /**
  * Oculta el precio de las líneas que `hideLine` marca.
- * Si ese precio entraba al total de la visita, también sale del pagado y de la deuda.
- * El costo informado (la media res anotada) no está en esos dos números y no los mueve.
+ * Si ese precio entraba al total de la visita, sale del pago de esta visita y de la deuda.
+ * El pago de deuda anterior no se toca. El costo informado (la media res anotada) tampoco.
  */
 export function redactMerchWeekBook<T extends MerchWeekBook>(
   book: T,
@@ -892,12 +896,14 @@ export function redactMerchWeekBook<T extends MerchWeekBook>(
         }
         return { ...line, unitCost: 0, costTotal: 0, moneyRole: 'none' as const }
       })
-      const fromPaid = Math.min(delivery.paid, hiddenFromTotal)
-      const nextPaid = delivery.paid - fromPaid
-      const nextDebt = Math.max(0, delivery.debt - (hiddenFromTotal - fromPaid))
+      const oldDebt = Math.max(0, delivery.oldDebtSettled)
+      const visitPaid = Math.max(0, delivery.paid - oldDebt)
+      const fromVisit = Math.min(visitPaid, hiddenFromTotal)
+      const nextPaid = visitPaid - fromVisit + oldDebt
+      const nextDebt = Math.max(0, delivery.debt - (hiddenFromTotal - fromVisit))
       providerPaid += nextPaid
       providerDebt += nextDebt
-      return { ...delivery, lines, paid: nextPaid, debt: nextDebt }
+      return { ...delivery, lines, paid: nextPaid, oldDebtSettled: oldDebt, debt: nextDebt }
     })
     paid += providerPaid
     debt += providerDebt

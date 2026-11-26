@@ -322,6 +322,8 @@ describe('buildMerchWeekBook', () => {
     expect(book.cashOut).toBeGreaterThan(paidAmount)
     expect(book.providers[0]?.cashOut).toBeGreaterThan(paidAmount)
     expect(book.providers[0]?.paid).toBe(25_000)
+    expect(book.providers[0]?.deliveries[0]?.oldDebtSettled).toBe(5_000)
+    expect(book.providers[0]?.deliveries[0]?.paid).toBe(25_000)
   })
 
   it('media res entra en las cantidades con plata en 0', () => {
@@ -424,5 +426,33 @@ describe('buildMerchWeekBook', () => {
     const redacted = redactMerchWeekBook(book, line => line.rubroId === 'rubro_media_res')
     expect(redacted.providers[0]?.deliveries[0]?.paid).toBe(5_000)
     expect(redacted.paid).toBe(5_000)
+  })
+
+  it('ocultar un precio de esta visita no come el pago de deuda anterior', () => {
+    const book = buildMerchWeekBook([
+      weekVisit({
+        id: 'v',
+        providerName: 'Guido',
+        paidAmount: 9_000,
+        oldDebtSettled: 5_000,
+        debtAmount: 0,
+        cashOut: 14_000,
+        lines: [
+          {
+            ...weekLine('pieces_weight', 'rubro_media_res', 'Media res', {
+              template: 'pieces_weight',
+              weightsKg: [90],
+            }),
+            costTotal: 4_000,
+            moneyRole: 'payable',
+          },
+        ],
+      }),
+    ])
+    const redacted = redactMerchWeekBook(book, line => line.rubroId === 'rubro_media_res')
+    const delivery = redacted.providers[0]?.deliveries[0]
+    expect(delivery?.oldDebtSettled).toBe(5_000)
+    expect(delivery?.paid).toBe(10_000)
+    expect(redacted.paid).toBe(10_000)
   })
 })
