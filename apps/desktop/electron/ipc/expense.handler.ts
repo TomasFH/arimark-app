@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { eq, desc, sql, and, isNotNull, ne } from 'drizzle-orm'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { expenses, providerDebtEvents, providers, stores, users } from '../db/schema'
+import { expenses, merchandiseIntakes, providerDebtEvents, providers, stores, users } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
 import { coerceInjectReason, injectConceptForReason, isMerchIntakeExpenseConcept } from '@carniceria/shared'
@@ -318,7 +318,6 @@ export function registerExpenseHandlers(): void {
     if (!session.shiftId) return { ok: false, error: 'No hay turno activo.', code: 'NO_SHIFT' }
 
     const { id, concept, amount, notes, newDebtAmount, paysOldDebt, debtStoreId, crossStorePayment } = parsed.data
-    const cashAmount = expenseCashAmount(amount, paysOldDebt)
 
     try {
       const db = getDb()
@@ -380,6 +379,46 @@ export function registerExpenseHandlers(): void {
         }
       }
 
+      // La visita confirmada es la fuente de su propia deuda y de lo ya pagado.
+      // El formulario solo puede cambiar el pago de deuda anterior: si manda
+      // newDebtAmount en 0, esa deuda no se borra.
+      const visit = db.select({
+        paidAmount: merchandiseIntakes.paidAmount,
+        debtAmount: merchandiseIntakes.debtAmount,
+        paymentChannel: merchandiseIntakes.paymentChannel,
+        storeId: merchandiseIntakes.storeId,
+        providerId: merchandiseIntakes.providerId,
+        providerName: merchandiseIntakes.providerName,
+      }).from(merchandiseIntakes).where(and(
+        eq(merchandiseIntakes.expenseId, id),
+        eq(merchandiseIntakes.status, 'confirmed'),
+      )).get()
+
+      if (visit && !resolvedProviderId && visit.providerId) {
+        resolvedProviderId = visit.providerId
+        const prov = db.select({ name: providers.name }).from(providers)
+          .where(eq(providers.id, visit.providerId)).get()
+        resolvedProviderName = prov?.name ?? visit.providerName ?? visit.providerId
+      }
+
+      const existingDebtStore = db.select({ storeId: providerDebtEvents.storeId })
+        .from(providerDebtEvents)
+        .where(and(
+          eq(providerDebtEvents.expenseId, id),
+          eq(providerDebtEvents.type, 'debt'),
+        ))
+        .get()
+
+      const debtAmountToKeep = visit
+        ? Math.max(0, visit.debtAmount)
+        : (newDebtAmount ?? 0)
+      const cashAmount = visit
+        ? (visit.paymentChannel === 'digital' ? 0 : Math.max(0, visit.paidAmount)) + (paysOldDebt ?? 0)
+        : expenseCashAmount(amount, paysOldDebt)
+      const debtStoreForEvent = visit
+        ? (existingDebtStore?.storeId ?? visit.storeId)
+        : effectiveDebtStoreId
+
       db.transaction(tx => {
         // Actualizar gasto (siempre en el local de la sesión)
         tx.update(expenses).set({
@@ -394,15 +433,16 @@ export function registerExpenseHandlers(): void {
         tx.delete(providerDebtEvents).where(eq(providerDebtEvents.expenseId, id)).run()
 
         if (resolvedProviderId && resolvedProviderName) {
-          // Los eventos de deuda se imputan al local efectivo (puede ser otro local)
-          if (newDebtAmount && newDebtAmount > 0) {
+          // La deuda de una visita queda en el local de esa visita.
+          // debtStoreId del formulario solo reparte el pago de deuda anterior.
+          if (debtAmountToKeep > 0) {
             tx.insert(providerDebtEvents).values({
               id: uuidv4(),
-              storeId: effectiveDebtStoreId,
+              storeId: debtStoreForEvent,
               providerId: resolvedProviderId,
               provider: resolvedProviderName,
               type: 'debt',
-              amount: newDebtAmount,
+              amount: debtAmountToKeep,
               expenseId: id,
               shiftId: session.shiftId!,
               createdAt: now,
@@ -456,6 +496,7 @@ export function registerExpenseHandlers(): void {
 
       log.info('[ipc:update-expense] Gasto actualizado', {
         id, concept, visitAmount: amount, cashAmount, paysOldDebt: paysOldDebt ?? 0,
+        debtKept: debtAmountToKeep,
       })
       return { ok: true, data: { id } }
     } catch (err) {
@@ -590,6 +631,22 @@ export function registerExpenseHandlers(): void {
         debtByExpense.set(ev.expenseId, cur)
       }
 
+      const visits = expenseIds.length > 0
+        ? db.select({
+            expenseId: merchandiseIntakes.expenseId,
+            paidAmount: merchandiseIntakes.paidAmount,
+            debtAmount: merchandiseIntakes.debtAmount,
+          }).from(merchandiseIntakes).where(and(
+            sql`${merchandiseIntakes.expenseId} IN ${expenseIds}`,
+            eq(merchandiseIntakes.status, 'confirmed'),
+          )).all()
+        : []
+      const visitByExpense = new Map(
+        visits.flatMap(v => v.expenseId
+          ? [[v.expenseId, { paidAmount: v.paidAmount, debtAmount: v.debtAmount }] as const]
+          : []),
+      )
+
       return {
         ok: true,
         data: rows.map(r => {
@@ -605,6 +662,7 @@ export function registerExpenseHandlers(): void {
             notes: r.notes ?? undefined,
             createdAt: r.createdAt,
             createdBy: userMap.get(r.createdBy) ?? r.createdBy,
+            visit: visitByExpense.get(r.id),
           }
         }),
       }

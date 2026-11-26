@@ -125,13 +125,21 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   const [crossStoreDebt, setCrossStoreDebt] = useState<ProviderDebtRow | null>(null)
   const [loadingCrossDebt, setLoadingCrossDebt] = useState(false)
 
-  // expenses.amount ya incluye paysOldDebt (toda la plata que salió de caja).
-  // La visita es amount − paysOldDebt; Entregado es amount. No volver a sumar.
+  // Gasto de una visita confirmada: la deuda de la mercadería no se renegocia.
+  // Entregado arranca en lo ya pagado de la visita más la deuda anterior que
+  // este gasto ya saldó. Lo que se sume encima paga deuda anterior.
+  const editingVisit = editingExpense?.visit
+  const visitPaidLocked = Math.max(0, editingVisit?.paidAmount ?? 0)
+  const visitDebtLocked = Math.max(0, editingVisit?.debtAmount ?? 0)
   const editingPaysOld = editingExpense?.paysOldDebt ?? 0
-  const editingCashOut = editingExpense?.amount ?? 0
-  const editingVisitTotal = editingExpense
-    ? Math.max(0, editingCashOut - editingPaysOld) + (editingExpense.newDebtAmount ?? 0)
-    : 0
+  const editingCashOut = editingVisit
+    ? visitPaidLocked + editingPaysOld
+    : (editingExpense?.amount ?? 0)
+  const editingVisitTotal = editingVisit
+    ? visitPaidLocked + visitDebtLocked
+    : editingExpense
+      ? Math.max(0, (editingExpense.amount ?? 0) - editingPaysOld) + (editingExpense.newDebtAmount ?? 0)
+      : 0
 
   // --- Montos ---
   const [totalRaw, setTotalRaw] = useState(() => (
@@ -401,25 +409,35 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
     ? (isEditing || suppliesOnly ? (parseNumericInput(totalRaw) ?? 0) : (merchTotal ?? 0))
     : null
   const entregadoParsed = parseNumericInput(amountRaw) ?? 0
-  const previousBalance = providerDebt?.balance ?? 0
+  const previousBalance = (() => {
+    const live = providerDebt?.balance ?? 0
+    if (!editingVisit || !editingExpense) return live
+    const ownNet = (editingExpense.newDebtAmount ?? 0) - (editingExpense.paysOldDebt ?? 0)
+    return live - ownNet
+  })()
   const previousDebt = Math.max(0, previousBalance)
   const previousCredit = Math.max(0, -previousBalance)
   const hasProviderDebt = previousDebt > 0
   const hasProviderCredit = previousCredit > 0
 
-  // Deuda nueva generada por esta visita
-  const autoNewDebt = totalParsed !== null
-    ? Math.max(0, totalParsed - entregadoParsed)
-    : 0
+  // Deuda nueva generada por esta visita. En una visita ya confirmada, ese
+  // número es el de la visita: entregado no lo achica.
+  const autoNewDebt = editingVisit
+    ? visitDebtLocked
+    : totalParsed !== null
+      ? Math.max(0, totalParsed - entregadoParsed)
+      : 0
 
   // El saldo a favor del local se descuenta solo de esta visita (el ledger ya lo tiene).
-  const creditAppliedToVisit = Math.min(previousCredit, autoNewDebt)
+  const creditAppliedToVisit = editingVisit ? 0 : Math.min(previousCredit, autoNewDebt)
   const displayedNewDebt = Math.max(0, autoNewDebt - creditAppliedToVisit)
 
-  // Exceso sobre el costo de la visita → va a saldar deuda vieja o genera saldo a favor
-  const excessOverVisit = totalParsed !== null
-    ? Math.max(0, entregadoParsed - totalParsed)
-    : 0
+  // Exceso sobre lo ya pagado de la visita → deuda anterior o saldo a favor.
+  const excessOverVisit = editingVisit
+    ? Math.max(0, entregadoParsed - visitPaidLocked)
+    : totalParsed !== null
+      ? Math.max(0, entregadoParsed - totalParsed)
+      : 0
 
   // Cuánto de ese exceso cancela deuda vieja del local actual (capped en la deuda existente)
   const autoPaysOldDebt = Math.min(excessOverVisit, previousDebt)
@@ -479,8 +497,18 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
   }
 
   function visitLedgerPayload() {
-    const amountForVisit = Math.min(entregadoParsed, totalParsed ?? 0)
     const paysForeignDebt = crossLocalDebt && crossStoreBalance > 0
+    if (editingVisit) {
+      const paysOld = Math.max(0, entregadoParsed - visitPaidLocked)
+      return {
+        amount: visitPaidLocked,
+        newDebtAmount: visitDebtLocked > 0 ? visitDebtLocked : undefined,
+        paysOldDebt: paysOld > 0 ? paysOld : undefined,
+        debtStoreId: crossLocalDebt && debtStoreId ? debtStoreId : undefined,
+        crossStorePayment: paysForeignDebt && paysOld > 0 ? appliedToCrossDebt : undefined,
+      }
+    }
+    const amountForVisit = Math.min(entregadoParsed, totalParsed ?? 0)
     return {
       amount: amountForVisit,
       newDebtAmount: autoNewDebt > 0 ? autoNewDebt : undefined,
@@ -664,7 +692,7 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
       return
     }
 
-    if ((isEditing || suppliesOnly) && (!totalParsed || totalParsed <= 0)) {
+    if (!editingVisit && (isEditing || suppliesOnly) && (!totalParsed || totalParsed <= 0)) {
       showError('Ingresá el total de la visita.', 'amount')
       return
     }
@@ -1154,7 +1182,12 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
 
         {showVisitFields && !unpaidArrival && (
           <div className="space-y-3 rounded-xl border border-line bg-app p-4">
-            {isEditing || suppliesOnly ? (
+            {editingVisit ? (
+            <p className="text-sm text-muted">
+              Total de la visita:{' '}
+              <span className="font-semibold tabular-nums text-ink">{formatARS(visitPaidLocked + visitDebtLocked)}</span>
+            </p>
+            ) : isEditing || suppliesOnly ? (
             <div className="space-y-1">
               <label className="text-sm text-muted">Total de la visita ($)</label>
               <NumericInput
@@ -1179,6 +1212,13 @@ export default function ExpenseModal({ onRegistered, onSaved, onCancel, onDraftC
                 placeholder="0"
                 className={FIELD}
               />
+              {editingVisit && (
+                <p className="text-xs text-muted">
+                  {visitDebtLocked > 0
+                    ? `Lo que entregues ahora sale de la caja y paga deuda anterior. La deuda de esta visita queda en ${formatARS(visitDebtLocked)}.`
+                    : 'Lo que entregues de más sale de la caja y paga deuda anterior. Lo ya pagado de esta visita no cambia.'}
+                </p>
+              )}
               {!isEditing && (
                 <label className="flex items-center gap-2 cursor-pointer select-none pt-1">
                   <input

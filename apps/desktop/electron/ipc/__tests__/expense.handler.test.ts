@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, expenses, providers, providerDebtEvents } from '../../db/schema'
+import { stores, users, shifts, expenses, providers, providerDebtEvents, merchandiseIntakes } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -363,6 +363,74 @@ describe('expense.handler', () => {
       expect(payments).toHaveLength(1)
       expect(payments[0]?.type).toBe('payment')
       expect(payments[0]?.amount).toBe(10_000)
+    })
+
+    it('conserva la deuda de la visita al pagar deuda vieja (Guido 26/11)', () => {
+      const pid = providerIdFromName('Guido')
+      const now = '2026-11-26T11:20:49.286Z'
+      const expenseId = '22cf8a30-91e7-4bb3-b34f-20f7460a6175'
+      db.insert(providers).values({
+        id: pid, name: 'Guido', nameKey: 'guido', createdAt: now,
+      }).run()
+      db.insert(expenses).values({
+        id: expenseId,
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        providerId: pid,
+        amount: 0,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(merchandiseIntakes).values({
+        id: '91ef1877-2636-4db1-9180-962037dc4f13',
+        storeId: 'store-001',
+        shiftId: 'shift-001',
+        paymentKind: 'on_account',
+        paidAmount: 0,
+        debtAmount: 1_563_693,
+        providerId: pid,
+        providerName: 'Guido',
+        expenseId,
+        status: 'confirmed',
+        paymentChannel: 'cash',
+        createdBy: 'user-001',
+        createdAt: now,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'debt-guido-visita',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Guido',
+        type: 'debt',
+        amount: 1_563_693,
+        expenseId,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
+      const listed = getHandler('ipc:get-shift-expenses')(null) as {
+        ok: boolean
+        data: Array<{ visit?: { paidAmount: number; debtAmount: number } }>
+      }
+      expect(listed.ok).toBe(true)
+      expect(listed.data[0]?.visit).toEqual({ paidAmount: 0, debtAmount: 1_563_693 })
+
+      const update = getHandler('ipc:update-expense')
+      const result = update(null, {
+        id: expenseId,
+        provider: 'Guido',
+        amount: 1_563_693,
+        paysOldDebt: 836_307,
+      }) as { ok: boolean; error?: string }
+      expect(result.ok).toBe(true)
+
+      expect(db.select().from(expenses).all()[0]?.amount).toBe(836_307)
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events.filter(e => e.type === 'debt').map(e => e.amount)).toEqual([1_563_693])
+      expect(events.filter(e => e.type === 'payment').map(e => e.amount)).toEqual([836_307])
+      const intake = db.select().from(merchandiseIntakes).all()[0]
+      expect(intake?.debtAmount).toBe(1_563_693)
+      expect(intake?.paidAmount).toBe(0)
     })
   })
 

@@ -260,6 +260,12 @@ export interface ExpenseRow {
   notes?: string
   createdAt: string
   createdBy: string
+  /**
+   * Visita confirmada vinculada a este gasto.
+   * Al editar, su deuda y lo ya pagado de la mercadería no se renegocian:
+   * lo entregado de más paga deuda anterior.
+   */
+  visit?: { paidAmount: number; debtAmount: number }
 }
 
 // ---------------------------------------------------------------------------
