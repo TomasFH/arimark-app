@@ -83,7 +83,7 @@ export {
   merchIntakeExpenseConcept,
   merchLineToFirestore,
   merchNameKey,
-  merchPaidCaption,
+  visitMerchandisePaid,
   oldDebtByIntake,
   parseMerchLinesFromUnknown,
   parseMerchLineSnapshot,

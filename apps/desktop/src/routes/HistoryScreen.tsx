@@ -326,7 +326,7 @@ export default function HistoryScreen({
           </div>
 
           {/* Lista */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
             {loading && (
               <p className="text-muted text-sm text-center py-8 animate-pulse">Cargando turnos…</p>
             )}
@@ -356,7 +356,7 @@ export default function HistoryScreen({
         </div>
 
         {/* Panel derecho — detalle */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           {!selectedShiftId && (
             <div className="flex items-center justify-center h-full">
               <p className="text-subtle text-sm">Seleccioná un turno para ver el detalle</p>

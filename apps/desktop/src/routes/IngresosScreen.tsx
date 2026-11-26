@@ -9,9 +9,9 @@ import {
   formatMerchVisitQty,
   formatWeekRangeLabel,
   isMediaResLine,
-  merchPaidCaption,
   mondayWeekContaining,
   mondayWeekRange,
+  visitMerchandisePaid,
 } from '@carniceria/shared'
 import type { MerchIntakeLineSnapshot } from '@carniceria/shared'
 import { AdminSectionHeader } from '../components/AdminSectionHeader'
@@ -31,6 +31,8 @@ interface Props {
   canPriceMediaRes: boolean
   /** Abre la semana de esta visita y la deja desplegada. */
   focusVisit?: { id: string; createdAt: string } | null
+  /** Abre la cuenta corriente de ese proveedor. */
+  onOpenAccount?: (account: { providerId: string; providerName: string }) => void
 }
 
 function weekOffsetFor(createdAt: string): number {
@@ -54,6 +56,7 @@ function visitCost(lines: MerchIntakeLineSnapshot[]): number {
 }
 
 type VisitRow = {
+  providerId: string | null
   providerName: string
   delivery: MerchWeekBookResult['providers'][number]['deliveries'][number]
 }
@@ -62,8 +65,8 @@ interface DayGroup {
   ymd: string
   label: string
   total: number
+  /** Solo lo pagado de la mercadería de cada visita. */
   paid: number
-  oldDebt: number
   debt: number
   unpriced: number
   visits: VisitRow[]
@@ -81,7 +84,6 @@ function groupVisitsByDay(visits: VisitRow[]): DayGroup[] {
         label: toVisitDayLabel(row.delivery.createdAt),
         total: 0,
         paid: 0,
-        oldDebt: 0,
         debt: 0,
         unpriced: 0,
         visits: [],
@@ -91,8 +93,7 @@ function groupVisitsByDay(visits: VisitRow[]): DayGroup[] {
     const cost = visitCost(row.delivery.lines)
     if (cost > 0) group.total += cost
     else group.unpriced += 1
-    group.paid += row.delivery.paid
-    group.oldDebt += Math.max(0, row.delivery.oldDebtSettled)
+    group.paid += visitMerchandisePaid(row.delivery.paid, row.delivery.oldDebtSettled)
     group.debt += row.delivery.debt
     group.visits.push(row)
   }
@@ -104,13 +105,6 @@ function daySummary(label: string, visits: number, unpriced: number): string {
   if (unpriced <= 0) return `${label} · ${visitText}`
   const missingText = unpriced === 1 ? '1 sin precio' : `${unpriced} sin precio`
   return `${label} · ${visitText} · ${missingText}`
-}
-
-function paidNote(paid: number, oldDebt: number): string | null {
-  const kind = merchPaidCaption(paid, oldDebt)
-  if (kind === 'all') return 'a deuda anterior'
-  if (kind === 'part') return `incluye ${formatARS(oldDebt)} de deuda anterior`
-  return null
 }
 
 function DayChevron({ open }: { open: boolean }) {
@@ -132,18 +126,12 @@ function DayChevron({ open }: { open: boolean }) {
   )
 }
 
-const VISIT_GRID = 'grid w-full min-w-max grid-cols-[max-content_max-content_max-content_minmax(11rem,1.2fr)_minmax(8rem,1fr)_minmax(8.5rem,1fr)] gap-x-6'
+const VISIT_GRID = 'grid w-full min-w-0 grid-cols-[4.5rem_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(10.5rem,1fr)_minmax(7rem,0.7fr)_minmax(9rem,0.85fr)] gap-x-4'
 
-/** Un pago de cero es un dato: se muestra $0. La deuda vieja, si la hay, va debajo. */
-function PaidCell({ paid, oldDebt }: { paid: number; oldDebt: number }) {
-  const note = paidNote(paid, oldDebt)
+/** Un pago de cero es un dato: se muestra $0. */
+function PaidCell({ paid }: { paid: number }) {
   return (
-    <span className="flex min-w-0 flex-col items-end gap-0.5">
-      <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(paid)}</span>
-      {note && (
-        <span className="max-w-[14rem] text-right text-xs leading-snug text-muted">{note}</span>
-      )}
-    </span>
+    <span className="min-w-0 truncate text-right text-sm tabular-nums text-muted" title={formatARS(paid)}>{formatARS(paid)}</span>
   )
 }
 
@@ -200,7 +188,7 @@ function MediaResPaidEditor({
   )
 }
 
-export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, focusVisit = null }: Props) {
+export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, focusVisit = null, onOpenAccount }: Props) {
   const [weekOffset, setWeekOffset] = useState(() => focusVisit ? weekOffsetFor(focusVisit.createdAt) : 0)
   const [storeIdFilter, setStoreIdFilter] = useState('all')
   const [providerFilter, setProviderFilter] = useState('all')
@@ -279,7 +267,11 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
       const key = providerKey(provider.providerId, provider.providerName)
       if (providerFilter !== 'all' && key !== providerFilter) continue
       for (const delivery of provider.deliveries) {
-        rows.push({ providerName: provider.providerName, delivery })
+        rows.push({
+          providerId: provider.providerId,
+          providerName: provider.providerName,
+          delivery,
+        })
       }
     }
     rows.sort((a, b) => b.delivery.createdAt.localeCompare(a.delivery.createdAt))
@@ -306,13 +298,13 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-app text-ink">
       <AdminSectionHeader
         title="Mercadería recibida"
-        subtitle="Una fila por visita"
+        subtitle="Qué entró y cuánto costó"
         onBack={onBack}
         onLogout={onLogout}
       />
 
-      <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className="mx-auto w-full max-w-5xl space-y-5 px-8 py-5">
+      <div className="flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+        <div className="mx-auto w-full max-w-[1600px] space-y-5 px-6 py-5">
           <div className="grid gap-3 sm:grid-cols-2">
             {stores.length > 0 && (
               <div className="min-w-0">
@@ -386,15 +378,14 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
           )}
 
           {book && !error && visits.length > 0 && (
-            <div className="overflow-x-auto">
-              <div className={`${VISIT_GRID} gap-y-2`}>
-                <div className="col-span-6 grid grid-cols-subgrid items-end px-4 text-xs text-muted">
-                  <span className="whitespace-nowrap">Hora</span>
-                  <span className="whitespace-nowrap">Proveedor</span>
-                  <span className="whitespace-nowrap">Local</span>
-                  <span className="whitespace-nowrap text-right">Mercadería recibida</span>
-                  <span className="whitespace-nowrap text-right">Pagado</span>
-                  <span className="whitespace-nowrap text-right">Quedó debiendo</span>
+            <div className={`${VISIT_GRID} gap-y-2`}>
+                <div className="col-span-6 grid min-w-0 grid-cols-subgrid items-end px-4 text-xs text-muted">
+                  <span>Hora</span>
+                  <span className="min-w-0 truncate">Proveedor</span>
+                  <span className="min-w-0 truncate">Local</span>
+                  <span className="min-w-0 truncate text-right" title="Mercadería recibida">Mercadería recibida</span>
+                  <span className="min-w-0 truncate text-right">Pagado</span>
+                  <span className="min-w-0 truncate text-right" title="Quedó debiendo">Quedó debiendo</span>
                 </div>
                 {dayGroups.map((day, index) => {
                   const dayOpen = openDays.has(day.ymd)
@@ -413,46 +404,71 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                       >
                         <span className="col-span-3 flex min-w-0 items-center gap-2">
                           <DayChevron open={dayOpen} />
-                          <span className="whitespace-nowrap text-base font-semibold text-ink" title={summary}>{summary}</span>
+                          <span className="min-w-0 truncate text-base font-semibold text-ink" title={summary}>{summary}</span>
                         </span>
-                        <span className={`whitespace-nowrap text-right text-sm font-semibold tabular-nums ${day.total > 0 ? 'text-ink' : 'text-muted'}`}>
+                        <span className={`min-w-0 truncate text-right text-sm font-semibold tabular-nums ${day.total > 0 ? 'text-ink' : 'text-muted'}`} title={dayTotal}>
                           {dayTotal}
                         </span>
-                        <PaidCell paid={day.paid} oldDebt={day.oldDebt} />
-                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(day.debt)}</span>
+                        <PaidCell paid={day.paid} />
+                        <span className="min-w-0 truncate text-right text-sm tabular-nums text-muted" title={formatARS(day.debt)}>{formatARS(day.debt)}</span>
                       </button>
-                      {dayOpen && day.visits.map(({ providerName, delivery }) => {
+                      {dayOpen && day.visits.map(({ providerId, providerName, delivery }) => {
                   const open = openKeys.has(delivery.id)
                   const total = visitCost(delivery.lines)
                   const totalLabel = priceText(total)
                   const when = toVisitTime(delivery.createdAt)
+                  const visitPaid = visitMerchandisePaid(delivery.paid, delivery.oldDebtSettled)
+                  const accountLabel = `Ver cuenta de ${providerName}`
                   return (
-                    <div key={delivery.id} className="col-span-6 grid grid-cols-subgrid overflow-hidden rounded-2xl border border-line bg-panel">
-                      <button
-                        type="button"
-                        className={`col-span-6 grid grid-cols-subgrid items-center px-4 py-3 text-left hover:bg-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
-                        aria-expanded={open}
+                    <div key={delivery.id} className="col-span-6 grid min-w-0 grid-cols-subgrid overflow-hidden rounded-2xl border border-line bg-panel">
+                      <div
+                        className={`col-span-6 grid min-w-0 grid-cols-subgrid items-center px-4 py-3 hover:bg-hover ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
                         onClick={() => toggleVisit(delivery.id)}
                       >
-                        <span className="whitespace-nowrap text-sm text-ink">{when}</span>
-                        <span className="whitespace-nowrap text-sm font-semibold text-ink" title={providerName}>
-                          {providerName}
-                        </span>
-                        <span className="whitespace-nowrap text-sm text-muted" title={delivery.storeName}>
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 text-left text-sm text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                          aria-expanded={open}
+                          aria-label={open ? `Cerrar visita de ${providerName}` : `Abrir visita de ${providerName}`}
+                          onClick={event => {
+                            event.stopPropagation()
+                            toggleVisit(delivery.id)
+                          }}
+                        >
+                          <DayChevron open={open} />
+                          <span className="truncate">{when}</span>
+                        </button>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-ink" title={providerName}>{providerName}</p>
+                          {providerId && onOpenAccount && (
+                            <button
+                              type="button"
+                              className="mt-0.5 block max-w-full truncate text-left text-xs text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                              title={accountLabel}
+                              onClick={event => {
+                                event.stopPropagation()
+                                onOpenAccount({ providerId, providerName })
+                              }}
+                            >
+                              {accountLabel}
+                            </button>
+                          )}
+                        </div>
+                        <span className="min-w-0 truncate text-sm text-muted" title={delivery.storeName}>
                           {delivery.storeName}
                         </span>
-                        <span className={`whitespace-nowrap text-right text-sm tabular-nums ${total > 0 ? 'text-ink' : 'text-muted'}`}>
+                        <span className={`min-w-0 truncate text-right text-sm tabular-nums ${total > 0 ? 'text-ink' : 'text-muted'}`} title={totalLabel}>
                           {totalLabel}
                         </span>
-                        <PaidCell paid={delivery.paid} oldDebt={Math.max(0, delivery.oldDebtSettled)} />
-                        <span className="whitespace-nowrap text-right text-sm tabular-nums text-muted">{formatARS(delivery.debt)}</span>
-                      </button>
+                        <PaidCell paid={visitPaid} />
+                        <span className="min-w-0 truncate text-right text-sm tabular-nums text-muted" title={formatARS(delivery.debt)}>{formatARS(delivery.debt)}</span>
+                      </div>
                       {open && (
                         <div className="col-span-6 space-y-3 border-t border-line px-4 py-3">
-                          <p className="whitespace-nowrap text-xs text-muted" title={delivery.createdByName}>
+                          <p className="min-w-0 truncate text-xs text-muted" title={delivery.createdByName}>
                             Recibió {delivery.createdByName}
                           </p>
-                          <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-6 gap-y-2">
+                          <div className="grid w-full min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)_minmax(0,0.7fr)] gap-x-6 gap-y-2">
                             <span className="text-xs text-muted">Producto</span>
                             <span className="text-xs text-muted">Cantidad</span>
                             <span className="text-right text-xs text-muted">Precio</span>
@@ -466,9 +482,9 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                               return (
                                 <div key={line.id} className="col-span-4 grid grid-cols-subgrid items-baseline">
                                   <span className="min-w-0 truncate text-sm text-ink" title={line.rubroName}>{line.rubroName}</span>
-                                  <span className="whitespace-nowrap text-sm tabular-nums text-muted">{qty || '—'}</span>
-                                  <span className={`whitespace-nowrap text-right text-sm tabular-nums ${line.unitCost > 0 ? 'text-ink' : 'text-muted'}`}>{unit}</span>
-                                  <span className={`whitespace-nowrap text-right text-sm tabular-nums ${line.costTotal > 0 ? 'text-ink' : 'text-muted'}`}>{subtotal}</span>
+                                  <span className="min-w-0 truncate text-sm tabular-nums text-muted" title={qty || '—'}>{qty || '—'}</span>
+                                  <span className={`min-w-0 truncate text-right text-sm tabular-nums ${line.unitCost > 0 ? 'text-ink' : 'text-muted'}`} title={unit}>{unit}</span>
+                                  <span className={`min-w-0 truncate text-right text-sm tabular-nums ${line.costTotal > 0 ? 'text-ink' : 'text-muted'}`} title={subtotal}>{subtotal}</span>
                                   {canPriceMediaRes && isMediaResLine(line) && (
                                     <div className="col-span-4 pt-1">
                                       <MediaResPaidEditor line={line} onSaved={() => setRevision(value => value + 1)} />
@@ -491,7 +507,6 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
                     </div>
                   )
                 })}
-              </div>
             </div>
           )}
         </div>

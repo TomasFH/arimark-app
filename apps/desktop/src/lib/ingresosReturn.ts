@@ -26,3 +26,8 @@ export function historyStaysMounted(screen: string, returnTo?: string): boolean 
 export function providersStaysMounted(screen: string, returnTo?: string): boolean {
   return screen === 'providers' || (screen === 'ingresos' && returnTo === 'providers')
 }
+
+/** Mercadería sigue montada mientras se mira la cuenta del proveedor, para no perder la semana ni el scroll. */
+export function ingresosStaysMounted(screen: string, returnTo?: string): boolean {
+  return screen === 'ingresos' || (screen === 'providers' && returnTo === 'ingresos')
+}

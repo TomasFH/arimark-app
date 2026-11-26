@@ -20,6 +20,8 @@ interface Props {
   onBack: () => void
   onLogout: () => void
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
+  /** Abre la cuenta de este proveedor al entrar desde Mercadería recibida. */
+  focusAccount?: { providerId: string; providerName: string } | null
 }
 
 type ModalMode =
@@ -73,7 +75,7 @@ function LedgerStoreSelect({
   )
 }
 
-export default function ProvidersScreen({ onBack, onLogout, onOpenVisit }: Props) {
+export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAccount = null }: Props) {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<ProviderWithDebtRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -101,6 +103,27 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit }: Props
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchived])
+
+  const openedFocusAccount = useRef<string | null>(null)
+  useEffect(() => {
+    if (!focusAccount) {
+      openedFocusAccount.current = null
+      return
+    }
+    if (loading) return
+    if (openedFocusAccount.current === focusAccount.providerId) return
+    openedFocusAccount.current = focusAccount.providerId
+    const found = list.find(provider => provider.id === focusAccount.providerId)
+    setModal({
+      type: 'history',
+      provider: found ?? {
+        id: focusAccount.providerId,
+        name: focusAccount.providerName,
+        total: 0,
+        perStore: [],
+      },
+    })
+  }, [focusAccount, loading, list])
 
   const sorted = useMemo(() => {
     function rank(p: ProviderWithDebtRow): number {
@@ -169,7 +192,7 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit }: Props
         }
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-x-hidden overflow-y-auto">
         {loading && (
           <div className="flex justify-center items-center py-16">
             <p className="text-muted text-sm">Cargando proveedores…</p>
@@ -186,7 +209,7 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit }: Props
         )}
 
         {!loading && !error && (
-          <div className="mx-auto w-full max-w-3xl px-4 py-4">
+          <div className="mx-auto w-full max-w-[1600px] px-4 py-4">
             <div className="mb-4 grid max-w-xs grid-cols-2 rounded-xl bg-raised p-1" role="tablist" aria-label="Estado de los proveedores">
               <button
                 type="button"
@@ -693,7 +716,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }:
 
   return (
     <ModalLayer onClose={onClose} className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-panel rounded-t-2xl sm:rounded-2xl w-full sm:max-w-2xl shadow-xl flex flex-col max-h-[85vh] border border-line">
+      <div className="bg-panel rounded-t-2xl sm:rounded-2xl w-full max-w-[960px] shadow-xl flex flex-col max-h-[85vh] border border-line">
         {/* Header del modal */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-line shrink-0">
           <div className="w-8 h-8 rounded-full bg-raised flex items-center justify-center text-xs font-bold text-ink shrink-0">
@@ -710,7 +733,7 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }:
 
         {/* Pestañas de filtro por local (solo si hay más de 1 local en el historial) */}
         {!loading && !error && showTabs && (
-          <div className="shrink-0 flex gap-1 px-4 pt-3 pb-0 overflow-x-auto">
+          <div className="shrink-0 flex flex-wrap gap-1 px-4 pt-3 pb-0">
             <button
               onClick={() => { setStoreFilter(null); setPage(0) }}
               className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${

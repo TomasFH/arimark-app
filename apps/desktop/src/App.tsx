@@ -25,7 +25,7 @@ import ScreenErrorBoundary from './components/ScreenErrorBoundary'
 import { Button, Modal } from './components/ui'
 import { AppToastHost } from './components/ui/AppToast'
 import type { InitStatus, SessionInfo, ShiftInfo, StoreRow, SaleItemDraft, DepositPayment } from './types/hw-api'
-import { historyStaysMounted, ingresosBackTarget, providersStaysMounted } from './lib/ingresosReturn'
+import { historyStaysMounted, ingresosBackTarget, ingresosStaysMounted, providersStaysMounted } from './lib/ingresosReturn'
 import { preferredStoreIdFrom, readLastStoreId, writeLastStoreId } from './lib/lastStore'
 import { resetOrderCreateDraft } from './lib/orderCreateDraft'
 import { resetOrderChargeDrafts } from './lib/orderChargeDraft'
@@ -60,7 +60,17 @@ type AppState =
   | { screen: 'history'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; resumeAfterVisit?: boolean }
   | { screen: 'summary'; session: SessionInfo; initStatus: InitStatus }
   | { screen: 'ingresos'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo; focusVisit?: { id: string; createdAt: string }; returnTo?: 'providers' | 'history' }
-  | { screen: 'providers'; session: SessionInfo; initStatus: InitStatus }
+  | {
+      screen: 'providers'
+      session: SessionInfo
+      initStatus: InitStatus
+      fromCashier?: ShiftInfo
+      /** La cuenta se abrió desde Mercadería: volver conserva esa pantalla. */
+      returnTo?: 'ingresos'
+      focusAccount?: { providerId: string; providerName: string }
+      ingresosReturnTo?: 'providers' | 'history'
+      ingresosFocusVisit?: { id: string; createdAt: string }
+    }
   | { screen: 'transfers'; session: SessionInfo; initStatus: InitStatus; fromCashier?: ShiftInfo }
   | { screen: 'stock-counts'; session: SessionInfo; initStatus: InitStatus }
 
@@ -713,49 +723,80 @@ export default function App() {
         </Page>
       )}
 
-      {state.screen === 'ingresos' && (
-        <Page>
-          <IngresosScreen
-            canPriceMediaRes={state.session.role === 'admin'}
-            focusVisit={state.focusVisit ?? null}
-            onLogout={handleLogout}
-            onBack={() => {
-              const target = ingresosBackTarget({
-                returnTo: state.returnTo,
-                fromCashier: state.fromCashier != null,
-              })
-              if (target === 'history') {
+      {ingresosStaysMounted(state.screen, state.screen === 'providers' ? state.returnTo : undefined) && (state.screen === 'ingresos' || state.screen === 'providers') && (
+        <div className={state.screen === 'ingresos' ? 'contents' : 'hidden'} aria-hidden={state.screen !== 'ingresos'}>
+          <Page>
+            <IngresosScreen
+              canPriceMediaRes={state.session.role === 'admin'}
+              focusVisit={state.screen === 'ingresos' ? state.focusVisit ?? null : state.ingresosFocusVisit ?? null}
+              onLogout={handleLogout}
+              onOpenAccount={account => {
+                if (state.screen !== 'ingresos') return
                 setState({
-                  screen: 'history',
+                  screen: 'providers',
                   session: state.session,
                   initStatus: state.initStatus,
                   fromCashier: state.fromCashier,
-                  resumeAfterVisit: true,
+                  returnTo: 'ingresos',
+                  focusAccount: account,
+                  ingresosReturnTo: state.returnTo,
+                  ingresosFocusVisit: state.focusVisit,
                 })
-              } else if (target === 'providers') {
-                setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })
-              } else if (target === 'cashier' && state.fromCashier) {
-                setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
-              } else {
-                handleReturnToAdminHub()
-              }
-            }}
-          />
-        </Page>
+              }}
+              onBack={() => {
+                if (state.screen !== 'ingresos') return
+                const target = ingresosBackTarget({
+                  returnTo: state.returnTo,
+                  fromCashier: state.fromCashier != null,
+                })
+                if (target === 'history') {
+                  setState({
+                    screen: 'history',
+                    session: state.session,
+                    initStatus: state.initStatus,
+                    fromCashier: state.fromCashier,
+                    resumeAfterVisit: true,
+                  })
+                } else if (target === 'providers') {
+                  setState({ screen: 'providers', session: state.session, initStatus: state.initStatus })
+                } else if (target === 'cashier' && state.fromCashier) {
+                  setState({ screen: 'cashier', session: state.session, shift: state.fromCashier, initStatus: state.initStatus })
+                } else {
+                  handleReturnToAdminHub()
+                }
+              }}
+            />
+          </Page>
+        </div>
       )}
 
       {providersStaysMounted(state.screen, state.screen === 'ingresos' ? state.returnTo : undefined) && (state.screen === 'providers' || state.screen === 'ingresos') && (
         <div className={state.screen === 'providers' ? 'contents' : 'hidden'} aria-hidden={state.screen !== 'providers'}>
           <Page>
             <ProvidersScreen
-              onBack={handleReturnToAdminHub}
+              onBack={() => {
+                if (state.screen === 'providers' && state.returnTo === 'ingresos') {
+                  setState({
+                    screen: 'ingresos',
+                    session: state.session,
+                    initStatus: state.initStatus,
+                    fromCashier: state.fromCashier,
+                    returnTo: state.ingresosReturnTo,
+                    focusVisit: state.ingresosFocusVisit,
+                  })
+                  return
+                }
+                handleReturnToAdminHub()
+              }}
               onLogout={handleLogout}
+              focusAccount={state.screen === 'providers' ? state.focusAccount ?? null : null}
               onOpenVisit={visit => {
                 if (state.screen !== 'providers' && state.screen !== 'ingresos') return
                 setState({
                   screen: 'ingresos',
                   session: state.session,
                   initStatus: state.initStatus,
+                  fromCashier: state.fromCashier,
                   focusVisit: visit,
                   returnTo: 'providers',
                 })

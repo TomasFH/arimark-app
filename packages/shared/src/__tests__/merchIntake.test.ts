@@ -8,7 +8,7 @@ import {
   formatMerchLineSummary,
   isMerchIntakeExpenseConcept,
   merchIntakeExpenseConcept,
-  merchPaidCaption,
+  visitMerchandisePaid,
   oldDebtByIntake,
   parseMerchLinesFromUnknown,
   parseMerchWeightsJson,
@@ -506,16 +506,19 @@ describe('oldDebtByIntake', () => {
   })
 })
 
-describe('merchPaidCaption', () => {
-  it('todo el pago a deuda anterior', () => {
-    expect(merchPaidCaption(836_307, 836_307)).toBe('all')
+describe('visitMerchandisePaid', () => {
+  it('resta la deuda anterior para que pagado más deuda sea la mercadería', () => {
+    const merchandise = 90_000
+    const oldDebt = 19_000
+    const bookPaid = merchandise + oldDebt
+    expect(visitMerchandisePaid(bookPaid, oldDebt) + 0).toBe(merchandise)
   })
 
-  it('parte a esta visita y parte a deuda anterior', () => {
-    expect(merchPaidCaption(25_000, 5_000)).toBe('part')
+  it('un pago que es solo deuda anterior deja la visita en cero', () => {
+    expect(visitMerchandisePaid(836_307, 836_307)).toBe(0)
   })
 
-  it('sin deuda anterior no hay aclaración', () => {
-    expect(merchPaidCaption(90_000, 0)).toBe('none')
+  it('sin deuda anterior el pagado es el de la visita', () => {
+    expect(visitMerchandisePaid(90_000, 0)).toBe(90_000)
   })
 })

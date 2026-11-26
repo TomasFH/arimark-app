@@ -66,6 +66,19 @@ Todo texto **variable de usuario** (nombres, notas, categorías, etiquetas diná
 
 Casos típicos donde aplica sin excepción: nombres de clientes en modales de fiado, resultados de búsqueda, filas de listas con acciones a la derecha, subtítulos en headers de tarjetas, labels en tablas estrechas.
 
+## Pantallas de consulta — una pregunta cada una
+
+Cada pantalla responde una sola pregunta. Lo que no responde esa pregunta vive en otra.
+
+- **Mercadería recibida:** ¿qué entró y cuánto costó? Pagado es solo lo pagado de la mercadería de esa visita. Pagado + quedó debiendo = mercadería recibida. Un pago de deuda anterior no se muestra acá: va en Proveedores y en el Historial de turnos.
+- **Proveedores:** ¿cuánto le debemos a un proveedor y por qué? La cuenta corriente lista todos los movimientos en orden, con el saldo.
+- **Historial de turnos:** ¿qué entró y salió de la caja en un turno?
+- **Resumen:** totales de la semana, con links a esas pantallas.
+
+## UI — ancho en escritorio
+
+En una ventana de **1280 px o más** no hay scroll horizontal. El contenido usa el ancho disponible hasta unos **1600 px** (`max-w-[1600px]`, centrado). No recortar una tabla con un `max-w` angosto ni forzarla con `min-w-max` y `overflow-x-auto`: los nombres se truncan (`truncate` + `title`) y las columnas de dinero tienen el ancho de su título. El historial de turnos ya ocupa la ventana (lista a la izquierda, detalle a la derecha) y no lleva ese tope.
+
 ---
 
 ## Arquitectura — estructura del monorepo (desde jul 2026)

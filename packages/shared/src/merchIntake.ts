@@ -949,10 +949,13 @@ export function oldDebtByIntake(
   return totals
 }
 
-/** Texto bajo el pagado. `paid` incluye la deuda anterior. */
-export function merchPaidCaption(paid: number, oldDebt: number): 'none' | 'all' | 'part' {
-  const settled = Number.isFinite(oldDebt) ? Math.round(oldDebt) : 0
-  if (settled <= 0) return 'none'
-  const visitPaid = Math.max(0, (Number.isFinite(paid) ? Math.round(paid) : 0) - settled)
-  return visitPaid <= 0 ? 'all' : 'part'
+/**
+ * Lo pagado de la mercadería de la visita.
+ * `paid` del libro suma la deuda anterior; acá se resta para que
+ * pagado de la visita + quedó debiendo = mercadería recibida.
+ */
+export function visitMerchandisePaid(paid: number, oldDebtSettled: number): number {
+  const total = Number.isFinite(paid) ? Math.round(paid) : 0
+  const oldDebt = Number.isFinite(oldDebtSettled) ? Math.max(0, Math.round(oldDebtSettled)) : 0
+  return Math.max(0, total - oldDebt)
 }
