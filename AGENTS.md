@@ -75,6 +75,10 @@ Cada pantalla responde una sola pregunta. Lo que no responde esa pregunta vive e
 - **Historial de turnos:** ¿qué entró y salió de la caja en un turno?
 - **Resumen:** totales de la semana, con links a esas pantallas.
 
+Cuando la cajera abre una pantalla de consulta desde el POS, el filtro de local arranca en el local de su turno. Puede cambiar a otro local o a Todos. El admin, desde el Admin Hub, abre en Todos.
+
+Fiados y Pedidos de la cajera no tienen ese selector: el proceso principal ya los limita al local de la sesión. Entre locales lista la semana entera (cada movimiento une dos locales) y el alta arranca con el local de la sesión como origen. Resumen es solo del hub y abre en Todos.
+
 ## UI — ancho en escritorio
 
 En una ventana de **1280 px o más** no hay scroll horizontal. El contenido usa el ancho disponible hasta unos **1600 px** (`max-w-[1600px]`, centrado). No recortar una tabla con un `max-w` angosto ni forzarla con `min-w-max` y `overflow-x-auto`: los nombres se truncan (`truncate` + `title`) y las columnas de dinero tienen el ancho de su título. El historial de turnos ya ocupa la ventana (lista a la izquierda, detalle a la derecha) y no lleva ese tope.

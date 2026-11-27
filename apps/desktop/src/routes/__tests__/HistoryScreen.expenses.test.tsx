@@ -124,6 +124,39 @@ describe('HistoryScreen — gastos del turno', () => {
     expect(screen.queryByText('Falda')).not.toBeInTheDocument()
   })
 
+  it('desde el POS abre en el local del turno y se puede pasar a Todos', async () => {
+    const user = userEvent.setup()
+    window.hw.getStores = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'store-sm', name: 'San Martín' },
+        { id: 'store-cam', name: 'Camarones' },
+      ],
+    })
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} initialStoreId="store-sm" />)
+
+    const storeButton = await screen.findByRole('button', { name: 'Local' })
+    expect(storeButton).toHaveTextContent('San Martín')
+    expect(window.hw.getHistoryShifts).toHaveBeenCalledWith(expect.objectContaining({ storeIdFilter: 'store-sm' }))
+
+    await user.click(storeButton)
+    await user.click(screen.getByRole('option', { name: 'Todos los locales' }))
+    expect(window.hw.getHistoryShifts).toHaveBeenCalledWith(expect.objectContaining({ storeIdFilter: 'all' }))
+  })
+
+  it('desde el hub abre en Todos los locales', async () => {
+    window.hw.getStores = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 'store-sm', name: 'San Martín' },
+        { id: 'store-cam', name: 'Camarones' },
+      ],
+    })
+    render(<HistoryScreen onBack={vi.fn()} onLogout={vi.fn()} />)
+    expect(await screen.findByRole('button', { name: 'Local' })).toHaveTextContent('Todos los locales')
+    expect(window.hw.getHistoryShifts).toHaveBeenCalledWith(expect.objectContaining({ storeIdFilter: 'all' }))
+  })
+
   it('la cajera no ve el formulario de corrección de un turno cerrado', async () => {
     window.hw.getHistoryShiftDetail = vi.fn().mockResolvedValue({
       ok: true,

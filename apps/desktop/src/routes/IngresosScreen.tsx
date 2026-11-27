@@ -3,7 +3,7 @@
  * La cajera entra en solo lectura y el proceso principal ya le sacó el monto de la media res.
  * Una semana en pantalla. No precarga las vecinas.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   formatMerchCostUnit,
   formatMerchVisitQty,
@@ -33,6 +33,8 @@ interface Props {
   focusVisit?: { id: string; createdAt: string } | null
   /** Abre la cuenta corriente de ese proveedor. */
   onOpenAccount?: (account: { providerId: string; providerName: string }) => void
+  /** Local del turno al entrar desde el POS. Sin valor, o si se abre una visita puntual, arranca en Todos. */
+  initialStoreId?: string
 }
 
 function weekOffsetFor(createdAt: string): number {
@@ -188,9 +190,11 @@ function MediaResPaidEditor({
   )
 }
 
-export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, focusVisit = null, onOpenAccount }: Props) {
+export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, focusVisit = null, onOpenAccount, initialStoreId }: Props) {
   const [weekOffset, setWeekOffset] = useState(() => focusVisit ? weekOffsetFor(focusVisit.createdAt) : 0)
-  const [storeIdFilter, setStoreIdFilter] = useState('all')
+  const [storeIdFilter, setStoreIdFilter] = useState(() => focusVisit ? 'all' : (initialStoreId ?? 'all'))
+  const focusVisitId = focusVisit?.id ?? null
+  const seenFocusVisitId = useRef(focusVisitId)
   const [providerFilter, setProviderFilter] = useState('all')
   const [stores, setStores] = useState<StoreRow[]>([])
   const [book, setBook] = useState<MerchWeekBookResult | null>(null)
@@ -202,6 +206,11 @@ export default function IngresosScreen({ onBack, onLogout, canPriceMediaRes, foc
 
   const week = mondayWeekRange(weekOffset)
   const weekTitle = formatWeekRangeLabel(week.startYmd, week.endInclusiveYmd)
+
+  useEffect(() => {
+    if (focusVisitId && focusVisitId !== seenFocusVisitId.current) setStoreIdFilter('all')
+    seenFocusVisitId.current = focusVisitId
+  }, [focusVisitId])
 
   useEffect(() => {
     void window.hw.getStores().then(result => {

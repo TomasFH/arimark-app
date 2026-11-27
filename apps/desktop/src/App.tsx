@@ -701,6 +701,7 @@ export default function App() {
               onLogout={handleLogout}
               limitedToRecentWeeks={state.session.role === 'cashier'}
               resumeAfterVisit={state.screen === 'history' && state.resumeAfterVisit === true}
+              initialStoreId={state.fromCashier?.storeId}
               onOpenVisit={visit => {
                 if (state.screen !== 'history' && state.screen !== 'ingresos') return
                 setState({
@@ -728,6 +729,7 @@ export default function App() {
           <Page>
             <IngresosScreen
               canPriceMediaRes={state.session.role === 'admin'}
+              initialStoreId={state.fromCashier?.storeId}
               focusVisit={state.screen === 'ingresos' ? state.focusVisit ?? null : state.ingresosFocusVisit ?? null}
               onLogout={handleLogout}
               onOpenAccount={account => {

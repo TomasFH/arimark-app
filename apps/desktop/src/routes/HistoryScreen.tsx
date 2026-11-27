@@ -58,6 +58,8 @@ interface Props {
   limitedToRecentWeeks?: boolean
   /** Vuelta desde «Ver visita»: restaura turno, solapa y gasto abierto. */
   resumeAfterVisit?: boolean
+  /** Local del turno al entrar desde el POS. Sin valor, abre en Todos (el hub). */
+  initialStoreId?: string
 }
 
 export default function HistoryScreen({
@@ -66,6 +68,7 @@ export default function HistoryScreen({
   onOpenVisit,
   limitedToRecentWeeks = false,
   resumeAfterVisit = false,
+  initialStoreId,
 }: Props) {
   const resumeRef = useRef<HistoryVisitReturnState | null | undefined>(undefined)
   if (resumeRef.current === undefined) {
@@ -74,17 +77,18 @@ export default function HistoryScreen({
   }
   const resume = resumeRef.current
   const recentWindow = limitedToRecentWeeks ? cashierHistoryWindow() : null
+  const startingStore = resume?.storeIdFilter ?? initialStoreId ?? 'all'
   const [shifts, setShifts] = useState<HistoryShiftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const [fromDate, setFromDate] = useState(() => resume?.fromDate ?? addDaysYmd(todayLocalYmd(), -7))
   const [toDate, setToDate] = useState(() => resume?.toDate ?? todayLocalYmd())
-  const [storeIdFilter, setStoreIdFilter] = useState<string>(resume?.storeIdFilter ?? 'all')
+  const [storeIdFilter, setStoreIdFilter] = useState<string>(startingStore)
   const [availableStores, setAvailableStores] = useState<StoreRow[]>([])
   const [loadedSpan, setLoadedSpan] = useState<HistorySpan | null>(null)
   const listCache = useRef<{ store: string; span: HistorySpan | null; shifts: HistoryShiftRow[] }>({
-    store: 'all',
+    store: startingStore,
     span: null,
     shifts: [],
   })
@@ -237,7 +241,7 @@ export default function HistoryScreen({
       <AdminSectionHeader
         title="Historial de turnos"
         subtitle={recentWindow
-          ? 'Semana en curso y la anterior, de todos los locales'
+          ? 'Semana en curso y la anterior'
           : 'Lo vendido, cómo se cobró y el cierre de cada turno'}
         onBack={() => {
           clearHistoryVisitReturn()
