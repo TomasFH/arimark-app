@@ -620,7 +620,7 @@ describe('providers.handler', () => {
       const handler = getHandler('ipc:get-provider-debt-history')
       const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
         ok: boolean
-        data: { events: Array<{ id: string; intakeId?: string | null }> }
+        data: { events: Array<{ id: string; role?: string; intakeId?: string | null }> }
       }>)
       const cargo = result.data.events.find(event => event.role === 'cargo')
       const payment = result.data.events.find(event => event.id === 'evt-002')
@@ -639,6 +639,7 @@ describe('providers.handler', () => {
           return {
             openingBalance: 255978,
             hasCheckpoint: true,
+            checkpointAt: null,
             events: [{
               id: 'f2da4f63-78dc-4ac2-96d7-9b5630fda6c3',
               type: 'payment' as const,
@@ -650,7 +651,7 @@ describe('providers.handler', () => {
             }],
           }
         }
-        return { openingBalance: 0, hasCheckpoint: false, events: [] }
+        return { openingBalance: 0, hasCheckpoint: false, checkpointAt: null, events: [] }
       })
       db.insert(stores).values({
         id: camarones,
