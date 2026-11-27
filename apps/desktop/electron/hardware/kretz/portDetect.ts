@@ -11,7 +11,7 @@
  */
 
 import { SerialPort } from 'serialport'
-import log from 'electron-log'
+import log from './scaleLog'
 import { encodeFrame, takeResponseFrame, parseResponse } from './r30Protocol'
 
 const BAUD_RATE = 115200

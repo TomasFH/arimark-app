@@ -15,7 +15,7 @@
 
 import { EventEmitter } from 'events'
 import { SerialPort } from 'serialport'
-import log from 'electron-log'
+import log from './scaleLog'
 import type { KretzDriver } from './kretzDriver.interface'
 import {
   encodeFrame,

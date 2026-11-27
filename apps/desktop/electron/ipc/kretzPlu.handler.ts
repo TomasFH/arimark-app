@@ -13,7 +13,7 @@
 
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import log from 'electron-log'
+import log from '../hardware/kretz/scaleLog'
 import { IPC } from './channels'
 import type { IpcResult } from '../../src/types/hw-api'
 import type { HardwareManager } from '../hardware/hardwareManager'

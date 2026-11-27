@@ -24,7 +24,7 @@
  * Precio máximo: $99.999 (raw 999.990, cabe en 6 dígitos).
  */
 import { ipcMain } from 'electron'
-import log from 'electron-log'
+import log from '../hardware/kretz/scaleLog'
 import { and, asc, eq, gt, isNotNull, isNull, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { IPC } from './channels'

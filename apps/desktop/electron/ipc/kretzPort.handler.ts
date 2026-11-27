@@ -9,7 +9,7 @@
 
 import { ipcMain } from 'electron'
 import { z } from 'zod'
-import log from 'electron-log'
+import log from '../hardware/kretz/scaleLog'
 import { IPC } from './channels'
 import { setSecret, SECRET_KEYS } from '../secureStorage'
 import type { IpcResult } from '../../src/types/hw-api'

@@ -14,7 +14,7 @@
  * barras del ticket físico (ver PLAN.md → Modelo de flujo de datos).
  */
 
-import log from 'electron-log'
+import log from './kretz/scaleLog'
 import { setHardwareStatus } from '../ipc/hardwareStatus.handler'
 import { getSecret, setSecret, SECRET_KEYS } from '../secureStorage'
 import type { KretzDriver, SendPluArgs, PluRow } from './kretz/kretzDriver.interface'
