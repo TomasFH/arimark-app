@@ -622,6 +622,7 @@ describe('summary.handler', () => {
       contributionTotal: 0,
       walletCashTotal: 0,
       moneySnapshottedAt: at,
+      openedLocally: true,
     }).run()
     db.insert(shifts).values({
       id: 'shift-solo',

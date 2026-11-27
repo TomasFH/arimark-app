@@ -179,11 +179,61 @@ function withoutUndefined(fields: Record<string, unknown>): Record<string, unkno
   return out
 }
 
+const SEALED_MONEY_KEYS = [
+  'soldTotal',
+  'cashTotal',
+  'cardWalletTotal',
+  'debtTotal',
+  'expenseTotal',
+  'contributionTotal',
+  'walletCashTotal',
+  'debitTotal',
+  'walletTotal',
+  'creditTotal',
+  'providerExpenseTotal',
+  'moneySnapshottedAt',
+  'soldHoursJson',
+] as const
+
+/**
+ * Plata ya sellada en la nube. Solo copia lo que vino: no inventa ceros.
+ */
+function remoteSealedMoney(data: RemoteShiftDoc): Partial<LocalShift> {
+  const patch: Partial<LocalShift> = {}
+  const amounts: Array<[keyof LocalShift, unknown]> = [
+    ['soldTotal', data.soldTotal],
+    ['cashTotal', data.cashTotal],
+    ['cardWalletTotal', data.cardWalletTotal],
+    ['debtTotal', data.debtTotal],
+    ['expenseTotal', data.expenseTotal],
+    ['contributionTotal', data.contributionTotal],
+    ['walletCashTotal', data.walletCashTotal],
+    ['debitTotal', data.debitTotal],
+    ['walletTotal', data.walletTotal],
+    ['creditTotal', data.creditTotal],
+    ['providerExpenseTotal', data.providerExpenseTotal],
+  ]
+  for (const [key, value] of amounts) {
+    const amount = finiteAmount(value)
+    if (amount != null) (patch as Record<string, number>)[key] = amount
+  }
+  const snap = remoteText(data.moneySnapshottedAt)
+  if (snap) patch.moneySnapshottedAt = snap
+  if (parseSoldHoursJson(data.soldHoursJson)) patch.soldHoursJson = data.soldHoursJson ?? null
+  return patch
+}
+
+function withoutSealedMoney(payload: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...payload }
+  for (const key of SEALED_MONEY_KEYS) delete out[key]
+  return out
+}
+
 /**
  * Copia el cierre remoto sobre una ficha local todavía abierta.
  * No toca ventas, gastos, señas ni fiados.
- * Si esta PC tiene esos movimientos, calcula la plata y deja el turno para re-subir.
- * Si no los tiene, no calcula y no vuelve a publicar la ficha.
+ * Si esta PC abrió el turno, calcula la plata y deja el turno para re-subir.
+ * Si no lo abrió, copia la ficha de la nube tal cual y no la vuelve a publicar.
  */
 function adoptRemoteClose(
   local: LocalShift,
@@ -203,7 +253,8 @@ function adoptRemoteClose(
   const notes = remoteText(data.notes)
   const closedByUserId = remoteText(data.closedByUserId)
   const closedByName = remoteText(data.closedByName)
-  const money = snapshotShiftMoney(db, local, now)
+  const money = local.openedLocally ? snapshotShiftMoney(db, local, now) : null
+  const adoptedMoney = local.openedLocally ? {} : remoteSealedMoney(data)
 
   db.update(shifts).set({
     closedAt: remoteClosedAt,
@@ -216,6 +267,7 @@ function adoptRemoteClose(
     ...(closedByUserId != null ? { closedByUserId } : {}),
     ...(closedByName != null ? { closedByName } : {}),
     ...(money ?? {}),
+    ...adoptedMoney,
     closingCounted: local.closingCounted || data.closingBillsCounted === true,
     syncedAt: money ? null : now,
   }).where(eq(shifts.id, local.id)).run()
@@ -326,7 +378,8 @@ export async function pushUnsyncedShifts(tenantId: string): Promise<void> {
       const userRow = db.select({ name: users.name }).from(users).where(eq(users.id, row.userId)).all()[0]
       const cashierName = userRow?.name?.trim() ? userRow.name.trim() : null
 
-      await setDoc(ref, shiftPushPayload(row, remote, cashierName), { merge: true })
+      const payload = shiftPushPayload(row, remote, cashierName)
+      await setDoc(ref, row.openedLocally ? payload : withoutSealedMoney(payload), { merge: true })
 
       db.update(shifts)
         .set({ syncedAt: now })

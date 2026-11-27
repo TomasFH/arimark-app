@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, shifts, billDenominations, sales } from '../../db/schema'
+import { stores, users, shifts, billDenominations, sales, orders } from '../../db/schema'
 import { isNull, isNotNull, eq } from 'drizzle-orm'
 
 const { mockSetDoc, mockDoc, mockGetDocs, mockGetDoc } = vi.hoisted(() => ({
@@ -339,8 +339,8 @@ describe('shiftSync', () => {
       expect(row?.cashLeft).toBe(1500)
       expect(row?.deliveredAmount).toBe(500)
       expect(row?.closingCash).toBe(2000)
-      expect(row?.soldTotal).toBeNull()
-      expect(row?.soldHoursJson).toBeNull()
+      expect(row?.soldTotal).toBe(99999)
+      expect(row?.soldHoursJson).toBe(JSON.stringify([4, ...Array.from({ length: 23 }, () => 0)]))
       expect(row?.moneySnapshottedAt).toBeNull()
       expect(mockSetDoc).not.toHaveBeenCalled()
     })
@@ -443,6 +443,138 @@ describe('shiftSync', () => {
       expect(payload.closedAt).not.toBeNull()
     })
 
+    it('no sella ni sube la plata de un turno que esta PC no abrió, aunque tenga una seña', async () => {
+      const started = '2026-11-27T11:07:29.947Z'
+      const closed = '2026-11-27T16:41:12.124Z'
+      const sealedAt = '2026-11-27T16:41:12.200Z'
+      const hours = JSON.stringify([0, 0, 0, 0, 0, 0, 0, 0, 117490, 610112, 638429, 933945, 559288, 476121, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+      db.insert(shifts).values({
+        id: 'shift-camarones',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: started,
+        openingCash: 1314150,
+        source: 'desktop',
+        closedAt: null,
+        syncedAt: null,
+        openedLocally: false,
+      }).run()
+      db.insert(orders).values({
+        id: 'order-dodo',
+        storeId: 'store-001',
+        customerName: 'dodo',
+        items: '[]',
+        pickupDate: '2026-11-27',
+        status: 'pending',
+        depositAmount: 40000,
+        depositPayments: JSON.stringify([{ method: 'wallet', amount: 40000 }]),
+        depositShiftId: 'shift-camarones',
+        createdAt: '2026-11-27T13:57:32.059Z',
+        createdBy: 'user-001',
+      }).run()
+
+      mockGetDoc.mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          closedAt: closed,
+          closingCash: 1724750,
+          deliveredAmount: 1650000,
+          soldTotal: 3335385,
+          cashTotal: 2009034,
+          cardWalletTotal: 1366351,
+          debtTotal: 0,
+          expenseTotal: 1597982,
+          contributionTotal: 0,
+          walletCashTotal: 0,
+          debitTotal: 662440,
+          walletTotal: 703911,
+          creditTotal: 0,
+          providerExpenseTotal: 1423982,
+          moneySnapshottedAt: sealedAt,
+          soldHoursJson: hours,
+        }),
+      })
+
+      await pushUnsyncedShifts(TENANT)
+
+      expect(mockSetDoc).not.toHaveBeenCalled()
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-camarones')).get()
+      expect(row).toMatchObject({
+        closedAt: closed,
+        closingCash: 1724750,
+        deliveredAmount: 1650000,
+        soldTotal: 3335385,
+        cashTotal: 2009034,
+        cardWalletTotal: 1366351,
+        debitTotal: 662440,
+        walletTotal: 703911,
+        expenseTotal: 1597982,
+        providerExpenseTotal: 1423982,
+        moneySnapshottedAt: sealedAt,
+        soldHoursJson: hours,
+      })
+      expect(row?.syncedAt).toEqual(expect.any(String))
+      expect(db.select().from(orders).all()).toEqual([
+        expect.objectContaining({ id: 'order-dodo', depositAmount: 40000 }),
+      ])
+    })
+
+    it('no sube la plata local de un turno cerrado que esta PC no abrió', async () => {
+      const closed = '2026-11-27T16:41:12.124Z'
+      const zeros = JSON.stringify(Array.from({ length: 24 }, () => 0))
+      db.insert(shifts).values({
+        id: 'shift-ajena-cerrada',
+        storeId: 'store-001',
+        userId: 'user-001',
+        shiftType: 'morning',
+        startedAt: '2026-11-27T11:07:29.947Z',
+        closedAt: closed,
+        openingCash: 1314150,
+        closingCash: 1724750,
+        deliveredAmount: 1650000,
+        source: 'desktop',
+        syncedAt: null,
+        openedLocally: false,
+        soldTotal: 0,
+        cashTotal: 0,
+        cardWalletTotal: 40000,
+        debtTotal: 0,
+        expenseTotal: 0,
+        contributionTotal: 0,
+        walletCashTotal: 0,
+        debitTotal: 0,
+        walletTotal: 40000,
+        creditTotal: 0,
+        providerExpenseTotal: 0,
+        moneySnapshottedAt: '2026-11-27T17:50:10.064Z',
+        soldHoursJson: zeros,
+      }).run()
+      mockGetDoc.mockResolvedValueOnce({
+        exists: () => true,
+        data: () => ({
+          closedAt: closed,
+          soldTotal: 3335385,
+          walletTotal: 703911,
+        }),
+      })
+
+      await pushUnsyncedShifts(TENANT)
+
+      expect(mockSetDoc).toHaveBeenCalledTimes(1)
+      const payload = mockSetDoc.mock.calls[0]?.[1] as Record<string, unknown>
+      expect(payload.closedAt).toBe(closed)
+      expect(payload.closingCash).toBe(1724750)
+      expect(payload.deliveredAmount).toBe(1650000)
+      expect(payload).not.toHaveProperty('soldTotal')
+      expect(payload).not.toHaveProperty('cashTotal')
+      expect(payload).not.toHaveProperty('walletTotal')
+      expect(payload).not.toHaveProperty('cardWalletTotal')
+      expect(payload).not.toHaveProperty('soldHoursJson')
+      expect(payload).not.toHaveProperty('moneySnapshottedAt')
+      expect(payload).not.toHaveProperty('providerExpenseTotal')
+    })
+
     it('sube débito, billetera y crédito de la ficha', async () => {
       const now = '2026-11-18T06:36:23.930Z'
       db.insert(shifts).values({
@@ -455,6 +587,7 @@ describe('shiftSync', () => {
         openingCash: 0,
         source: 'desktop',
         syncedAt: null,
+        openedLocally: true,
         soldTotal: 141300,
         cashTotal: 30000,
         cardWalletTotal: 111300,
@@ -489,6 +622,7 @@ describe('shiftSync', () => {
         openingCash: 0,
         source: 'desktop',
         syncedAt: null,
+        openedLocally: true,
         soldTotal: 0,
         cashTotal: 0,
         cardWalletTotal: 0,

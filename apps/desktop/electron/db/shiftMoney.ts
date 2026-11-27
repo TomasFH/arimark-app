@@ -1,10 +1,9 @@
 /**
  * Plata del turno, calculada desde SQLite.
  *
- * La escribe la PC que tiene las ventas (abrió el turno acá, o tiene
- * ventas, gastos, señas o fiados de ese turno). Una ficha bajada de
- * Firestore sin esos movimientos no se calcula: un cero inventado
- * quedaría corto para siempre.
+ * La sella solo la PC que abrió el turno. Una copia bajada de Firestore
+ * (openedLocally falso), aunque tenga una seña o una venta, no se calcula:
+ * un cero o un parcial pisaría la ficha ya cerrada en la otra PC.
  */
 import { and, eq } from 'drizzle-orm'
 import log from 'electron-log'
@@ -41,24 +40,13 @@ function isWalletCash(row: { injectReason: string | null; concept: string | null
   return row.injectReason === 'wallet_cash' || row.concept === 'Efectivo por digital'
 }
 
-function hasLocalLedger(db: AppDb, shiftId: string): boolean {
-  const sale = db.select({ id: sales.id }).from(sales).where(eq(sales.shiftId, shiftId)).limit(1).get()
-  if (sale) return true
-  const expense = db.select({ id: expenses.id }).from(expenses).where(eq(expenses.shiftId, shiftId)).limit(1).get()
-  if (expense) return true
-  const order = db.select({ id: orders.id }).from(orders).where(eq(orders.depositShiftId, shiftId)).limit(1).get()
-  if (order) return true
-  const debt = db.select({ id: debtEvents.id }).from(debtEvents).where(eq(debtEvents.shiftId, shiftId)).limit(1).get()
-  return Boolean(debt)
-}
-
-/** true si esta base es la que operó el turno, no una copia vacía. */
+/** true solo si este SQLite abrió el turno. Una copia ajena no sella. */
 export function shouldSnapshotShiftMoney(
   db: AppDb,
   shift: { id: string; openedLocally: boolean },
 ): boolean {
-  if (shift.openedLocally) return true
-  return hasLocalLedger(db, shift.id)
+  void db
+  return shift.openedLocally
 }
 
 /**

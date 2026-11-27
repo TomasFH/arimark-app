@@ -167,6 +167,19 @@ describe('computeShiftMoney desglose', () => {
     expect(JSON.parse(empty?.soldHoursJson ?? 'null')).toEqual(Array.from({ length: 24 }, () => 0))
     expect(empty?.soldTotal).toBe(0)
     expect(empty?.providerExpenseTotal).toBe(0)
+    db.insert(orders).values({
+      id: 'order-ajeno',
+      storeId: 'store-1',
+      customerName: 'dodo',
+      items: '[]',
+      pickupDate: '2026-10-21',
+      status: 'pending',
+      depositAmount: 40000,
+      depositPayments: JSON.stringify([{ method: 'wallet', amount: 40000 }]),
+      depositShiftId: 'shift-ajeno',
+      createdAt: now,
+      createdBy: 'user-1',
+    }).run()
     expect(snapshotShiftMoney(db as never, { id: 'shift-ajeno', openedLocally: false }, now)).toBeNull()
   })
 })

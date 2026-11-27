@@ -1395,8 +1395,8 @@ describe('shift.handler', () => {
       return db
     }
 
-    it('sella los tres números si esta PC tiene el libro', async () => {
-      const db = await seedForceShift(false, true)
+    it('sella los tres números si esta PC abrió el turno', async () => {
+      const db = await seedForceShift(true, true)
       mockPushUnsyncedShifts.mockImplementationOnce(async () => {
         const duringPush = db.select().from(shifts).where(eq(shifts.id, 'shift-1')).get()
         expect(duringPush?.debitTotal).toBe(6000)
@@ -1410,6 +1410,18 @@ describe('shift.handler', () => {
       const result = await getHandler('ipc:force-close-open-shift')({}, { shiftId: 'shift-1' })
       expect(result).toMatchObject({ ok: true })
       expect(mockPushUnsyncedShifts).toHaveBeenCalledWith('test-tenant')
+    })
+
+    it('no sella la plata si esta PC no abrió el turno, aunque tenga una venta', async () => {
+      const db = await seedForceShift(false, true)
+      const result = await getHandler('ipc:force-close-open-shift')({}, { shiftId: 'shift-1' })
+      expect(result).toMatchObject({ ok: true })
+      const row = db.select().from(shifts).where(eq(shifts.id, 'shift-1')).get()
+      expect(row?.closedAt).toEqual(expect.any(String))
+      expect(row?.soldTotal).toBeNull()
+      expect(row?.debitTotal).toBeNull()
+      expect(row?.walletTotal).toBeNull()
+      expect(row?.moneySnapshottedAt).toBeNull()
     })
 
     it('no inventa la ficha si no tiene el libro', async () => {
@@ -1545,8 +1557,8 @@ describe('shift.handler', () => {
       expect(savedShift(db)).toMatchObject({ cashLeft: 1500, deliveredAmount: 4000, closingCash: 5500 })
     })
 
-    it('no reescribe ventas, gastos, señas ni fiados, y anota la plata si están en esta PC', async () => {
-      const db = await seedOpenShift()
+    it('no reescribe ventas, gastos, señas ni fiados, y anota la plata si esta PC abrió el turno', async () => {
+      const db = await seedOpenShift('store-001', true)
       const now = started
       db.insert(customers).values({
         id: 'cust-1', storeId: 'store-001', name: 'Cliente', createdAt: now, createdBy: 'user-002',
