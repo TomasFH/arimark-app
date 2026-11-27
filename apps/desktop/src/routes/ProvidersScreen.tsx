@@ -6,7 +6,7 @@
  * Le paga al proveedor desde Gastos del turno.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { formatARS, toLocalDateTime } from '../lib/datetime'
+import { formatARS, toLocalDateTime, utcToLocalYmd } from '../lib/datetime'
 import { formatIntegerWithDots, parseNumericInput } from '../lib/numericInput'
 import NumericInput from '../components/NumericInput'
 import { isAdminAdjustNote, formatAdminAdjustNote } from '../lib/providerLedgerNotes'
@@ -606,6 +606,57 @@ interface ProviderDebtHistoryModalProps {
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }
 
+function dayMonth(utc: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(utcToLocalYmd(utc))
+  if (!match) return ''
+  return `${match[3]}/${match[2]}`
+}
+
+function openingLines(
+  openings: ProviderAccountHistory['openings'],
+  firstAt: Map<string, string>,
+  storeFilter: string | null,
+): Array<ProviderDebtEventRow & { runningBalance: number; opening: true; openingLabel: string }> {
+  if (openings.length === 0) return []
+  const dated = openings.map(opening => {
+    const at = firstAt.get(opening.storeId) || opening.checkpointAt || ''
+    const date = at ? dayMonth(at) : ''
+    return { opening, at, date, label: date ? `Saldo anterior al ${date}` : 'Saldo anterior' }
+  })
+  const oneLine = storeFilter != null || new Set(dated.map(row => row.date)).size <= 1
+  if (oneLine) {
+    const date = dated.find(row => row.date)?.date ?? ''
+    return [{
+      id: storeFilter ? `corte:${storeFilter}` : 'corte',
+      type: 'debt',
+      amount: 0,
+      storeId: storeFilter ?? '',
+      storeName: '',
+      createdAt: '',
+      createdByName: '',
+      expenseId: null,
+      opening: true,
+      openingLabel: date ? `Saldo anterior al ${date}` : 'Saldo anterior',
+      runningBalance: openings.reduce((sum, opening) => sum + opening.balance, 0),
+    }]
+  }
+  return dated
+    .sort((a, b) => a.at.localeCompare(b.at) || a.opening.storeName.localeCompare(b.opening.storeName, 'es'))
+    .map(row => ({
+      id: `corte:${row.opening.storeId}`,
+      type: 'debt' as const,
+      amount: 0,
+      storeId: row.opening.storeId,
+      storeName: row.opening.storeName,
+      createdAt: '',
+      createdByName: '',
+      expenseId: null,
+      opening: true as const,
+      openingLabel: `${row.label} · ${row.opening.storeName}`,
+      runningBalance: row.opening.balance,
+    }))
+}
+
 function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled, onOpenVisit, canManageDebt = true }: ProviderDebtHistoryModalProps & { canManageDebt?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [account, setAccount] = useState<ProviderAccountHistory>({ openings: [], events: [] })
@@ -670,25 +721,21 @@ function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled
       opening.hasCheckpoint && (!storeFilter || opening.storeId === storeFilter),
     )
     const openingBalance = openings.reduce((sum, opening) => sum + opening.balance, 0)
-    const chronological = [...filtered].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const chronological = [...filtered].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt) || (a.sequence ?? 2) - (b.sequence ?? 2),
+    )
+    const firstAt = new Map<string, string>()
+    for (const evt of chronological) {
+      if (evt.createdAt && !firstAt.has(evt.storeId)) firstAt.set(evt.storeId, evt.createdAt)
+    }
     let balance = openingBalance
-    const lines: Array<ProviderDebtEventRow & { runningBalance: number; opening?: boolean }> = chronological.map(evt => {
+    const lines: Array<ProviderDebtEventRow & { runningBalance: number; opening?: boolean; openingLabel?: string }> = chronological.map(evt => {
       balance += evt.type === 'debt' ? evt.amount : -evt.amount
       return { ...evt, runningBalance: balance }
     })
-    if (openings.length > 0) {
-      lines.unshift({
-        id: storeFilter ? `corte:${storeFilter}` : 'corte',
-        type: 'debt',
-        amount: 0,
-        storeId: storeFilter ?? '',
-        storeName: '',
-        createdAt: '',
-        createdByName: '',
-        expenseId: null,
-        opening: true,
-        runningBalance: openingBalance,
-      })
+    const openingRows = openingLines(openings, firstAt, storeFilter)
+    for (let index = openingRows.length - 1; index >= 0; index -= 1) {
+      lines.unshift(openingRows[index])
     }
     return lines.reverse()
   }, [account.openings, events, storeFilter])
@@ -831,7 +878,9 @@ function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled
                   return (
                     <div key={evt.id} className="px-4 py-3 flex items-center gap-3">
                       <div className="shrink-0 w-2 h-2 rounded-full bg-line" />
-                      <p className="min-w-0 flex-1 text-sm font-semibold text-ink">Saldo al corte</p>
+                      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={evt.openingLabel}>
+                        {evt.openingLabel}
+                      </p>
                       <div className="shrink-0 text-right">
                         <p className="text-xs text-subtle">Saldo</p>
                         <p className="text-sm font-semibold text-ink">{balanceLabel}</p>
@@ -840,6 +889,8 @@ function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled
                   )
                 }
                 const isAdjust = isAdminAdjustNote(evt.notes)
+                const isCargo = evt.role === 'cargo'
+                const isMoved = evt.role === 'debt-moved'
                 const isDebt = evt.type === 'debt'
                 const balanceColor =
                   evt.runningBalance > 0
@@ -853,13 +904,29 @@ function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled
                     : evt.runningBalance < 0
                       ? `Saldo a favor ${formatARS(Math.abs(evt.runningBalance))}`
                       : 'Saldado'
-                const typeLabel = isAdjust ? 'Ajuste' : isDebt ? 'Deuda' : 'Pago'
+                const typeLabel = isAdjust
+                  ? 'Ajuste'
+                  : isCargo
+                    ? 'Cargo'
+                    : isMoved
+                      ? 'Deuda en otro local'
+                      : isDebt
+                        ? 'Deuda'
+                        : 'Abono'
                 const typeColor = isAdjust
                   ? 'text-violet-300'
-                  : isDebt ? 'text-orange-400' : 'text-green-400'
+                  : isMoved
+                    ? 'text-muted'
+                    : isDebt
+                      ? 'text-orange-400'
+                      : 'text-green-400'
                 const dotColor = isAdjust
                   ? 'bg-violet-400'
-                  : isDebt ? 'bg-orange-400' : 'bg-green-400'
+                  : isMoved
+                    ? 'bg-line'
+                    : isDebt
+                      ? 'bg-orange-400'
+                      : 'bg-green-400'
                 return (
                   <div key={evt.id} className="px-4 py-3 flex items-start gap-3">
                     <div className={`shrink-0 mt-1 w-2 h-2 rounded-full ${dotColor}`} />
@@ -886,6 +953,14 @@ function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled
                       {isAdjust && evt.notes && (
                         <p className="text-xs text-violet-200/90 min-w-0" title={evt.notes}>
                           {evt.notes}
+                        </p>
+                      )}
+                      {isCargo && evt.concept && (
+                        <p className="min-w-0 truncate text-xs text-muted" title={evt.concept}>{evt.concept}</p>
+                      )}
+                      {isMoved && evt.remainderStoreName && (
+                        <p className="min-w-0 truncate text-xs text-muted" title={evt.remainderStoreName}>
+                          {evt.remainderStoreName}
                         </p>
                       )}
                       <div className="flex items-center gap-1 min-w-0">

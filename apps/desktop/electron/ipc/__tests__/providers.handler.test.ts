@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createInMemoryDb } from '../../db/__tests__/helpers/inMemoryDb'
-import { stores, users, providers, providerDebtEvents, shifts, expenses, merchandiseIntakes } from '../../db/schema'
+import { stores, users, providers, providerDebtEvents, shifts, expenses, merchandiseIntakes, merchandiseIntakeLines } from '../../db/schema'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -622,9 +622,11 @@ describe('providers.handler', () => {
         ok: boolean
         data: { events: Array<{ id: string; intakeId?: string | null }> }
       }>)
-      const debt = result.data.events.find(event => event.id === 'evt-001')
+      const cargo = result.data.events.find(event => event.role === 'cargo')
       const payment = result.data.events.find(event => event.id === 'evt-002')
-      expect(debt?.intakeId).toBe('visita-1')
+      expect(result.data.events.some(event => event.id === 'evt-001')).toBe(false)
+      expect(cargo).toMatchObject({ amount: 5000, intakeId: 'visita-1' })
+      expect(result.data.events.some(event => event.role === 'abono' && event.id.startsWith('visit-paid'))).toBe(false)
       expect(payment?.intakeId ?? null).toBeNull()
     })
 
@@ -693,6 +695,159 @@ describe('providers.handler', () => {
       const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; code: string }>)
       expect(result.ok).toBe(false)
       expect(result.code).toBe('NO_SESSION')
+    })
+
+    function insertVisit(input: {
+      id: string
+      paid: number
+      debt: number
+      expenseId: string | null
+      at: string
+      concept: string
+    }) {
+      db.insert(merchandiseIntakes).values({
+        id: input.id,
+        storeId: 'store-001',
+        shiftId: SHIFT_ID,
+        paymentKind: input.paid > 0 ? 'paid_now' : 'on_account',
+        paidAmount: input.paid,
+        debtAmount: input.debt,
+        providerId: PROVIDER_ID,
+        providerName: 'Proveedor Test',
+        expenseId: input.expenseId,
+        status: 'confirmed',
+        createdBy: 'user-001',
+        createdAt: input.at,
+      }).run()
+      db.insert(merchandiseIntakeLines).values({
+        id: `${input.id}-line`,
+        intakeId: input.id,
+        rubroId: 'rubro',
+        rubroName: input.concept,
+        template: 'weight',
+        sortOrder: 0,
+        count: 1,
+        unitCost: 1,
+        costTotal: input.paid + input.debt,
+      }).run()
+    }
+
+    it('una visita pagada entera es cargo y abono, y el saldo queda igual', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const at = '2026-11-27T13:00:00.000Z'
+      db.insert(shifts).values({
+        id: SHIFT_ID, storeId: 'store-001', userId: 'user-001', shiftType: 'morning', startedAt: at, openingCash: 0,
+      }).run()
+      db.insert(providers).values({
+        id: PROVIDER_ID, name: 'Proveedor Test', nameKey: 'proveedor test', createdAt: at,
+      }).run()
+      insertVisit({ id: 'visita-pan', paid: 60_000, debt: 0, expenseId: 'exp-pan', at, concept: 'Pan rallado' })
+
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
+        ok: boolean
+        data: { events: Array<{ id: string; role?: string; type: string; amount: number; concept?: string | null; intakeId?: string | null }> }
+      }>)
+      const cargo = result.data.events.find(event => event.role === 'cargo')
+      const abono = result.data.events.find(event => event.id === 'visit-paid:visita-pan')
+      expect(cargo).toMatchObject({ amount: 60_000, concept: 'Pan rallado', intakeId: 'visita-pan' })
+      expect(abono).toMatchObject({ role: 'abono', amount: 60_000 })
+      const balance = result.data.events.reduce(
+        (sum, event) => sum + (event.type === 'debt' ? event.amount : -event.amount),
+        0,
+      )
+      expect(balance).toBe(0)
+    })
+
+    it('una visita a cuenta es un cargo, sin abono', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const at = '2026-11-27T13:00:00.000Z'
+      db.insert(shifts).values({
+        id: SHIFT_ID, storeId: 'store-001', userId: 'user-001', shiftType: 'morning', startedAt: at, openingCash: 0,
+      }).run()
+      db.insert(providers).values({
+        id: PROVIDER_ID, name: 'Proveedor Test', nameKey: 'proveedor test', createdAt: at,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'deuda-visita',
+        storeId: 'store-001',
+        providerId: PROVIDER_ID,
+        provider: 'Proveedor Test',
+        type: 'debt',
+        amount: 100_000,
+        expenseId: 'exp-cuenta',
+        shiftId: SHIFT_ID,
+        createdAt: at,
+        createdBy: 'user-001',
+      }).run()
+      insertVisit({ id: 'visita-cuenta', paid: 0, debt: 100_000, expenseId: 'exp-cuenta', at, concept: 'Asado' })
+
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
+        ok: boolean
+        data: { events: Array<{ id: string; role?: string; type: string; amount: number }> }
+      }>)
+      expect(result.data.events.filter(event => event.role === 'cargo')).toEqual([
+        expect.objectContaining({ id: 'visit:visita-cuenta', amount: 100_000 }),
+      ])
+      expect(result.data.events.some(event => event.role === 'abono')).toBe(false)
+      expect(result.data.events.some(event => event.id === 'deuda-visita')).toBe(false)
+      const balance = result.data.events.reduce(
+        (sum, event) => sum + (event.type === 'debt' ? event.amount : -event.amount),
+        0,
+      )
+      expect(balance).toBe(100_000)
+    })
+
+    it('un pago de deuda vieja sigue siendo un abono, además del cargo de la visita', async () => {
+      vi.mocked(getActiveSession).mockReturnValue(ADMIN_SESSION as ReturnType<typeof getActiveSession>)
+      const at = '2026-11-27T13:00:00.000Z'
+      db.insert(shifts).values({
+        id: SHIFT_ID, storeId: 'store-001', userId: 'user-001', shiftType: 'morning', startedAt: at, openingCash: 0,
+      }).run()
+      db.insert(providers).values({
+        id: PROVIDER_ID, name: 'Proveedor Test', nameKey: 'proveedor test', createdAt: at,
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'deuda-visita',
+        storeId: 'store-001',
+        providerId: PROVIDER_ID,
+        provider: 'Proveedor Test',
+        type: 'debt',
+        amount: 80_000,
+        expenseId: 'exp-visita',
+        shiftId: SHIFT_ID,
+        createdAt: at,
+        createdBy: 'user-001',
+      }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'pago-viejo',
+        storeId: 'store-001',
+        providerId: PROVIDER_ID,
+        provider: 'Proveedor Test',
+        type: 'payment',
+        amount: 15_000,
+        expenseId: 'exp-visita',
+        shiftId: SHIFT_ID,
+        createdAt: at,
+        createdBy: 'user-001',
+      }).run()
+      insertVisit({ id: 'visita-mixta', paid: 20_000, debt: 80_000, expenseId: 'exp-visita', at, concept: 'Vacío' })
+
+      const handler = getHandler('ipc:get-provider-debt-history')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
+        ok: boolean
+        data: { events: Array<{ id: string; role?: string; type: string; amount: number }> }
+      }>)
+      expect(result.data.events.find(event => event.role === 'cargo')).toMatchObject({ amount: 100_000 })
+      expect(result.data.events.find(event => event.id === 'visit-paid:visita-mixta')).toMatchObject({ amount: 20_000, role: 'abono' })
+      expect(result.data.events.find(event => event.id === 'pago-viejo')).toMatchObject({ amount: 15_000, role: 'abono' })
+      expect(result.data.events.some(event => event.id === 'deuda-visita')).toBe(false)
+      const balance = result.data.events.reduce(
+        (sum, event) => sum + (event.type === 'debt' ? event.amount : -event.amount),
+        0,
+      )
+      expect(balance).toBe(65_000)
     })
 
     it('proveedor sin eventos retorna array vacío', async () => {

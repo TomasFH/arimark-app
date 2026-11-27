@@ -996,6 +996,15 @@ export interface ProviderDebtEventRow {
   /** Visita de mercadería de este movimiento, si el gasto es un ingreso. */
   intakeId?: string | null
   intakeCreatedAt?: string | null
+  /** cargo = visita. abono = pago. debt = deuda anotada. debt-moved = la deuda quedó en otro local. */
+  role?: 'cargo' | 'abono' | 'debt' | 'debt-moved'
+  /** Desempata movimientos del mismo instante. */
+  sequence?: number
+  /** Productos de la visita, en el cargo. */
+  concept?: string | null
+  /** Local donde quedó la deuda, cuando la mercadería entró en otro. */
+  remainderStoreId?: string | null
+  remainderStoreName?: string | null
 }
 
 /** Saldo ya plegado de un local, más los movimientos que siguen abiertos. */
@@ -1005,6 +1014,8 @@ export interface ProviderAccountHistory {
     storeName: string
     balance: number
     hasCheckpoint: boolean
+    /** Instante del corte. La fecha visible es la del primer movimiento, o esta si no hay. */
+    checkpointAt?: string | null
   }>
   events: ProviderDebtEventRow[]
 }

@@ -93,6 +93,41 @@ describe('ProvidersScreen — historial de Oso', () => {
     expect(window.hw.getProviderDebtHistory).toHaveBeenCalledWith({ providerId: '6f736f' })
   })
 
+  it('el corte se lee como saldo anterior a la fecha en que arranca la lista', async () => {
+    window.hw.getProviderDebtHistory = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        openings: [{
+          storeId: CAMARONES,
+          storeName: 'Camarones',
+          balance: 1000,
+          hasCheckpoint: true,
+          checkpointAt: '2026-11-20T00:00:00.000Z',
+        }],
+        events: [{
+          id: 'deuda-oso',
+          type: 'debt',
+          amount: 5000,
+          storeId: CAMARONES,
+          storeName: 'Camarones',
+          createdAt: '2026-11-26T15:00:00.000Z',
+          createdByName: 'Ana',
+          expenseId: null,
+          notes: null,
+        }],
+      },
+    })
+    render(
+      <ProvidersScreen
+        onBack={vi.fn()}
+        onLogout={vi.fn()}
+        canManageDebt={false}
+        focusAccount={{ providerId: '6f736f', providerName: 'Oso' }}
+      />,
+    )
+    expect(await screen.findByText('Saldo anterior al 26/11')).toBeInTheDocument()
+  })
+
   it('desde Mercadería recibida abre en el local de la sesión y se puede cambiar', async () => {
     const user = userEvent.setup()
     window.hw.getStores = vi.fn().mockResolvedValue({

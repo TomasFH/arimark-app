@@ -19,6 +19,7 @@ import {
 import {
   createdAtInsideCheckpoint,
   debtCheckpointDocId,
+  type TsRank,
   parseCheckpointData,
   parseCompactableEvent,
   PROVIDER_DEBT_CHECKPOINTS_COL,
@@ -40,6 +41,7 @@ export interface ProviderAccountSliceEvent {
 export interface ProviderAccountSlice {
   openingBalance: number
   hasCheckpoint: boolean
+  checkpointAt: TsRank | null
   events: ProviderAccountSliceEvent[]
 }
 
@@ -103,6 +105,7 @@ export async function readProviderAccountSlice(
   return {
     openingBalance: checkpoint.saldoAcumulado,
     hasCheckpoint: checkpoint.checkpointAt != null,
+    checkpointAt: checkpoint.checkpointAt,
     events: visible,
   }
 }

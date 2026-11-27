@@ -17,7 +17,7 @@ import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC } from './channels'
 import { getDb } from '../db/client'
-import { providers, providerDebtEvents, stores, users, expenses, merchandiseIntakes } from '../db/schema'
+import { providers, providerDebtEvents, stores, users, expenses, merchandiseIntakes, merchandiseIntakeLines } from '../db/schema'
 import { getActiveSession } from '../activeSession'
 import type { ActiveSession } from '../activeSession'
 import { getBusinessConfig } from '../businessConfig'
@@ -30,7 +30,7 @@ import {
 import { pushUnsyncedExpenses } from '../licensing/expenseSync'
 import { getFirebaseApp, isFirebaseAvailable } from '../licensing/firebase'
 import { getLiveProviderStoreBalances } from '../licensing/debtBalanceLive'
-import { mergeProviderAccountTails } from '../licensing/providerAccountHistory'
+import { mergeProviderAccountTails, weaveProviderVisits, type ProviderAccountEvent, type ProviderNotebookLine } from '../licensing/providerAccountHistory'
 import { readProviderAccountSlice } from '../licensing/providerCheckpointRead'
 import { PROVIDER_DEBT_CHECKPOINTS_COL } from '@carniceria/shared'
 import { getFirestore, collection, getDocs } from 'firebase/firestore'
@@ -987,6 +987,92 @@ async function getProvidersWithDebtFromFirestore(includeArchived: boolean): Prom
 // Helpers para GET_PROVIDER_DEBT_HISTORY
 // ---------------------------------------------------------------------------
 
+function checkpointToIso(rank: { seconds: number; nanos: number } | null | undefined): string | null {
+  if (!rank) return null
+  return new Date(rank.seconds * 1000 + Math.floor(rank.nanos / 1e6)).toISOString()
+}
+
+function visitConcept(names: string[]): string {
+  const seen = new Set<string>()
+  const labels: string[] = []
+  for (const name of names) {
+    const trimmed = name.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    labels.push(trimmed)
+  }
+  return labels.join(', ')
+}
+
+function loadConfirmedVisits(db: ReturnType<typeof getDb>, providerId: string) {
+  const rows = db.select({
+    id: merchandiseIntakes.id,
+    storeId: merchandiseIntakes.storeId,
+    createdAt: merchandiseIntakes.createdAt,
+    createdBy: merchandiseIntakes.createdBy,
+    paidAmount: merchandiseIntakes.paidAmount,
+    debtAmount: merchandiseIntakes.debtAmount,
+    expenseId: merchandiseIntakes.expenseId,
+  }).from(merchandiseIntakes).where(and(
+    eq(merchandiseIntakes.providerId, providerId),
+    eq(merchandiseIntakes.status, 'confirmed'),
+  )).all()
+  const ids = rows.map(row => row.id)
+  const lineNames = new Map<string, string[]>()
+  if (ids.length > 0) {
+    const lines = db.select({
+      intakeId: merchandiseIntakeLines.intakeId,
+      rubroName: merchandiseIntakeLines.rubroName,
+      sortOrder: merchandiseIntakeLines.sortOrder,
+    }).from(merchandiseIntakeLines)
+      .where(inArray(merchandiseIntakeLines.intakeId, ids))
+      .all()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+    for (const line of lines) {
+      const list = lineNames.get(line.intakeId) ?? []
+      list.push(line.rubroName)
+      lineNames.set(line.intakeId, list)
+    }
+  }
+  return rows.map(row => ({
+    id: row.id,
+    storeId: row.storeId,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy,
+    paidAmount: row.paidAmount,
+    debtAmount: row.debtAmount,
+    expenseId: row.expenseId ?? null,
+    concept: visitConcept(lineNames.get(row.id) ?? []),
+  }))
+}
+
+function notebookToRows(
+  lines: ProviderNotebookLine[],
+  storeNameMap: Map<string, string>,
+  userNameMap: Map<string, string>,
+): ProviderDebtEventRow[] {
+  return lines.map(line => ({
+    id: line.id,
+    type: line.type,
+    amount: line.amount,
+    storeId: line.storeId,
+    storeName: storeNameMap.get(line.storeId) ?? line.storeId,
+    createdAt: line.createdAt,
+    createdByName: userNameMap.get(line.createdBy) ?? line.createdBy,
+    expenseId: line.expenseId,
+    notes: line.notes,
+    intakeId: line.intakeId,
+    intakeCreatedAt: line.intakeCreatedAt,
+    role: line.role,
+    sequence: line.sequence,
+    concept: line.concept,
+    remainderStoreId: line.remainderStoreId,
+    remainderStoreName: line.remainderStoreId
+      ? (storeNameMap.get(line.remainderStoreId) ?? line.remainderStoreId)
+      : null,
+  }))
+}
+
 async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<IpcResult<ProviderAccountHistory>> {
   const db = getDb()
   const storeRows = db.select({ id: stores.id, name: stores.name }).from(stores).where(isNull(stores.archivedAt)).all()
@@ -1001,6 +1087,7 @@ async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<
       storeId: store.id,
       openingBalance: slice.openingBalance,
       hasCheckpoint: slice.hasCheckpoint,
+      checkpointAt: slice.checkpointAt,
       events: slice.events.map(event => ({ ...event, storeId: store.id })),
     })
   }
@@ -1033,51 +1120,28 @@ async function getProviderDebtHistoryFromFirestore(providerId: string): Promise<
     })),
   })
 
-  const events = attachIntakeLinks(db, merged.events.map(event => ({
-    id: event.id,
-    type: event.type,
-    amount: event.amount,
-    storeId: event.storeId,
-    storeName: storeNameMap.get(event.storeId) ?? event.storeId,
-    createdAt: event.createdAt,
-    createdByName: userNameMap.get(event.createdBy) ?? event.createdBy,
-    expenseId: event.expenseId,
-    notes: event.notes,
-  })))
+  const lines = weaveProviderVisits({
+    events: merged.events,
+    visits: loadConfirmedVisits(db, providerId),
+    checkpoints: merged.openings.map(opening => ({
+      storeId: opening.storeId,
+      checkpointAt: opening.checkpointAt,
+    })),
+  })
 
   return {
     ok: true,
     data: {
       openings: merged.openings.map(opening => ({
-        ...opening,
+        storeId: opening.storeId,
         storeName: storeNameMap.get(opening.storeId) ?? opening.storeId,
+        balance: opening.balance,
+        hasCheckpoint: opening.hasCheckpoint,
+        checkpointAt: checkpointToIso(opening.checkpointAt),
       })),
-      events,
+      events: notebookToRows(lines, storeNameMap, userNameMap),
     },
   }
-}
-
-function attachIntakeLinks(
-  db: ReturnType<typeof getDb>,
-  events: ProviderDebtEventRow[],
-): ProviderDebtEventRow[] {
-  const expenseIds = events.map(event => event.expenseId).filter((id): id is string => Boolean(id))
-  if (expenseIds.length === 0) return events
-  const rows = db.select({
-    id: merchandiseIntakes.id,
-    expenseId: merchandiseIntakes.expenseId,
-    createdAt: merchandiseIntakes.createdAt,
-    status: merchandiseIntakes.status,
-  }).from(merchandiseIntakes).where(inArray(merchandiseIntakes.expenseId, expenseIds)).all()
-  const byExpense = new Map<string, { id: string; createdAt: string }>()
-  for (const row of rows) {
-    if (!row.expenseId || row.status !== 'confirmed') continue
-    byExpense.set(row.expenseId, { id: row.id, createdAt: row.createdAt })
-  }
-  return events.map(event => {
-    const visit = event.expenseId ? byExpense.get(event.expenseId) : undefined
-    return visit ? { ...event, intakeId: visit.id, intakeCreatedAt: visit.createdAt } : event
-  })
 }
 
 function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderAccountHistory> {
@@ -1103,21 +1167,22 @@ function getProviderDebtHistoryLocal(providerId: string): IpcResult<ProviderAcco
     .where(eq(providerDebtEvents.providerId, providerId))
     .all()
 
-  const result: ProviderDebtEventRow[] = events.map(evt => ({
+  const accountEvents: ProviderAccountEvent[] = events.map(evt => ({
     id: evt.id,
     type: evt.type,
     amount: evt.amount,
     storeId: evt.storeId,
-    storeName: storeNameMap.get(evt.storeId) ?? evt.storeId,
     createdAt: evt.createdAt,
-    createdByName: userNameMap.get(evt.createdBy) ?? evt.createdBy,
+    createdBy: evt.createdBy,
     expenseId: evt.expenseId ?? null,
     notes: evt.notes ?? null,
   }))
+  const lines = weaveProviderVisits({
+    events: accountEvents,
+    visits: loadConfirmedVisits(db, providerId),
+  })
 
-  result.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-
-  return { ok: true, data: { openings: [], events: attachIntakeLinks(db, result) } }
+  return { ok: true, data: { openings: [], events: notebookToRows(lines, storeNameMap, userNameMap) } }
 }
 
 function getProvidersWithDebtLocal(includeArchived: boolean): IpcResult<ProviderWithDebtRow[]> {
