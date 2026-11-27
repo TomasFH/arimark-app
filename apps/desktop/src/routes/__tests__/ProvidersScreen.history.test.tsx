@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ProvidersScreen from '../ProvidersScreen'
 
 const CAMARONES = 'a497ca07-3777-4855-be66-b6e47950886b'
+const SAN_MARTIN = 'b5a1e2c0-1111-4222-8333-444455556666'
 
 describe('ProvidersScreen — historial de Oso', () => {
   beforeEach(() => {
@@ -90,5 +91,82 @@ describe('ProvidersScreen — historial de Oso', () => {
     expect(screen.queryByRole('tablist', { name: 'Estado de los proveedores' })).not.toBeInTheDocument()
     expect(window.hw.getProvidersWithDebt).not.toHaveBeenCalled()
     expect(window.hw.getProviderDebtHistory).toHaveBeenCalledWith({ providerId: '6f736f' })
+  })
+
+  it('desde Mercadería recibida abre en el local de la sesión y se puede cambiar', async () => {
+    const user = userEvent.setup()
+    window.hw.getStores = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: SAN_MARTIN, name: 'San Martín', archivedAt: null },
+        { id: CAMARONES, name: 'Camarones', archivedAt: null },
+      ],
+    })
+    window.hw.getProviderDebtHistory = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        openings: [],
+        events: [
+          {
+            id: 'deuda-sm',
+            type: 'debt',
+            amount: 1000,
+            storeId: SAN_MARTIN,
+            storeName: 'San Martín',
+            createdAt: '2026-11-26T11:00:00.000Z',
+            createdByName: 'Ana',
+            expenseId: null,
+            notes: null,
+          },
+          {
+            id: 'deuda-cam',
+            type: 'debt',
+            amount: 2000,
+            storeId: CAMARONES,
+            storeName: 'Camarones',
+            createdAt: '2026-11-26T12:00:00.000Z',
+            createdByName: 'Ana',
+            expenseId: null,
+            notes: null,
+          },
+        ],
+      },
+    })
+    render(
+      <ProvidersScreen
+        onBack={vi.fn()}
+        onLogout={vi.fn()}
+        canManageDebt={false}
+        sessionStoreId={SAN_MARTIN}
+        focusAccount={{ providerId: '6f736f', providerName: 'Oso' }}
+      />,
+    )
+
+    const tabs = await screen.findByRole('tablist', { name: 'Local del historial' })
+    expect(within(tabs).getByRole('tab', { name: 'San Martín' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(tabs).getByRole('tab', { name: 'Todos' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByText('Saldo — San Martín')).toBeInTheDocument()
+
+    await user.click(within(tabs).getByRole('tab', { name: 'Todos' }))
+    expect(within(tabs).getByRole('tab', { name: 'Todos' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(tabs).getByRole('tab', { name: 'San Martín' })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('el admin desde el hub abre el historial en Todos', async () => {
+    const user = userEvent.setup()
+    window.hw.getStores = vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: SAN_MARTIN, name: 'San Martín', archivedAt: null },
+        { id: CAMARONES, name: 'Camarones', archivedAt: null },
+      ],
+    })
+    render(<ProvidersScreen onBack={vi.fn()} onLogout={vi.fn()} sessionStoreId={CAMARONES} />)
+    await user.click(await screen.findByRole('button', { name: 'Más acciones' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Historial' }))
+
+    const tabs = await screen.findByRole('tablist', { name: 'Local del historial' })
+    expect(within(tabs).getByRole('tab', { name: 'Todos' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(tabs).getByRole('tab', { name: 'Camarones' })).toHaveAttribute('aria-selected', 'false')
   })
 })

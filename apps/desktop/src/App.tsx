@@ -775,6 +775,7 @@ export default function App() {
           <Page>
             <ProvidersScreen
               canManageDebt={state.session.role === 'admin'}
+              sessionStoreId={state.session.storeId}
               onBack={() => {
                 if (state.screen === 'providers' && state.returnTo === 'ingresos') {
                   setState({

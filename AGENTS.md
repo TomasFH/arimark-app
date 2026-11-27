@@ -227,6 +227,10 @@ chore(bootstrap): configurar pnpm y electron-builder
 - Nunca hacer un commit con tests rotos.
 - Nunca hacer un commit que incluya archivos `.env`, `*.sqlite` de producción, o credenciales.
 
+**Instalador de producción:**
+- Cada instalador implica subir la rama a GitHub en el mismo paso (`git push origin`, sin `--force`). No se entrega un `.exe` cuyo commit no esté en origin.
+- Cuando una versión queda instalada y probada en el local, se avanza `main` hasta ese commit. El agente no lo hace por su cuenta: espera que el desarrollador confirme que esa versión quedó instalada y probada.
+
 **Push a GitHub al cierre de fase:**
 Al cerrar cada fase (commit + tag listos), el agente **no hace push automáticamente**. El desarrollador realizará un testeo manual para comprobar que todas las funcionalidades nuevas agregadas funcionen según lo esperado. Si todo sale bien, el desarrollador dará el permiso explícito para que el agente ejecute `git push origin` y `git push origin --tags` (siempre que exista remoto configurado).
 

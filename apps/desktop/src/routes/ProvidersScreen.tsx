@@ -27,6 +27,8 @@ interface Props {
    * le paga al proveedor desde Gastos del turno.
    */
   canManageDebt?: boolean
+  /** Local de la sesión. La cuenta abierta desde Mercadería recibida arranca en esa pestaña. */
+  sessionStoreId?: string
 }
 
 type ModalMode =
@@ -35,7 +37,7 @@ type ModalMode =
   | { type: 'edit'; provider: ProviderRow }
   | { type: 'remove'; provider: ProviderWithDebtRow }
   | { type: 'compensate'; provider: ProviderWithDebtRow }
-  | { type: 'history'; provider: ProviderWithDebtRow }
+  | { type: 'history'; provider: ProviderWithDebtRow; initialStoreId?: string }
 
 function storeBalanceDisplay(balance: number): { label: string; className: string } {
   if (balance > 0) return { label: formatARS(balance), className: 'text-danger' }
@@ -80,7 +82,7 @@ function LedgerStoreSelect({
   )
 }
 
-export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAccount = null, canManageDebt = true }: Props) {
+export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAccount = null, canManageDebt = true, sessionStoreId }: Props) {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<ProviderWithDebtRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -127,6 +129,7 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAc
     const found = list.find(provider => provider.id === focusAccount.providerId)
     setModal({
       type: 'history',
+      initialStoreId: sessionStoreId,
       provider: found ?? {
         id: focusAccount.providerId,
         name: focusAccount.providerName,
@@ -418,6 +421,7 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAc
       {modal.type === 'history' && (
         <ProviderDebtHistoryModal
           provider={modal.provider}
+          initialStoreId={modal.initialStoreId}
           canManageDebt={canManageDebt}
           onClose={() => {
             setModal({ type: 'none' })
@@ -595,16 +599,18 @@ function ProviderFormModal({
 
 interface ProviderDebtHistoryModalProps {
   provider: ProviderWithDebtRow
+  /** Pestaña inicial. Sin valor, abre en Todos (el hub de admin). */
+  initialStoreId?: string
   onClose: () => void
   onSettled?: () => void
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }
 
-function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit, canManageDebt = true }: ProviderDebtHistoryModalProps & { canManageDebt?: boolean }) {
+function ProviderDebtHistoryModal({ provider, initialStoreId, onClose, onSettled, onOpenVisit, canManageDebt = true }: ProviderDebtHistoryModalProps & { canManageDebt?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [account, setAccount] = useState<ProviderAccountHistory>({ openings: [], events: [] })
   const [error, setError] = useState<string | null>(null)
-  const [storeFilter, setStoreFilter] = useState<string | null>(null)
+  const [storeFilter, setStoreFilter] = useState<string | null>(initialStoreId ?? null)
   const [stores, setStores] = useState<StoreRow[]>([])
   const [overlay, setOverlay] = useState<'none' | 'settle' | 'debt' | 'adjust'>('none')
   const [page, setPage] = useState(0)
@@ -748,8 +754,11 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit, c
 
         {/* Pestañas de filtro por local (solo si hay más de 1 local en el historial) */}
         {!loading && !error && showTabs && (
-          <div className="shrink-0 flex flex-wrap gap-1 px-4 pt-3 pb-0">
+          <div className="shrink-0 flex flex-wrap gap-1 px-4 pt-3 pb-0" role="tablist" aria-label="Local del historial">
             <button
+              type="button"
+              role="tab"
+              aria-selected={storeFilter === null}
               onClick={() => { setStoreFilter(null); setPage(0) }}
               className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 storeFilter === null
@@ -762,6 +771,9 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit, c
             {storeList.map(s => (
               <button
                 key={s.storeId}
+                type="button"
+                role="tab"
+                aria-selected={storeFilter === s.storeId}
                 onClick={() => { setStoreFilter(s.storeId); setPage(0) }}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors truncate max-w-[140px] ${
                   storeFilter === s.storeId
