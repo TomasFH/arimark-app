@@ -774,6 +774,7 @@ export default function App() {
         <div className={state.screen === 'providers' ? 'contents' : 'hidden'} aria-hidden={state.screen !== 'providers'}>
           <Page>
             <ProvidersScreen
+              canManageDebt={state.session.role === 'admin'}
               onBack={() => {
                 if (state.screen === 'providers' && state.returnTo === 'ingresos') {
                   setState({

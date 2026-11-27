@@ -520,9 +520,10 @@ export function registerProvidersHandlers(): void {
   })
 
   // -----------------------------------------------------------------------
-  // GET_PROVIDER_DEBT_HISTORY — admin: eventos individuales de un proveedor
+  // GET_PROVIDER_DEBT_HISTORY — lectura de la cuenta (cajera y admin).
   //   Orden descendente por createdAt (más reciente primero).
   //   Fuente primaria: Firestore. Fallback: SQLite local.
+  //   Saldar, registrar y ajustar siguen siendo solo de admin.
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.GET_PROVIDER_DEBT_HISTORY, async (_event, payload: unknown): Promise<IpcResult<ProviderAccountHistory>> => {
     const parsed = getProviderDebtHistorySchema.safeParse(payload)
@@ -533,7 +534,6 @@ export function registerProvidersHandlers(): void {
 
     const session = getActiveSession()
     if (!session) return { ok: false, error: 'No hay sesión activa.', code: 'NO_SESSION' }
-    if (session.role !== 'admin') return { ok: false, error: 'Solo disponible para admins.', code: 'FORBIDDEN' }
 
     const { providerId } = parsed.data
 

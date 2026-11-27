@@ -2066,7 +2066,7 @@ export interface HwApi {
   deleteProvider: (payload: { id: string }) => Promise<IpcResult<void>>
   /** Lista proveedores con deuda combinada cross-local (solo admin; lee Firestore). */
   getProvidersWithDebt: (payload?: { includeArchived?: boolean }) => Promise<IpcResult<ProviderWithDebtRow[]>>
-  /** Historial de eventos de deuda de un proveedor (solo admin). */
+  /** Cuenta corriente de un proveedor (cajera y admin, solo lectura para la cajera). */
   getProviderDebtHistory: (payload: { providerId: string }) => Promise<IpcResult<ProviderAccountHistory>>
   /**
    * Registra un pago de deuda con un proveedor (solo admin, sin caja).

@@ -51,5 +51,44 @@ describe('ProvidersScreen — historial de Oso', () => {
     await user.click(await screen.findByRole('button', { name: 'Más acciones' }))
     await user.click(screen.getByRole('menuitem', { name: 'Historial' }))
     expect(await screen.findByText(/dejó el saldo en/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Saldar deuda' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ajustar deuda' })).toBeInTheDocument()
+  })
+
+  it('la cajera ve el saldo y no los botones de saldar, registrar ni ajustar', async () => {
+    window.hw.getProviderDebtHistory = vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        openings: [],
+        events: [{
+          id: 'deuda-oso',
+          type: 'debt',
+          amount: 5000,
+          storeId: CAMARONES,
+          storeName: 'Camarones',
+          createdAt: '2026-11-26T11:20:49.286Z',
+          createdByName: 'Ana',
+          expenseId: null,
+          notes: null,
+        }],
+      },
+    })
+    render(
+      <ProvidersScreen
+        onBack={vi.fn()}
+        onLogout={vi.fn()}
+        canManageDebt={false}
+        focusAccount={{ providerId: '6f736f', providerName: 'Oso' }}
+      />,
+    )
+
+    expect(await screen.findByText('Saldo actual (total)')).toBeInTheDocument()
+    expect(screen.getAllByText(/5\.000/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Saldar deuda' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Registrar deuda' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ajustar deuda' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist', { name: 'Estado de los proveedores' })).not.toBeInTheDocument()
+    expect(window.hw.getProvidersWithDebt).not.toHaveBeenCalled()
+    expect(window.hw.getProviderDebtHistory).toHaveBeenCalledWith({ providerId: '6f736f' })
   })
 })

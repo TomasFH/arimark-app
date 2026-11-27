@@ -531,12 +531,24 @@ describe('providers.handler', () => {
       expect(result.code).toBe('INVALID_PAYLOAD')
     })
 
-    it('cajera no-admin recibe FORBIDDEN', async () => {
+    it('la cajera ve el historial y el saldo, de los dos locales', async () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      insertTestData()
+
       const handler = getHandler('ipc:get-provider-debt-history')
-      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{ ok: boolean; code: string }>)
-      expect(result.ok).toBe(false)
-      expect(result.code).toBe('FORBIDDEN')
+      const result = await (handler(null, { providerId: PROVIDER_ID }) as Promise<{
+        ok: boolean
+        data: { events: Array<{ type: string; amount: number; storeId: string }> }
+      }>)
+
+      expect(result.ok).toBe(true)
+      expect(result.data.events).toHaveLength(2)
+      const balance = result.data.events.reduce(
+        (sum, event) => sum + (event.type === 'debt' ? event.amount : -event.amount),
+        0,
+      )
+      expect(balance).toBe(3000)
+      expect(result.data.events.map(event => event.storeId).sort()).toEqual(['store-001', 'store-002'])
     })
 
     it('admin recibe historial con eventos del proveedor ordenados por fecha desc', async () => {
@@ -721,12 +733,28 @@ describe('providers.handler', () => {
       expect(result.code).toBe('INVALID_PAYLOAD')
     })
 
-    it('cajera recibe FORBIDDEN', async () => {
+    it('cajera no puede saldar: la deuda queda igual', async () => {
       vi.mocked(getActiveSession).mockReturnValue(CASHIER_SESSION as ReturnType<typeof getActiveSession>)
+      insertProvider()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-settle-previa',
+        storeId: 'store-001',
+        providerId: PROVIDER_ID,
+        provider: 'Proveedor Settle',
+        type: 'debt',
+        amount: 8000,
+        createdAt: new Date().toISOString(),
+        createdBy: 'user-001',
+      }).run()
+
       const handler = getHandler('ipc:settle-provider-debt')
-      const result = await (handler(null, { providerId: PROVIDER_ID, amount: 5000 }) as Promise<{ ok: boolean; code: string }>)
+      const result = await (handler(null, { providerId: PROVIDER_ID, amount: 8000 }) as Promise<{ ok: boolean; code: string }>)
       expect(result.ok).toBe(false)
       expect(result.code).toBe('FORBIDDEN')
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('debt')
+      expect(events[0]?.amount).toBe(8000)
     })
 
     it('sin sesión retorna NO_SESSION', async () => {
@@ -771,16 +799,41 @@ describe('providers.handler', () => {
       expect(result.code).toBe('INVALID_PAYLOAD')
     })
 
-    it('cajera recibe FORBIDDEN', async () => {
+    it('cajera no puede registrar deuda ni ajustar el saldo', async () => {
+      const pid = providerIdFromName('oso cajera')
+      const now = new Date().toISOString()
+      db.insert(providers).values({ id: pid, name: 'Oso Cajera', nameKey: 'oso cajera', createdAt: now }).run()
+      db.insert(providerDebtEvents).values({
+        id: 'evt-oso-previa',
+        storeId: 'store-001',
+        providerId: pid,
+        provider: 'Oso Cajera',
+        type: 'debt',
+        amount: 1500,
+        createdAt: now,
+        createdBy: 'user-001',
+      }).run()
+
       const handler = getHandler('ipc:record-provider-ledger')
-      const result = await (handler(null, {
-        providerId: 'x',
+      const debt = await (handler(null, {
+        providerId: pid,
         storeId: 'store-001',
         type: 'debt',
         amount: 1000,
       }) as Promise<{ ok: boolean; code: string }>)
-      expect(result.ok).toBe(false)
-      expect(result.code).toBe('FORBIDDEN')
+      const adjust = await (handler(null, {
+        providerId: pid,
+        storeId: 'store-001',
+        type: 'payment',
+        amount: 1500,
+        notes: 'Ajuste de admin: dejó la deuda en $ 0',
+      }) as Promise<{ ok: boolean; code: string }>)
+
+      expect(debt).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      expect(adjust).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      const events = db.select().from(providerDebtEvents).all()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.amount).toBe(1500)
     })
 
     it('admin registra deuda manual sin caja', async () => {

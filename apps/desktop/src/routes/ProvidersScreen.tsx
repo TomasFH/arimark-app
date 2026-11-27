@@ -1,9 +1,9 @@
 /**
- * ProvidersScreen — gestión de proveedores (solo admin).
+ * ProvidersScreen — cuenta de proveedores.
  *
- * Muestra lista de proveedores con deuda combinada cross-local leída desde Firestore.
- * Permite crear, editar, eliminar (oculta; conserva deuda e historial) y ver el historial.
- * Fallback a datos locales cuando Firebase no está disponible (dev / sin conexión).
+ * El admin ve la deuda combinada y puede crear, editar, ocultar, saldar, registrar y ajustar.
+ * La cajera entra desde Mercadería recibida y solo lee el historial y el saldo.
+ * Le paga al proveedor desde Gastos del turno.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatARS, toLocalDateTime } from '../lib/datetime'
@@ -22,6 +22,11 @@ interface Props {
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
   /** Abre la cuenta de este proveedor al entrar desde Mercadería recibida. */
   focusAccount?: { providerId: string; providerName: string } | null
+  /**
+   * El admin salda, registra y ajusta. La cajera solo mira la cuenta;
+   * le paga al proveedor desde Gastos del turno.
+   */
+  canManageDebt?: boolean
 }
 
 type ModalMode =
@@ -75,7 +80,7 @@ function LedgerStoreSelect({
   )
 }
 
-export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAccount = null }: Props) {
+export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAccount = null, canManageDebt = true }: Props) {
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<ProviderWithDebtRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -100,9 +105,15 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAc
   }
 
   useEffect(() => {
+    if (!canManageDebt) {
+      setLoading(false)
+      setList([])
+      setError(null)
+      return
+    }
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArchived])
+  }, [showArchived, canManageDebt])
 
   const openedFocusAccount = useRef<string | null>(null)
   useEffect(() => {
@@ -186,7 +197,7 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAc
         onBack={onBack}
         onLogout={onLogout}
         actions={
-          !showArchived ? (
+          canManageDebt && !showArchived ? (
             <Button size="sm" onClick={() => setModal({ type: 'create' })}>+ Nuevo</Button>
           ) : undefined
         }
@@ -208,7 +219,7 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAc
           </div>
         )}
 
-        {!loading && !error && (
+        {canManageDebt && !loading && !error && (
           <div className="mx-auto w-full max-w-[1600px] px-4 py-4">
             <div className="mb-4 grid max-w-xs grid-cols-2 rounded-xl bg-raised p-1" role="tablist" aria-label="Estado de los proveedores">
               <button
@@ -407,7 +418,11 @@ export default function ProvidersScreen({ onBack, onLogout, onOpenVisit, focusAc
       {modal.type === 'history' && (
         <ProviderDebtHistoryModal
           provider={modal.provider}
-          onClose={() => setModal({ type: 'none' })}
+          canManageDebt={canManageDebt}
+          onClose={() => {
+            setModal({ type: 'none' })
+            if (!canManageDebt) onBack()
+          }}
           onSettled={() => void load()}
           onOpenVisit={onOpenVisit}
         />
@@ -585,7 +600,7 @@ interface ProviderDebtHistoryModalProps {
   onOpenVisit?: (visit: { id: string; createdAt: string }) => void
 }
 
-function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }: ProviderDebtHistoryModalProps) {
+function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit, canManageDebt = true }: ProviderDebtHistoryModalProps & { canManageDebt?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [account, setAccount] = useState<ProviderAccountHistory>({ openings: [], events: [] })
   const [error, setError] = useState<string | null>(null)
@@ -778,9 +793,11 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }:
           {!loading && !error && events.length === 0 && !account.openings.some(opening => opening.hasCheckpoint) && (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
               <p className="text-muted text-sm">Sin movimientos registrados</p>
-              <p className="text-subtle text-xs mt-1">
-                Usá Saldar deuda o Ajustar deuda para registrar un movimiento.
-              </p>
+              {canManageDebt && (
+                <p className="text-subtle text-xs mt-1">
+                  Usá Saldar deuda o Ajustar deuda para registrar un movimiento.
+                </p>
+              )}
             </div>
           )}
 
@@ -936,30 +953,34 @@ function ProviderDebtHistoryModal({ provider, onClose, onSettled, onOpenVisit }:
                     : 'Sin deuda'}
               </span>
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={!canSettle}
-                onClick={() => setOverlay('settle')}
-                className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent text-sm font-medium disabled:opacity-40 disabled:hover:bg-accent"
-              >
-                Saldar deuda
-              </button>
-              <button
-                type="button"
-                onClick={() => setOverlay('debt')}
-                className="shrink-0 px-3 py-2 rounded-xl border border-orange-600 text-orange-400 text-sm hover:bg-orange-950/40"
-              >
-                Registrar deuda
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOverlay('adjust')}
-              className="w-full py-2 rounded-xl border border-line text-ink text-sm hover:bg-hover"
-            >
-              Ajustar deuda
-            </button>
+            {canManageDebt && (
+              <>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={!canSettle}
+                    onClick={() => setOverlay('settle')}
+                    className="flex-1 py-2 rounded-xl bg-accent hover:bg-accent text-sm font-medium disabled:opacity-40 disabled:hover:bg-accent"
+                  >
+                    Saldar deuda
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOverlay('debt')}
+                    className="shrink-0 px-3 py-2 rounded-xl border border-orange-600 text-orange-400 text-sm hover:bg-orange-950/40"
+                  >
+                    Registrar deuda
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOverlay('adjust')}
+                  className="w-full py-2 rounded-xl border border-line text-ink text-sm hover:bg-hover"
+                >
+                  Ajustar deuda
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
